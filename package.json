@@ -1,7 +1,0 @@
-{
-  "name": "mci",
-  "version": "1.0.0",
-  "main": "main.js",
-  "license": "MIT",
-  "packageManager": "pnpm@10.30.3"
-}
