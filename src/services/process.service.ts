@@ -22,11 +22,15 @@ export class ProcessService {
         return false;
       }
 
+      if (filters.ref !== undefined && item.ref !== filters.ref) {
+        return false;
+      }
+
       return true;
     });
   }
 
-  create(code: string): string {
+  create(code: string, ref?: string): string {
     const pid = this.createPid();
 
     this.processes.set(pid, {
@@ -34,6 +38,7 @@ export class ProcessService {
         pid,
         state: "queued",
         status: null,
+        ...(ref !== undefined ? { ref } : {}),
       },
       code,
       output: null,

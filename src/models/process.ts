@@ -8,6 +8,7 @@ export interface Process {
   pid: string;
   state: ProcessState;
   status: ProcessStatus;
+  ref?: string;
 }
 
 export interface ProcessList {
@@ -16,6 +17,7 @@ export interface ProcessList {
 
 export interface CreateProcessRequest {
   code: string;
+  ref?: string;
 }
 
 export interface ProcessCreatedResponse {
@@ -33,6 +35,7 @@ export interface RunSignalRequest {
 export interface ProcessQueryFilters {
   state?: ProcessState;
   status?: ProcessStatus;
+  ref?: string;
 }
 
 export interface StoredProcess {

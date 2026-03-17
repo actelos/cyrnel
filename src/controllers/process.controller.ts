@@ -13,10 +13,12 @@ import {
 export function listProcesses(req: Request, res: Response): void {
   const state = parseState(req.query.state);
   const status = parseStatus(req.query.status);
+  const ref = parseRef(req.query.ref, "query");
 
   const filters: ProcessQueryFilters = {
     state,
     status,
+    ref,
   };
 
   const processes = processService.list(filters);
@@ -32,7 +34,8 @@ export function createProcess(req: Request, res: Response): void {
     throw new HttpError(400, "Missing required field: code");
   }
 
-  const pid = processService.create(req.body.code);
+  const ref = parseRef((req.body as { ref?: unknown }).ref, "body");
+  const pid = processService.create(req.body.code, ref);
   res.status(201).json({ pid });
 }
 
@@ -134,4 +137,22 @@ function parseForce(raw: unknown): boolean {
   }
 
   return raw;
+}
+
+function parseRef(raw: unknown, source: "body" | "query"): string | undefined {
+  if (raw === undefined) {
+    return undefined;
+  }
+
+  if (typeof raw !== "string") {
+    throw new HttpError(400, `Field 'ref' in ${source} must be a string.`);
+  }
+
+  const normalized = raw.trim();
+
+  if (normalized.length === 0) {
+    throw new HttpError(400, "Field 'ref' must not be empty.");
+  }
+
+  return normalized;
 }
