@@ -1,0 +1,25 @@
+{
+  "name": "mci",
+  "version": "1.0.0",
+  "main": "dist/server.js",
+  "license": "MIT",
+  "packageManager": "pnpm@10.30.3",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.23",
+    "@types/node": "^22.13.10",
+    "tsc-alias": "^1.8.16",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
+  }
+}
