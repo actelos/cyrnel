@@ -1,19 +1,14 @@
 import {
   type Process,
-  type ProcessQueryFilters,
-  type ProcessStatus,
   type ProcessState,
   type StoredProcess,
+  type ProcessQueryFilters,
 } from "@/models/process";
 import { HttpError } from "@/models/error";
 
 export class ProcessService {
   private readonly processes = new Map<string, StoredProcess>();
   private nextId = 1;
-
-  constructor() {
-    this.seedData();
-  }
 
   list(filters: ProcessQueryFilters): Process[] {
     const all = Array.from(this.processes.values(), ({ process }) => process);
@@ -133,55 +128,8 @@ export class ProcessService {
   }
 
   private createPid(): string {
-    const paddedId = String(this.nextId).padStart(4, "0");
     this.nextId += 1;
-    return `proc_demo_${paddedId}`;
-  }
-
-  private seedData(): void {
-    const seeded: StoredProcess[] = [
-      {
-        process: {
-          pid: "proc_01j9z8k2v4f3g5h7m0n1p6q",
-          state: "idle",
-          status: "success",
-        },
-        code: 'output({ id: 1, name: "Alice" });',
-        output: {
-          id: 1,
-          name: "Alice",
-          email: "alice@example.com",
-        },
-        stdout: "fetching user...\ndone\n",
-        stderr: "",
-      },
-      {
-        process: {
-          pid: "proc_01j9z8k2v4f3g5h7m0n1p6r",
-          state: "running",
-          status: null,
-        },
-        code: "while (true) {}",
-        output: null,
-        stdout: "working...\n",
-        stderr: "",
-      },
-      {
-        process: {
-          pid: "proc_01j9z8k2v4f3g5h7m0n1p6s",
-          state: "queued",
-          status: null,
-        },
-        code: 'console.log("hello");',
-        output: null,
-        stdout: "",
-        stderr: "",
-      },
-    ];
-
-    for (const item of seeded) {
-      this.processes.set(item.process.pid, item);
-    }
+    return `${this.nextId}`;
   }
 }
 

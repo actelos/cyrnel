@@ -1,7 +1,7 @@
 import type { Request, Response } from "express";
 
 import { HttpError } from "@/models/error";
-import { processService } from "@/services/process.service";
+import { processService } from "@/services/process-dummy.service";
 import {
   PROCESS_STATES,
   PROCESS_STATUSES,
