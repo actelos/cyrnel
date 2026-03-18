@@ -49,11 +49,17 @@ describe("ProcessService", () => {
       service
         .list({ state: "idle" })
         .map((p) => p.pid)
-        .sort(),
-    ).toEqual([pidA, pidC].sort());
+        .sort((a, b) => a - b),
+    ).toEqual([pidA, pidC].sort((a, b) => a - b));
     expect(service.list({ status: "failed" }).map((p) => p.pid)).toEqual([
       pidC,
     ]);
+    expect(
+      service
+        .list({ ref: "beta" })
+        .map((p) => p.pid)
+        .sort((a, b) => a - b),
+    ).toEqual([pidB, pidC].sort((a, b) => a - b));
     expect(
       service
         .list({ ref: "beta" })
