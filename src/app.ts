@@ -9,9 +9,9 @@ import { errorMiddleware } from "@/middleware/error.middleware";
 export function createApp() {
   const app = express();
 
+  app.use(pinoHttp({ logger }));
   app.use(cors());
   app.use(express.json());
-  app.use(pinoHttp({ logger }));
   app.use("/processes", processRouter);
   app.use(errorMiddleware);
 
