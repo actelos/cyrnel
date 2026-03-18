@@ -45,15 +45,21 @@ describe("ProcessService", () => {
     setState(service, pidC, "idle").process.status = "failed";
 
     expect(service.list({})).toHaveLength(3);
-    expect(service.list({ state: "idle" }).map((p) => p.pid).sort()).toEqual(
-      [pidA, pidC].sort(),
-    );
     expect(
-      service.list({ status: "failed" }).map((p) => p.pid),
-    ).toEqual([pidC]);
-    expect(service.list({ ref: "beta" }).map((p) => p.pid).sort()).toEqual(
-      [pidB, pidC].sort(),
-    );
+      service
+        .list({ state: "idle" })
+        .map((p) => p.pid)
+        .sort(),
+    ).toEqual([pidA, pidC].sort());
+    expect(service.list({ status: "failed" }).map((p) => p.pid)).toEqual([
+      pidC,
+    ]);
+    expect(
+      service
+        .list({ ref: "beta" })
+        .map((p) => p.pid)
+        .sort(),
+    ).toEqual([pidB, pidC].sort());
   });
 
   it("gets a process and errors on missing pid", () => {

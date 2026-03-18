@@ -125,10 +125,7 @@ describe("process.controller", () => {
     ).toThrowError(HttpError);
 
     expect(() =>
-      runProcess(
-        { params: { pid: "2" }, body: { force: "yes" } } as any,
-        res,
-      ),
+      runProcess({ params: { pid: "2" }, body: { force: "yes" } } as any, res),
     ).toThrowError(HttpError);
 
     const runReq: any = { params: { pid: "3" }, body: { force: true } };
@@ -158,24 +155,15 @@ describe("process.controller", () => {
     const res = makeRes();
 
     expect(() =>
-      listProcesses(
-        { query: { state: "bad" } } as any,
-        res,
-      ),
+      listProcesses({ query: { state: "bad" } } as any, res),
     ).toThrowError(HttpError);
 
     expect(() =>
-      listProcesses(
-        { query: { status: "invalid" } } as any,
-        res,
-      ),
+      listProcesses({ query: { status: "invalid" } } as any, res),
     ).toThrowError(HttpError);
 
     expect(() =>
-      listProcesses(
-        { query: { ref: "   " } } as any,
-        res,
-      ),
+      listProcesses({ query: { ref: "   " } } as any, res),
     ).toThrowError(HttpError);
   });
 });

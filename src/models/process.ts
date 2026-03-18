@@ -1,7 +1,12 @@
 export const PROCESS_STATES = ["queued", "running", "idle"] as const;
 export type ProcessState = (typeof PROCESS_STATES)[number];
 
-export const PROCESS_STATUSES = ["success", "failed", "canceled", null] as const;
+export const PROCESS_STATUSES = [
+  "success",
+  "failed",
+  "canceled",
+  null,
+] as const;
 export type ProcessStatus = (typeof PROCESS_STATUSES)[number];
 
 export interface Process {
