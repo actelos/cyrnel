@@ -5,7 +5,7 @@ export const PROCESS_STATUSES = ["success", "failed", "canceled", null] as const
 export type ProcessStatus = (typeof PROCESS_STATUSES)[number];
 
 export interface Process {
-  pid: string;
+  pid: number;
   state: ProcessState;
   status: ProcessStatus;
   ref?: string;
@@ -21,7 +21,7 @@ export interface CreateProcessRequest {
 }
 
 export interface ProcessCreatedResponse {
-  pid: string;
+  pid: number;
 }
 
 export interface ProcessOutputResponse {

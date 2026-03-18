@@ -40,22 +40,26 @@ export function createProcess(req: Request, res: Response): void {
 }
 
 export function getProcess(req: Request, res: Response): void {
-  const process = processService.get(req.params.pid);
+  const pid = parsePid(req.params.pid);
+  const process = processService.get(pid);
   res.status(200).json(process);
 }
 
 export function getProcessOutput(req: Request, res: Response): void {
-  const output = processService.getOutput(req.params.pid);
+  const pid = parsePid(req.params.pid);
+  const output = processService.getOutput(pid);
   res.status(200).json({ output });
 }
 
 export function getProcessStdout(req: Request, res: Response): void {
-  const stdout = processService.getStdout(req.params.pid);
+  const pid = parsePid(req.params.pid);
+  const stdout = processService.getStdout(pid);
   res.status(200).type("text/plain").send(stdout);
 }
 
 export function getProcessStderr(req: Request, res: Response): void {
-  const stderr = processService.getStderr(req.params.pid);
+  const pid = parsePid(req.params.pid);
+  const stderr = processService.getStderr(pid);
   res.status(200).type("text/plain").send(stderr);
 }
 
@@ -64,7 +68,8 @@ export function killProcess(req: Request, res: Response): void {
     throw new HttpError(400, "Request body must be an object.");
   }
 
-  const process = processService.kill(req.params.pid);
+  const pid = parsePid(req.params.pid);
+  const process = processService.kill(pid);
   res.status(200).json(process);
 }
 
@@ -74,7 +79,8 @@ export function runProcess(req: Request, res: Response): void {
   }
 
   const force = parseForce(req.body.force);
-  const process = processService.run(req.params.pid, force);
+  const pid = parsePid(req.params.pid);
+  const process = processService.run(pid, force);
 
   res.status(200).json(process);
 }
@@ -155,4 +161,18 @@ function parseRef(raw: unknown, source: "body" | "query"): string | undefined {
   }
 
   return normalized;
+}
+
+function parsePid(raw: unknown): number {
+  if (typeof raw !== "string") {
+    throw new HttpError(400, "Field 'pid' must be a string.");
+  }
+
+  const parsed = Number.parseInt(raw, 10);
+
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new HttpError(400, "Field 'pid' must be a positive integer.");
+  }
+
+  return parsed;
 }

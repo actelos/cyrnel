@@ -7,7 +7,7 @@ import {
 import { HttpError } from "@/models/error";
 
 export class ProcessService {
-  private readonly processes = new Map<string, StoredProcess>();
+  private readonly processes = new Map<number, StoredProcess>();
   private nextId = 1;
 
   list(filters: ProcessQueryFilters): Process[] {
@@ -30,7 +30,7 @@ export class ProcessService {
     });
   }
 
-  create(code: string, ref?: string): string {
+  create(code: string, ref?: string): number {
     const pid = this.createPid();
 
     this.processes.set(pid, {
@@ -49,29 +49,29 @@ export class ProcessService {
     return pid;
   }
 
-  get(pid: string): Process {
+  get(pid: number): Process {
     return this.getStored(pid).process;
   }
 
-  getOutput(pid: string): unknown {
+  getOutput(pid: number): unknown {
     const stored = this.getStored(pid);
     this.assertIdle(stored.process.state);
     return stored.output;
   }
 
-  getStdout(pid: string): string {
+  getStdout(pid: number): string {
     const stored = this.getStored(pid);
     this.assertIdle(stored.process.state);
     return stored.stdout;
   }
 
-  getStderr(pid: string): string {
+  getStderr(pid: number): string {
     const stored = this.getStored(pid);
     this.assertIdle(stored.process.state);
     return stored.stderr;
   }
 
-  kill(pid: string): Process {
+  kill(pid: number): Process {
     const stored = this.getStored(pid);
 
     if (stored.process.state === "idle") {
@@ -84,7 +84,7 @@ export class ProcessService {
     return stored.process;
   }
 
-  run(pid: string, force: boolean): Process {
+  run(pid: number, force: boolean): Process {
     const stored = this.getStored(pid);
 
     if (stored.process.state !== "idle") {
@@ -116,7 +116,7 @@ export class ProcessService {
     return stored.process;
   }
 
-  private getStored(pid: string): StoredProcess {
+  private getStored(pid: number): StoredProcess {
     const found = this.processes.get(pid);
 
     if (!found) {
@@ -132,9 +132,9 @@ export class ProcessService {
     }
   }
 
-  private createPid(): string {
+  private createPid(): number {
     this.nextId += 1;
-    return `${this.nextId}`;
+    return this.nextId;
   }
 }
 

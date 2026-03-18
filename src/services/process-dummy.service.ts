@@ -14,8 +14,8 @@ interface ExecutionControl {
 }
 
 export class ProcessService {
-  private readonly processes = new Map<string, StoredProcess>();
-  private readonly execution = new Map<string, ExecutionControl>();
+  private readonly processes = new Map<number, StoredProcess>();
+  private readonly execution = new Map<number, ExecutionControl>();
   private nextId = 1;
 
   list(filters: ProcessQueryFilters): Process[] {
@@ -38,7 +38,7 @@ export class ProcessService {
     });
   }
 
-  create(code: string, ref?: string): string {
+  create(code: string, ref?: string): number {
     const pid = this.createPid();
 
     this.processes.set(pid, {
@@ -59,29 +59,29 @@ export class ProcessService {
     return pid;
   }
 
-  get(pid: string): Process {
+  get(pid: number): Process {
     return this.getStored(pid).process;
   }
 
-  getOutput(pid: string): unknown {
+  getOutput(pid: number): unknown {
     const stored = this.getStored(pid);
     this.assertIdle(stored.process.state);
     return stored.output;
   }
 
-  getStdout(pid: string): string {
+  getStdout(pid: number): string {
     const stored = this.getStored(pid);
     this.assertIdle(stored.process.state);
     return stored.stdout;
   }
 
-  getStderr(pid: string): string {
+  getStderr(pid: number): string {
     const stored = this.getStored(pid);
     this.assertIdle(stored.process.state);
     return stored.stderr;
   }
 
-  kill(pid: string): Process {
+  kill(pid: number): Process {
     const stored = this.getStored(pid);
 
     if (stored.process.state === "idle") {
@@ -96,7 +96,7 @@ export class ProcessService {
     return stored.process;
   }
 
-  run(pid: string, force: boolean): Process {
+  run(pid: number, force: boolean): Process {
     const stored = this.getStored(pid);
 
     if (stored.process.state !== "idle") {
@@ -115,7 +115,7 @@ export class ProcessService {
     return stored.process;
   }
 
-  private getStored(pid: string): StoredProcess {
+  private getStored(pid: number): StoredProcess {
     const found = this.processes.get(pid);
 
     if (!found) {
@@ -131,7 +131,7 @@ export class ProcessService {
     }
   }
 
-  private startExecution(pid: string): void {
+  private startExecution(pid: number): void {
     const stored = this.getStored(pid);
     const previous = this.execution.get(pid);
 
@@ -207,7 +207,7 @@ export class ProcessService {
     }, queueDelayMs);
   }
 
-  private clearExecution(pid: string): void {
+  private clearExecution(pid: number): void {
     const control = this.execution.get(pid);
 
     if (!control) {
@@ -233,8 +233,8 @@ export class ProcessService {
     return Math.floor(Math.random() * (max - min + 1)) + min;
   }
 
-  private createPid(): string {
-    const pid = `${this.nextId}`;
+  private createPid(): number {
+    const pid = this.nextId;
     this.nextId += 1;
     return pid;
   }
