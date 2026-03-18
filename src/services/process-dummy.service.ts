@@ -150,7 +150,7 @@ export class ProcessService {
   }
 
   private startExecution(pid: number): void {
-    const stored = this.getStored(pid);
+    this.getStored(pid);
     const previous = this.execution.get(pid);
 
     if (previous?.queueTimer) {
