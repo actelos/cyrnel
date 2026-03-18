@@ -14,14 +14,19 @@ export type ModuleConfig = {
 
 export type ModulesConfig = Record<string, ModuleConfig>;
 
-const getConfigDir = () =>
-  process.env.MCI_CONFIG_DIR ?? path.join(os.homedir(), "mci");
+const getConfigDir = () => {
+  const env = process.env.MCI_CONFIG_DIR?.trim();
+  return env ? env : path.join(os.homedir(), "mci");
+};
 
 const parseModulesToml = (contents: string): ModulesConfig => {
   const parsed = parse(contents) as Record<string, unknown>;
-  const modules: ModulesConfig = {};
+  const modules = Object.create(null) as ModulesConfig;
 
   Object.entries(parsed).forEach(([id, value]) => {
+    if (id === "__proto__" || id === "constructor" || id === "prototype") {
+      throw new Error(`modules.toml has invalid section "${id}"`);
+    }
     if (!value || typeof value !== "object") {
       throw new Error(`modules.toml section "${id}" is invalid`);
     }
