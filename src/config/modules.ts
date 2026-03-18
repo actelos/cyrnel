@@ -34,6 +34,10 @@ const parseModulesToml = (contents: string): ModulesConfig => {
       throw new Error(`modules.toml section "${id}" missing "path"`);
     }
 
+    if (moduleType === undefined || moduleType === null) {
+      throw new Error(`modules.toml section "${id}" missing "type"`);
+    }
+
     if (moduleType !== "environment") {
       throw new Error(
         `modules.toml section "${id}" has unsupported type "${String(
