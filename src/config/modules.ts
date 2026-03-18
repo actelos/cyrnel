@@ -55,6 +55,15 @@ const parseModulesToml = (contents: string): ModulesConfig => {
 export const loadModulesConfig = (): ModulesConfig => {
   const configDir = getConfigDir();
   const modulesPath = path.join(configDir, "modules.toml");
-  const contents = fs.readFileSync(modulesPath, "utf8");
+
+  let contents: string;
+  try {
+    contents = fs.readFileSync(modulesPath, "utf8");
+  } catch (err) {
+    throw new Error(
+      `Failed to read modules config at "${modulesPath}": ${(err as Error).message}`,
+    );
+  }
+
   return parseModulesToml(contents);
 };
