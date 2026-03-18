@@ -17,4 +17,4 @@ const transport = isProd
 
 export const logger = isTest
   ? pino({ level: "silent" })
-  : pino(transport ? { transport } : undefined);
+  : pino(transport ? { transport } : {});
