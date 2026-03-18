@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 
+import { logger } from "@/logger";
 import { HttpError } from "@/models/error";
 
 export function errorMiddleware(
@@ -8,6 +9,7 @@ export function errorMiddleware(
   res: Response,
   _next: NextFunction,
 ): void {
+  logger.error({ err: error }, "Request failed");
   if (error instanceof HttpError) {
     res.status(error.statusCode).json({ error: error.message });
     return;
