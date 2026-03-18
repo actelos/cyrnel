@@ -5,6 +5,7 @@ import {
   getProcess,
   killProcess,
   createProcess,
+  deleteProcess,
   listProcesses,
   getProcessOutput,
   getProcessStderr,
@@ -16,6 +17,7 @@ export const processRouter = Router();
 processRouter.get("/", listProcesses);
 processRouter.post("/", createProcess);
 processRouter.get("/:pid", getProcess);
+processRouter.delete("/:pid", deleteProcess);
 
 processRouter.get("/:pid/output", getProcessOutput);
 processRouter.get("/:pid/stdout", getProcessStdout);

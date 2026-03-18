@@ -8,6 +8,7 @@ import { HttpError } from "@/models/error";
 
 export class ProcessService {
   private readonly processes = new Map<number, StoredProcess>();
+  private readonly pidPool: number[] = [];
   private nextId = 1;
 
   list(filters: ProcessQueryFilters): Process[] {
@@ -116,6 +117,22 @@ export class ProcessService {
     return stored.process;
   }
 
+  delete(pid: number): Process {
+    const stored = this.getStored(pid);
+
+    if (stored.process.state !== "idle") {
+      throw new HttpError(
+        409,
+        "Process must be idle before it can be deleted.",
+      );
+    }
+
+    this.processes.delete(pid);
+    this.pidPool.push(pid);
+
+    return stored.process;
+  }
+
   private getStored(pid: number): StoredProcess {
     const found = this.processes.get(pid);
 
@@ -133,6 +150,11 @@ export class ProcessService {
   }
 
   private createPid(): number {
+    const pooled = this.pidPool.shift();
+    if (pooled !== undefined) {
+      return pooled;
+    }
+
     this.nextId += 1;
     return this.nextId;
   }

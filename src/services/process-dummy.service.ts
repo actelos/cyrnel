@@ -16,6 +16,7 @@ interface ExecutionControl {
 export class ProcessService {
   private readonly processes = new Map<number, StoredProcess>();
   private readonly execution = new Map<number, ExecutionControl>();
+  private readonly pidPool: number[] = [];
   private nextId = 1;
 
   list(filters: ProcessQueryFilters): Process[] {
@@ -111,6 +112,23 @@ export class ProcessService {
     stored.stderr = "";
 
     this.startExecution(pid);
+
+    return stored.process;
+  }
+
+  delete(pid: number): Process {
+    const stored = this.getStored(pid);
+
+    if (stored.process.state !== "idle") {
+      throw new HttpError(
+        409,
+        "Process must be idle before it can be deleted.",
+      );
+    }
+
+    this.clearExecution(pid);
+    this.processes.delete(pid);
+    this.pidPool.push(pid);
 
     return stored.process;
   }
@@ -234,6 +252,11 @@ export class ProcessService {
   }
 
   private createPid(): number {
+    const pooled = this.pidPool.shift();
+    if (pooled !== undefined) {
+      return pooled;
+    }
+
     const pid = this.nextId;
     this.nextId += 1;
     return pid;

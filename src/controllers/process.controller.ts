@@ -73,6 +73,12 @@ export function killProcess(req: Request, res: Response): void {
   res.status(200).json(process);
 }
 
+export function deleteProcess(req: Request, res: Response): void {
+  const pid = parsePid(req.params.pid);
+  const process = processService.delete(pid);
+  res.status(200).json(process);
+}
+
 export function runProcess(req: Request, res: Response): void {
   if (!req.body || typeof req.body !== "object") {
     throw new HttpError(400, "Request body must be an object.");
