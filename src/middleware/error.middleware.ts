@@ -4,10 +4,11 @@ import { HttpError } from "@/models/error";
 
 export function errorMiddleware(
   error: unknown,
-  _req: Request,
+  req: Request,
   res: Response,
   _next: NextFunction,
 ): void {
+  if (req) (req as any).err = error;
   if (error instanceof HttpError) {
     res.status(error.statusCode).json({ error: error.message });
     return;
