@@ -184,6 +184,11 @@ describe("loadModule", () => {
   const originalConfigDir = process.env.MCI_CONFIG_DIR;
   let tempDirs: string[] = [];
 
+  beforeEach(() => {
+    delete process.env.MCI_CONFIG_DIR;
+    tempDirs = [];
+  });
+
   afterEach(() => {
     if (originalConfigDir === undefined) {
       delete process.env.MCI_CONFIG_DIR;
