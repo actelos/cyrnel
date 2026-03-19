@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 import { parse } from "toml";
 
@@ -11,6 +12,14 @@ export type ModuleConfig = {
 };
 
 export type ModulesConfig = Record<string, ModuleConfig>;
+
+export type Module = {
+  type: "environment";
+};
+
+export type LoadedModule =
+  | { module: Module; error: null }
+  | { module: null; error: Error };
 
 const getConfigDir = () => {
   const env = process.env.MCI_CONFIG_DIR?.trim();
@@ -69,4 +78,74 @@ export const loadModulesConfig = (): ModulesConfig => {
   }
 
   return parseModulesToml(contents);
+};
+
+export const loadModule = async (modulePath: string): Promise<LoadedModule> => {
+  const configDir = getConfigDir();
+  const resolvedPath = path.isAbsolute(modulePath)
+    ? modulePath
+    : path.resolve(configDir, modulePath);
+  let realConfigDir: string;
+  let realResolvedPath: string;
+  try {
+    realConfigDir = fs.realpathSync(configDir);
+    realResolvedPath = fs.realpathSync(resolvedPath);
+  } catch (err) {
+    return {
+      module: null,
+      error: new Error(
+        `Failed to resolve module path "${modulePath}": ${(err as Error).message}`,
+        { cause: err },
+      ),
+    };
+  }
+  const relativeToConfig = path.relative(realConfigDir, realResolvedPath);
+  if (
+    relativeToConfig === ".." ||
+    relativeToConfig.startsWith(`..${path.sep}`)
+  ) {
+    return {
+      module: null,
+      error: new Error(
+        `Module path "${modulePath}" resolves outside config directory "${realConfigDir}"`,
+      ),
+    };
+  }
+
+  try {
+    const moduleUrl = pathToFileURL(realResolvedPath);
+    try {
+      const stat = fs.statSync(realResolvedPath);
+      moduleUrl.searchParams.set("mtime", String(stat.mtimeMs));
+    } catch {
+      moduleUrl.searchParams.set("miss", String(Date.now()));
+    }
+    const imported = await import(moduleUrl.href);
+    const value = imported?.default;
+
+    if (
+      value === null ||
+      value === undefined ||
+      typeof value !== "object" ||
+      Array.isArray(value) ||
+      (value as Module).type !== "environment"
+    ) {
+      return {
+        module: null,
+        error: new Error(
+          `Module at "${resolvedPath}" has an invalid default export`,
+        ),
+      };
+    }
+
+    return { module: value as Module, error: null };
+  } catch (err) {
+    return {
+      module: null,
+      error: new Error(
+        `Failed to load module at "${resolvedPath}": ${(err as Error).message}`,
+        { cause: err },
+      ),
+    };
+  }
 };
