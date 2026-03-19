@@ -276,4 +276,23 @@ describe("loadModule", () => {
     expect(result.error).toBeInstanceOf(Error);
     expect(result.error?.message).toMatch(/default export/i);
   });
+
+  it("returns an error when the default export has an invalid type", async () => {
+    const configDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "mci-module-type-"),
+    );
+    tempDirs.push(configDir);
+    process.env.MCI_CONFIG_DIR = configDir;
+    const modulePath = writeModuleFile(
+      path.join(configDir, "modules"),
+      "bad-type.mjs",
+      'export default { type: "other" };',
+    );
+
+    const result = await loadModule(modulePath);
+
+    expect(result.module).toBeNull();
+    expect(result.error).toBeInstanceOf(Error);
+    expect(result.error?.message).toMatch(/default export/i);
+  });
 });
