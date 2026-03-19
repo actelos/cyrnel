@@ -4,12 +4,10 @@ import path from "node:path";
 
 import { parse } from "toml";
 
-export type ModuleType = "environment";
-
 export type ModuleConfig = {
   id: string;
+  enabled: boolean;
   path: string;
-  type: ModuleType;
 };
 
 export type ModulesConfig = Record<string, ModuleConfig>;
@@ -33,25 +31,25 @@ const parseModulesToml = (contents: string): ModulesConfig => {
 
     const section = value as Record<string, unknown>;
     const modulePath = section.path;
-    const moduleType = section.type;
+    const moduleEnabled = section.enabled ?? true;
 
     if (typeof modulePath !== "string" || modulePath.length === 0) {
       throw new Error(`modules.toml section "${id}" missing "path"`);
     }
 
-    if (moduleType === undefined || moduleType === null) {
-      throw new Error(`modules.toml section "${id}" missing "type"`);
-    }
-
-    if (moduleType !== "environment") {
+    if (typeof moduleEnabled !== "boolean") {
       throw new Error(
-        `modules.toml section "${id}" has unsupported type "${String(
-          moduleType,
+        `modules.toml section "${id}" has invalid "enabled" value "${String(
+          moduleEnabled,
         )}"`,
       );
     }
 
-    modules[id] = { id, path: modulePath, type: "environment" };
+    if (!moduleEnabled) {
+      return;
+    }
+
+    modules[id] = { id, enabled: moduleEnabled, path: modulePath };
   });
 
   return modules;

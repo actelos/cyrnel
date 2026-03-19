@@ -6,13 +6,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { loadModulesConfig } from "@/config/modules";
 
-const modulesToml = `[node-sandbox]
+const modulesToml = `
+[node-sandbox]
+enabled = true
 path = "./modules/node-sandbox.ts"
-type = "environment"
 
 [python-sandbox]
+enabled = false
 path = "./modules/python-sandbox.ts"
-type = "environment"
 `;
 
 const writeModulesToml = (configDir: string) => {
@@ -55,13 +56,8 @@ describe("loadModulesConfig", () => {
     expect(loadModulesConfig()).toEqual({
       "node-sandbox": {
         id: "node-sandbox",
+        enabled: true,
         path: "./modules/node-sandbox.ts",
-        type: "environment",
-      },
-      "python-sandbox": {
-        id: "python-sandbox",
-        path: "./modules/python-sandbox.ts",
-        type: "environment",
       },
     });
   });
@@ -78,13 +74,8 @@ describe("loadModulesConfig", () => {
     expect(loadModulesConfig()).toEqual({
       "node-sandbox": {
         id: "node-sandbox",
+        enabled: true,
         path: "./modules/node-sandbox.ts",
-        type: "environment",
-      },
-      "python-sandbox": {
-        id: "python-sandbox",
-        path: "./modules/python-sandbox.ts",
-        type: "environment",
       },
     });
   });
@@ -105,7 +96,7 @@ describe("loadModulesConfig", () => {
       configDir,
       `
       [node-sandbox]
-      type = "environment"
+      enabled = true
       `,
     );
 
@@ -120,16 +111,16 @@ describe("loadModulesConfig", () => {
       configDir,
       `
       [node-sandbox]
+      enabled = true
       path = ""
-      type = "environment"
       `,
     );
 
     expect(() => loadModulesConfig()).toThrow(/missing "path"/);
   });
 
-  it("throws when a section is missing a type", () => {
-    const configDir = fs.mkdtempSync(path.join(os.tmpdir(), "mci-notype-"));
+  it("defaults enabled to true when missing", () => {
+    const configDir = fs.mkdtempSync(path.join(os.tmpdir(), "mci-noenabled-"));
     tempDirs.push(configDir);
     process.env.MCI_CONFIG_DIR = configDir;
     writeModulesTomlContents(
@@ -140,10 +131,16 @@ describe("loadModulesConfig", () => {
       `,
     );
 
-    expect(() => loadModulesConfig()).toThrow(/missing "type"/);
+    expect(loadModulesConfig()).toEqual({
+      "node-sandbox": {
+        id: "node-sandbox",
+        enabled: true,
+        path: "./modules/node-sandbox.ts",
+      },
+    });
   });
 
-  it("throws when a section has an unsupported type", () => {
+  it("throws when a section has an invalid enabled value", () => {
     const configDir = fs.mkdtempSync(path.join(os.tmpdir(), "mci-badtype-"));
     tempDirs.push(configDir);
     process.env.MCI_CONFIG_DIR = configDir;
@@ -151,12 +148,12 @@ describe("loadModulesConfig", () => {
       configDir,
       `
       [node-sandbox]
+      enabled = "yes"
       path = "./modules/node-sandbox.ts"
-      type = "tool"
       `,
     );
 
-    expect(() => loadModulesConfig()).toThrow(/unsupported type/);
+    expect(() => loadModulesConfig()).toThrow(/invalid "enabled"/);
   });
 
   it("throws when modules.toml is malformed", () => {
@@ -167,8 +164,8 @@ describe("loadModulesConfig", () => {
       configDir,
       `
       [node-sandbox
+      enabled = true
       path = "./modules/node-sandbox.ts"
-      type = "environment"
       `,
     );
 
