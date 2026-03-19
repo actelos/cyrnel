@@ -32,12 +32,22 @@ export const loadServerState = async (): Promise<ServerState> => {
   };
 
   const entries = Object.entries(modulesConfig);
-  if (entries.length === 0) {
+  const totalConfigured = entries.length;
+  const totalEnabled = entries.filter(([, config]) => config.enabled).length;
+
+  if (totalEnabled === 0) {
     logger.error({}, "No modules are enabled in config");
     throw new Error("No modules are enabled in config");
   }
   await Promise.all(
     entries.map(async ([id, config]) => {
+      if (!config.enabled) {
+        logger.info(
+          { moduleId: id, modulePath: config.path },
+          "Skipped disabled module",
+        );
+        return;
+      }
       const result = await loadModule(config.path);
       if (result.error) {
         moduleState.errors.set(id, result.error);
@@ -53,10 +63,17 @@ export const loadServerState = async (): Promise<ServerState> => {
 
   if (moduleState.loaded.size === 0) {
     logger.error(
-      { moduleErrors: moduleState.errors.size },
+      {
+        moduleErrors: moduleState.errors.size,
+        modulesLoaded: moduleState.loaded.size,
+        modulesConfigured: totalConfigured,
+        modulesEnabled: totalEnabled,
+      },
       "No modules loaded",
     );
-    throw new Error("No modules loaded");
+    throw new Error(
+      `No modules loaded (configured: ${totalConfigured}, enabled: ${totalEnabled}, loaded: ${moduleState.loaded.size}, errors: ${moduleState.errors.size})`,
+    );
   }
 
   const loadedModules = Array.from(moduleState.loaded.entries()).map(

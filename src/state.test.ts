@@ -52,7 +52,10 @@ describe("loadServerState", () => {
       error: new Error("bad module"),
     });
 
-    await expect(loadServerState()).rejects.toThrow("No modules loaded");
+    await expect(loadServerState()).rejects.toThrow(
+      "No modules loaded (configured: 1, enabled: 1, loaded: 0, errors: 1)",
+    );
+
     expect(mockedLogger.error).toHaveBeenCalledWith(
       expect.objectContaining({
         err: expect.any(Error),
@@ -62,7 +65,12 @@ describe("loadServerState", () => {
       "Failed to load module",
     );
     expect(mockedLogger.error).toHaveBeenCalledWith(
-      { moduleErrors: 1 },
+      {
+        moduleErrors: 1,
+        modulesLoaded: 0,
+        modulesConfigured: 1,
+        modulesEnabled: 1,
+      },
       "No modules loaded",
     );
   });
@@ -77,6 +85,38 @@ describe("loadServerState", () => {
     expect(mockedLogger.error).toHaveBeenCalledWith(
       {},
       "No modules are enabled in config",
+    );
+  });
+
+  it("skips disabled modules in config", async () => {
+    mockedLoadModulesConfig.mockReturnValue({
+      enabled: {
+        id: "enabled",
+        enabled: true,
+        path: "./modules/enabled.ts",
+      },
+      disabled: {
+        id: "disabled",
+        enabled: false,
+        path: "./modules/disabled.ts",
+      },
+    });
+    mockedLoadModule.mockResolvedValue({
+      module: { type: "environment" },
+      error: null,
+    });
+
+    const state = await loadServerState();
+
+    expect(mockedLoadModule).toHaveBeenCalledTimes(1);
+    expect(mockedLoadModule).toHaveBeenCalledWith("./modules/enabled.ts");
+    expect(state.modules.loaded.get("enabled")).toEqual({
+      type: "environment",
+    });
+    expect(state.modules.loaded.has("disabled")).toBe(false);
+    expect(mockedLogger.info).toHaveBeenCalledWith(
+      { moduleId: "disabled", modulePath: "./modules/disabled.ts" },
+      "Skipped disabled module",
     );
   });
 
@@ -99,6 +139,7 @@ describe("loadServerState", () => {
 
     const state = await loadServerState();
 
+    expect(mockedLoadModule).toHaveBeenCalledTimes(2);
     expect(state.modules.loaded.get("good")).toEqual({ type: "environment" });
     expect(state.modules.errors.get("bad")).toBeInstanceOf(Error);
     expect(mockedLogger.info).toHaveBeenCalledWith(
