@@ -85,11 +85,37 @@ export const loadModule = async (modulePath: string): Promise<LoadedModule> => {
   const resolvedPath = path.isAbsolute(modulePath)
     ? modulePath
     : path.resolve(configDir, modulePath);
+  let realConfigDir: string;
+  let realResolvedPath: string;
+  try {
+    realConfigDir = fs.realpathSync(configDir);
+    realResolvedPath = fs.realpathSync(resolvedPath);
+  } catch (err) {
+    return {
+      module: null,
+      error: new Error(
+        `Failed to resolve module path "${modulePath}": ${(err as Error).message}`,
+        { cause: err },
+      ),
+    };
+  }
+  const relativeToConfig = path.relative(realConfigDir, realResolvedPath);
+  if (
+    relativeToConfig === ".." ||
+    relativeToConfig.startsWith(`..${path.sep}`)
+  ) {
+    return {
+      module: null,
+      error: new Error(
+        `Module path "${modulePath}" resolves outside config directory "${realConfigDir}"`,
+      ),
+    };
+  }
 
   try {
-    const moduleUrl = pathToFileURL(resolvedPath);
+    const moduleUrl = pathToFileURL(realResolvedPath);
     try {
-      const stat = fs.statSync(resolvedPath);
+      const stat = fs.statSync(realResolvedPath);
       moduleUrl.searchParams.set("mtime", String(stat.mtimeMs));
     } catch {
       moduleUrl.searchParams.set("miss", String(Date.now()));

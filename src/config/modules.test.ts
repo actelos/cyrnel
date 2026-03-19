@@ -198,6 +198,7 @@ describe("loadModule", () => {
     tempDirs.forEach((dir) => {
       fs.rmSync(dir, { recursive: true, force: true });
     });
+    tempDirs.length = 0;
   });
 
   it("loads a default-exported module object", async () => {
