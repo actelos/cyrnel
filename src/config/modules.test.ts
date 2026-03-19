@@ -130,7 +130,7 @@ describe("loadModulesConfig", () => {
   });
 
   it("defaults enabled to true when missing", () => {
-    const configDir = fs.mkdtempSync(path.join(os.tmpdir(), "mci-notype-"));
+    const configDir = fs.mkdtempSync(path.join(os.tmpdir(), "mci-noenabled-"));
     tempDirs.push(configDir);
     process.env.MCI_CONFIG_DIR = configDir;
     writeModulesTomlContents(
