@@ -112,7 +112,9 @@ export const loadModule = async (modulePath: string): Promise<LoadedModule> => {
       module: null,
       error: new Error(
         `Failed to load module at "${resolvedPath}": ${(err as Error).message}`,
+        { cause: err },
       ),
     };
+  }
   }
 };
