@@ -17,10 +17,9 @@ export type Module = {
   type: "environment";
 };
 
-export type LoadedModule = {
-  module: Module | null;
-  error: Error | null;
-};
+export type LoadedModule =
+  | { module: Module; error: null }
+  | { module: null; error: Error };
 
 const getConfigDir = () => {
   const env = process.env.MCI_CONFIG_DIR?.trim();
