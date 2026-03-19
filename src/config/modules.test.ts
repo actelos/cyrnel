@@ -59,11 +59,6 @@ describe("loadModulesConfig", () => {
         enabled: true,
         path: "./modules/node-sandbox.ts",
       },
-      "python-sandbox": {
-        id: "python-sandbox",
-        enabled: false,
-        path: "./modules/python-sandbox.ts",
-      },
     });
   });
 
@@ -81,11 +76,6 @@ describe("loadModulesConfig", () => {
         id: "node-sandbox",
         enabled: true,
         path: "./modules/node-sandbox.ts",
-      },
-      "python-sandbox": {
-        id: "python-sandbox",
-        enabled: false,
-        path: "./modules/python-sandbox.ts",
       },
     });
   });

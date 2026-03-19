@@ -45,6 +45,10 @@ const parseModulesToml = (contents: string): ModulesConfig => {
       );
     }
 
+    if (!moduleEnabled) {
+      return;
+    }
+
     modules[id] = { id, enabled: moduleEnabled, path: modulePath };
   });
 
