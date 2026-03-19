@@ -88,7 +88,14 @@ export const loadModule = async (modulePath: string): Promise<LoadedModule> => {
     : path.resolve(configDir, modulePath);
 
   try {
-    const imported = await import(pathToFileURL(resolvedPath).href);
+    const moduleUrl = pathToFileURL(resolvedPath);
+    try {
+      const stat = fs.statSync(resolvedPath);
+      moduleUrl.searchParams.set("mtime", String(stat.mtimeMs));
+    } catch {
+      moduleUrl.searchParams.set("miss", String(Date.now()));
+    }
+    const imported = await import(moduleUrl.href);
     const value = imported?.default;
 
     if (
@@ -115,6 +122,5 @@ export const loadModule = async (modulePath: string): Promise<LoadedModule> => {
         { cause: err },
       ),
     };
-  }
   }
 };

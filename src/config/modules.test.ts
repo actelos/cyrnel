@@ -295,4 +295,31 @@ describe("loadModule", () => {
     expect(result.error).toBeInstanceOf(Error);
     expect(result.error?.message).toMatch(/default export/i);
   });
+
+  it("reloads a module when the file changes", async () => {
+    const configDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "mci-module-reload-"),
+    );
+    tempDirs.push(configDir);
+    process.env.MCI_CONFIG_DIR = configDir;
+    const modulePath = writeModuleFile(
+      path.join(configDir, "modules"),
+      "reload.mjs",
+      'export default { type: "environment" };',
+    );
+
+    const firstResult = await loadModule(modulePath);
+
+    expect(firstResult.module).toEqual({ type: "environment" });
+    expect(firstResult.error).toBeNull();
+
+    fs.writeFileSync(modulePath, 'export default { type: "other" };', "utf8");
+    fs.utimesSync(modulePath, new Date(), new Date(Date.now() + 1000));
+
+    const secondResult = await loadModule(modulePath);
+
+    expect(secondResult.module).toBeNull();
+    expect(secondResult.error).toBeInstanceOf(Error);
+    expect(secondResult.error?.message).toMatch(/default export/i);
+  });
 });
