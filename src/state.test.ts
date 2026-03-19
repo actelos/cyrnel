@@ -67,6 +67,19 @@ describe("loadServerState", () => {
     );
   });
 
+  it("throws when config has no enabled modules", async () => {
+    mockedLoadModulesConfig.mockReturnValue({});
+
+    await expect(loadServerState()).rejects.toThrow(
+      "No modules are enabled in config",
+    );
+    expect(mockedLoadModule).not.toHaveBeenCalled();
+    expect(mockedLogger.error).toHaveBeenCalledWith(
+      {},
+      "No modules are enabled in config",
+    );
+  });
+
   it("returns state when at least one module loads", async () => {
     mockedLoadModulesConfig.mockReturnValue({
       good: {

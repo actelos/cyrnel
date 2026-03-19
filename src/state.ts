@@ -32,6 +32,10 @@ export const loadServerState = async (): Promise<ServerState> => {
   };
 
   const entries = Object.entries(modulesConfig);
+  if (entries.length === 0) {
+    logger.error({}, "No modules are enabled in config");
+    throw new Error("No modules are enabled in config");
+  }
   await Promise.all(
     entries.map(async ([id, config]) => {
       const result = await loadModule(config.path);
