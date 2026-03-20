@@ -1,4 +1,9 @@
-export const PROCESS_STATES = ["queued", "running", "idle"] as const;
+export const PROCESS_STATES = [
+  "queued",
+  "running",
+  "terminating",
+  "idle",
+] as const;
 export type ProcessState = (typeof PROCESS_STATES)[number];
 
 export const PROCESS_STATUSES = [
@@ -48,6 +53,6 @@ export interface StoredProcess {
   process: Process;
   code: string;
   output: unknown;
-  stdout: string;
-  stderr: string;
+  stdoutChunks: string[];
+  stderrChunks: string[];
 }

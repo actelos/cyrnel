@@ -1,14 +1,19 @@
 import { createApp } from "@/app";
 import { logger } from "@/logger";
+import { ProcessService } from "@/services/process.service";
 import { loadServerState } from "@/state";
 
 const PORT = Number(process.env.PORT ?? 7687);
 
 const startServer = async () => {
   const serverState = await loadServerState();
+  await serverState.pool.initialize(serverState.modules.loaded.environment);
+
+  const processService = new ProcessService(serverState.pool);
   const app = createApp();
 
   app.locals.serverState = serverState;
+  app.locals.processService = processService;
 
   app.listen(PORT, () => {
     logger.info(`Listening on port: ${PORT}`);

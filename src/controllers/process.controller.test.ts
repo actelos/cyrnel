@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { HttpError } from "@/models/error";
 
-const processService = vi.hoisted(() => ({
+const processService = {
   list: vi.fn(),
   create: vi.fn(),
   get: vi.fn(),
@@ -12,9 +12,7 @@ const processService = vi.hoisted(() => ({
   kill: vi.fn(),
   delete: vi.fn(),
   run: vi.fn(),
-}));
-
-vi.mock("@/services/process-dummy.service", () => ({ processService }));
+};
 
 import {
   createProcess,
@@ -37,6 +35,14 @@ const makeRes = () => {
   return res;
 };
 
+const makeReq = (overrides: Record<string, unknown> = {}) => ({
+  app: { locals: { processService } },
+  query: {},
+  params: {},
+  body: {},
+  ...overrides,
+});
+
 describe("process.controller", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -44,9 +50,9 @@ describe("process.controller", () => {
 
   it("lists processes with parsed filters", () => {
     const res = makeRes();
-    const req: any = {
+    const req: any = makeReq({
       query: { state: "queued", status: "null", ref: "  test " },
-    };
+    });
     processService.list.mockReturnValue([{ pid: 1 }]);
 
     listProcesses(req, res);
@@ -62,14 +68,14 @@ describe("process.controller", () => {
 
   it("rejects invalid create payloads", () => {
     const res = makeRes();
-    const req: any = { body: {} };
+    const req: any = makeReq({ body: {} });
 
     expect(() => createProcess(req, res)).toThrow(HttpError);
   });
 
   it("creates process with valid body", () => {
     const res = makeRes();
-    const req: any = { body: { code: "code", ref: "ref" } };
+    const req: any = makeReq({ body: { code: "code", ref: "ref" } });
     processService.create.mockReturnValue(42);
 
     createProcess(req, res);
@@ -81,7 +87,7 @@ describe("process.controller", () => {
 
   it("gets a process and validates pid", () => {
     const res = makeRes();
-    const req: any = { params: { pid: "12" } };
+    const req: any = makeReq({ params: { pid: "12" } });
     processService.get.mockReturnValue({ pid: 12 });
 
     getProcess(req, res);
@@ -90,13 +96,13 @@ describe("process.controller", () => {
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith({ pid: 12 });
 
-    const badReq: any = { params: { pid: "0" } };
+    const badReq: any = makeReq({ params: { pid: "0" } });
     expect(() => getProcess(badReq, res)).toThrow(HttpError);
   });
 
   it("returns output and stdout/stderr payloads", () => {
     const res = makeRes();
-    const req: any = { params: { pid: "9" } };
+    const req: any = makeReq({ params: { pid: "9" } });
 
     processService.getOutput.mockReturnValue({ ok: true });
     getProcessOutput(req, res);
@@ -117,23 +123,35 @@ describe("process.controller", () => {
   it("runs and kills with body validation", () => {
     const res = makeRes();
 
-    expect(() => runProcess({ params: { pid: "1" } } as any, res)).toThrow(
-      HttpError,
-    );
-    expect(() => killProcess({ params: { pid: "1" } } as any, res)).toThrow(
-      HttpError,
-    );
-
     expect(() =>
-      runProcess({ params: { pid: "2" }, body: { force: "yes" } } as any, res),
+      runProcess(
+        makeReq({ params: { pid: "1" }, body: undefined }) as any,
+        res,
+      ),
+    ).toThrow(HttpError);
+    expect(() =>
+      killProcess(
+        makeReq({ params: { pid: "1" }, body: undefined }) as any,
+        res,
+      ),
     ).toThrow(HttpError);
 
-    const runReq: any = { params: { pid: "3" }, body: { force: true } };
+    expect(() =>
+      runProcess(
+        makeReq({ params: { pid: "2" }, body: { force: "yes" } }) as any,
+        res,
+      ),
+    ).toThrow(HttpError);
+
+    const runReq: any = makeReq({
+      params: { pid: "3" },
+      body: { force: true },
+    });
     processService.run.mockReturnValue({ pid: 3 });
     runProcess(runReq, res);
     expect(processService.run).toHaveBeenCalledWith(3, true);
 
-    const killReq: any = { params: { pid: "3" }, body: {} };
+    const killReq: any = makeReq({ params: { pid: "3" }, body: {} });
     processService.kill.mockReturnValue({ pid: 3 });
     killProcess(killReq, res);
     expect(processService.kill).toHaveBeenCalledWith(3);
@@ -141,7 +159,7 @@ describe("process.controller", () => {
 
   it("deletes a process", () => {
     const res = makeRes();
-    const req: any = { params: { pid: "7" } };
+    const req: any = makeReq({ params: { pid: "7" } });
     processService.delete.mockReturnValue({ pid: 7 });
 
     deleteProcess(req, res);
@@ -155,27 +173,34 @@ describe("process.controller", () => {
     const res = makeRes();
 
     expect(() =>
-      listProcesses({ query: { state: "bad" } } as any, res),
+      listProcesses(makeReq({ query: { state: "bad" } }) as any, res),
     ).toThrow(HttpError);
 
-    expect(() =>
-      listProcesses({ query: { status: "invalid" } } as any, res),
-    ).toThrow(HttpError);
+    const invalidStatusCall = () =>
+      listProcesses(makeReq({ query: { status: "invalid" } }) as any, res);
+    let err: unknown;
 
-    expect(() =>
-      listProcesses({ query: { status: "invalid" } } as any, res),
-    ).toThrow(/success, failed, timeout, canceled, null/);
+    try {
+      invalidStatusCall();
+    } catch (caught) {
+      err = caught;
+    }
 
-    expect(() => listProcesses({ query: { ref: "   " } } as any, res)).toThrow(
-      HttpError,
+    expect(err).toBeInstanceOf(HttpError);
+    expect((err as Error).message).toMatch(
+      /success, failed, timeout, canceled, null/,
     );
+
+    expect(() =>
+      listProcesses(makeReq({ query: { ref: "   " } }) as any, res),
+    ).toThrow(HttpError);
   });
 
   it("accepts timeout as a valid status filter", () => {
     const res = makeRes();
-    const req: any = {
+    const req: any = makeReq({
       query: { status: "timeout" },
-    };
+    });
     processService.list.mockReturnValue([{ pid: 2, status: "timeout" }]);
 
     listProcesses(req, res);

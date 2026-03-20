@@ -4,12 +4,33 @@ import {
   type StoredProcess,
   type ProcessQueryFilters,
 } from "@/models/process";
+import type { ExecutionStatus } from "@/config/modules";
+import { StringDecoder } from "node:string_decoder";
+import { logger } from "@/logger";
 import { HttpError } from "@/models/error";
+import type { Pool, PooledInstance } from "@/services/pool.service";
+
+const DEFAULT_EXECUTION_TIMEOUT_MS = 30_000;
+
+class ProcessExecutionTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ProcessExecutionTimeoutError";
+  }
+}
 
 export class ProcessService {
   private readonly processes = new Map<number, StoredProcess>();
   private readonly pidPool: number[] = [];
+  private readonly running = new Map<number, PooledInstance>();
   private nextId = 1;
+
+  constructor(
+    private readonly pool: Pool,
+    private readonly options: {
+      executeTimeoutMs?: number;
+    } = {},
+  ) {}
 
   list(filters: ProcessQueryFilters): Process[] {
     const all = Array.from(this.processes.values(), ({ process }) => process);
@@ -43,9 +64,11 @@ export class ProcessService {
       },
       code,
       output: null,
-      stdout: "",
-      stderr: "",
+      stdoutChunks: [],
+      stderrChunks: [],
     });
+
+    void this.executeProcess(pid);
 
     return pid;
   }
@@ -63,13 +86,13 @@ export class ProcessService {
   getStdout(pid: number): string {
     const stored = this.getStored(pid);
     this.assertIdle(stored.process.state);
-    return stored.stdout;
+    return stored.stdoutChunks.join("");
   }
 
   getStderr(pid: number): string {
     const stored = this.getStored(pid);
     this.assertIdle(stored.process.state);
-    return stored.stderr;
+    return stored.stderrChunks.join("");
   }
 
   kill(pid: number): Process {
@@ -77,6 +100,22 @@ export class ProcessService {
 
     if (stored.process.state === "idle") {
       throw new HttpError(409, "Process is already idle.");
+    }
+
+    if (stored.process.state === "terminating") {
+      return stored.process;
+    }
+
+    const runningInstance = this.running.get(pid);
+
+    if (runningInstance) {
+      stored.process.state = "terminating";
+
+      void runningInstance.module.kill().catch((err) => {
+        logger.warn({ err, pid }, "Failed to send kill signal to module");
+      });
+
+      return stored.process;
     }
 
     stored.process.state = "idle";
@@ -95,8 +134,8 @@ export class ProcessService {
     const hasExistingOutputs =
       stored.process.status !== null ||
       stored.output !== null ||
-      stored.stdout.length > 0 ||
-      stored.stderr.length > 0;
+      stored.stdoutChunks.length > 0 ||
+      stored.stderrChunks.length > 0;
 
     if (hasExistingOutputs && !force) {
       throw new HttpError(
@@ -110,9 +149,11 @@ export class ProcessService {
 
     if (force) {
       stored.output = null;
-      stored.stdout = "";
-      stored.stderr = "";
+      stored.stdoutChunks = [];
+      stored.stderrChunks = [];
     }
+
+    void this.executeProcess(pid);
 
     return stored.process;
   }
@@ -155,9 +196,159 @@ export class ProcessService {
       return pooled;
     }
 
+    const pid = this.nextId;
     this.nextId += 1;
-    return this.nextId;
+    return pid;
+  }
+
+  private async executeProcess(pid: number): Promise<void> {
+    let instance: PooledInstance | null = null;
+    let onStdout: ((chunk: Buffer) => void) | null = null;
+    let onStderr: ((chunk: Buffer) => void) | null = null;
+    let onOutput: ((data: unknown) => void) | null = null;
+    const stdoutDecoder = new StringDecoder("utf8");
+    const stderrDecoder = new StringDecoder("utf8");
+
+    try {
+      instance = await this.pool.acquire();
+
+      const stored = this.processes.get(pid);
+      if (!stored || stored.process.state !== "queued") {
+        this.pool.release(instance);
+        instance = null;
+        return;
+      }
+
+      stored.process.state = "running";
+      stored.process.status = null;
+      this.running.set(pid, instance);
+
+      onStdout = (chunk: Buffer) => {
+        const current = this.processes.get(pid);
+        if (!current) {
+          return;
+        }
+
+        current.stdoutChunks.push(stdoutDecoder.write(chunk));
+      };
+
+      onStderr = (chunk: Buffer) => {
+        const current = this.processes.get(pid);
+        if (!current) {
+          return;
+        }
+
+        current.stderrChunks.push(stderrDecoder.write(chunk));
+      };
+
+      onOutput = (data: unknown) => {
+        const current = this.processes.get(pid);
+        if (!current) {
+          return;
+        }
+
+        current.output = data;
+      };
+
+      instance.module.on("stdout", onStdout);
+      instance.module.on("stderr", onStderr);
+      instance.module.on("output", onOutput);
+
+      const timeoutMs =
+        this.options.executeTimeoutMs ?? DEFAULT_EXECUTION_TIMEOUT_MS;
+
+      const status = await this.executeWithTimeout(
+        instance.module.execute(stored.code),
+        timeoutMs,
+      );
+
+      const current = this.processes.get(pid);
+      if (current) {
+        const stdoutRemainder = stdoutDecoder.end();
+        if (stdoutRemainder.length > 0) {
+          current.stdoutChunks.push(stdoutRemainder);
+        }
+
+        const stderrRemainder = stderrDecoder.end();
+        if (stderrRemainder.length > 0) {
+          current.stderrChunks.push(stderrRemainder);
+        }
+
+        current.process.state = "idle";
+        current.process.status = status;
+      }
+    } catch (err) {
+      const current = this.processes.get(pid);
+
+      if (current) {
+        const wasTerminating = current.process.state === "terminating";
+        current.process.state = "idle";
+        current.process.status = wasTerminating
+          ? "canceled"
+          : err instanceof ProcessExecutionTimeoutError
+            ? "timeout"
+            : "failed";
+
+        if (err instanceof ProcessExecutionTimeoutError) {
+          logger.warn({ err, pid }, "Process execution timed out");
+        } else if (!wasTerminating) {
+          logger.error({ err, pid }, "Process execution failed");
+        } else {
+          logger.warn(
+            { err, pid },
+            "Module threw during kill; treating as canceled",
+          );
+        }
+      } else {
+        logger.error({ err, pid }, "Process execution failed");
+      }
+    } finally {
+      if (instance) {
+        if (onStdout) {
+          instance.module.off("stdout", onStdout);
+        }
+
+        if (onStderr) {
+          instance.module.off("stderr", onStderr);
+        }
+
+        if (onOutput) {
+          instance.module.off("output", onOutput);
+        }
+
+        this.running.delete(pid);
+        this.pool.release(instance);
+      }
+    }
+  }
+
+  private async executeWithTimeout(
+    execution: Promise<ExecutionStatus>,
+    timeoutMs: number,
+  ): Promise<ExecutionStatus> {
+    if (timeoutMs <= 0) {
+      return execution;
+    }
+
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+
+    try {
+      return await Promise.race([
+        execution,
+        new Promise<never>((_, reject) => {
+          timeoutHandle = setTimeout(() => {
+            reject(
+              new ProcessExecutionTimeoutError(
+                `Execution exceeded timeout of ${timeoutMs}ms`,
+              ),
+            );
+          }, timeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+      }
+    }
   }
 }
-
-export const processService = new ProcessService();
