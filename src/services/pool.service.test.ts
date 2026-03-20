@@ -121,7 +121,7 @@ describe("pool.service", () => {
 
     const shutdownPromise = pool.shutdown();
 
-    await expect(waitingAcquire).rejects.toThrow("Pool was shut down");
+    await expect(waitingAcquire).rejects.toThrow("Pool has been shut down");
 
     pool.release(inUse);
     await shutdownPromise;
