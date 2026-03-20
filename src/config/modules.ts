@@ -13,12 +13,12 @@ export type ModuleConfig = {
 
 export type ModulesConfig = Record<string, ModuleConfig>;
 
-export type Module = {
+export type BaseModule = {
   type: "environment";
 };
 
 export type LoadedModule =
-  | { module: Module; error: null }
+  | { module: BaseModule; error: null }
   | { module: null; error: Error };
 
 const getConfigDir = () => {
@@ -128,7 +128,7 @@ export const loadModule = async (modulePath: string): Promise<LoadedModule> => {
       value === undefined ||
       typeof value !== "object" ||
       Array.isArray(value) ||
-      (value as Module).type !== "environment"
+      (value as BaseModule).type !== "environment"
     ) {
       return {
         module: null,
@@ -138,7 +138,7 @@ export const loadModule = async (modulePath: string): Promise<LoadedModule> => {
       };
     }
 
-    return { module: value as Module, error: null };
+    return { module: value as BaseModule, error: null };
   } catch (err) {
     return {
       module: null,
