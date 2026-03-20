@@ -98,9 +98,13 @@ export const loadServerState = async (): Promise<ServerState> => {
     );
   }
 
-  const loadedModules = Array.from(
-    moduleState.loaded.environment.entries(),
-  ).map(([id, module]) => ({ id, type: module.type }));
+  const loadedModules = Object.entries(moduleState.loaded).flatMap(
+    ([type, modules]) =>
+      Array.from(modules.entries()).map(([id, module]) => ({
+        id,
+        type: module.type,
+      })),
+  );
   logger.info({ modules: loadedModules }, "Loaded modules");
 
   return { modules: moduleState };

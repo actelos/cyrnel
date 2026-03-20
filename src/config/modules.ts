@@ -195,13 +195,13 @@ export const loadModule = async (modulePath: string): Promise<LoadedModule> => {
       };
     }
     if (
-      typeof moduleValue.on !== "function" ||
-      typeof moduleValue.emit !== "function"
+      !(moduleValue instanceof EventEmitter) ||
+      typeof moduleValue.once !== "function"
     ) {
       return {
         module: null,
         error: new Error(
-          `Module at "${resolvedPath}" does not extend EventEmitter`,
+          `Module at "${resolvedPath}" does not extend EventEmitter or does not implement required 'once' method for EnvironmentModule`,
         ),
       };
     }
