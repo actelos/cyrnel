@@ -342,7 +342,7 @@ describe("ProcessService", () => {
     await flush();
   });
 
-  it("run() enforces force when outputs already exist", async () => {
+  it("run() throws when process is not idle", async () => {
     const waitingAcquire = deferred<PooledInstance>();
     const module = new TestEnvironmentModule(async () => "success");
     const instance: PooledInstance = { module, busy: true };
@@ -352,6 +352,19 @@ describe("ProcessService", () => {
     const pid = service.create("code");
 
     expect(() => service.run(pid, false)).toThrow(HttpError);
+
+    waitingAcquire.resolve(instance);
+    await flush();
+  });
+
+  it("run() enforces force when outputs already exist", async () => {
+    const waitingAcquire = deferred<PooledInstance>();
+    const module = new TestEnvironmentModule(async () => "success");
+    const instance: PooledInstance = { module, busy: true };
+    const { pool } = createMockPool(async () => waitingAcquire.promise);
+    const service = new ProcessService(pool);
+
+    const pid = service.create("code");
 
     const stored = setState(service, pid, "idle");
     stored.output = { prior: true };
