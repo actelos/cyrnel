@@ -67,10 +67,17 @@ class PoolService implements Pool {
   }
 
   release(instance: PooledInstance): void {
+    if (!this.instances.includes(instance)) {
+      logger.warn(
+        { module: instance.module.label },
+        "Attempted to release unknown instance",
+      );
+      return;
+    }
+
     const next = this.queue.shift();
 
     if (next) {
-      instance.busy = true;
       next.resolve(instance);
       return;
     }

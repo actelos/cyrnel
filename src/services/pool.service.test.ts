@@ -203,4 +203,18 @@ describe("pool.service", () => {
 
     expect(first.busy).toBe(false);
   });
+
+  it("release() ignores instances that do not belong to the pool", () => {
+    const pool = createPool();
+    const moduleA = new TestEnvironmentModule("a");
+    const foreign = { module: moduleA, busy: true };
+
+    pool.release(foreign);
+
+    expect(vi.mocked(logger.warn)).toHaveBeenCalledWith(
+      { module: "a" },
+      "Attempted to release unknown instance",
+    );
+    expect(pool.queue).toHaveLength(0);
+  });
 });
