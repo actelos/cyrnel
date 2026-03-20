@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ProcessService } from "@/services/process.service";
 import { HttpError } from "@/models/error";
+import { logger } from "@/logger";
 import type { ExecutionStatus, EnvironmentModule } from "@/config/modules";
 import type { Pool, PooledInstance } from "@/services/pool.service";
 
@@ -192,6 +193,73 @@ describe("ProcessService", () => {
 
     expect(service.get(pid).state).toBe("idle");
     expect(service.get(pid).status).toBe("canceled");
+  });
+
+  it("treats execute rejection during termination as canceled", async () => {
+    const executeGate = deferred<ExecutionStatus>();
+    const kill = vi.fn(async () => {});
+    const module = new TestEnvironmentModule(
+      async () => executeGate.promise,
+      kill,
+    );
+    const instance: PooledInstance = { module, busy: true };
+    const { pool } = createMockPool(async () => instance);
+    const service = new ProcessService(pool);
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => logger);
+    const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => logger);
+
+    try {
+      const pid = service.create("code");
+      await flush();
+
+      service.kill(pid);
+      executeGate.reject(new Error("killed"));
+      await waitForState(service, pid, "idle");
+
+      expect(service.get(pid).state).toBe("idle");
+      expect(service.get(pid).status).toBe("canceled");
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ pid }),
+        "Module threw during kill; treating as canceled",
+      );
+      expect(errorSpy).not.toHaveBeenCalledWith(
+        expect.objectContaining({ pid }),
+        "Process execution failed",
+      );
+    } finally {
+      warnSpy.mockRestore();
+      errorSpy.mockRestore();
+    }
+  });
+
+  it("marks execution rejection as failed when not terminating", async () => {
+    const module = new TestEnvironmentModule(async () => {
+      throw new Error("boom");
+    });
+    const instance: PooledInstance = { module, busy: true };
+    const { pool } = createMockPool(async () => instance);
+    const service = new ProcessService(pool);
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => logger);
+    const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => logger);
+
+    try {
+      const pid = service.create("code");
+      await waitForState(service, pid, "idle");
+
+      expect(service.get(pid).state).toBe("idle");
+      expect(service.get(pid).status).toBe("failed");
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ pid }),
+        "Process execution failed",
+      );
+      expect(warnSpy).not.toHaveBeenCalledWith(
+        expect.objectContaining({ pid }),
+        "Module threw during kill; treating as canceled",
+      );
+    } finally {
+      warnSpy.mockRestore();
+      errorSpy.mockRestore();
+    }
   });
 
   it("kill() does not call module.kill() for queued process", async () => {

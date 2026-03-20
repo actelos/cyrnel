@@ -260,11 +260,21 @@ export class ProcessService {
       const current = this.processes.get(pid);
 
       if (current) {
+        const wasTerminating = current.process.state === "terminating";
         current.process.state = "idle";
-        current.process.status = "failed";
-      }
+        current.process.status = wasTerminating ? "canceled" : "failed";
 
-      logger.error({ err, pid }, "Process execution failed");
+        if (!wasTerminating) {
+          logger.error({ err, pid }, "Process execution failed");
+        } else {
+          logger.warn(
+            { err, pid },
+            "Module threw during kill; treating as canceled",
+          );
+        }
+      } else {
+        logger.error({ err, pid }, "Process execution failed");
+      }
     } finally {
       if (instance) {
         if (onStdout) {
