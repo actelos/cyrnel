@@ -99,7 +99,7 @@ export const loadServerState = async (): Promise<ServerState> => {
   }
 
   const loadedModules = Object.entries(moduleState.loaded).flatMap(
-    ([type, modules]) =>
+    ([, modules]) =>
       Array.from(modules.entries()).map(([id, module]) => ({
         id,
         type: module.type,
