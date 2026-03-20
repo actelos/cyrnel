@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { EventEmitter } from "node:events";
 
 import { parse } from "toml";
 
@@ -13,12 +14,40 @@ export type ModuleConfig = {
 
 export type ModulesConfig = Record<string, ModuleConfig>;
 
-export type Module = {
+export type BaseModule = {
   type: "environment";
 };
 
+export type ExecutionStatus = "success" | "failed" | "timeout" | "canceled";
+
+export interface EnvironmentModuleEvents {
+  stdout: (chunk: Buffer) => void;
+  stderr: (chunk: Buffer) => void;
+  output: (data: unknown) => void;
+}
+
+export interface EnvironmentModule extends BaseModule, EventEmitter {
+  type: "environment";
+  label: string;
+  setup(): Promise<void>;
+  execute(code: string): Promise<ExecutionStatus>;
+  kill(): Promise<void>;
+  on<U extends keyof EnvironmentModuleEvents>(
+    event: U,
+    listener: EnvironmentModuleEvents[U],
+  ): this;
+  once<U extends keyof EnvironmentModuleEvents>(
+    event: U,
+    listener: EnvironmentModuleEvents[U],
+  ): this;
+  emit<U extends keyof EnvironmentModuleEvents>(
+    event: U,
+    ...args: Parameters<EnvironmentModuleEvents[U]>
+  ): boolean;
+}
+
 export type LoadedModule =
-  | { module: Module; error: null }
+  | { module: EnvironmentModule; error: null }
   | { module: null; error: Error };
 
 const getConfigDir = () => {
@@ -128,7 +157,7 @@ export const loadModule = async (modulePath: string): Promise<LoadedModule> => {
       value === undefined ||
       typeof value !== "object" ||
       Array.isArray(value) ||
-      (value as Module).type !== "environment"
+      (value as EnvironmentModule).type !== "environment"
     ) {
       return {
         module: null,
@@ -138,7 +167,52 @@ export const loadModule = async (modulePath: string): Promise<LoadedModule> => {
       };
     }
 
-    return { module: value as Module, error: null };
+    const moduleValue = value as EnvironmentModule;
+    if (
+      typeof moduleValue.label !== "string" ||
+      moduleValue.label.trim().length === 0
+    ) {
+      return {
+        module: null,
+        error: new Error(
+          `Module at "${resolvedPath}" returned an invalid label`,
+        ),
+      };
+    }
+    if (typeof moduleValue.setup !== "function") {
+      return {
+        module: null,
+        error: new Error(
+          `Module at "${resolvedPath}" is missing a setup() function`,
+        ),
+      };
+    }
+    if (typeof moduleValue.execute !== "function") {
+      return {
+        module: null,
+        error: new Error(
+          `Module at "${resolvedPath}" is missing an execute() function`,
+        ),
+      };
+    }
+    if (typeof moduleValue.kill !== "function") {
+      return {
+        module: null,
+        error: new Error(
+          `Module at "${resolvedPath}" is missing a kill() function`,
+        ),
+      };
+    }
+    if (!(moduleValue instanceof EventEmitter)) {
+      return {
+        module: null,
+        error: new Error(
+          `Module at "${resolvedPath}" must extend EventEmitter`,
+        ),
+      };
+    }
+
+    return { module: moduleValue, error: null };
   } catch (err) {
     return {
       module: null,

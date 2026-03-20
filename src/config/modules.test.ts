@@ -180,6 +180,24 @@ const writeModuleFile = (dir: string, name: string, contents: string) => {
   return filePath;
 };
 
+const environmentModuleSource = (
+  label = "test",
+  { includeSetup = true, includeExecute = true, includeKill = true } = {},
+) =>
+  `
+import { EventEmitter } from "node:events";
+
+class TestModule extends EventEmitter {
+  type = "environment";
+  label = ${JSON.stringify(label)};
+  ${includeSetup ? "async setup() {}\n" : ""}
+  ${includeExecute ? 'async execute() {\n    return "success";\n  }\n' : ""}
+  ${includeKill ? "async kill() {}\n" : ""}
+}
+
+export default new TestModule();
+`.trim();
+
 describe("loadModule", () => {
   const originalConfigDir = process.env.MCI_CONFIG_DIR;
   let tempDirs: string[] = [];
@@ -201,19 +219,20 @@ describe("loadModule", () => {
     tempDirs.length = 0;
   });
 
-  it("loads a default-exported module object", async () => {
+  it("loads a default-exported environment module", async () => {
     const configDir = fs.mkdtempSync(path.join(os.tmpdir(), "mci-module-"));
     tempDirs.push(configDir);
     process.env.MCI_CONFIG_DIR = configDir;
     const modulePath = writeModuleFile(
       path.join(configDir, "modules"),
       "environment.mjs",
-      'export default { type: "environment" };',
+      environmentModuleSource(),
     );
 
     const result = await loadModule(modulePath);
 
-    expect(result.module).toEqual({ type: "environment" });
+    expect(result.module?.type).toBe("environment");
+    expect(result.module?.label).toBe("test");
     expect(result.error).toBeNull();
   });
 
@@ -224,13 +243,14 @@ describe("loadModule", () => {
     const modulePath = writeModuleFile(
       path.join(configDir, "modules"),
       "env.mjs",
-      'export default { type: "environment" };',
+      environmentModuleSource("relative"),
     );
     const relativePath = path.relative(configDir, modulePath);
 
     const result = await loadModule(relativePath);
 
-    expect(result.module).toEqual({ type: "environment" });
+    expect(result.module?.type).toBe("environment");
+    expect(result.module?.label).toBe("relative");
     expect(result.error).toBeNull();
   });
 
@@ -302,6 +322,145 @@ describe("loadModule", () => {
     expect(result.error?.message).toMatch(/default export/i);
   });
 
+  it("returns an error when the default export has an invalid label", async () => {
+    const configDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "mci-module-label-"),
+    );
+    tempDirs.push(configDir);
+    process.env.MCI_CONFIG_DIR = configDir;
+    const modulePath = writeModuleFile(
+      path.join(configDir, "modules"),
+      "bad-label.mjs",
+      environmentModuleSource("", {
+        includeSetup: true,
+        includeExecute: true,
+      }),
+    );
+
+    const result = await loadModule(modulePath);
+
+    expect(result.module).toBeNull();
+    expect(result.error).toBeInstanceOf(Error);
+    expect(result.error?.message).toMatch(/invalid label/i);
+  });
+
+  it("returns an error when the default export is missing setup", async () => {
+    const configDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "mci-module-setup-"),
+    );
+    tempDirs.push(configDir);
+    process.env.MCI_CONFIG_DIR = configDir;
+    const modulePath = writeModuleFile(
+      path.join(configDir, "modules"),
+      "bad-setup.mjs",
+      environmentModuleSource("no-setup", {
+        includeSetup: false,
+        includeExecute: true,
+      }),
+    );
+
+    const result = await loadModule(modulePath);
+
+    expect(result.module).toBeNull();
+    expect(result.error).toBeInstanceOf(Error);
+    expect(result.error?.message).toMatch(/setup/i);
+  });
+
+  it("returns an error when the default export is missing execute", async () => {
+    const configDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "mci-module-execute-"),
+    );
+    tempDirs.push(configDir);
+    process.env.MCI_CONFIG_DIR = configDir;
+    const modulePath = writeModuleFile(
+      path.join(configDir, "modules"),
+      "bad-execute.mjs",
+      environmentModuleSource("no-execute", {
+        includeSetup: true,
+        includeExecute: false,
+      }),
+    );
+
+    const result = await loadModule(modulePath);
+
+    expect(result.module).toBeNull();
+    expect(result.error).toBeInstanceOf(Error);
+    expect(result.error?.message).toMatch(/execute/i);
+  });
+
+  it("returns an error when the default export is missing kill", async () => {
+    const configDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "mci-module-kill-"),
+    );
+    tempDirs.push(configDir);
+    process.env.MCI_CONFIG_DIR = configDir;
+    const modulePath = writeModuleFile(
+      path.join(configDir, "modules"),
+      "bad-kill.mjs",
+      environmentModuleSource("no-kill", {
+        includeSetup: true,
+        includeExecute: true,
+        includeKill: false,
+      }),
+    );
+
+    const result = await loadModule(modulePath);
+
+    expect(result.module).toBeNull();
+    expect(result.error).toBeInstanceOf(Error);
+    expect(result.error?.message).toMatch(/kill/i);
+  });
+
+  it("returns an error when the default export does not extend EventEmitter", async () => {
+    const configDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "mci-module-emitter-"),
+    );
+    tempDirs.push(configDir);
+    process.env.MCI_CONFIG_DIR = configDir;
+    const modulePath = writeModuleFile(
+      path.join(configDir, "modules"),
+      "bad-emitter.mjs",
+      `
+export default {
+  type: "environment",
+  label: "plain",
+  async setup() {},
+  async execute() {
+    return "success";
+  },
+  async kill() {},
+};
+`.trim(),
+    );
+
+    const result = await loadModule(modulePath);
+
+    expect(result.module).toBeNull();
+    expect(result.error).toBeInstanceOf(Error);
+    expect(result.error?.message).toMatch(/EventEmitter/i);
+  });
+
+  it("returns an error when the module resolves outside the config directory", async () => {
+    const configDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "mci-module-outside-"),
+    );
+    const outsideDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "mci-module-outside-path-"),
+    );
+    tempDirs.push(configDir, outsideDir);
+    process.env.MCI_CONFIG_DIR = configDir;
+    const modulePath = writeModuleFile(
+      outsideDir,
+      "outside.mjs",
+      environmentModuleSource(),
+    );
+    const result = await loadModule(modulePath);
+
+    expect(result.module).toBeNull();
+    expect(result.error).toBeInstanceOf(Error);
+    expect(result.error?.message).toMatch(/outside config directory/i);
+  });
+
   it("reloads a module when the file changes", async () => {
     const configDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "mci-module-reload-"),
@@ -311,12 +470,12 @@ describe("loadModule", () => {
     const modulePath = writeModuleFile(
       path.join(configDir, "modules"),
       "reload.mjs",
-      'export default { type: "environment" };',
+      environmentModuleSource(),
     );
 
     const firstResult = await loadModule(modulePath);
 
-    expect(firstResult.module).toEqual({ type: "environment" });
+    expect(firstResult.module?.type).toBe("environment");
     expect(firstResult.error).toBeNull();
 
     fs.writeFileSync(modulePath, 'export default { type: "other" };', "utf8");

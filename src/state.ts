@@ -2,13 +2,15 @@ import { logger } from "@/logger";
 import {
   loadModule,
   loadModulesConfig,
-  type Module,
+  type EnvironmentModule,
   type ModulesConfig,
 } from "@/config/modules";
 
 export type ModuleState = {
   config: ModulesConfig;
-  loaded: Map<string, Module>;
+  loaded: {
+    environment: Map<string, EnvironmentModule>;
+  };
   errors: Map<string, Error>;
 };
 
@@ -27,7 +29,9 @@ export const loadServerState = async (): Promise<ServerState> => {
 
   const moduleState: ModuleState = {
     config: modulesConfig,
-    loaded: new Map(),
+    loaded: {
+      environment: new Map(),
+    },
     errors: new Map(),
   };
 
@@ -57,27 +61,49 @@ export const loadServerState = async (): Promise<ServerState> => {
         );
         return;
       }
-      moduleState.loaded.set(id, result.module);
+      switch (result.module.type) {
+        case "environment":
+          moduleState.loaded.environment.set(id, result.module);
+          break;
+        default:
+          moduleState.errors.set(
+            id,
+            new Error(`Unknown module type: ${result.module.type}`),
+          );
+          logger.error(
+            { moduleId: id, moduleType: result.module.type },
+            "Unknown module type loaded",
+          );
+          return;
+      }
     }),
   );
 
-  if (moduleState.loaded.size === 0) {
+  const totalLoadedCount = Object.values(moduleState.loaded).reduce(
+    (total, modules) => total + modules.size,
+    0,
+  );
+  if (totalLoadedCount === 0) {
     logger.error(
       {
         moduleErrors: moduleState.errors.size,
-        modulesLoaded: moduleState.loaded.size,
+        modulesLoaded: totalLoadedCount,
         modulesConfigured: totalConfigured,
         modulesEnabled: totalEnabled,
       },
       "No modules loaded",
     );
     throw new Error(
-      `No modules loaded (configured: ${totalConfigured}, enabled: ${totalEnabled}, loaded: ${moduleState.loaded.size}, errors: ${moduleState.errors.size})`,
+      `No modules loaded (configured: ${totalConfigured}, enabled: ${totalEnabled}, loaded: ${totalLoadedCount}, errors: ${moduleState.errors.size})`,
     );
   }
 
-  const loadedModules = Array.from(moduleState.loaded.entries()).map(
-    ([id, module]) => ({ id, type: module.type }),
+  const loadedModules = Object.entries(moduleState.loaded).flatMap(
+    ([, modules]) =>
+      Array.from(modules.entries()).map(([id, module]) => ({
+        id,
+        type: module.type,
+      })),
   );
   logger.info({ modules: loadedModules }, "Loaded modules");
 
