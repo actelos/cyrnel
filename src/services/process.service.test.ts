@@ -251,13 +251,19 @@ describe("ProcessService", () => {
     const stored = getStored(service, pid);
     stored.output = { prior: true };
     stored.stdout = "prev";
+    stored.stderr = "prev-err";
 
     service.run(pid, true);
     await waitForState(service, pid, "idle");
 
+    const restarted = getStored(service, pid);
+
     expect(acquire).toHaveBeenCalledTimes(2);
     expect(service.get(pid).state).toBe("idle");
     expect(service.get(pid).status).toBe("success");
+    expect(restarted.output).toBeNull();
+    expect(restarted.stdout).toBe("");
+    expect(restarted.stderr).toBe("");
   });
 
   it("removes module event listeners after execution completes", async () => {
