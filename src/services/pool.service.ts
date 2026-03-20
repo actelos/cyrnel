@@ -24,8 +24,13 @@ class PoolService implements Pool {
   readonly queue: QueueEntry[] = [];
 
   async initialize(modules: Map<string, EnvironmentModule>): Promise<void> {
+    const queuedEntries = this.queue.splice(0);
+
+    for (const entry of queuedEntries) {
+      entry.reject(new Error("Pool was re-initialized"));
+    }
+
     this.instances.length = 0;
-    this.queue.length = 0;
 
     for (const [id, module] of modules) {
       try {

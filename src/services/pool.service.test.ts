@@ -104,6 +104,28 @@ describe("pool.service", () => {
     );
   });
 
+  it("initialize() rejects callers waiting in acquire() queue", async () => {
+    const pool = createPool();
+    const moduleA = new TestEnvironmentModule("a");
+    const moduleB = new TestEnvironmentModule("b");
+
+    pool.instances.push({ module: moduleA, busy: false });
+    const inUse = await pool.acquire();
+    const waitingAcquire = pool.acquire();
+
+    expect(pool.queue).toHaveLength(1);
+
+    await pool.initialize(new Map([["b", moduleB]]));
+
+    await expect(waitingAcquire).rejects.toThrow("Pool was re-initialized");
+    expect(pool.queue).toHaveLength(0);
+    expect(pool.instances).toHaveLength(1);
+    expect(pool.instances[0]?.module).toBe(moduleB);
+
+    pool.release(inUse);
+    expect(pool.instances[0]?.busy).toBe(false);
+  });
+
   it("acquire() returns a free instance immediately and marks it busy", async () => {
     const pool = createPool();
     const moduleA = new TestEnvironmentModule("a");
