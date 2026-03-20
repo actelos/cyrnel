@@ -5,9 +5,12 @@ import {
   type EnvironmentModule,
   type ModulesConfig,
 } from "@/config/modules";
-import { createPool, type Pool } from "@/services/pool.service";
+import {
+  createEnvironmentPool,
+  type EnvironmentPool,
+} from "@/services/pool.service";
 
-export type ModuleState = {
+export type ModulesState = {
   config: ModulesConfig;
   loaded: {
     environment: Map<string, EnvironmentModule>;
@@ -16,8 +19,10 @@ export type ModuleState = {
 };
 
 export type ServerState = {
-  modules: ModuleState;
-  pool: Pool;
+  modules: ModulesState;
+  pools: {
+    environment: EnvironmentPool;
+  };
 };
 
 export const loadServerState = async (): Promise<ServerState> => {
@@ -29,7 +34,7 @@ export const loadServerState = async (): Promise<ServerState> => {
     throw new Error("Failed to load modules config", { cause: err });
   }
 
-  const moduleState: ModuleState = {
+  const modulesState: ModulesState = {
     config: modulesConfig,
     loaded: {
       environment: new Map(),
@@ -56,7 +61,7 @@ export const loadServerState = async (): Promise<ServerState> => {
       }
       const result = await loadModule(config.path);
       if (result.error) {
-        moduleState.errors.set(id, result.error);
+        modulesState.errors.set(id, result.error);
         logger.error(
           { err: result.error, moduleId: id, modulePath: config.path },
           "Failed to load module",
@@ -65,10 +70,10 @@ export const loadServerState = async (): Promise<ServerState> => {
       }
       switch (result.module.type) {
         case "environment":
-          moduleState.loaded.environment.set(id, result.module);
+          modulesState.loaded.environment.set(id, result.module);
           break;
         default:
-          moduleState.errors.set(
+          modulesState.errors.set(
             id,
             new Error(`Unknown module type: ${result.module.type}`),
           );
@@ -81,14 +86,14 @@ export const loadServerState = async (): Promise<ServerState> => {
     }),
   );
 
-  const totalLoadedCount = Object.values(moduleState.loaded).reduce(
+  const totalLoadedCount = Object.values(modulesState.loaded).reduce(
     (total, modules) => total + modules.size,
     0,
   );
   if (totalLoadedCount === 0) {
     logger.error(
       {
-        moduleErrors: moduleState.errors.size,
+        moduleErrors: modulesState.errors.size,
         modulesLoaded: totalLoadedCount,
         modulesConfigured: totalConfigured,
         modulesEnabled: totalEnabled,
@@ -96,11 +101,11 @@ export const loadServerState = async (): Promise<ServerState> => {
       "No modules loaded",
     );
     throw new Error(
-      `No modules loaded (configured: ${totalConfigured}, enabled: ${totalEnabled}, loaded: ${totalLoadedCount}, errors: ${moduleState.errors.size})`,
+      `No modules loaded (configured: ${totalConfigured}, enabled: ${totalEnabled}, loaded: ${totalLoadedCount}, errors: ${modulesState.errors.size})`,
     );
   }
 
-  const loadedModules = Object.entries(moduleState.loaded).flatMap(
+  const loadedModules = Object.entries(modulesState.loaded).flatMap(
     ([, modules]) =>
       Array.from(modules.entries()).map(([id, module]) => ({
         id,
@@ -110,7 +115,9 @@ export const loadServerState = async (): Promise<ServerState> => {
   logger.info({ modules: loadedModules }, "Loaded modules");
 
   return {
-    modules: moduleState,
-    pool: createPool(),
+    modules: modulesState,
+    pools: {
+      environment: createEnvironmentPool(),
+    },
   };
 };

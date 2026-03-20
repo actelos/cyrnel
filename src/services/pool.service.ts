@@ -1,27 +1,33 @@
 import type { EnvironmentModule } from "@/config/modules";
 import { logger } from "@/logger";
 
-export type PooledInstance = {
+export type EnvironmentPoolInstance = {
   module: EnvironmentModule;
   busy: boolean;
 };
 
-export type QueueEntry = {
-  resolve: (instance: PooledInstance) => void;
+export type EnvironmentPoolQueueEntry = {
+  resolve: (instance: EnvironmentPoolInstance) => void;
   reject: (err: Error) => void;
 };
 
-export type Pool = {
-  initialize(modules: Map<string, EnvironmentModule>): Promise<void>;
-  acquire(): Promise<PooledInstance>;
-  release(instance: PooledInstance): void;
-  getInstances(): readonly PooledInstance[];
-  getQueue(): readonly QueueEntry[];
+export type Pool<TInstance, TQueueEntry> = {
+  acquire(): Promise<TInstance>;
+  release(instance: TInstance): void;
+  getInstances(): readonly TInstance[];
+  getQueue(): readonly TQueueEntry[];
 };
 
-class PoolService implements Pool {
-  private readonly instances: PooledInstance[] = [];
-  private readonly queue: QueueEntry[] = [];
+export type EnvironmentPool = Pool<
+  EnvironmentPoolInstance,
+  EnvironmentPoolQueueEntry
+> & {
+  initialize(modules: Map<string, EnvironmentModule>): Promise<void>;
+};
+
+class EnvironmentPoolService implements EnvironmentPool {
+  private readonly instances: EnvironmentPoolInstance[] = [];
+  private readonly queue: EnvironmentPoolQueueEntry[] = [];
 
   async initialize(modules: Map<string, EnvironmentModule>): Promise<void> {
     const queuedEntries = this.queue.splice(0);
@@ -53,7 +59,7 @@ class PoolService implements Pool {
     }
   }
 
-  async acquire(): Promise<PooledInstance> {
+  async acquire(): Promise<EnvironmentPoolInstance> {
     const free = this.instances.find((instance) => !instance.busy);
 
     if (free) {
@@ -61,16 +67,24 @@ class PoolService implements Pool {
       return free;
     }
 
-    return new Promise<PooledInstance>((resolve, reject) => {
+    return new Promise<EnvironmentPoolInstance>((resolve, reject) => {
       this.queue.push({ resolve, reject });
     });
   }
 
-  release(instance: PooledInstance): void {
+  release(instance: EnvironmentPoolInstance): void {
     if (!this.instances.includes(instance)) {
       logger.warn(
         { module: instance.module.label },
         "Attempted to release unknown instance",
+      );
+      return;
+    }
+
+    if (!instance.busy) {
+      logger.warn(
+        { module: instance.module.label },
+        "Attempted to release non-busy instance",
       );
       return;
     }
@@ -85,13 +99,14 @@ class PoolService implements Pool {
     instance.busy = false;
   }
 
-  getInstances(): readonly PooledInstance[] {
+  getInstances(): readonly EnvironmentPoolInstance[] {
     return this.instances.slice();
   }
 
-  getQueue(): readonly QueueEntry[] {
+  getQueue(): readonly EnvironmentPoolQueueEntry[] {
     return this.queue.slice();
   }
 }
 
-export const createPool = (): Pool => new PoolService();
+export const createEnvironmentPool = (): EnvironmentPool =>
+  new EnvironmentPoolService();

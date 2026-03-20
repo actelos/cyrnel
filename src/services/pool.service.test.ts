@@ -2,7 +2,7 @@ import { EventEmitter } from "node:events";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { logger } from "@/logger";
-import { createPool } from "@/services/pool.service";
+import { createEnvironmentPool } from "@/services/pool.service";
 import type { ExecutionStatus, EnvironmentModule } from "@/config/modules";
 
 vi.mock("@/logger", () => ({
@@ -48,7 +48,7 @@ describe("pool.service", () => {
     const moduleA = new TestEnvironmentModule("a", setupA);
     const moduleB = new TestEnvironmentModule("b", setupB);
 
-    const pool = createPool();
+    const pool = createEnvironmentPool();
 
     await pool.initialize(
       new Map([
@@ -70,7 +70,7 @@ describe("pool.service", () => {
     const bad = new TestEnvironmentModule("bad", setupBad);
     const good = new TestEnvironmentModule("good", setupGood);
 
-    const pool = createPool();
+    const pool = createEnvironmentPool();
 
     await pool.initialize(
       new Map([
@@ -97,7 +97,7 @@ describe("pool.service", () => {
     const setupBad = vi.fn().mockRejectedValue(new Error("boom"));
     const bad = new TestEnvironmentModule("bad", setupBad);
 
-    const pool = createPool();
+    const pool = createEnvironmentPool();
 
     await expect(pool.initialize(new Map([["bad-id", bad]]))).rejects.toThrow(
       "No pool instances initialized",
@@ -105,7 +105,7 @@ describe("pool.service", () => {
   });
 
   it("initialize() rejects callers waiting in acquire() queue", async () => {
-    const pool = createPool();
+    const pool = createEnvironmentPool();
     const moduleA = new TestEnvironmentModule("a");
     const moduleB = new TestEnvironmentModule("b");
 
@@ -127,7 +127,7 @@ describe("pool.service", () => {
   });
 
   it("acquire() returns a free instance immediately and marks it busy", async () => {
-    const pool = createPool();
+    const pool = createEnvironmentPool();
     const moduleA = new TestEnvironmentModule("a");
 
     await pool.initialize(new Map([["a", moduleA]]));
@@ -140,7 +140,7 @@ describe("pool.service", () => {
   });
 
   it("acquire() parks caller and resolves when release() is called", async () => {
-    const pool = createPool();
+    const pool = createEnvironmentPool();
     const moduleA = new TestEnvironmentModule("a");
     await pool.initialize(new Map([["a", moduleA]]));
 
@@ -159,7 +159,7 @@ describe("pool.service", () => {
   });
 
   it("acquire() serves queued callers in FIFO order", async () => {
-    const pool = createPool();
+    const pool = createEnvironmentPool();
     const moduleA = new TestEnvironmentModule("a");
     await pool.initialize(new Map([["a", moduleA]]));
 
@@ -179,7 +179,7 @@ describe("pool.service", () => {
   });
 
   it("acquire() returns multiple free instances in insertion order", async () => {
-    const pool = createPool();
+    const pool = createEnvironmentPool();
     const moduleA = new TestEnvironmentModule("a");
     const moduleB = new TestEnvironmentModule("b");
     await pool.initialize(
@@ -201,7 +201,7 @@ describe("pool.service", () => {
   });
 
   it("acquire() picks first available instance when another is busy", async () => {
-    const pool = createPool();
+    const pool = createEnvironmentPool();
     const moduleA = new TestEnvironmentModule("a");
     const moduleB = new TestEnvironmentModule("b");
     await pool.initialize(
@@ -232,7 +232,7 @@ describe("pool.service", () => {
     vi.useFakeTimers();
 
     try {
-      const pool = createPool();
+      const pool = createEnvironmentPool();
       const moduleA = new TestEnvironmentModule("a");
       await pool.initialize(new Map([["a", moduleA]]));
 
@@ -259,7 +259,7 @@ describe("pool.service", () => {
   });
 
   it("release() hands instance directly to queued caller without setting busy false", async () => {
-    const pool = createPool();
+    const pool = createEnvironmentPool();
     const moduleA = new TestEnvironmentModule("a");
     await pool.initialize(new Map([["a", moduleA]]));
 
@@ -274,7 +274,7 @@ describe("pool.service", () => {
   });
 
   it("release() sets busy to false when queue is empty", async () => {
-    const pool = createPool();
+    const pool = createEnvironmentPool();
     const moduleA = new TestEnvironmentModule("a");
     await pool.initialize(new Map([["a", moduleA]]));
 
@@ -284,8 +284,8 @@ describe("pool.service", () => {
     expect(first.busy).toBe(false);
   });
 
-  it("release() keeps state unchanged when releasing an already non-busy instance", async () => {
-    const pool = createPool();
+  it("release() warns and keeps state unchanged when releasing an already non-busy instance", async () => {
+    const pool = createEnvironmentPool();
     const moduleA = new TestEnvironmentModule("a");
 
     await pool.initialize(new Map([["a", moduleA]]));
@@ -298,11 +298,14 @@ describe("pool.service", () => {
 
     expect(idleInstance?.busy).toBe(false);
     expect(pool.getQueue()).toHaveLength(0);
-    expect(vi.mocked(logger.warn)).not.toHaveBeenCalled();
+    expect(vi.mocked(logger.warn)).toHaveBeenCalledWith(
+      { module: "a" },
+      "Attempted to release non-busy instance",
+    );
   });
 
   it("release() ignores instances that do not belong to the pool", () => {
-    const pool = createPool();
+    const pool = createEnvironmentPool();
     const moduleA = new TestEnvironmentModule("a");
     const foreign = { module: moduleA, busy: true };
 
