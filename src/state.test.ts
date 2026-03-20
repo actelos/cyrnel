@@ -133,8 +133,8 @@ describe("loadServerState", () => {
 
     expect(mockedLoadModule).toHaveBeenCalledTimes(1);
     expect(mockedLoadModule).toHaveBeenCalledWith("./modules/enabled.ts");
-    expect(state.modules.loaded.get("enabled")).toBe(enabledModule);
-    expect(state.modules.loaded.has("disabled")).toBe(false);
+    expect(state.modules.loaded.environment.get("enabled")).toBe(enabledModule);
+    expect(state.modules.loaded.environment.has("disabled")).toBe(false);
     expect(mockedLogger.info).toHaveBeenCalledWith(
       { moduleId: "disabled", modulePath: "./modules/disabled.ts" },
       "Skipped disabled module",
@@ -162,7 +162,7 @@ describe("loadServerState", () => {
     const state = await loadServerState();
 
     expect(mockedLoadModule).toHaveBeenCalledTimes(2);
-    expect(state.modules.loaded.get("good")).toBe(goodModule);
+    expect(state.modules.loaded.environment.get("good")).toBe(goodModule);
     expect(state.modules.errors.get("bad")).toBeInstanceOf(Error);
     expect(mockedLogger.info).toHaveBeenCalledWith(
       { modules: [{ id: "good", type: "environment" }] },

@@ -8,7 +8,9 @@ import {
 
 export type ModuleState = {
   config: ModulesConfig;
-  loaded: Map<string, EnvironmentModule>;
+  loaded: {
+    environment: Map<string, EnvironmentModule>;
+  };
   errors: Map<string, Error>;
 };
 
@@ -27,7 +29,9 @@ export const loadServerState = async (): Promise<ServerState> => {
 
   const moduleState: ModuleState = {
     config: modulesConfig,
-    loaded: new Map(),
+    loaded: {
+      environment: new Map(),
+    },
     errors: new Map(),
   };
 
@@ -57,28 +61,29 @@ export const loadServerState = async (): Promise<ServerState> => {
         );
         return;
       }
-      moduleState.loaded.set(id, result.module);
+      moduleState.loaded.environment.set(id, result.module);
     }),
   );
 
-  if (moduleState.loaded.size === 0) {
+  const environmentLoadedCount = moduleState.loaded.environment.size;
+  if (environmentLoadedCount === 0) {
     logger.error(
       {
         moduleErrors: moduleState.errors.size,
-        modulesLoaded: moduleState.loaded.size,
+        modulesLoaded: environmentLoadedCount,
         modulesConfigured: totalConfigured,
         modulesEnabled: totalEnabled,
       },
       "No modules loaded",
     );
     throw new Error(
-      `No modules loaded (configured: ${totalConfigured}, enabled: ${totalEnabled}, loaded: ${moduleState.loaded.size}, errors: ${moduleState.errors.size})`,
+      `No modules loaded (configured: ${totalConfigured}, enabled: ${totalEnabled}, loaded: ${environmentLoadedCount}, errors: ${moduleState.errors.size})`,
     );
   }
 
-  const loadedModules = Array.from(moduleState.loaded.entries()).map(
-    ([id, module]) => ({ id, type: module.type }),
-  );
+  const loadedModules = Array.from(
+    moduleState.loaded.environment.entries(),
+  ).map(([id, module]) => ({ id, type: module.type }));
   logger.info({ modules: loadedModules }, "Loaded modules");
 
   return { modules: moduleState };
