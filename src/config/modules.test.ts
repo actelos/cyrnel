@@ -415,6 +415,27 @@ export default {
     expect(result.error?.message).toMatch(/EventEmitter/i);
   });
 
+  it("returns an error when the module resolves outside the config directory", async () => {
+    const configDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "mci-module-outside-"),
+    );
+    const outsideDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "mci-module-outside-path-"),
+    );
+    tempDirs.push(configDir, outsideDir);
+    process.env.MCI_CONFIG_DIR = configDir;
+    const modulePath = writeModuleFile(
+      outsideDir,
+      "outside.mjs",
+      environmentModuleSource(),
+    );
+    const result = await loadModule(modulePath);
+
+    expect(result.module).toBeNull();
+    expect(result.error).toBeInstanceOf(Error);
+    expect(result.error?.message).toMatch(/outside config directory/i);
+  });
+
   it("reloads a module when the file changes", async () => {
     const configDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "mci-module-reload-"),

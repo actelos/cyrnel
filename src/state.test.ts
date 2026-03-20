@@ -141,6 +141,45 @@ describe("loadServerState", () => {
     );
   });
 
+  it("relogs unknown module types and fails if none load", async () => {
+    mockedLoadModulesConfig.mockReturnValue({
+      mystery: {
+        id: "mystery",
+        enabled: true,
+        path: "./modules/mystery.ts",
+      },
+    });
+    const unknownModule = {
+      type: "other",
+      label: "custom",
+      async setup() {},
+      async execute() {
+        return "success";
+      },
+      on() {
+        return this;
+      },
+      once() {
+        return this;
+      },
+      emit() {
+        return true;
+      },
+    } as unknown as EnvironmentModule;
+    mockedLoadModule.mockResolvedValue({ module: unknownModule, error: null });
+
+    await expect(loadServerState()).rejects.toThrow("No modules loaded");
+
+    expect(mockedLogger.error).toHaveBeenCalledWith(
+      { moduleId: "mystery", moduleType: "other" },
+      "Unknown module type loaded",
+    );
+    expect(mockedLogger.error).toHaveBeenCalledWith(
+      expect.objectContaining({ modulesLoaded: 0 }),
+      "No modules loaded",
+    );
+  });
+
   it("returns state when at least one module loads", async () => {
     mockedLoadModulesConfig.mockReturnValue({
       good: {
