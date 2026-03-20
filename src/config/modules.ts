@@ -166,7 +166,47 @@ export const loadModule = async (modulePath: string): Promise<LoadedModule> => {
       };
     }
 
-    return { module: value as EnvironmentModule, error: null };
+    const moduleValue = value as EnvironmentModule;
+    if (
+      typeof moduleValue.label !== "string" ||
+      moduleValue.label.length === 0
+    ) {
+      return {
+        module: null,
+        error: new Error(
+          `Module at "${resolvedPath}" returned an invalid label`,
+        ),
+      };
+    }
+    if (typeof moduleValue.setup !== "function") {
+      return {
+        module: null,
+        error: new Error(
+          `Module at "${resolvedPath}" is missing a setup() function`,
+        ),
+      };
+    }
+    if (typeof moduleValue.execute !== "function") {
+      return {
+        module: null,
+        error: new Error(
+          `Module at "${resolvedPath}" is missing an execute() function`,
+        ),
+      };
+    }
+    if (
+      typeof moduleValue.on !== "function" ||
+      typeof moduleValue.emit !== "function"
+    ) {
+      return {
+        module: null,
+        error: new Error(
+          `Module at "${resolvedPath}" does not extend EventEmitter`,
+        ),
+      };
+    }
+
+    return { module: moduleValue, error: null };
   } catch (err) {
     return {
       module: null,
