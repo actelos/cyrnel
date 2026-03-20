@@ -4,7 +4,23 @@ import { ProcessService } from "@/services/process.service";
 import { loadServerState } from "@/state";
 
 const PORT = Number(process.env.PORT ?? 7687);
-const SHUTDOWN_TIMEOUT_MS = Number(process.env.SHUTDOWN_TIMEOUT_MS ?? 10_000);
+const DEFAULT_SHUTDOWN_TIMEOUT_MS = 10_000;
+const parsedShutdownTimeout = process.env.SHUTDOWN_TIMEOUT_MS
+  ? Number.parseInt(process.env.SHUTDOWN_TIMEOUT_MS, 10)
+  : undefined;
+const SHUTDOWN_TIMEOUT_MS = Number.isFinite(parsedShutdownTimeout)
+  ? Math.max(0, Math.floor(parsedShutdownTimeout as number))
+  : DEFAULT_SHUTDOWN_TIMEOUT_MS;
+
+if (
+  process.env.SHUTDOWN_TIMEOUT_MS !== undefined &&
+  !Number.isFinite(parsedShutdownTimeout)
+) {
+  logger.warn(
+    { value: process.env.SHUTDOWN_TIMEOUT_MS },
+    "Invalid SHUTDOWN_TIMEOUT_MS; using default",
+  );
+}
 
 const startServer = async () => {
   const serverState = await loadServerState();

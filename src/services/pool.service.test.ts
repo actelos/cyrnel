@@ -69,7 +69,7 @@ describe("pool.service", () => {
     expect(pool.getInstances()).toHaveLength(2);
   });
 
-  it("shutdown() calls teardown() on all pool instances", async () => {
+  it("TestEnvironmentModule.teardown() calls teardownImpl when provided", async () => {
     const teardownA = vi.fn().mockResolvedValue(undefined);
     const teardownB = vi.fn().mockResolvedValue(undefined);
 
@@ -88,6 +88,58 @@ describe("pool.service", () => {
     expect(teardownA).toHaveBeenCalledTimes(1);
     expect(teardownB).toHaveBeenCalledTimes(1);
     expect(pool.getInstances()).toHaveLength(0);
+  });
+
+  it("shutdown() calls teardown() on every module instance", async () => {
+    const pool = createEnvironmentPool();
+    const moduleA = new TestEnvironmentModule("a");
+    const moduleB = new TestEnvironmentModule("b");
+    const teardownSpyA = vi.spyOn(moduleA, "teardown");
+    const teardownSpyB = vi.spyOn(moduleB, "teardown");
+
+    await pool.initialize(
+      new Map([
+        ["a", moduleA],
+        ["b", moduleB],
+      ]),
+    );
+
+    await pool.shutdown();
+
+    expect(teardownSpyA).toHaveBeenCalledTimes(1);
+    expect(teardownSpyB).toHaveBeenCalledTimes(1);
+  });
+
+  it("shutdown() rejects queued acquire() calls", async () => {
+    const pool = createEnvironmentPool();
+    const moduleA = new TestEnvironmentModule("a");
+
+    await pool.initialize(new Map([["a", moduleA]]));
+
+    const inUse = await pool.acquire();
+    const waitingAcquire = pool.acquire();
+
+    const shutdownPromise = pool.shutdown();
+
+    await expect(waitingAcquire).rejects.toThrow("Pool was shut down");
+
+    pool.release(inUse);
+    await shutdownPromise;
+  });
+
+  it("shutdown() resolves even when teardown throws and logs warning", async () => {
+    const teardownError = new Error("teardown failed");
+    const teardownImpl = vi.fn().mockRejectedValue(teardownError);
+    const moduleA = new TestEnvironmentModule("a", undefined, teardownImpl);
+    const pool = createEnvironmentPool();
+
+    await pool.initialize(new Map([["a", moduleA]]));
+
+    await expect(pool.shutdown()).resolves.toBeUndefined();
+    expect(vi.mocked(logger.warn)).toHaveBeenCalledWith(
+      { err: teardownError, moduleLabel: "a" },
+      "Failed to teardown module instance",
+    );
   });
 
   it("initialize() skips a module when setup() throws and logs warning", async () => {
