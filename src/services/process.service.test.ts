@@ -118,7 +118,7 @@ describe("ProcessService", () => {
     expect(getStored(service, pid).process.state).toBe("running");
 
     executeGate.resolve("success");
-    await flush();
+    await waitForState(service, pid, "idle");
 
     const stored = getStored(service, pid);
     expect(stored.process.state).toBe("idle");
@@ -189,10 +189,66 @@ describe("ProcessService", () => {
     expect(service.get(pid).state).toBe("terminating");
 
     executeGate.resolve("canceled");
-    await flush();
+    await waitForState(service, pid, "idle");
 
     expect(service.get(pid).state).toBe("idle");
     expect(service.get(pid).status).toBe("canceled");
+  });
+
+  it("times out stuck execute() and releases instance", async () => {
+    vi.useFakeTimers();
+
+    try {
+      const executeGate = deferred<ExecutionStatus>();
+      const module = new TestEnvironmentModule(async () => executeGate.promise);
+      const instance: PooledInstance = { module, busy: true };
+      const { pool, release } = createMockPool(async () => instance);
+      const service = new ProcessService(pool, { executeTimeoutMs: 50 });
+
+      const pid = service.create("code");
+      await flush();
+      expect(service.get(pid).state).toBe("running");
+
+      await vi.advanceTimersByTimeAsync(50);
+      await flush();
+
+      expect(service.get(pid).state).toBe("idle");
+      expect(service.get(pid).status).toBe("timeout");
+      expect(release).toHaveBeenCalledWith(instance);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("times out stuck terminating process and marks it canceled", async () => {
+    vi.useFakeTimers();
+
+    try {
+      const executeGate = deferred<ExecutionStatus>();
+      const kill = vi.fn(async () => {});
+      const module = new TestEnvironmentModule(
+        async () => executeGate.promise,
+        kill,
+      );
+      const instance: PooledInstance = { module, busy: true };
+      const { pool, release } = createMockPool(async () => instance);
+      const service = new ProcessService(pool, { executeTimeoutMs: 50 });
+
+      const pid = service.create("code");
+      await flush();
+      service.kill(pid);
+      expect(service.get(pid).state).toBe("terminating");
+
+      await vi.advanceTimersByTimeAsync(50);
+      await flush();
+
+      expect(kill).toHaveBeenCalledTimes(1);
+      expect(service.get(pid).state).toBe("idle");
+      expect(service.get(pid).status).toBe("canceled");
+      expect(release).toHaveBeenCalledWith(instance);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("treats execute rejection during termination as canceled", async () => {

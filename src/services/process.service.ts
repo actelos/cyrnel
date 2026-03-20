@@ -4,10 +4,20 @@ import {
   type StoredProcess,
   type ProcessQueryFilters,
 } from "@/models/process";
+import type { ExecutionStatus } from "@/config/modules";
 import { StringDecoder } from "node:string_decoder";
 import { logger } from "@/logger";
 import { HttpError } from "@/models/error";
 import type { Pool, PooledInstance } from "@/services/pool.service";
+
+const DEFAULT_EXECUTION_TIMEOUT_MS = 30_000;
+
+class ProcessExecutionTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ProcessExecutionTimeoutError";
+  }
+}
 
 export class ProcessService {
   private readonly processes = new Map<number, StoredProcess>();
@@ -15,7 +25,12 @@ export class ProcessService {
   private readonly running = new Map<number, PooledInstance>();
   private nextId = 1;
 
-  constructor(private readonly pool: Pool) {}
+  constructor(
+    private readonly pool: Pool,
+    private readonly options: {
+      executeTimeoutMs?: number;
+    } = {},
+  ) {}
 
   list(filters: ProcessQueryFilters): Process[] {
     const all = Array.from(this.processes.values(), ({ process }) => process);
@@ -239,7 +254,13 @@ export class ProcessService {
       instance.module.on("stderr", onStderr);
       instance.module.on("output", onOutput);
 
-      const status = await instance.module.execute(stored.code);
+      const timeoutMs =
+        this.options.executeTimeoutMs ?? DEFAULT_EXECUTION_TIMEOUT_MS;
+
+      const status = await this.executeWithTimeout(
+        instance.module.execute(stored.code),
+        timeoutMs,
+      );
 
       const current = this.processes.get(pid);
       if (current) {
@@ -262,9 +283,15 @@ export class ProcessService {
       if (current) {
         const wasTerminating = current.process.state === "terminating";
         current.process.state = "idle";
-        current.process.status = wasTerminating ? "canceled" : "failed";
+        current.process.status = wasTerminating
+          ? "canceled"
+          : err instanceof ProcessExecutionTimeoutError
+            ? "timeout"
+            : "failed";
 
-        if (!wasTerminating) {
+        if (err instanceof ProcessExecutionTimeoutError) {
+          logger.warn({ err, pid }, "Process execution timed out");
+        } else if (!wasTerminating) {
           logger.error({ err, pid }, "Process execution failed");
         } else {
           logger.warn(
@@ -291,6 +318,36 @@ export class ProcessService {
 
         this.running.delete(pid);
         this.pool.release(instance);
+      }
+    }
+  }
+
+  private async executeWithTimeout(
+    execution: Promise<ExecutionStatus>,
+    timeoutMs: number,
+  ): Promise<ExecutionStatus> {
+    if (timeoutMs <= 0) {
+      return execution;
+    }
+
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+
+    try {
+      return await Promise.race([
+        execution,
+        new Promise<never>((_, reject) => {
+          timeoutHandle = setTimeout(() => {
+            reject(
+              new ProcessExecutionTimeoutError(
+                `Execution exceeded timeout of ${timeoutMs}ms`,
+              ),
+            );
+          }, timeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
       }
     }
   }
