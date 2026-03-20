@@ -8,7 +8,10 @@ import type { ExecutionStatus } from "@/config/modules";
 import { StringDecoder } from "node:string_decoder";
 import { logger } from "@/logger";
 import { HttpError } from "@/models/error";
-import type { Pool, PooledInstance } from "@/services/pool.service";
+import type {
+  EnvironmentPool,
+  EnvironmentPoolInstance,
+} from "@/services/pool.service";
 
 const DEFAULT_EXECUTION_TIMEOUT_MS = 30_000;
 
@@ -22,11 +25,11 @@ class ProcessExecutionTimeoutError extends Error {
 export class ProcessService {
   private readonly processes = new Map<number, StoredProcess>();
   private readonly pidPool: number[] = [];
-  private readonly running = new Map<number, PooledInstance>();
+  private readonly running = new Map<number, EnvironmentPoolInstance>();
   private nextId = 1;
 
   constructor(
-    private readonly pool: Pool,
+    private readonly environmentPool: EnvironmentPool,
     private readonly options: {
       executeTimeoutMs?: number;
     } = {},
@@ -202,7 +205,7 @@ export class ProcessService {
   }
 
   private async executeProcess(pid: number): Promise<void> {
-    let instance: PooledInstance | null = null;
+    let instance: EnvironmentPoolInstance | null = null;
     let onStdout: ((chunk: Buffer) => void) | null = null;
     let onStderr: ((chunk: Buffer) => void) | null = null;
     let onOutput: ((data: unknown) => void) | null = null;
@@ -210,11 +213,11 @@ export class ProcessService {
     const stderrDecoder = new StringDecoder("utf8");
 
     try {
-      instance = await this.pool.acquire();
+      instance = await this.environmentPool.acquire();
 
       const stored = this.processes.get(pid);
       if (!stored || stored.process.state !== "queued") {
-        this.pool.release(instance);
+        this.environmentPool.release(instance);
         instance = null;
         return;
       }
@@ -317,7 +320,7 @@ export class ProcessService {
         }
 
         this.running.delete(pid);
-        this.pool.release(instance);
+        this.environmentPool.release(instance);
       }
     }
   }

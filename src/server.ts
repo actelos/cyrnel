@@ -7,9 +7,11 @@ const PORT = Number(process.env.PORT ?? 7687);
 
 const startServer = async () => {
   const serverState = await loadServerState();
-  await serverState.pool.initialize(serverState.modules.loaded.environment);
+  await serverState.pools.environment.initialize(
+    serverState.modules.loaded.environment,
+  );
 
-  const processService = new ProcessService(serverState.pool);
+  const processService = new ProcessService(serverState.pools.environment);
   const app = createApp();
 
   app.locals.serverState = serverState;
