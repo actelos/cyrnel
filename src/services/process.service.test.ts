@@ -197,7 +197,8 @@ describe("ProcessService", () => {
   it("kill() does not call module.kill() for queued process", async () => {
     const waitingAcquire = deferred<PooledInstance>();
     const kill = vi.fn(async () => {});
-    const module = new TestEnvironmentModule(async () => "success", kill);
+    const execute = vi.fn(async () => "success" as ExecutionStatus);
+    const module = new TestEnvironmentModule(execute, kill);
     const instance: PooledInstance = { module, busy: true };
     const { pool } = createMockPool(async () => waitingAcquire.promise);
     const service = new ProcessService(pool);
@@ -215,6 +216,8 @@ describe("ProcessService", () => {
 
     waitingAcquire.resolve(instance);
     await flush();
+
+    expect(execute).not.toHaveBeenCalled();
   });
 
   it("releases acquired instance only once when process is no longer queued", async () => {
