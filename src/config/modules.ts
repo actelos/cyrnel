@@ -170,7 +170,7 @@ export const loadModule = async (modulePath: string): Promise<LoadedModule> => {
     const moduleValue = value as EnvironmentModule;
     if (
       typeof moduleValue.label !== "string" ||
-      moduleValue.label.length === 0
+      moduleValue.label.trim().length === 0
     ) {
       return {
         module: null,
