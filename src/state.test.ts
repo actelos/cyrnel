@@ -141,7 +141,7 @@ describe("loadServerState", () => {
     );
   });
 
-  it("relogs unknown module types and fails if none load", async () => {
+  it("logs unknown module types and fails if none load", async () => {
     mockedLoadModulesConfig.mockReturnValue({
       mystery: {
         id: "mystery",
