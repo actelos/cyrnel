@@ -66,6 +66,10 @@ export const loadServerState = async (): Promise<ServerState> => {
           moduleState.loaded.environment.set(id, result.module);
           break;
         default:
+          moduleState.errors.set(
+            id,
+            new Error(`Unknown module type: ${result.module.type}`),
+          );
           logger.error(
             { moduleId: id, moduleType: result.module.type },
             "Unknown module type loaded",
