@@ -46,7 +46,7 @@ export interface EnvironmentModule extends BaseModule, EventEmitter {
 }
 
 export type LoadedModule =
-  | { module: BaseModule; error: null }
+  | { module: EnvironmentModule; error: null }
   | { module: null; error: Error };
 
 const getConfigDir = () => {
@@ -156,7 +156,7 @@ export const loadModule = async (modulePath: string): Promise<LoadedModule> => {
       value === undefined ||
       typeof value !== "object" ||
       Array.isArray(value) ||
-      (value as BaseModule).type !== "environment"
+      (value as EnvironmentModule).type !== "environment"
     ) {
       return {
         module: null,
@@ -166,7 +166,7 @@ export const loadModule = async (modulePath: string): Promise<LoadedModule> => {
       };
     }
 
-    return { module: value as BaseModule, error: null };
+    return { module: value as EnvironmentModule, error: null };
   } catch (err) {
     return {
       module: null,

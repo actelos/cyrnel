@@ -2,13 +2,13 @@ import { logger } from "@/logger";
 import {
   loadModule,
   loadModulesConfig,
-  type BaseModule,
+  type EnvironmentModule,
   type ModulesConfig,
 } from "@/config/modules";
 
 export type ModuleState = {
   config: ModulesConfig;
-  loaded: Map<string, BaseModule>;
+  loaded: Map<string, EnvironmentModule>;
   errors: Map<string, Error>;
 };
 

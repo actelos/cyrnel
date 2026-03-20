@@ -1,6 +1,12 @@
+import { EventEmitter } from "node:events";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { loadModule, loadModulesConfig } from "@/config/modules";
+import {
+  loadModule,
+  loadModulesConfig,
+  type EnvironmentModule,
+  type ExecutionStatus,
+} from "@/config/modules";
 import { logger } from "@/logger";
 import { loadServerState } from "@/state";
 
@@ -19,6 +25,22 @@ vi.mock("@/logger", () => ({
 const mockedLoadModulesConfig = vi.mocked(loadModulesConfig);
 const mockedLoadModule = vi.mocked(loadModule);
 const mockedLogger = vi.mocked(logger);
+
+class TestEnvironmentModule extends EventEmitter implements EnvironmentModule {
+  readonly type = "environment";
+  label: string;
+
+  constructor(label = "test") {
+    super();
+    this.label = label;
+  }
+
+  async setup(): Promise<void> {}
+
+  async execute(_code: string): Promise<ExecutionStatus> {
+    return "success";
+  }
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -101,8 +123,9 @@ describe("loadServerState", () => {
         path: "./modules/disabled.ts",
       },
     });
+    const enabledModule = new TestEnvironmentModule("enabled");
     mockedLoadModule.mockResolvedValue({
-      module: { type: "environment" },
+      module: enabledModule,
       error: null,
     });
 
@@ -110,9 +133,7 @@ describe("loadServerState", () => {
 
     expect(mockedLoadModule).toHaveBeenCalledTimes(1);
     expect(mockedLoadModule).toHaveBeenCalledWith("./modules/enabled.ts");
-    expect(state.modules.loaded.get("enabled")).toEqual({
-      type: "environment",
-    });
+    expect(state.modules.loaded.get("enabled")).toBe(enabledModule);
     expect(state.modules.loaded.has("disabled")).toBe(false);
     expect(mockedLogger.info).toHaveBeenCalledWith(
       { moduleId: "disabled", modulePath: "./modules/disabled.ts" },
@@ -133,14 +154,15 @@ describe("loadServerState", () => {
         path: "./modules/bad.ts",
       },
     });
+    const goodModule = new TestEnvironmentModule("good");
     mockedLoadModule
-      .mockResolvedValueOnce({ module: { type: "environment" }, error: null })
+      .mockResolvedValueOnce({ module: goodModule, error: null })
       .mockResolvedValueOnce({ module: null, error: new Error("bad module") });
 
     const state = await loadServerState();
 
     expect(mockedLoadModule).toHaveBeenCalledTimes(2);
-    expect(state.modules.loaded.get("good")).toEqual({ type: "environment" });
+    expect(state.modules.loaded.get("good")).toBe(goodModule);
     expect(state.modules.errors.get("bad")).toBeInstanceOf(Error);
     expect(mockedLogger.info).toHaveBeenCalledWith(
       { modules: [{ id: "good", type: "environment" }] },
