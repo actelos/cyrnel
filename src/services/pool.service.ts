@@ -67,7 +67,7 @@ class EnvironmentPoolService implements EnvironmentPool {
     const queuedEntries = this.queue.splice(0);
 
     for (const entry of queuedEntries) {
-      entry.reject(new Error("Pool was shut down"));
+      entry.reject(new Error("Pool has been shut down"));
     }
 
     const instances = this.instances.splice(0);
