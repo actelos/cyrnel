@@ -114,15 +114,17 @@ function parseStatus(raw: unknown): ProcessStatus | undefined {
     return undefined;
   }
 
+  const allowedLabels = PROCESS_STATUSES.map((item) =>
+    item === null ? "null" : item,
+  );
+  const message = `Invalid value for 'status': must be one of ${allowedLabels.join(", ")}.`;
+
   if (raw === "null") {
     return null;
   }
 
   if (typeof raw !== "string") {
-    throw new HttpError(
-      400,
-      "Invalid value for 'status': must be one of success, failed, canceled, null.",
-    );
+    throw new HttpError(400, message);
   }
 
   const allowed = PROCESS_STATUSES.filter(
@@ -130,10 +132,7 @@ function parseStatus(raw: unknown): ProcessStatus | undefined {
   );
 
   if (!allowed.includes(raw as Exclude<ProcessStatus, null>)) {
-    throw new HttpError(
-      400,
-      "Invalid value for 'status': must be one of success, failed, canceled, null.",
-    );
+    throw new HttpError(400, message);
   }
 
   return raw as Exclude<ProcessStatus, null>;

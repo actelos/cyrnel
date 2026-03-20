@@ -244,7 +244,17 @@ export class ProcessService {
   }
 
   private randomFinalStatus(): Exclude<ProcessStatus, "canceled" | null> {
-    return Math.random() < 0.75 ? "success" : "failed";
+    const value = Math.random();
+
+    if (value < 0.7) {
+      return "success";
+    }
+
+    if (value < 0.9) {
+      return "failed";
+    }
+
+    return "timeout";
   }
 
   private randomInt(min: number, max: number): number {
