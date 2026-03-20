@@ -61,23 +61,36 @@ export const loadServerState = async (): Promise<ServerState> => {
         );
         return;
       }
-      moduleState.loaded.environment.set(id, result.module);
+      switch (result.module.type) {
+        case "environment":
+          moduleState.loaded.environment.set(id, result.module);
+          break;
+        default:
+          logger.error(
+            { moduleId: id, moduleType: result.module.type },
+            "Unknown module type loaded",
+          );
+          return;
+      }
     }),
   );
 
-  const environmentLoadedCount = moduleState.loaded.environment.size;
-  if (environmentLoadedCount === 0) {
+  const totalLoadedCount = Object.values(moduleState.loaded).reduce(
+    (total, modules) => total + modules.size,
+    0,
+  );
+  if (totalLoadedCount === 0) {
     logger.error(
       {
         moduleErrors: moduleState.errors.size,
-        modulesLoaded: environmentLoadedCount,
+        modulesLoaded: totalLoadedCount,
         modulesConfigured: totalConfigured,
         modulesEnabled: totalEnabled,
       },
       "No modules loaded",
     );
     throw new Error(
-      `No modules loaded (configured: ${totalConfigured}, enabled: ${totalEnabled}, loaded: ${environmentLoadedCount}, errors: ${moduleState.errors.size})`,
+      `No modules loaded (configured: ${totalConfigured}, enabled: ${totalEnabled}, loaded: ${totalLoadedCount}, errors: ${moduleState.errors.size})`,
     );
   }
 
