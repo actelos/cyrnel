@@ -48,8 +48,8 @@ export class ProcessService {
       },
       code,
       output: null,
-      stdout: "",
-      stderr: "",
+      stdoutChunks: [],
+      stderrChunks: [],
     });
 
     void this.executeProcess(pid);
@@ -70,13 +70,13 @@ export class ProcessService {
   getStdout(pid: number): string {
     const stored = this.getStored(pid);
     this.assertIdle(stored.process.state);
-    return stored.stdout;
+    return stored.stdoutChunks.join("");
   }
 
   getStderr(pid: number): string {
     const stored = this.getStored(pid);
     this.assertIdle(stored.process.state);
-    return stored.stderr;
+    return stored.stderrChunks.join("");
   }
 
   kill(pid: number): Process {
@@ -118,8 +118,8 @@ export class ProcessService {
     const hasExistingOutputs =
       stored.process.status !== null ||
       stored.output !== null ||
-      stored.stdout.length > 0 ||
-      stored.stderr.length > 0;
+      stored.stdoutChunks.length > 0 ||
+      stored.stderrChunks.length > 0;
 
     if (hasExistingOutputs && !force) {
       throw new HttpError(
@@ -133,8 +133,8 @@ export class ProcessService {
 
     if (force) {
       stored.output = null;
-      stored.stdout = "";
-      stored.stderr = "";
+      stored.stdoutChunks = [];
+      stored.stderrChunks = [];
     }
 
     void this.executeProcess(pid);
@@ -211,7 +211,7 @@ export class ProcessService {
           return;
         }
 
-        current.stdout += chunk.toString();
+        current.stdoutChunks.push(chunk.toString());
       };
 
       onStderr = (chunk: Buffer) => {
@@ -220,7 +220,7 @@ export class ProcessService {
           return;
         }
 
-        current.stderr += chunk.toString();
+        current.stderrChunks.push(chunk.toString());
       };
 
       onOutput = (data: unknown) => {

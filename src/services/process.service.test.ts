@@ -141,8 +141,8 @@ describe("ProcessService", () => {
     await flush();
 
     const stored = getStored(service, pid);
-    expect(stored.stdout).toBe("hello world");
-    expect(stored.stderr).toBe("warn");
+    expect(stored.stdoutChunks).toEqual(["hello ", "world"]);
+    expect(stored.stderrChunks).toEqual(["warn"]);
     expect(stored.output).toEqual({ ok: true });
   });
 
@@ -253,8 +253,8 @@ describe("ProcessService", () => {
 
     const stored = getStored(service, pid);
     stored.output = { prior: true };
-    stored.stdout = "prev";
-    stored.stderr = "prev-err";
+    stored.stdoutChunks = ["prev"];
+    stored.stderrChunks = ["prev-err"];
 
     service.run(pid, true);
     await waitForState(service, pid, "idle");
@@ -265,8 +265,8 @@ describe("ProcessService", () => {
     expect(service.get(pid).state).toBe("idle");
     expect(service.get(pid).status).toBe("success");
     expect(restarted.output).toBeNull();
-    expect(restarted.stdout).toBe("");
-    expect(restarted.stderr).toBe("");
+    expect(restarted.stdoutChunks).toEqual([]);
+    expect(restarted.stderrChunks).toEqual([]);
   });
 
   it("removes module event listeners after execution completes", async () => {
@@ -340,8 +340,8 @@ describe("ProcessService", () => {
 
     const stored = setState(service, pid, "idle");
     stored.output = { ok: true };
-    stored.stdout = "ok";
-    stored.stderr = "";
+    stored.stdoutChunks = ["ok"];
+    stored.stderrChunks = [];
 
     expect(service.getOutput(pid)).toEqual({ ok: true });
     expect(service.getStdout(pid)).toBe("ok");
@@ -377,7 +377,7 @@ describe("ProcessService", () => {
 
     const stored = setState(service, pid, "idle");
     stored.output = { prior: true };
-    stored.stdout = "log";
+    stored.stdoutChunks = ["log"];
 
     expect(() => service.run(pid, false)).toThrow(HttpError);
 

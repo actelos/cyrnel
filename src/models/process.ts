@@ -53,6 +53,6 @@ export interface StoredProcess {
   process: Process;
   code: string;
   output: unknown;
-  stdout: string;
-  stderr: string;
+  stdoutChunks: string[];
+  stderrChunks: string[];
 }
