@@ -115,13 +115,15 @@ function parseState(raw: unknown): ProcessState | undefined {
     return undefined;
   }
 
+  const allowedStates = PROCESS_STATES.join(", ");
+
   if (
     typeof raw !== "string" ||
     !PROCESS_STATES.includes(raw as ProcessState)
   ) {
     throw new HttpError(
       400,
-      "Invalid value for 'state': must be one of queued, running, idle.",
+      `Invalid value for 'state': must be one of ${allowedStates}.`,
     );
   }
 

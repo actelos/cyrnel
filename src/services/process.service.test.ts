@@ -74,11 +74,11 @@ const createMockPool = (
 
   return {
     pool: {
-      instances: [],
-      queue: [],
       initialize: vi.fn(),
       acquire,
       release,
+      getInstances: vi.fn(() => []),
+      getQueue: vi.fn(() => []),
     },
     release,
     acquire,

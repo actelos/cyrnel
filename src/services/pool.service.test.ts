@@ -59,7 +59,7 @@ describe("pool.service", () => {
 
     expect(setupA).toHaveBeenCalledTimes(1);
     expect(setupB).toHaveBeenCalledTimes(1);
-    expect(pool.instances).toHaveLength(2);
+    expect(pool.getInstances()).toHaveLength(2);
   });
 
   it("initialize() skips a module when setup() throws and logs warning", async () => {
@@ -81,8 +81,8 @@ describe("pool.service", () => {
 
     expect(setupBad).toHaveBeenCalledTimes(1);
     expect(setupGood).toHaveBeenCalledTimes(1);
-    expect(pool.instances).toHaveLength(1);
-    expect(pool.instances[0]?.module).toBe(good);
+    expect(pool.getInstances()).toHaveLength(1);
+    expect(pool.getInstances()[0]?.module).toBe(good);
     expect(vi.mocked(logger.warn)).toHaveBeenCalledWith(
       {
         err: badError,
@@ -109,45 +109,45 @@ describe("pool.service", () => {
     const moduleA = new TestEnvironmentModule("a");
     const moduleB = new TestEnvironmentModule("b");
 
-    pool.instances.push({ module: moduleA, busy: false });
+    await pool.initialize(new Map([["a", moduleA]]));
     const inUse = await pool.acquire();
     const waitingAcquire = pool.acquire();
 
-    expect(pool.queue).toHaveLength(1);
+    expect(pool.getQueue()).toHaveLength(1);
 
     await pool.initialize(new Map([["b", moduleB]]));
 
     await expect(waitingAcquire).rejects.toThrow("Pool was re-initialized");
-    expect(pool.queue).toHaveLength(0);
-    expect(pool.instances).toHaveLength(1);
-    expect(pool.instances[0]?.module).toBe(moduleB);
+    expect(pool.getQueue()).toHaveLength(0);
+    expect(pool.getInstances()).toHaveLength(1);
+    expect(pool.getInstances()[0]?.module).toBe(moduleB);
 
     pool.release(inUse);
-    expect(pool.instances[0]?.busy).toBe(false);
+    expect(pool.getInstances()[0]?.busy).toBe(false);
   });
 
   it("acquire() returns a free instance immediately and marks it busy", async () => {
     const pool = createPool();
     const moduleA = new TestEnvironmentModule("a");
 
-    pool.instances.push({ module: moduleA, busy: false });
+    await pool.initialize(new Map([["a", moduleA]]));
 
     const instance = await pool.acquire();
 
     expect(instance.module).toBe(moduleA);
     expect(instance.busy).toBe(true);
-    expect(pool.queue).toHaveLength(0);
+    expect(pool.getQueue()).toHaveLength(0);
   });
 
   it("acquire() parks caller and resolves when release() is called", async () => {
     const pool = createPool();
     const moduleA = new TestEnvironmentModule("a");
-    pool.instances.push({ module: moduleA, busy: false });
+    await pool.initialize(new Map([["a", moduleA]]));
 
     const first = await pool.acquire();
     const secondPromise = pool.acquire();
 
-    expect(pool.queue).toHaveLength(1);
+    expect(pool.getQueue()).toHaveLength(1);
 
     pool.release(first);
 
@@ -155,13 +155,13 @@ describe("pool.service", () => {
 
     expect(second).toBe(first);
     expect(second.busy).toBe(true);
-    expect(pool.queue).toHaveLength(0);
+    expect(pool.getQueue()).toHaveLength(0);
   });
 
   it("acquire() serves queued callers in FIFO order", async () => {
     const pool = createPool();
     const moduleA = new TestEnvironmentModule("a");
-    pool.instances.push({ module: moduleA, busy: false });
+    await pool.initialize(new Map([["a", moduleA]]));
 
     const first = await pool.acquire();
     const secondPromise = pool.acquire();
@@ -175,17 +175,21 @@ describe("pool.service", () => {
 
     expect(second).toBe(first);
     expect(third).toBe(first);
-    expect(pool.queue).toHaveLength(0);
+    expect(pool.getQueue()).toHaveLength(0);
   });
 
   it("acquire() returns multiple free instances in insertion order", async () => {
     const pool = createPool();
     const moduleA = new TestEnvironmentModule("a");
     const moduleB = new TestEnvironmentModule("b");
-    const instanceA = { module: moduleA, busy: false };
-    const instanceB = { module: moduleB, busy: false };
+    await pool.initialize(
+      new Map([
+        ["a", moduleA],
+        ["b", moduleB],
+      ]),
+    );
 
-    pool.instances.push(instanceA, instanceB);
+    const [instanceA, instanceB] = pool.getInstances();
 
     const first = await pool.acquire();
     const second = await pool.acquire();
@@ -200,10 +204,19 @@ describe("pool.service", () => {
     const pool = createPool();
     const moduleA = new TestEnvironmentModule("a");
     const moduleB = new TestEnvironmentModule("b");
-    const instanceA = { module: moduleA, busy: true };
-    const instanceB = { module: moduleB, busy: false };
+    await pool.initialize(
+      new Map([
+        ["a", moduleA],
+        ["b", moduleB],
+      ]),
+    );
 
-    pool.instances.push(instanceA, instanceB);
+    const instanceA = await pool.acquire();
+    const instanceB = pool
+      .getInstances()
+      .find((instance) => instance.module === moduleB);
+
+    expect(instanceB).toBeDefined();
 
     const acquired = await pool.acquire();
 
@@ -218,7 +231,7 @@ describe("pool.service", () => {
     try {
       const pool = createPool();
       const moduleA = new TestEnvironmentModule("a");
-      pool.instances.push({ module: moduleA, busy: false });
+      await pool.initialize(new Map([["a", moduleA]]));
 
       const first = await pool.acquire();
       const waitingAcquire = pool.acquire();
@@ -245,7 +258,7 @@ describe("pool.service", () => {
   it("release() hands instance directly to queued caller without setting busy false", async () => {
     const pool = createPool();
     const moduleA = new TestEnvironmentModule("a");
-    pool.instances.push({ module: moduleA, busy: false });
+    await pool.initialize(new Map([["a", moduleA]]));
 
     const first = await pool.acquire();
     const secondPromise = pool.acquire();
@@ -260,7 +273,7 @@ describe("pool.service", () => {
   it("release() sets busy to false when queue is empty", async () => {
     const pool = createPool();
     const moduleA = new TestEnvironmentModule("a");
-    pool.instances.push({ module: moduleA, busy: false });
+    await pool.initialize(new Map([["a", moduleA]]));
 
     const first = await pool.acquire();
     pool.release(first);
@@ -268,16 +281,20 @@ describe("pool.service", () => {
     expect(first.busy).toBe(false);
   });
 
-  it("release() keeps state unchanged when releasing an already non-busy instance", () => {
+  it("release() keeps state unchanged when releasing an already non-busy instance", async () => {
     const pool = createPool();
     const moduleA = new TestEnvironmentModule("a");
-    const idleInstance = { module: moduleA, busy: false };
 
-    pool.instances.push(idleInstance);
-    pool.release(idleInstance);
+    await pool.initialize(new Map([["a", moduleA]]));
 
-    expect(idleInstance.busy).toBe(false);
-    expect(pool.queue).toHaveLength(0);
+    const idleInstance = pool.getInstances()[0];
+
+    expect(idleInstance).toBeDefined();
+
+    pool.release(idleInstance!);
+
+    expect(idleInstance?.busy).toBe(false);
+    expect(pool.getQueue()).toHaveLength(0);
     expect(vi.mocked(logger.warn)).not.toHaveBeenCalled();
   });
 
@@ -292,6 +309,6 @@ describe("pool.service", () => {
       { module: "a" },
       "Attempted to release unknown instance",
     );
-    expect(pool.queue).toHaveLength(0);
+    expect(pool.getQueue()).toHaveLength(0);
   });
 });

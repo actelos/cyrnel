@@ -12,16 +12,16 @@ export type QueueEntry = {
 };
 
 export type Pool = {
-  instances: PooledInstance[];
-  queue: QueueEntry[];
   initialize(modules: Map<string, EnvironmentModule>): Promise<void>;
   acquire(): Promise<PooledInstance>;
   release(instance: PooledInstance): void;
+  getInstances(): readonly PooledInstance[];
+  getQueue(): readonly QueueEntry[];
 };
 
 class PoolService implements Pool {
-  readonly instances: PooledInstance[] = [];
-  readonly queue: QueueEntry[] = [];
+  private readonly instances: PooledInstance[] = [];
+  private readonly queue: QueueEntry[] = [];
 
   async initialize(modules: Map<string, EnvironmentModule>): Promise<void> {
     const queuedEntries = this.queue.splice(0);
@@ -83,6 +83,14 @@ class PoolService implements Pool {
     }
 
     instance.busy = false;
+  }
+
+  getInstances(): readonly PooledInstance[] {
+    return this.instances.slice();
+  }
+
+  getQueue(): readonly QueueEntry[] {
+    return this.queue.slice();
   }
 }
 

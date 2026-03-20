@@ -178,8 +178,16 @@ describe("process.controller", () => {
 
     const invalidStatusCall = () =>
       listProcesses(makeReq({ query: { status: "invalid" } }) as any, res);
-    expect(invalidStatusCall).toThrow(HttpError);
-    expect(invalidStatusCall).toThrow(
+    let err: unknown;
+
+    try {
+      invalidStatusCall();
+    } catch (caught) {
+      err = caught;
+    }
+
+    expect(err).toBeInstanceOf(HttpError);
+    expect((err as Error).message).toMatch(
       /success, failed, timeout, canceled, null/,
     );
 
