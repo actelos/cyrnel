@@ -29,8 +29,10 @@ export type EnvironmentPool = Pool<
 class EnvironmentPoolService implements EnvironmentPool {
   private readonly instances: EnvironmentPoolInstance[] = [];
   private readonly queue: EnvironmentPoolQueueEntry[] = [];
+  private isShutdown = false;
 
   async initialize(modules: Map<string, EnvironmentModule>): Promise<void> {
+    this.isShutdown = false;
     const queuedEntries = this.queue.splice(0);
 
     for (const entry of queuedEntries) {
@@ -61,6 +63,7 @@ class EnvironmentPoolService implements EnvironmentPool {
   }
 
   async shutdown(): Promise<void> {
+    this.isShutdown = true;
     const queuedEntries = this.queue.splice(0);
 
     for (const entry of queuedEntries) {
@@ -84,6 +87,10 @@ class EnvironmentPoolService implements EnvironmentPool {
   }
 
   async acquire(): Promise<EnvironmentPoolInstance> {
+    if (this.isShutdown) {
+      throw new Error("Pool has been shut down");
+    }
+
     const free = this.instances.find((instance) => !instance.busy);
 
     if (free) {

@@ -319,4 +319,14 @@ describe("pool.service", () => {
     );
     expect(pool.getQueue()).toHaveLength(0);
   });
+
+  it("acquire() rejects after shutdown", async () => {
+    const pool = createEnvironmentPool();
+    const moduleA = new TestEnvironmentModule("a");
+    await pool.initialize(new Map([["a", moduleA]]));
+
+    await pool.shutdown();
+
+    await expect(pool.acquire()).rejects.toThrow("Pool has been shut down");
+  });
 });
