@@ -217,6 +217,9 @@ describe("pool.service", () => {
       .find((instance) => instance.module === moduleB);
 
     expect(instanceB).toBeDefined();
+    if (!instanceB) {
+      throw new Error("Expected moduleB instance to exist in pool");
+    }
 
     const acquired = await pool.acquire();
 
