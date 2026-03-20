@@ -4,12 +4,17 @@ import {
   type StoredProcess,
   type ProcessQueryFilters,
 } from "@/models/process";
+import { logger } from "@/logger";
 import { HttpError } from "@/models/error";
+import type { Pool, PooledInstance } from "@/services/pool.service";
 
 export class ProcessService {
   private readonly processes = new Map<number, StoredProcess>();
   private readonly pidPool: number[] = [];
+  private readonly running = new Map<number, PooledInstance>();
   private nextId = 1;
+
+  constructor(private readonly pool: Pool) {}
 
   list(filters: ProcessQueryFilters): Process[] {
     const all = Array.from(this.processes.values(), ({ process }) => process);
@@ -47,6 +52,8 @@ export class ProcessService {
       stderr: "",
     });
 
+    void this.executeProcess(pid);
+
     return pid;
   }
 
@@ -77,6 +84,16 @@ export class ProcessService {
 
     if (stored.process.state === "idle") {
       throw new HttpError(409, "Process is already idle.");
+    }
+
+    const runningInstance = this.running.get(pid);
+
+    if (runningInstance) {
+      void runningInstance.module.kill().catch((err) => {
+        logger.warn({ err, pid }, "Failed to send kill signal to module");
+      });
+
+      return stored.process;
     }
 
     stored.process.state = "idle";
@@ -113,6 +130,8 @@ export class ProcessService {
       stored.stdout = "";
       stored.stderr = "";
     }
+
+    void this.executeProcess(pid);
 
     return stored.process;
   }
@@ -155,9 +174,94 @@ export class ProcessService {
       return pooled;
     }
 
+    const pid = this.nextId;
     this.nextId += 1;
-    return this.nextId;
+    return pid;
+  }
+
+  private async executeProcess(pid: number): Promise<void> {
+    let instance: PooledInstance | null = null;
+    let onStdout: ((chunk: Buffer) => void) | null = null;
+    let onStderr: ((chunk: Buffer) => void) | null = null;
+    let onOutput: ((data: unknown) => void) | null = null;
+
+    try {
+      instance = await this.pool.acquire();
+
+      const stored = this.processes.get(pid);
+      if (!stored || stored.process.state !== "queued") {
+        this.pool.release(instance);
+        return;
+      }
+
+      stored.process.state = "running";
+      stored.process.status = null;
+      this.running.set(pid, instance);
+
+      onStdout = (chunk: Buffer) => {
+        const current = this.processes.get(pid);
+        if (!current) {
+          return;
+        }
+
+        current.stdout += chunk.toString();
+      };
+
+      onStderr = (chunk: Buffer) => {
+        const current = this.processes.get(pid);
+        if (!current) {
+          return;
+        }
+
+        current.stderr += chunk.toString();
+      };
+
+      onOutput = (data: unknown) => {
+        const current = this.processes.get(pid);
+        if (!current) {
+          return;
+        }
+
+        current.output = data;
+      };
+
+      instance.module.on("stdout", onStdout);
+      instance.module.on("stderr", onStderr);
+      instance.module.on("output", onOutput);
+
+      const status = await instance.module.execute(stored.code);
+
+      const current = this.processes.get(pid);
+      if (current) {
+        current.process.state = "idle";
+        current.process.status = status;
+      }
+    } catch (err) {
+      const current = this.processes.get(pid);
+
+      if (current) {
+        current.process.state = "idle";
+        current.process.status = "failed";
+      }
+
+      logger.error({ err, pid }, "Process execution failed");
+    } finally {
+      if (instance) {
+        if (onStdout) {
+          instance.module.off("stdout", onStdout);
+        }
+
+        if (onStderr) {
+          instance.module.off("stderr", onStderr);
+        }
+
+        if (onOutput) {
+          instance.module.off("output", onOutput);
+        }
+
+        this.running.delete(pid);
+        this.pool.release(instance);
+      }
+    }
   }
 }
-
-export const processService = new ProcessService();
