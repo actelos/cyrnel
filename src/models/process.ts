@@ -4,6 +4,7 @@ export type ProcessState = (typeof PROCESS_STATES)[number];
 export const PROCESS_STATUSES = [
   "success",
   "failed",
+  "timeout",
   "canceled",
   null,
 ] as const;
