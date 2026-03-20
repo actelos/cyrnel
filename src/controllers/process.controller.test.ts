@@ -64,7 +64,7 @@ describe("process.controller", () => {
     const res = makeRes();
     const req: any = { body: {} };
 
-    expect(() => createProcess(req, res)).toThrowError(HttpError);
+    expect(() => createProcess(req, res)).toThrow(HttpError);
   });
 
   it("creates process with valid body", () => {
@@ -91,7 +91,7 @@ describe("process.controller", () => {
     expect(res.json).toHaveBeenCalledWith({ pid: 12 });
 
     const badReq: any = { params: { pid: "0" } };
-    expect(() => getProcess(badReq, res)).toThrowError(HttpError);
+    expect(() => getProcess(badReq, res)).toThrow(HttpError);
   });
 
   it("returns output and stdout/stderr payloads", () => {
@@ -117,16 +117,16 @@ describe("process.controller", () => {
   it("runs and kills with body validation", () => {
     const res = makeRes();
 
-    expect(() => runProcess({ params: { pid: "1" } } as any, res)).toThrowError(
+    expect(() => runProcess({ params: { pid: "1" } } as any, res)).toThrow(
       HttpError,
     );
-    expect(() =>
-      killProcess({ params: { pid: "1" } } as any, res),
-    ).toThrowError(HttpError);
+    expect(() => killProcess({ params: { pid: "1" } } as any, res)).toThrow(
+      HttpError,
+    );
 
     expect(() =>
       runProcess({ params: { pid: "2" }, body: { force: "yes" } } as any, res),
-    ).toThrowError(HttpError);
+    ).toThrow(HttpError);
 
     const runReq: any = { params: { pid: "3" }, body: { force: true } };
     processService.run.mockReturnValue({ pid: 3 });
@@ -156,14 +156,35 @@ describe("process.controller", () => {
 
     expect(() =>
       listProcesses({ query: { state: "bad" } } as any, res),
-    ).toThrowError(HttpError);
+    ).toThrow(HttpError);
 
     expect(() =>
       listProcesses({ query: { status: "invalid" } } as any, res),
-    ).toThrowError(HttpError);
+    ).toThrow(HttpError);
 
     expect(() =>
-      listProcesses({ query: { ref: "   " } } as any, res),
-    ).toThrowError(HttpError);
+      listProcesses({ query: { status: "invalid" } } as any, res),
+    ).toThrow(/success, failed, timeout, canceled, null/);
+
+    expect(() => listProcesses({ query: { ref: "   " } } as any, res)).toThrow(
+      HttpError,
+    );
+  });
+
+  it("accepts timeout as a valid status filter", () => {
+    const res = makeRes();
+    const req: any = {
+      query: { status: "timeout" },
+    };
+    processService.list.mockReturnValue([{ pid: 2, status: "timeout" }]);
+
+    listProcesses(req, res);
+
+    expect(processService.list).toHaveBeenCalledWith({
+      state: undefined,
+      status: "timeout",
+      ref: undefined,
+    });
+    expect(res.status).toHaveBeenCalledWith(200);
   });
 });
