@@ -182,7 +182,7 @@ const writeModuleFile = (dir: string, name: string, contents: string) => {
 
 const environmentModuleSource = (
   label = "test",
-  { includeSetup = true, includeExecute = true } = {},
+  { includeSetup = true, includeExecute = true, includeKill = true } = {},
 ) =>
   `
 import { EventEmitter } from "node:events";
@@ -192,6 +192,7 @@ class TestModule extends EventEmitter {
   label = ${JSON.stringify(label)};
   ${includeSetup ? "async setup() {}\n" : ""}
   ${includeExecute ? 'async execute() {\n    return "success";\n  }\n' : ""}
+  ${includeKill ? "async kill() {}\n" : ""}
 }
 
 export default new TestModule();
@@ -387,6 +388,29 @@ describe("loadModule", () => {
     expect(result.error?.message).toMatch(/execute/i);
   });
 
+  it("returns an error when the default export is missing kill", async () => {
+    const configDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "mci-module-kill-"),
+    );
+    tempDirs.push(configDir);
+    process.env.MCI_CONFIG_DIR = configDir;
+    const modulePath = writeModuleFile(
+      path.join(configDir, "modules"),
+      "bad-kill.mjs",
+      environmentModuleSource("no-kill", {
+        includeSetup: true,
+        includeExecute: true,
+        includeKill: false,
+      }),
+    );
+
+    const result = await loadModule(modulePath);
+
+    expect(result.module).toBeNull();
+    expect(result.error).toBeInstanceOf(Error);
+    expect(result.error?.message).toMatch(/kill/i);
+  });
+
   it("returns an error when the default export does not extend EventEmitter", async () => {
     const configDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "mci-module-emitter-"),
@@ -404,6 +428,7 @@ export default {
   async execute() {
     return "success";
   },
+  async kill() {},
 };
 `.trim(),
     );

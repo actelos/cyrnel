@@ -31,6 +31,7 @@ export interface EnvironmentModule extends BaseModule, EventEmitter {
   label: string;
   setup(): Promise<void>;
   execute(code: string): Promise<ExecutionStatus>;
+  kill(): Promise<void>;
   on<U extends keyof EnvironmentModuleEvents>(
     event: U,
     listener: EnvironmentModuleEvents[U],
@@ -191,6 +192,14 @@ export const loadModule = async (modulePath: string): Promise<LoadedModule> => {
         module: null,
         error: new Error(
           `Module at "${resolvedPath}" is missing an execute() function`,
+        ),
+      };
+    }
+    if (typeof moduleValue.kill !== "function") {
+      return {
+        module: null,
+        error: new Error(
+          `Module at "${resolvedPath}" is missing a kill() function`,
         ),
       };
     }

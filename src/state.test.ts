@@ -40,6 +40,8 @@ class TestEnvironmentModule extends EventEmitter implements EnvironmentModule {
   async execute(_code: string): Promise<ExecutionStatus> {
     return "success";
   }
+
+  async kill(): Promise<void> {}
 }
 
 beforeEach(() => {
