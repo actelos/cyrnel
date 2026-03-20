@@ -81,6 +81,14 @@ class EnvironmentPoolService implements EnvironmentPool {
       return;
     }
 
+    if (!instance.busy) {
+      logger.warn(
+        { module: instance.module.label },
+        "Attempted to release non-busy instance",
+      );
+      return;
+    }
+
     const next = this.queue.shift();
 
     if (next) {

@@ -284,7 +284,7 @@ describe("pool.service", () => {
     expect(first.busy).toBe(false);
   });
 
-  it("release() keeps state unchanged when releasing an already non-busy instance", async () => {
+  it("release() warns and keeps state unchanged when releasing an already non-busy instance", async () => {
     const pool = createEnvironmentPool();
     const moduleA = new TestEnvironmentModule("a");
 
@@ -298,7 +298,10 @@ describe("pool.service", () => {
 
     expect(idleInstance?.busy).toBe(false);
     expect(pool.getQueue()).toHaveLength(0);
-    expect(vi.mocked(logger.warn)).not.toHaveBeenCalled();
+    expect(vi.mocked(logger.warn)).toHaveBeenCalledWith(
+      { module: "a" },
+      "Attempted to release non-busy instance",
+    );
   });
 
   it("release() ignores instances that do not belong to the pool", () => {
