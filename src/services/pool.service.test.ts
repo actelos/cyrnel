@@ -18,6 +18,7 @@ class TestEnvironmentModule extends EventEmitter implements EnvironmentModule {
   constructor(
     label: string,
     private readonly setupImpl?: () => Promise<void>,
+    private readonly teardownImpl?: () => Promise<void>,
   ) {
     super();
     this.label = label;
@@ -29,7 +30,11 @@ class TestEnvironmentModule extends EventEmitter implements EnvironmentModule {
     }
   }
 
-  async teardown(): Promise<void> {}
+  async teardown(): Promise<void> {
+    if (this.teardownImpl) {
+      await this.teardownImpl();
+    }
+  }
 
   async execute(_code: string): Promise<ExecutionStatus> {
     return "success";
@@ -62,6 +67,20 @@ describe("pool.service", () => {
     expect(setupA).toHaveBeenCalledTimes(1);
     expect(setupB).toHaveBeenCalledTimes(1);
     expect(pool.getInstances()).toHaveLength(2);
+  });
+
+  it("teardown() calls teardownImpl when provided", async () => {
+    const teardownA = vi.fn().mockResolvedValue(undefined);
+    const teardownB = vi.fn().mockResolvedValue(undefined);
+
+    const moduleA = new TestEnvironmentModule("a", undefined, teardownA);
+    const moduleB = new TestEnvironmentModule("b", undefined, teardownB);
+
+    await moduleA.teardown();
+    await moduleB.teardown();
+
+    expect(teardownA).toHaveBeenCalledTimes(1);
+    expect(teardownB).toHaveBeenCalledTimes(1);
   });
 
   it("initialize() skips a module when setup() throws and logs warning", async () => {
