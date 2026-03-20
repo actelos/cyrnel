@@ -69,18 +69,25 @@ describe("pool.service", () => {
     expect(pool.getInstances()).toHaveLength(2);
   });
 
-  it("teardown() calls teardownImpl when provided", async () => {
+  it("shutdown() calls teardown() on all pool instances", async () => {
     const teardownA = vi.fn().mockResolvedValue(undefined);
     const teardownB = vi.fn().mockResolvedValue(undefined);
 
+    const pool = createEnvironmentPool();
     const moduleA = new TestEnvironmentModule("a", undefined, teardownA);
     const moduleB = new TestEnvironmentModule("b", undefined, teardownB);
 
-    await moduleA.teardown();
-    await moduleB.teardown();
+    await pool.initialize(
+      new Map([
+        ["a", moduleA],
+        ["b", moduleB],
+      ]),
+    );
+    await pool.shutdown();
 
     expect(teardownA).toHaveBeenCalledTimes(1);
     expect(teardownB).toHaveBeenCalledTimes(1);
+    expect(pool.getInstances()).toHaveLength(0);
   });
 
   it("initialize() skips a module when setup() throws and logs warning", async () => {
