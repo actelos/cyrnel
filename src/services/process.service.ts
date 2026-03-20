@@ -86,9 +86,15 @@ export class ProcessService {
       throw new HttpError(409, "Process is already idle.");
     }
 
+    if (stored.process.state === "terminating") {
+      return stored.process;
+    }
+
     const runningInstance = this.running.get(pid);
 
     if (runningInstance) {
+      stored.process.state = "terminating";
+
       void runningInstance.module.kill().catch((err) => {
         logger.warn({ err, pid }, "Failed to send kill signal to module");
       });

@@ -14,7 +14,7 @@ const flush = async () => {
 const waitForState = async (
   service: ProcessService,
   pid: number,
-  state: "queued" | "running" | "idle",
+  state: "queued" | "running" | "terminating" | "idle",
 ): Promise<void> => {
   for (let i = 0; i < 100; i += 1) {
     if (service.get(pid).state === state) {
@@ -90,7 +90,7 @@ const getStored = (service: ProcessService, pid: number) =>
 const setState = (
   service: ProcessService,
   pid: number,
-  state: "queued" | "running" | "idle",
+  state: "queued" | "running" | "terminating" | "idle",
 ) => {
   const stored = getStored(service, pid);
   stored.process.state = state;
@@ -185,6 +185,7 @@ describe("ProcessService", () => {
 
     service.kill(pid);
     expect(kill).toHaveBeenCalledTimes(1);
+    expect(service.get(pid).state).toBe("terminating");
 
     executeGate.resolve("canceled");
     await flush();
