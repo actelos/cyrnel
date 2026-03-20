@@ -1,7 +1,6 @@
 import type { Request, Response } from "express";
 
 import { HttpError } from "@/models/error";
-import { processService } from "@/services/process-dummy.service";
 import {
   PROCESS_STATES,
   PROCESS_STATUSES,
@@ -11,6 +10,7 @@ import {
 } from "@/models/process";
 
 export function listProcesses(req: Request, res: Response): void {
+  const processService = getProcessService(req);
   const state = parseState(req.query.state);
   const status = parseStatus(req.query.status);
   const ref = parseRef(req.query.ref, "query");
@@ -26,6 +26,7 @@ export function listProcesses(req: Request, res: Response): void {
 }
 
 export function createProcess(req: Request, res: Response): void {
+  const processService = getProcessService(req);
   if (
     !req.body ||
     typeof req.body !== "object" ||
@@ -40,30 +41,35 @@ export function createProcess(req: Request, res: Response): void {
 }
 
 export function getProcess(req: Request, res: Response): void {
+  const processService = getProcessService(req);
   const pid = parsePid(req.params.pid);
   const process = processService.get(pid);
   res.status(200).json(process);
 }
 
 export function getProcessOutput(req: Request, res: Response): void {
+  const processService = getProcessService(req);
   const pid = parsePid(req.params.pid);
   const output = processService.getOutput(pid);
   res.status(200).json({ output });
 }
 
 export function getProcessStdout(req: Request, res: Response): void {
+  const processService = getProcessService(req);
   const pid = parsePid(req.params.pid);
   const stdout = processService.getStdout(pid);
   res.status(200).type("text/plain").send(stdout);
 }
 
 export function getProcessStderr(req: Request, res: Response): void {
+  const processService = getProcessService(req);
   const pid = parsePid(req.params.pid);
   const stderr = processService.getStderr(pid);
   res.status(200).type("text/plain").send(stderr);
 }
 
 export function killProcess(req: Request, res: Response): void {
+  const processService = getProcessService(req);
   if (!req.body || typeof req.body !== "object") {
     throw new HttpError(400, "Request body must be an object.");
   }
@@ -74,12 +80,14 @@ export function killProcess(req: Request, res: Response): void {
 }
 
 export function deleteProcess(req: Request, res: Response): void {
+  const processService = getProcessService(req);
   const pid = parsePid(req.params.pid);
   const process = processService.delete(pid);
   res.status(200).json(process);
 }
 
 export function runProcess(req: Request, res: Response): void {
+  const processService = getProcessService(req);
   if (!req.body || typeof req.body !== "object") {
     throw new HttpError(400, "Request body must be an object.");
   }
@@ -89,6 +97,10 @@ export function runProcess(req: Request, res: Response): void {
   const process = processService.run(pid, force);
 
   res.status(200).json(process);
+}
+
+function getProcessService(req: Request) {
+  return req.app.locals.processService;
 }
 
 function parseState(raw: unknown): ProcessState | undefined {

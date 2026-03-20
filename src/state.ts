@@ -5,6 +5,7 @@ import {
   type EnvironmentModule,
   type ModulesConfig,
 } from "@/config/modules";
+import { createPool, type Pool } from "@/services/pool.service";
 
 export type ModuleState = {
   config: ModulesConfig;
@@ -16,6 +17,7 @@ export type ModuleState = {
 
 export type ServerState = {
   modules: ModuleState;
+  pool: Pool;
 };
 
 export const loadServerState = async (): Promise<ServerState> => {
@@ -107,5 +109,8 @@ export const loadServerState = async (): Promise<ServerState> => {
   );
   logger.info({ modules: loadedModules }, "Loaded modules");
 
-  return { modules: moduleState };
+  return {
+    modules: moduleState,
+    pool: createPool(),
+  };
 };
