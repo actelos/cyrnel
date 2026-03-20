@@ -29,6 +29,7 @@ export type EnvironmentPool = Pool<
 class EnvironmentPoolService implements EnvironmentPool {
   private readonly instances: EnvironmentPoolInstance[] = [];
   private readonly queue: EnvironmentPoolQueueEntry[] = [];
+  private readonly shutdownWaiters: Array<() => void> = [];
   private isShutdown = false;
 
   async initialize(modules: Map<string, EnvironmentModule>): Promise<void> {
@@ -68,6 +69,12 @@ class EnvironmentPoolService implements EnvironmentPool {
 
     for (const entry of queuedEntries) {
       entry.reject(new Error("Pool has been shut down"));
+    }
+
+    if (this.instances.some((instance) => instance.busy)) {
+      await new Promise<void>((resolve) => {
+        this.shutdownWaiters.push(resolve);
+      });
     }
 
     const instances = this.instances.splice(0);
@@ -128,6 +135,7 @@ class EnvironmentPoolService implements EnvironmentPool {
     }
 
     instance.busy = false;
+    this.notifyShutdownWaitersIfIdle();
   }
 
   getInstances(): readonly EnvironmentPoolInstance[] {
@@ -136,6 +144,22 @@ class EnvironmentPoolService implements EnvironmentPool {
 
   getQueue(): readonly EnvironmentPoolQueueEntry[] {
     return this.queue.slice();
+  }
+
+  private notifyShutdownWaitersIfIdle(): void {
+    if (!this.isShutdown) {
+      return;
+    }
+
+    if (this.instances.some((instance) => instance.busy)) {
+      return;
+    }
+
+    const waiters = this.shutdownWaiters.splice(0);
+
+    for (const waiter of waiters) {
+      waiter();
+    }
   }
 }
 
