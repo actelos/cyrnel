@@ -44,10 +44,6 @@ export interface EnvironmentModule extends BaseModule, EventEmitter {
     event: U,
     ...args: Parameters<EnvironmentModuleEvents[U]>
   ): boolean;
-  off<U extends keyof EnvironmentModuleEvents>(
-    event: U,
-    listener: EnvironmentModuleEvents[U],
-  ): this;
 }
 
 export type LoadedModule =
