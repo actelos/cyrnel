@@ -23,6 +23,7 @@ export type EnvironmentPool = Pool<
   EnvironmentPoolQueueEntry
 > & {
   initialize(modules: Map<string, EnvironmentModule>): Promise<void>;
+  shutdown(): Promise<void>;
 };
 
 class EnvironmentPoolService implements EnvironmentPool {
@@ -57,6 +58,29 @@ class EnvironmentPoolService implements EnvironmentPool {
     if (this.instances.length === 0) {
       throw new Error("No pool instances initialized");
     }
+  }
+
+  async shutdown(): Promise<void> {
+    const queuedEntries = this.queue.splice(0);
+
+    for (const entry of queuedEntries) {
+      entry.reject(new Error("Pool was shut down"));
+    }
+
+    const instances = this.instances.splice(0);
+
+    const results = await Promise.allSettled(
+      instances.map((instance) => instance.module.teardown()),
+    );
+
+    results.forEach((result, index) => {
+      if (result.status === "rejected") {
+        logger.warn(
+          { err: result.reason, moduleLabel: instances[index]?.module.label },
+          "Failed to teardown module instance",
+        );
+      }
+    });
   }
 
   async acquire(): Promise<EnvironmentPoolInstance> {

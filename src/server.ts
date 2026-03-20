@@ -17,8 +17,46 @@ const startServer = async () => {
   app.locals.serverState = serverState;
   app.locals.processService = processService;
 
-  app.listen(PORT, () => {
+  const server = app.listen(PORT, () => {
     logger.info(`Listening on port: ${PORT}`);
+  });
+
+  let shuttingDown = false;
+  const shutdown = async (signal: string) => {
+    if (shuttingDown) {
+      return;
+    }
+    shuttingDown = true;
+    logger.info({ signal }, "Shutting down server");
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        server.close((err) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+          resolve();
+        });
+      });
+    } catch (err) {
+      logger.error({ err }, "Failed to close server");
+    }
+
+    try {
+      await serverState.pools.environment.shutdown();
+    } catch (err) {
+      logger.error({ err }, "Failed to teardown environment pool");
+    }
+
+    process.exit(0);
+  };
+
+  process.once("SIGINT", () => {
+    void shutdown("SIGINT");
+  });
+  process.once("SIGTERM", () => {
+    void shutdown("SIGTERM");
   });
 };
 

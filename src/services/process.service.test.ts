@@ -56,6 +56,8 @@ class TestEnvironmentModule extends EventEmitter implements EnvironmentModule {
 
   async setup(): Promise<void> {}
 
+  async teardown(): Promise<void> {}
+
   async execute(code: string): Promise<ExecutionStatus> {
     return this.executeImpl(code);
   }
@@ -78,6 +80,7 @@ const createMockPool = (
   return {
     environmentPool: {
       initialize: vi.fn(),
+      shutdown: vi.fn(),
       acquire,
       release,
       getInstances: vi.fn(() => []),
