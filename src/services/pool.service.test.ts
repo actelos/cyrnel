@@ -178,6 +178,70 @@ describe("pool.service", () => {
     expect(pool.queue).toHaveLength(0);
   });
 
+  it("acquire() returns multiple free instances in insertion order", async () => {
+    const pool = createPool();
+    const moduleA = new TestEnvironmentModule("a");
+    const moduleB = new TestEnvironmentModule("b");
+    const instanceA = { module: moduleA, busy: false };
+    const instanceB = { module: moduleB, busy: false };
+
+    pool.instances.push(instanceA, instanceB);
+
+    const first = await pool.acquire();
+    const second = await pool.acquire();
+
+    expect(first).toBe(instanceA);
+    expect(second).toBe(instanceB);
+    expect(first.busy).toBe(true);
+    expect(second.busy).toBe(true);
+  });
+
+  it("acquire() picks first available instance when another is busy", async () => {
+    const pool = createPool();
+    const moduleA = new TestEnvironmentModule("a");
+    const moduleB = new TestEnvironmentModule("b");
+    const instanceA = { module: moduleA, busy: true };
+    const instanceB = { module: moduleB, busy: false };
+
+    pool.instances.push(instanceA, instanceB);
+
+    const acquired = await pool.acquire();
+
+    expect(acquired).toBe(instanceB);
+    expect(instanceA.busy).toBe(true);
+    expect(instanceB.busy).toBe(true);
+  });
+
+  it("acquire() waits while all instances are busy and resolves after release()", async () => {
+    vi.useFakeTimers();
+
+    try {
+      const pool = createPool();
+      const moduleA = new TestEnvironmentModule("a");
+      pool.instances.push({ module: moduleA, busy: false });
+
+      const first = await pool.acquire();
+      const waitingAcquire = pool.acquire();
+
+      let resolved = false;
+      waitingAcquire.then(() => {
+        resolved = true;
+      });
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      await Promise.resolve();
+
+      expect(resolved).toBe(false);
+
+      pool.release(first);
+      await waitingAcquire;
+
+      expect(resolved).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("release() hands instance directly to queued caller without setting busy false", async () => {
     const pool = createPool();
     const moduleA = new TestEnvironmentModule("a");
@@ -202,6 +266,19 @@ describe("pool.service", () => {
     pool.release(first);
 
     expect(first.busy).toBe(false);
+  });
+
+  it("release() keeps state unchanged when releasing an already non-busy instance", () => {
+    const pool = createPool();
+    const moduleA = new TestEnvironmentModule("a");
+    const idleInstance = { module: moduleA, busy: false };
+
+    pool.instances.push(idleInstance);
+    pool.release(idleInstance);
+
+    expect(idleInstance.busy).toBe(false);
+    expect(pool.queue).toHaveLength(0);
+    expect(vi.mocked(logger.warn)).not.toHaveBeenCalled();
   });
 
   it("release() ignores instances that do not belong to the pool", () => {
