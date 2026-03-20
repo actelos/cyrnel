@@ -197,6 +197,7 @@ export class ProcessService {
       const stored = this.processes.get(pid);
       if (!stored || stored.process.state !== "queued") {
         this.pool.release(instance);
+        instance = null;
         return;
       }
 

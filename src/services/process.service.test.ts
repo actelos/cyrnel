@@ -217,6 +217,28 @@ describe("ProcessService", () => {
     await flush();
   });
 
+  it("releases acquired instance only once when process is no longer queued", async () => {
+    const waitingAcquire = deferred<PooledInstance>();
+    const module = new TestEnvironmentModule(async () => "success");
+    const instance: PooledInstance = { module, busy: true };
+    const { pool, release } = createMockPool(
+      async () => waitingAcquire.promise,
+    );
+    const service = new ProcessService(pool);
+
+    const pid = service.create("code");
+    await flush();
+
+    service.kill(pid);
+    expect(service.get(pid).state).toBe("idle");
+
+    waitingAcquire.resolve(instance);
+    await flush();
+
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(release).toHaveBeenCalledWith(instance);
+  });
+
   it("run() re-triggers execution for idle process", async () => {
     const module = new TestEnvironmentModule(async () => "success");
     const instance: PooledInstance = { module, busy: true };
