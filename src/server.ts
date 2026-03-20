@@ -4,6 +4,7 @@ import { ProcessService } from "@/services/process.service";
 import { loadServerState } from "@/state";
 
 const PORT = Number(process.env.PORT ?? 7687);
+const SHUTDOWN_TIMEOUT_MS = Number(process.env.SHUTDOWN_TIMEOUT_MS ?? 10_000);
 
 const startServer = async () => {
   const serverState = await loadServerState();
@@ -29,22 +30,55 @@ const startServer = async () => {
     shuttingDown = true;
     logger.info({ signal }, "Shutting down server");
 
-    try {
-      await new Promise<void>((resolve, reject) => {
-        server.close((err) => {
-          if (err) {
-            reject(err);
-            return;
-          }
-          resolve();
-        });
+    const raceWithTimeout = async <T>(label: string, task: Promise<T>) => {
+      let timeoutId: NodeJS.Timeout | undefined;
+      const timeoutError = new Error(
+        `${label} timed out after ${SHUTDOWN_TIMEOUT_MS}ms`,
+      );
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => reject(timeoutError), SHUTDOWN_TIMEOUT_MS);
       });
+
+      try {
+        const result = await Promise.race([task, timeoutPromise]);
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
+        return result;
+      } catch (err) {
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
+        if (err === timeoutError) {
+          logger.error({ err }, `${label} timed out`);
+          process.exit(1);
+        }
+        throw err;
+      }
+    };
+
+    try {
+      await raceWithTimeout(
+        "Server close",
+        new Promise<void>((resolve, reject) => {
+          server.close((err) => {
+            if (err) {
+              reject(err);
+              return;
+            }
+            resolve();
+          });
+        }),
+      );
     } catch (err) {
       logger.error({ err }, "Failed to close server");
     }
 
     try {
-      await serverState.pools.environment.shutdown();
+      await raceWithTimeout(
+        "Environment pool shutdown",
+        serverState.pools.environment.shutdown(),
+      );
     } catch (err) {
       logger.error({ err }, "Failed to teardown environment pool");
     }
