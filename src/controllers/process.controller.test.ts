@@ -179,7 +179,9 @@ describe("process.controller", () => {
     const invalidStatusCall = () =>
       listProcesses(makeReq({ query: { status: "invalid" } }) as any, res);
     expect(invalidStatusCall).toThrow(HttpError);
-    expect(invalidStatusCall).toThrow(/success, failed, timeout, canceled, null/);
+    expect(invalidStatusCall).toThrow(
+      /success, failed, timeout, canceled, null/,
+    );
 
     expect(() =>
       listProcesses(makeReq({ query: { ref: "   " } }) as any, res),

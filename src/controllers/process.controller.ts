@@ -8,6 +8,7 @@ import {
   type ProcessStatus,
   type ProcessQueryFilters,
 } from "@/models/process";
+import type { ProcessService } from "@/services/process.service";
 
 export function listProcesses(req: Request, res: Response): void {
   const processService = getProcessService(req);
@@ -99,8 +100,14 @@ export function runProcess(req: Request, res: Response): void {
   res.status(200).json(process);
 }
 
-function getProcessService(req: Request) {
-  return req.app.locals.processService;
+function getProcessService(req: Request): ProcessService {
+  const service = req.app.locals.processService as ProcessService | undefined;
+
+  if (!service) {
+    throw new Error("ProcessService not configured in app.locals");
+  }
+
+  return service;
 }
 
 function parseState(raw: unknown): ProcessState | undefined {
