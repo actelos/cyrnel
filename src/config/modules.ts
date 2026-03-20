@@ -203,16 +203,11 @@ export const loadModule = async (modulePath: string): Promise<LoadedModule> => {
         ),
       };
     }
-    const isEmitterInstance = moduleValue instanceof EventEmitter;
-    const hasEmitterMethods =
-      typeof moduleValue.on === "function" &&
-      typeof moduleValue.emit === "function" &&
-      typeof moduleValue.once === "function";
-    if (!isEmitterInstance && !hasEmitterMethods) {
+    if (!(moduleValue instanceof EventEmitter)) {
       return {
         module: null,
         error: new Error(
-          `Module at "${resolvedPath}" is not a valid EnvironmentModule (missing EventEmitter methods)`,
+          `Module at "${resolvedPath}" must extend EventEmitter`,
         ),
       };
     }
