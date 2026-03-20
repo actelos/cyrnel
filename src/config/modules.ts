@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { EventEmitter } from "node:events";
 
 import { parse } from "toml";
 
@@ -16,6 +17,33 @@ export type ModulesConfig = Record<string, ModuleConfig>;
 export type BaseModule = {
   type: "environment";
 };
+
+export type ExecutionStatus = "success" | "failed" | "timeout" | "canceled";
+
+export interface EnvironmentModuleEvents {
+  stdout: (chunk: Buffer) => void;
+  stderr: (chunk: Buffer) => void;
+  output: (data: unknown) => void;
+}
+
+export interface EnvironmentModule extends BaseModule, EventEmitter {
+  type: "environment";
+  label: string;
+  setup(): Promise<void>;
+  execute(code: string): Promise<ExecutionStatus>;
+  on<U extends keyof EnvironmentModuleEvents>(
+    event: U,
+    listener: EnvironmentModuleEvents[U],
+  ): this;
+  once<U extends keyof EnvironmentModuleEvents>(
+    event: U,
+    listener: EnvironmentModuleEvents[U],
+  ): this;
+  emit<U extends keyof EnvironmentModuleEvents>(
+    event: U,
+    ...args: Parameters<EnvironmentModuleEvents[U]>
+  ): boolean;
+}
 
 export type LoadedModule =
   | { module: BaseModule; error: null }
