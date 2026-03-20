@@ -18,6 +18,7 @@ class TestEnvironmentModule extends EventEmitter implements EnvironmentModule {
   constructor(
     label: string,
     private readonly setupImpl?: () => Promise<void>,
+    private readonly teardownImpl?: () => Promise<void>,
   ) {
     super();
     this.label = label;
@@ -26,6 +27,12 @@ class TestEnvironmentModule extends EventEmitter implements EnvironmentModule {
   async setup(): Promise<void> {
     if (this.setupImpl) {
       await this.setupImpl();
+    }
+  }
+
+  async teardown(): Promise<void> {
+    if (this.teardownImpl) {
+      await this.teardownImpl();
     }
   }
 
@@ -60,6 +67,79 @@ describe("pool.service", () => {
     expect(setupA).toHaveBeenCalledTimes(1);
     expect(setupB).toHaveBeenCalledTimes(1);
     expect(pool.getInstances()).toHaveLength(2);
+  });
+
+  it("TestEnvironmentModule.teardown() calls teardownImpl when provided", async () => {
+    const teardownA = vi.fn().mockResolvedValue(undefined);
+    const teardownB = vi.fn().mockResolvedValue(undefined);
+
+    const pool = createEnvironmentPool();
+    const moduleA = new TestEnvironmentModule("a", undefined, teardownA);
+    const moduleB = new TestEnvironmentModule("b", undefined, teardownB);
+
+    await pool.initialize(
+      new Map([
+        ["a", moduleA],
+        ["b", moduleB],
+      ]),
+    );
+    await pool.shutdown();
+
+    expect(teardownA).toHaveBeenCalledTimes(1);
+    expect(teardownB).toHaveBeenCalledTimes(1);
+    expect(pool.getInstances()).toHaveLength(0);
+  });
+
+  it("shutdown() calls teardown() on every module instance", async () => {
+    const pool = createEnvironmentPool();
+    const moduleA = new TestEnvironmentModule("a");
+    const moduleB = new TestEnvironmentModule("b");
+    const teardownSpyA = vi.spyOn(moduleA, "teardown");
+    const teardownSpyB = vi.spyOn(moduleB, "teardown");
+
+    await pool.initialize(
+      new Map([
+        ["a", moduleA],
+        ["b", moduleB],
+      ]),
+    );
+
+    await pool.shutdown();
+
+    expect(teardownSpyA).toHaveBeenCalledTimes(1);
+    expect(teardownSpyB).toHaveBeenCalledTimes(1);
+  });
+
+  it("shutdown() rejects queued acquire() calls", async () => {
+    const pool = createEnvironmentPool();
+    const moduleA = new TestEnvironmentModule("a");
+
+    await pool.initialize(new Map([["a", moduleA]]));
+
+    const inUse = await pool.acquire();
+    const waitingAcquire = pool.acquire();
+
+    const shutdownPromise = pool.shutdown();
+
+    await expect(waitingAcquire).rejects.toThrow("Pool has been shut down");
+
+    pool.release(inUse);
+    await shutdownPromise;
+  });
+
+  it("shutdown() resolves even when teardown throws and logs warning", async () => {
+    const teardownError = new Error("teardown failed");
+    const teardownImpl = vi.fn().mockRejectedValue(teardownError);
+    const moduleA = new TestEnvironmentModule("a", undefined, teardownImpl);
+    const pool = createEnvironmentPool();
+
+    await pool.initialize(new Map([["a", moduleA]]));
+
+    await expect(pool.shutdown()).resolves.toBeUndefined();
+    expect(vi.mocked(logger.warn)).toHaveBeenCalledWith(
+      { err: teardownError, moduleLabel: "a" },
+      "Failed to teardown module instance",
+    );
   });
 
   it("initialize() skips a module when setup() throws and logs warning", async () => {
@@ -316,5 +396,15 @@ describe("pool.service", () => {
       "Attempted to release unknown instance",
     );
     expect(pool.getQueue()).toHaveLength(0);
+  });
+
+  it("acquire() rejects after shutdown", async () => {
+    const pool = createEnvironmentPool();
+    const moduleA = new TestEnvironmentModule("a");
+    await pool.initialize(new Map([["a", moduleA]]));
+
+    await pool.shutdown();
+
+    await expect(pool.acquire()).rejects.toThrow("Pool has been shut down");
   });
 });

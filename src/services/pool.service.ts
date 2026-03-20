@@ -23,13 +23,17 @@ export type EnvironmentPool = Pool<
   EnvironmentPoolQueueEntry
 > & {
   initialize(modules: Map<string, EnvironmentModule>): Promise<void>;
+  shutdown(): Promise<void>;
 };
 
 class EnvironmentPoolService implements EnvironmentPool {
   private readonly instances: EnvironmentPoolInstance[] = [];
   private readonly queue: EnvironmentPoolQueueEntry[] = [];
+  private readonly shutdownWaiters: Array<() => void> = [];
+  private isShutdown = false;
 
   async initialize(modules: Map<string, EnvironmentModule>): Promise<void> {
+    this.isShutdown = false;
     const queuedEntries = this.queue.splice(0);
 
     for (const entry of queuedEntries) {
@@ -59,7 +63,41 @@ class EnvironmentPoolService implements EnvironmentPool {
     }
   }
 
+  async shutdown(): Promise<void> {
+    this.isShutdown = true;
+    const queuedEntries = this.queue.splice(0);
+
+    for (const entry of queuedEntries) {
+      entry.reject(new Error("Pool has been shut down"));
+    }
+
+    if (this.instances.some((instance) => instance.busy)) {
+      await new Promise<void>((resolve) => {
+        this.shutdownWaiters.push(resolve);
+      });
+    }
+
+    const instances = this.instances.splice(0);
+
+    const results = await Promise.allSettled(
+      instances.map((instance) => instance.module.teardown()),
+    );
+
+    results.forEach((result, index) => {
+      if (result.status === "rejected") {
+        logger.warn(
+          { err: result.reason, moduleLabel: instances[index]?.module.label },
+          "Failed to teardown module instance",
+        );
+      }
+    });
+  }
+
   async acquire(): Promise<EnvironmentPoolInstance> {
+    if (this.isShutdown) {
+      throw new Error("Pool has been shut down");
+    }
+
     const free = this.instances.find((instance) => !instance.busy);
 
     if (free) {
@@ -97,6 +135,7 @@ class EnvironmentPoolService implements EnvironmentPool {
     }
 
     instance.busy = false;
+    this.notifyShutdownWaitersIfIdle();
   }
 
   getInstances(): readonly EnvironmentPoolInstance[] {
@@ -105,6 +144,22 @@ class EnvironmentPoolService implements EnvironmentPool {
 
   getQueue(): readonly EnvironmentPoolQueueEntry[] {
     return this.queue.slice();
+  }
+
+  private notifyShutdownWaitersIfIdle(): void {
+    if (!this.isShutdown) {
+      return;
+    }
+
+    if (this.instances.some((instance) => instance.busy)) {
+      return;
+    }
+
+    const waiters = this.shutdownWaiters.splice(0);
+
+    for (const waiter of waiters) {
+      waiter();
+    }
   }
 }
 

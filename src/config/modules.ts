@@ -30,6 +30,7 @@ export interface EnvironmentModule extends BaseModule, EventEmitter {
   type: "environment";
   label: string;
   setup(): Promise<void>;
+  teardown(): Promise<void>;
   execute(code: string): Promise<ExecutionStatus>;
   kill(): Promise<void>;
   on<U extends keyof EnvironmentModuleEvents>(
@@ -188,6 +189,14 @@ export const loadModule = async (modulePath: string): Promise<LoadedModule> => {
         module: null,
         error: new Error(
           `Module at "${resolvedPath}" is missing a setup() function`,
+        ),
+      };
+    }
+    if (typeof moduleValue.teardown !== "function") {
+      return {
+        module: null,
+        error: new Error(
+          `Module at "${resolvedPath}" is missing a teardown() function`,
         ),
       };
     }

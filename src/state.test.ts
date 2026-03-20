@@ -37,6 +37,8 @@ class TestEnvironmentModule extends EventEmitter implements EnvironmentModule {
 
   async setup(): Promise<void> {}
 
+  async teardown(): Promise<void> {}
+
   async execute(_code: string): Promise<ExecutionStatus> {
     return "success";
   }

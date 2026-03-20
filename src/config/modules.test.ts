@@ -182,7 +182,12 @@ const writeModuleFile = (dir: string, name: string, contents: string) => {
 
 const environmentModuleSource = (
   label = "test",
-  { includeSetup = true, includeExecute = true, includeKill = true } = {},
+  {
+    includeSetup = true,
+    includeTeardown = true,
+    includeExecute = true,
+    includeKill = true,
+  } = {},
 ) =>
   `
 import { EventEmitter } from "node:events";
@@ -191,6 +196,7 @@ class TestModule extends EventEmitter {
   type = "environment";
   label = ${JSON.stringify(label)};
   ${includeSetup ? "async setup() {}\n" : ""}
+  ${includeTeardown ? "async teardown() {}\n" : ""}
   ${includeExecute ? 'async execute() {\n    return "success";\n  }\n' : ""}
   ${includeKill ? "async kill() {}\n" : ""}
 }
@@ -388,6 +394,29 @@ describe("loadModule", () => {
     expect(result.error?.message).toMatch(/execute/i);
   });
 
+  it("returns an error when the default export is missing teardown", async () => {
+    const configDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "mci-module-teardown-"),
+    );
+    tempDirs.push(configDir);
+    process.env.MCI_CONFIG_DIR = configDir;
+    const modulePath = writeModuleFile(
+      path.join(configDir, "modules"),
+      "bad-teardown.mjs",
+      environmentModuleSource("no-teardown", {
+        includeSetup: true,
+        includeTeardown: false,
+        includeExecute: true,
+      }),
+    );
+
+    const result = await loadModule(modulePath);
+
+    expect(result.module).toBeNull();
+    expect(result.error).toBeInstanceOf(Error);
+    expect(result.error?.message).toMatch(/teardown/i);
+  });
+
   it("returns an error when the default export is missing kill", async () => {
     const configDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "mci-module-kill-"),
@@ -425,6 +454,7 @@ export default {
   type: "environment",
   label: "plain",
   async setup() {},
+  async teardown() {},
   async execute() {
     return "success";
   },
