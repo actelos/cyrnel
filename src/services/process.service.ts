@@ -4,6 +4,7 @@ import {
   type StoredProcess,
   type ProcessQueryFilters,
 } from "@/models/process";
+import { StringDecoder } from "node:string_decoder";
 import { logger } from "@/logger";
 import { HttpError } from "@/models/error";
 import type { Pool, PooledInstance } from "@/services/pool.service";
@@ -190,6 +191,8 @@ export class ProcessService {
     let onStdout: ((chunk: Buffer) => void) | null = null;
     let onStderr: ((chunk: Buffer) => void) | null = null;
     let onOutput: ((data: unknown) => void) | null = null;
+    const stdoutDecoder = new StringDecoder("utf8");
+    const stderrDecoder = new StringDecoder("utf8");
 
     try {
       instance = await this.pool.acquire();
@@ -211,7 +214,7 @@ export class ProcessService {
           return;
         }
 
-        current.stdoutChunks.push(chunk.toString());
+        current.stdoutChunks.push(stdoutDecoder.write(chunk));
       };
 
       onStderr = (chunk: Buffer) => {
@@ -220,7 +223,7 @@ export class ProcessService {
           return;
         }
 
-        current.stderrChunks.push(chunk.toString());
+        current.stderrChunks.push(stderrDecoder.write(chunk));
       };
 
       onOutput = (data: unknown) => {
@@ -240,6 +243,16 @@ export class ProcessService {
 
       const current = this.processes.get(pid);
       if (current) {
+        const stdoutRemainder = stdoutDecoder.end();
+        if (stdoutRemainder.length > 0) {
+          current.stdoutChunks.push(stdoutRemainder);
+        }
+
+        const stderrRemainder = stderrDecoder.end();
+        if (stderrRemainder.length > 0) {
+          current.stderrChunks.push(stderrRemainder);
+        }
+
         current.process.state = "idle";
         current.process.status = status;
       }
