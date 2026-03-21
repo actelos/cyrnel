@@ -11,6 +11,11 @@ vi.mock("@/logger", () => ({
   },
 }));
 
+const flushMicrotasks = async () => {
+  await Promise.resolve();
+  await Promise.resolve();
+};
+
 class TestEnvironmentModule extends EventEmitter implements EnvironmentModule {
   readonly type = "environment";
   readonly label: string;
@@ -217,8 +222,7 @@ describe("pool.service", () => {
     const inUse = await pool.acquire();
     const waitingAcquire = pool.acquire();
 
-    await Promise.resolve();
-    await Promise.resolve();
+    await flushMicrotasks();
     expect(pool.getQueue()).toHaveLength(1);
 
     await pool.initialize(new Map([["b", moduleB]]));
@@ -228,6 +232,10 @@ describe("pool.service", () => {
     expect(pool.getInstances()).toHaveLength(0);
 
     pool.release(inUse);
+    expect(vi.mocked(logger.warn)).toHaveBeenCalledWith(
+      { module: "a" },
+      "Attempted to release unknown instance",
+    );
   });
 
   it("acquire() returns a free instance immediately and marks it busy", async () => {
@@ -254,8 +262,7 @@ describe("pool.service", () => {
     const first = await pool.acquire();
     const secondPromise = pool.acquire();
 
-    await Promise.resolve();
-    await Promise.resolve();
+    await flushMicrotasks();
     expect(pool.getQueue()).toHaveLength(1);
 
     pool.release(first);
@@ -372,8 +379,7 @@ describe("pool.service", () => {
     const first = await pool.acquire();
     const secondPromise = pool.acquire();
 
-    await Promise.resolve();
-    await Promise.resolve();
+    await flushMicrotasks();
     pool.release(first);
 
     expect(first.busy).toBe(true);
