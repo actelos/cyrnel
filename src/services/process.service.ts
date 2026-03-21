@@ -139,6 +139,13 @@ export class ProcessService {
       throw new HttpError(409, "Process must be idle to accept a run signal.");
     }
 
+    if (!this.environmentPool.supportsEnvironment(stored.environment)) {
+      throw new HttpError(
+        400,
+        `No environment modules match "${stored.environment}"`,
+      );
+    }
+
     const hasExistingOutputs =
       stored.process.status !== null ||
       stored.output !== null ||
@@ -221,6 +228,13 @@ export class ProcessService {
       const queued = this.processes.get(pid);
       if (!queued || queued.process.state !== "queued") {
         return;
+      }
+
+      if (!this.environmentPool.supportsEnvironment(queued.environment)) {
+        throw new HttpError(
+          400,
+          `No environment modules match "${queued.environment}"`,
+        );
       }
 
       instance = await this.environmentPool.acquire(queued.environment);

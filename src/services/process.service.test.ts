@@ -584,6 +584,50 @@ describe("ProcessService", () => {
     await flush();
   });
 
+  it("run() throws when environment is no longer supported", async () => {
+    const module = new TestEnvironmentModule(async () => "success");
+    const instance: EnvironmentPoolInstance = {
+      module,
+      matcher: /test/,
+      busy: true,
+    };
+    const { environmentPool, acquire } = createMockPool(async () => instance);
+    const supportsEnvironment = vi
+      .fn<(environment: string) => boolean>()
+      .mockReturnValue(true);
+    environmentPool.supportsEnvironment = supportsEnvironment;
+    const service = new ProcessService(environmentPool);
+
+    const pid = service.create("code", "node");
+    await waitForState(service, pid, "idle");
+
+    supportsEnvironment.mockReturnValue(false);
+
+    expect(() => service.run(pid, true)).toThrow(HttpError);
+    expect(acquire).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not acquire when environment becomes unsupported before execution", async () => {
+    const module = new TestEnvironmentModule(async () => "success");
+    const instance: EnvironmentPoolInstance = {
+      module,
+      matcher: /test/,
+      busy: true,
+    };
+    const { environmentPool, acquire } = createMockPool(async () => instance);
+    environmentPool.supportsEnvironment = vi
+      .fn<(environment: string) => boolean>()
+      .mockReturnValueOnce(true)
+      .mockReturnValue(false);
+    const service = new ProcessService(environmentPool);
+
+    const pid = service.create("code", "node");
+    await waitForState(service, pid, "idle");
+
+    expect(service.get(pid).status).toBe("failed");
+    expect(acquire).not.toHaveBeenCalled();
+  });
+
   it("run() enforces force when outputs already exist", async () => {
     const waitingAcquire = deferred<EnvironmentPoolInstance>();
     const module = new TestEnvironmentModule(async () => "success");
