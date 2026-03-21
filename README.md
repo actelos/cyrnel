@@ -23,3 +23,35 @@ service. If your port isn’t on the existing docking station, just make an
 extension for it.
 
 [Docs](https://modelcontrolinterface.mintlify.app/server/introduction) · [FAQ](https://modelcontrolinterface.mintlify.app/server/faq)
+
+## Usage
+
+There are no releases yet. To use MCI, clone this repository and run it from
+source with npm or pnpm.
+
+### Configuration
+
+The server requires a valid configuration before it can start. The
+configuration directory must be located at `~/mci/` or provided through the
+`MCI_CONFIG_DIR` environment variable.
+
+The required configuration file is `modules.toml`:
+
+```toml
+[localjsenv]
+path="./modules/localjs.mjs"
+
+[localpyenv]
+path="./modules/localpy.mjs"
+```
+
+The module files referenced by this configuration can be found in the
+[mci-module](https://github.com/actelos/mci-module) repository.
+
+### Run the server
+
+Start the server with:
+
+```bash
+pnpm run start
+```
