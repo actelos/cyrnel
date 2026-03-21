@@ -11,6 +11,25 @@ vi.mock("@/logger", () => ({
   },
 }));
 
+const waitForQueueLength = async (
+  pool: ReturnType<typeof createEnvironmentPool>,
+  expectedLength: number,
+  attempts = 20,
+): Promise<void> => {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (pool.getQueue().length === expectedLength) {
+      return;
+    }
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 0);
+    });
+  }
+
+  throw new Error(
+    `Timed out waiting for queue length ${expectedLength} (current: ${pool.getQueue().length})`,
+  );
+};
+
 class TestEnvironmentModule extends EventEmitter implements EnvironmentModule {
   readonly type = "environment";
   readonly label: string;
@@ -48,7 +67,7 @@ describe("pool.service", () => {
     vi.clearAllMocks();
   });
 
-  it("initialize() calls setup() on every module", async () => {
+  it("initialize() defers setup() until acquire()", async () => {
     const setupA = vi.fn().mockResolvedValue(undefined);
     const setupB = vi.fn().mockResolvedValue(undefined);
 
@@ -64,9 +83,18 @@ describe("pool.service", () => {
       ]),
     );
 
+    expect(setupA).not.toHaveBeenCalled();
+    expect(setupB).not.toHaveBeenCalled();
+    expect(pool.getInstances()).toHaveLength(0);
+
+    const first = await pool.acquire();
+    const second = await pool.acquire();
+
     expect(setupA).toHaveBeenCalledTimes(1);
     expect(setupB).toHaveBeenCalledTimes(1);
     expect(pool.getInstances()).toHaveLength(2);
+    expect(first.module).toBe(moduleA);
+    expect(second.module).toBe(moduleB);
   });
 
   it("TestEnvironmentModule.teardown() calls teardownImpl when provided", async () => {
@@ -83,6 +111,10 @@ describe("pool.service", () => {
         ["b", moduleB],
       ]),
     );
+    const instanceA = await pool.acquire();
+    const instanceB = await pool.acquire();
+    pool.release(instanceA);
+    pool.release(instanceB);
     await pool.shutdown();
 
     expect(teardownA).toHaveBeenCalledTimes(1);
@@ -103,6 +135,10 @@ describe("pool.service", () => {
         ["b", moduleB],
       ]),
     );
+    const instanceA = await pool.acquire();
+    const instanceB = await pool.acquire();
+    pool.release(instanceA);
+    pool.release(instanceB);
 
     await pool.shutdown();
 
@@ -134,6 +170,8 @@ describe("pool.service", () => {
     const pool = createEnvironmentPool();
 
     await pool.initialize(new Map([["a", moduleA]]));
+    const instance = await pool.acquire();
+    pool.release(instance);
 
     await expect(pool.shutdown()).resolves.toBeUndefined();
     expect(vi.mocked(logger.warn)).toHaveBeenCalledWith(
@@ -142,7 +180,7 @@ describe("pool.service", () => {
     );
   });
 
-  it("initialize() skips a module when setup() throws and logs warning", async () => {
+  it("acquire() skips a module when setup() throws and logs warning", async () => {
     const badError = new Error("boom");
     const setupBad = vi.fn().mockRejectedValue(badError);
     const setupGood = vi.fn().mockResolvedValue(undefined);
@@ -159,10 +197,13 @@ describe("pool.service", () => {
       ]),
     );
 
+    const instance = await pool.acquire();
+
     expect(setupBad).toHaveBeenCalledTimes(1);
     expect(setupGood).toHaveBeenCalledTimes(1);
     expect(pool.getInstances()).toHaveLength(1);
     expect(pool.getInstances()[0]?.module).toBe(good);
+    expect(instance.module).toBe(good);
     expect(vi.mocked(logger.warn)).toHaveBeenCalledWith(
       {
         err: badError,
@@ -173,13 +214,15 @@ describe("pool.service", () => {
     );
   });
 
-  it("initialize() throws when zero modules initialize successfully", async () => {
+  it("acquire() throws when zero modules initialize successfully", async () => {
     const setupBad = vi.fn().mockRejectedValue(new Error("boom"));
     const bad = new TestEnvironmentModule("bad", setupBad);
 
     const pool = createEnvironmentPool();
 
-    await expect(pool.initialize(new Map([["bad-id", bad]]))).rejects.toThrow(
+    await pool.initialize(new Map([["bad-id", bad]]));
+
+    await expect(pool.acquire()).rejects.toThrow(
       "No pool instances initialized",
     );
   });
@@ -193,17 +236,15 @@ describe("pool.service", () => {
     const inUse = await pool.acquire();
     const waitingAcquire = pool.acquire();
 
+    await waitForQueueLength(pool, 1);
     expect(pool.getQueue()).toHaveLength(1);
 
-    await pool.initialize(new Map([["b", moduleB]]));
-
-    await expect(waitingAcquire).rejects.toThrow("Pool was re-initialized");
-    expect(pool.getQueue()).toHaveLength(0);
-    expect(pool.getInstances()).toHaveLength(1);
-    expect(pool.getInstances()[0]?.module).toBe(moduleB);
+    await expect(pool.initialize(new Map([["b", moduleB]]))).rejects.toThrow(
+      "Pool has active instances",
+    );
 
     pool.release(inUse);
-    expect(pool.getInstances()[0]?.busy).toBe(false);
+    await waitingAcquire;
   });
 
   it("acquire() returns a free instance immediately and marks it busy", async () => {
@@ -211,6 +252,9 @@ describe("pool.service", () => {
     const moduleA = new TestEnvironmentModule("a");
 
     await pool.initialize(new Map([["a", moduleA]]));
+
+    const first = await pool.acquire();
+    pool.release(first);
 
     const instance = await pool.acquire();
 
@@ -227,6 +271,7 @@ describe("pool.service", () => {
     const first = await pool.acquire();
     const secondPromise = pool.acquire();
 
+    await waitForQueueLength(pool, 1);
     expect(pool.getQueue()).toHaveLength(1);
 
     pool.release(first);
@@ -269,13 +314,16 @@ describe("pool.service", () => {
       ]),
     );
 
-    const [instanceA, instanceB] = pool.getInstances();
+    const firstBusy = await pool.acquire();
+    const secondBusy = await pool.acquire();
+    pool.release(firstBusy);
+    pool.release(secondBusy);
 
     const first = await pool.acquire();
     const second = await pool.acquire();
 
-    expect(first).toBe(instanceA);
-    expect(second).toBe(instanceB);
+    expect(first.module).toBe(moduleA);
+    expect(second.module).toBe(moduleB);
     expect(first.busy).toBe(true);
     expect(second.busy).toBe(true);
   });
@@ -292,14 +340,8 @@ describe("pool.service", () => {
     );
 
     const instanceA = await pool.acquire();
-    const instanceB = pool
-      .getInstances()
-      .find((instance) => instance.module === moduleB);
-
-    expect(instanceB).toBeDefined();
-    if (!instanceB) {
-      throw new Error("Expected moduleB instance to exist in pool");
-    }
+    const instanceB = await pool.acquire();
+    pool.release(instanceB);
 
     const acquired = await pool.acquire();
 
@@ -346,6 +388,7 @@ describe("pool.service", () => {
     const first = await pool.acquire();
     const secondPromise = pool.acquire();
 
+    await waitForQueueLength(pool, 1);
     pool.release(first);
 
     expect(first.busy).toBe(true);
@@ -370,6 +413,8 @@ describe("pool.service", () => {
 
     await pool.initialize(new Map([["a", moduleA]]));
 
+    const instance = await pool.acquire();
+    pool.release(instance);
     const idleInstance = pool.getInstances()[0];
 
     expect(idleInstance).toBeDefined();
