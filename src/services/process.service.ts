@@ -56,6 +56,10 @@ export class ProcessService {
   }
 
   create(code: string, environment: string, ref?: string): number {
+    if (!this.environmentPool.supportsEnvironment(environment)) {
+      throw new HttpError(400, `No environment modules match "${environment}"`);
+    }
+
     const pid = this.createPid();
 
     this.processes.set(pid, {
@@ -214,7 +218,12 @@ export class ProcessService {
     const stderrDecoder = new StringDecoder("utf8");
 
     try {
-      instance = await this.environmentPool.acquire();
+      const queued = this.processes.get(pid);
+      if (!queued || queued.process.state !== "queued") {
+        return;
+      }
+
+      instance = await this.environmentPool.acquire(queued.environment);
 
       const stored = this.processes.get(pid);
       if (!stored || stored.process.state !== "queued") {

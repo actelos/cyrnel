@@ -3,16 +3,18 @@ import { logger } from "@/logger";
 
 export type EnvironmentPoolInstance = {
   module: EnvironmentModule;
+  matcher: RegExp;
   busy: boolean;
 };
 
 export type EnvironmentPoolQueueEntry = {
+  environment: string;
   resolve: (instance: EnvironmentPoolInstance) => void;
   reject: (err: Error) => void;
 };
 
 export type Pool<TInstance, TQueueEntry> = {
-  acquire(): Promise<TInstance>;
+  acquire(environment: string): Promise<TInstance>;
   release(instance: TInstance): void;
   getInstances(): readonly TInstance[];
   getQueue(): readonly TQueueEntry[];
@@ -24,13 +26,21 @@ export type EnvironmentPool = Pool<
 > & {
   initialize(modules: Map<string, EnvironmentModule>): Promise<void>;
   shutdown(): Promise<void>;
+  supportsEnvironment(environment: string): boolean;
+};
+
+type EnvironmentPoolModuleEntry = {
+  id: string;
+  module: EnvironmentModule;
+  matcher: RegExp;
 };
 
 class EnvironmentPoolService implements EnvironmentPool {
   private readonly instances: EnvironmentPoolInstance[] = [];
   private readonly queue: EnvironmentPoolQueueEntry[] = [];
   private readonly shutdownWaiters: Array<() => void> = [];
-  private modules: Array<[string, EnvironmentModule]> = [];
+  private modules: EnvironmentPoolModuleEntry[] = [];
+  private readonly initializedModules: EnvironmentPoolModuleEntry[] = [];
   private setupLock: Promise<void> = Promise.resolve();
   private isShutdown = false;
   private generation = 0;
@@ -52,7 +62,27 @@ class EnvironmentPoolService implements EnvironmentPool {
     }
 
     this.instances.length = 0;
-    this.modules = Array.from(modules.entries());
+    const compiled: EnvironmentPoolModuleEntry[] = [];
+
+    for (const [id, module] of modules.entries()) {
+      try {
+        const matcher = new RegExp(module.label);
+        compiled.push({ id, module, matcher });
+      } catch (err) {
+        logger.warn(
+          { err, moduleId: id, moduleLabel: module.label },
+          "Invalid module label regex; skipping",
+        );
+      }
+    }
+
+    if (compiled.length === 0 && modules.size > 0) {
+      throw new Error("No valid environment module labels");
+    }
+
+    this.modules = compiled.slice();
+    this.initializedModules.length = 0;
+    this.initializedModules.push(...compiled);
   }
 
   async shutdown(): Promise<void> {
@@ -87,12 +117,12 @@ class EnvironmentPoolService implements EnvironmentPool {
     });
   }
 
-  async acquire(): Promise<EnvironmentPoolInstance> {
+  async acquire(environment: string): Promise<EnvironmentPoolInstance> {
     if (this.isShutdown) {
       throw new Error("Pool has been shut down");
     }
 
-    const free = this.instances.find((instance) => !instance.busy);
+    const free = this.findFreeInstance(environment);
 
     if (free) {
       free.busy = true;
@@ -104,18 +134,31 @@ class EnvironmentPoolService implements EnvironmentPool {
         throw new Error("Pool has been shut down");
       }
 
-      const available = this.instances.find((instance) => !instance.busy);
+      const available = this.findFreeInstance(environment);
       if (available) {
         available.busy = true;
         return { kind: "instance", instance: available } as const;
       }
 
-      const instance = await this.setupNextInstance();
+      const hasMatchingInstances = this.instances.some((instance) =>
+        this.matchesEnvironment(instance.matcher, environment),
+      );
+      const hasMatchingCandidates =
+        hasMatchingInstances ||
+        this.modules.some((entry) =>
+          this.matchesEnvironment(entry.matcher, environment),
+        );
+
+      const instance = await this.setupNextInstance(environment);
       if (instance) {
         return { kind: "instance", instance } as const;
       }
 
-      if (this.instances.length === 0) {
+      if (!hasMatchingCandidates) {
+        throw new Error(`No environment modules match "${environment}"`);
+      }
+
+      if (!hasMatchingInstances && this.instances.length === 0) {
         throw new Error("No pool instances initialized");
       }
 
@@ -131,15 +174,10 @@ class EnvironmentPoolService implements EnvironmentPool {
     }
 
     return new Promise<EnvironmentPoolInstance>((resolve, reject) => {
-      const entry = { resolve, reject };
+      const entry = { environment, resolve, reject };
       this.queue.push(entry);
 
-      const available = this.instances.find((instance) => !instance.busy);
-      if (available && this.queue[0] === entry) {
-        this.queue.shift();
-        available.busy = true;
-        resolve(available);
-      }
+      this.assignQueuedInstances();
     });
   }
 
@@ -160,15 +198,11 @@ class EnvironmentPoolService implements EnvironmentPool {
       return;
     }
 
-    const next = this.queue.shift();
-
-    if (next) {
-      next.resolve(instance);
-      return;
-    }
-
     instance.busy = false;
-    this.notifyShutdownWaitersIfIdle();
+    this.assignQueuedInstances();
+    if (!instance.busy) {
+      this.notifyShutdownWaitersIfIdle();
+    }
   }
 
   getInstances(): readonly EnvironmentPoolInstance[] {
@@ -177,6 +211,20 @@ class EnvironmentPoolService implements EnvironmentPool {
 
   getQueue(): readonly EnvironmentPoolQueueEntry[] {
     return this.queue.slice();
+  }
+
+  supportsEnvironment(environment: string): boolean {
+    return (
+      this.instances.some((instance) =>
+        this.matchesEnvironment(instance.matcher, environment),
+      ) ||
+      this.modules.some((entry) =>
+        this.matchesEnvironment(entry.matcher, environment),
+      ) ||
+      this.initializedModules.some((entry) =>
+        this.matchesEnvironment(entry.matcher, environment),
+      )
+    );
   }
 
   private notifyShutdownWaitersIfIdle(): void {
@@ -195,9 +243,19 @@ class EnvironmentPoolService implements EnvironmentPool {
     }
   }
 
-  private async setupNextInstance(): Promise<EnvironmentPoolInstance | null> {
+  private async setupNextInstance(
+    environment: string,
+  ): Promise<EnvironmentPoolInstance | null> {
     while (this.modules.length > 0) {
-      const [id, module] = this.modules.shift()!;
+      const index = this.modules.findIndex((entry) =>
+        this.matchesEnvironment(entry.matcher, environment),
+      );
+      if (index === -1) {
+        return null;
+      }
+
+      const [entry] = this.modules.splice(index, 1);
+      const { id, module, matcher } = entry;
       const generation = this.generation;
       try {
         await module.setup();
@@ -209,7 +267,7 @@ class EnvironmentPoolService implements EnvironmentPool {
           await module.teardown().catch(() => {});
           return null;
         }
-        const instance = { module, busy: true };
+        const instance = { module, matcher, busy: true };
         this.instances.push(instance);
         return instance;
       } catch (err) {
@@ -225,6 +283,41 @@ class EnvironmentPoolService implements EnvironmentPool {
     }
 
     return null;
+  }
+
+  private matchesEnvironment(matcher: RegExp, environment: string): boolean {
+    matcher.lastIndex = 0;
+    return matcher.test(environment);
+  }
+
+  private findFreeInstance(
+    environment: string,
+  ): EnvironmentPoolInstance | undefined {
+    return this.instances.find(
+      (instance) =>
+        !instance.busy &&
+        this.matchesEnvironment(instance.matcher, environment),
+    );
+  }
+
+  private assignQueuedInstances(): void {
+    if (this.queue.length === 0) {
+      return;
+    }
+
+    let index = 0;
+    while (index < this.queue.length) {
+      const entry = this.queue[index];
+      const instance = this.findFreeInstance(entry.environment);
+      if (!instance) {
+        index += 1;
+        continue;
+      }
+
+      instance.busy = true;
+      this.queue.splice(index, 1);
+      entry.resolve(instance);
+    }
   }
 
   private async withSetupLock<T>(task: () => Promise<T>): Promise<T> {

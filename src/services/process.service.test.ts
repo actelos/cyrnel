@@ -68,7 +68,7 @@ class TestEnvironmentModule extends EventEmitter implements EnvironmentModule {
 }
 
 const createMockPool = (
-  acquireImpl: () => Promise<EnvironmentPoolInstance>,
+  acquireImpl: (environment: string) => Promise<EnvironmentPoolInstance>,
 ): {
   environmentPool: EnvironmentPool;
   release: ReturnType<typeof vi.fn>;
@@ -76,6 +76,7 @@ const createMockPool = (
 } => {
   const acquire = vi.fn(acquireImpl);
   const release = vi.fn();
+  const supportsEnvironment = vi.fn(() => true);
 
   return {
     environmentPool: {
@@ -83,6 +84,7 @@ const createMockPool = (
       shutdown: vi.fn(),
       acquire,
       release,
+      supportsEnvironment,
       getInstances: vi.fn(() => []),
       getQueue: vi.fn(() => []),
     },
@@ -112,7 +114,11 @@ describe("ProcessService", () => {
   it("create() triggers async execution and transitions queued -> running -> idle", async () => {
     const executeGate = deferred<ExecutionStatus>();
     const module = new TestEnvironmentModule(async () => executeGate.promise);
-    const instance: EnvironmentPoolInstance = { module, busy: true };
+    const instance: EnvironmentPoolInstance = {
+      module,
+      matcher: /test/,
+      busy: true,
+    };
     const { environmentPool, release } = createMockPool(async () => instance);
     const service = new ProcessService(environmentPool);
 
@@ -132,6 +138,20 @@ describe("ProcessService", () => {
     expect(release).toHaveBeenCalledWith(instance);
   });
 
+  it("create() throws when environment has no matching module", () => {
+    const module = new TestEnvironmentModule(async () => "success");
+    const instance: EnvironmentPoolInstance = {
+      module,
+      matcher: /test/,
+      busy: true,
+    };
+    const { environmentPool } = createMockPool(async () => instance);
+    environmentPool.supportsEnvironment = vi.fn(() => false);
+    const service = new ProcessService(environmentPool);
+
+    expect(() => service.create("code", "unknown")).toThrow(HttpError);
+  });
+
   it("create() appends stdout/stderr chunks and stores output events", async () => {
     const module = new TestEnvironmentModule(async () => {
       module.emit("stdout", Buffer.from("hello "));
@@ -140,7 +160,11 @@ describe("ProcessService", () => {
       module.emit("output", { ok: true });
       return "success";
     });
-    const instance: EnvironmentPoolInstance = { module, busy: true };
+    const instance: EnvironmentPoolInstance = {
+      module,
+      matcher: /test/,
+      busy: true,
+    };
     const { environmentPool } = createMockPool(async () => instance);
     const service = new ProcessService(environmentPool);
 
@@ -163,7 +187,11 @@ describe("ProcessService", () => {
 
     for (const status of statuses) {
       const module = new TestEnvironmentModule(async () => status);
-      const instance: EnvironmentPoolInstance = { module, busy: true };
+      const instance: EnvironmentPoolInstance = {
+        module,
+        matcher: /test/,
+        busy: true,
+      };
       const { environmentPool } = createMockPool(async () => instance);
       const service = new ProcessService(environmentPool);
 
@@ -182,7 +210,11 @@ describe("ProcessService", () => {
       async () => executeGate.promise,
       kill,
     );
-    const instance: EnvironmentPoolInstance = { module, busy: true };
+    const instance: EnvironmentPoolInstance = {
+      module,
+      matcher: /test/,
+      busy: true,
+    };
     const { environmentPool } = createMockPool(async () => instance);
     const service = new ProcessService(environmentPool);
 
@@ -207,7 +239,11 @@ describe("ProcessService", () => {
     try {
       const executeGate = deferred<ExecutionStatus>();
       const module = new TestEnvironmentModule(async () => executeGate.promise);
-      const instance: EnvironmentPoolInstance = { module, busy: true };
+      const instance: EnvironmentPoolInstance = {
+        module,
+        matcher: /test/,
+        busy: true,
+      };
       const { environmentPool, release } = createMockPool(async () => instance);
       const service = new ProcessService(environmentPool, {
         executeTimeoutMs: 50,
@@ -238,7 +274,11 @@ describe("ProcessService", () => {
         async () => executeGate.promise,
         kill,
       );
-      const instance: EnvironmentPoolInstance = { module, busy: true };
+      const instance: EnvironmentPoolInstance = {
+        module,
+        matcher: /test/,
+        busy: true,
+      };
       const { environmentPool, release } = createMockPool(async () => instance);
       const service = new ProcessService(environmentPool, {
         executeTimeoutMs: 50,
@@ -268,7 +308,11 @@ describe("ProcessService", () => {
       async () => executeGate.promise,
       kill,
     );
-    const instance: EnvironmentPoolInstance = { module, busy: true };
+    const instance: EnvironmentPoolInstance = {
+      module,
+      matcher: /test/,
+      busy: true,
+    };
     const { environmentPool } = createMockPool(async () => instance);
     const service = new ProcessService(environmentPool);
     const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => logger);
@@ -302,7 +346,11 @@ describe("ProcessService", () => {
     const module = new TestEnvironmentModule(async () => {
       throw new Error("boom");
     });
-    const instance: EnvironmentPoolInstance = { module, busy: true };
+    const instance: EnvironmentPoolInstance = {
+      module,
+      matcher: /test/,
+      busy: true,
+    };
     const { environmentPool } = createMockPool(async () => instance);
     const service = new ProcessService(environmentPool);
     const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => logger);
@@ -333,7 +381,11 @@ describe("ProcessService", () => {
     const kill = vi.fn(async () => {});
     const execute = vi.fn(async () => "success" as ExecutionStatus);
     const module = new TestEnvironmentModule(execute, kill);
-    const instance: EnvironmentPoolInstance = { module, busy: true };
+    const instance: EnvironmentPoolInstance = {
+      module,
+      matcher: /test/,
+      busy: true,
+    };
     const { environmentPool } = createMockPool(
       async () => waitingAcquire.promise,
     );
@@ -359,7 +411,11 @@ describe("ProcessService", () => {
   it("releases acquired instance only once when process is no longer queued", async () => {
     const waitingAcquire = deferred<EnvironmentPoolInstance>();
     const module = new TestEnvironmentModule(async () => "success");
-    const instance: EnvironmentPoolInstance = { module, busy: true };
+    const instance: EnvironmentPoolInstance = {
+      module,
+      matcher: /test/,
+      busy: true,
+    };
     const { environmentPool, release } = createMockPool(
       async () => waitingAcquire.promise,
     );
@@ -380,7 +436,11 @@ describe("ProcessService", () => {
 
   it("run() re-triggers execution for idle process", async () => {
     const module = new TestEnvironmentModule(async () => "success");
-    const instance: EnvironmentPoolInstance = { module, busy: true };
+    const instance: EnvironmentPoolInstance = {
+      module,
+      matcher: /test/,
+      busy: true,
+    };
     const { environmentPool, acquire } = createMockPool(async () => instance);
     const service = new ProcessService(environmentPool);
 
@@ -408,7 +468,11 @@ describe("ProcessService", () => {
   it("removes module event listeners after execution completes", async () => {
     const module = new TestEnvironmentModule(async () => "success");
     const offSpy = vi.spyOn(module, "off");
-    const instance: EnvironmentPoolInstance = { module, busy: true };
+    const instance: EnvironmentPoolInstance = {
+      module,
+      matcher: /test/,
+      busy: true,
+    };
     const { environmentPool } = createMockPool(async () => instance);
     const service = new ProcessService(environmentPool);
 
@@ -426,7 +490,11 @@ describe("ProcessService", () => {
   it("lists processes with filters", async () => {
     const waitingAcquire = deferred<EnvironmentPoolInstance>();
     const module = new TestEnvironmentModule(async () => "success");
-    const instance: EnvironmentPoolInstance = { module, busy: true };
+    const instance: EnvironmentPoolInstance = {
+      module,
+      matcher: /test/,
+      busy: true,
+    };
     const { environmentPool } = createMockPool(
       async () => waitingAcquire.promise,
     );
@@ -464,7 +532,11 @@ describe("ProcessService", () => {
   it("gets process and guards output access until idle", async () => {
     const waitingAcquire = deferred<EnvironmentPoolInstance>();
     const module = new TestEnvironmentModule(async () => "success");
-    const instance: EnvironmentPoolInstance = { module, busy: true };
+    const instance: EnvironmentPoolInstance = {
+      module,
+      matcher: /test/,
+      busy: true,
+    };
     const { environmentPool } = createMockPool(
       async () => waitingAcquire.promise,
     );
@@ -494,7 +566,11 @@ describe("ProcessService", () => {
   it("run() throws when process is not idle", async () => {
     const waitingAcquire = deferred<EnvironmentPoolInstance>();
     const module = new TestEnvironmentModule(async () => "success");
-    const instance: EnvironmentPoolInstance = { module, busy: true };
+    const instance: EnvironmentPoolInstance = {
+      module,
+      matcher: /test/,
+      busy: true,
+    };
     const { environmentPool } = createMockPool(
       async () => waitingAcquire.promise,
     );
@@ -511,7 +587,11 @@ describe("ProcessService", () => {
   it("run() enforces force when outputs already exist", async () => {
     const waitingAcquire = deferred<EnvironmentPoolInstance>();
     const module = new TestEnvironmentModule(async () => "success");
-    const instance: EnvironmentPoolInstance = { module, busy: true };
+    const instance: EnvironmentPoolInstance = {
+      module,
+      matcher: /test/,
+      busy: true,
+    };
     const { environmentPool } = createMockPool(
       async () => waitingAcquire.promise,
     );
@@ -532,7 +612,11 @@ describe("ProcessService", () => {
   it("deletes only idle processes and reuses pid", async () => {
     const waitingAcquire = deferred<EnvironmentPoolInstance>();
     const module = new TestEnvironmentModule(async () => "success");
-    const instance: EnvironmentPoolInstance = { module, busy: true };
+    const instance: EnvironmentPoolInstance = {
+      module,
+      matcher: /test/,
+      busy: true,
+    };
     const { environmentPool } = createMockPool(
       async () => waitingAcquire.promise,
     );
