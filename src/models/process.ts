@@ -52,6 +52,7 @@ export interface ProcessQueryFilters {
 
 export interface StoredProcess {
   process: Process;
+  environment: CreateProcessRequest["environment"];
   code: string;
   output: unknown;
   stdoutChunks: string[];

@@ -32,8 +32,12 @@ export function createProcess(req: Request, res: Response): void {
     throw new HttpError(400, "Request body must be an object.");
   }
 
-  if (typeof req.body.code !== "string") {
+  if (req.body.code === undefined) {
     throw new HttpError(400, "Missing required field: code");
+  }
+
+  if (typeof req.body.code !== "string") {
+    throw new HttpError(400, 'Field "code" must be a string');
   }
 
   const environment = parseEnvironment(
