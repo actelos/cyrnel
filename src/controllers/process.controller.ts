@@ -28,16 +28,19 @@ export function listProcesses(req: Request, res: Response): void {
 
 export function createProcess(req: Request, res: Response): void {
   const processService = getProcessService(req);
-  if (
-    !req.body ||
-    typeof req.body !== "object" ||
-    typeof req.body.code !== "string"
-  ) {
+  if (!req.body || typeof req.body !== "object") {
+    throw new HttpError(400, "Request body must be an object.");
+  }
+
+  if (typeof req.body.code !== "string") {
     throw new HttpError(400, "Missing required field: code");
   }
 
+  const environment = parseEnvironment(
+    (req.body as { environment?: unknown }).environment,
+  );
   const ref = parseRef((req.body as { ref?: unknown }).ref, "body");
-  const pid = processService.create(req.body.code, ref);
+  const pid = processService.create(req.body.code, environment, ref);
   res.status(201).json({ pid });
 }
 
@@ -184,6 +187,24 @@ function parseRef(raw: unknown, source: "body" | "query"): string | undefined {
 
   if (normalized.length === 0) {
     throw new HttpError(400, "Field 'ref' must not be empty.");
+  }
+
+  return normalized;
+}
+
+function parseEnvironment(raw: unknown): string {
+  if (raw === undefined) {
+    throw new HttpError(400, "Missing required field: environment");
+  }
+
+  if (typeof raw !== "string") {
+    throw new HttpError(400, "Field 'environment' must be a string.");
+  }
+
+  const normalized = raw.trim();
+
+  if (normalized.length === 0) {
+    throw new HttpError(400, "Field 'environment' must not be empty.");
   }
 
   return normalized;

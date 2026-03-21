@@ -28,6 +28,7 @@ export interface ProcessList {
 
 export interface CreateProcessRequest {
   code: string;
+  environment: string;
   ref?: string;
 }
 

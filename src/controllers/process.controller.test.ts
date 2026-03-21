@@ -75,12 +75,14 @@ describe("process.controller", () => {
 
   it("creates process with valid body", () => {
     const res = makeRes();
-    const req: any = makeReq({ body: { code: "code", ref: "ref" } });
+    const req: any = makeReq({
+      body: { code: "code", environment: "node", ref: "ref" },
+    });
     processService.create.mockReturnValue(42);
 
     createProcess(req, res);
 
-    expect(processService.create).toHaveBeenCalledWith("code", "ref");
+    expect(processService.create).toHaveBeenCalledWith("code", "node", "ref");
     expect(res.status).toHaveBeenCalledWith(201);
     expect(res.json).toHaveBeenCalledWith({ pid: 42 });
   });

@@ -116,7 +116,7 @@ describe("ProcessService", () => {
     const { environmentPool, release } = createMockPool(async () => instance);
     const service = new ProcessService(environmentPool);
 
-    const pid = service.create("console.log('hi')", "abc");
+    const pid = service.create("console.log('hi')", "node", "abc");
 
     expect(getStored(service, pid).process.state).toBe("queued");
 
@@ -144,7 +144,7 @@ describe("ProcessService", () => {
     const { environmentPool } = createMockPool(async () => instance);
     const service = new ProcessService(environmentPool);
 
-    const pid = service.create("code");
+    const pid = service.create("code", "node");
     await flush();
 
     const stored = getStored(service, pid);
@@ -167,7 +167,7 @@ describe("ProcessService", () => {
       const { environmentPool } = createMockPool(async () => instance);
       const service = new ProcessService(environmentPool);
 
-      const pid = service.create("code");
+      const pid = service.create("code", "node");
       await waitForState(service, pid, "idle");
 
       expect(service.get(pid).status).toBe(status);
@@ -186,7 +186,7 @@ describe("ProcessService", () => {
     const { environmentPool } = createMockPool(async () => instance);
     const service = new ProcessService(environmentPool);
 
-    const pid = service.create("code");
+    const pid = service.create("code", "node");
     await flush();
     expect(service.get(pid).state).toBe("running");
 
@@ -213,7 +213,7 @@ describe("ProcessService", () => {
         executeTimeoutMs: 50,
       });
 
-      const pid = service.create("code");
+      const pid = service.create("code", "node");
       await flush();
       expect(service.get(pid).state).toBe("running");
 
@@ -244,7 +244,7 @@ describe("ProcessService", () => {
         executeTimeoutMs: 50,
       });
 
-      const pid = service.create("code");
+      const pid = service.create("code", "node");
       await flush();
       service.kill(pid);
       expect(service.get(pid).state).toBe("terminating");
@@ -275,7 +275,7 @@ describe("ProcessService", () => {
     const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => logger);
 
     try {
-      const pid = service.create("code");
+      const pid = service.create("code", "node");
       await flush();
 
       service.kill(pid);
@@ -309,7 +309,7 @@ describe("ProcessService", () => {
     const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => logger);
 
     try {
-      const pid = service.create("code");
+      const pid = service.create("code", "node");
       await waitForState(service, pid, "idle");
 
       expect(service.get(pid).state).toBe("idle");
@@ -339,7 +339,7 @@ describe("ProcessService", () => {
     );
     const service = new ProcessService(environmentPool);
 
-    const pid = service.create("code");
+    const pid = service.create("code", "node");
     await flush();
 
     expect(service.get(pid).state).toBe("queued");
@@ -365,7 +365,7 @@ describe("ProcessService", () => {
     );
     const service = new ProcessService(environmentPool);
 
-    const pid = service.create("code");
+    const pid = service.create("code", "node");
     await flush();
 
     service.kill(pid);
@@ -384,7 +384,7 @@ describe("ProcessService", () => {
     const { environmentPool, acquire } = createMockPool(async () => instance);
     const service = new ProcessService(environmentPool);
 
-    const pid = service.create("code");
+    const pid = service.create("code", "node");
     await waitForState(service, pid, "idle");
 
     const stored = getStored(service, pid);
@@ -412,7 +412,7 @@ describe("ProcessService", () => {
     const { environmentPool } = createMockPool(async () => instance);
     const service = new ProcessService(environmentPool);
 
-    const pid = service.create("code");
+    const pid = service.create("code", "node");
     await waitForState(service, pid, "idle");
 
     expect(offSpy).toHaveBeenCalledWith("stdout", expect.any(Function));
@@ -432,9 +432,9 @@ describe("ProcessService", () => {
     );
     const service = new ProcessService(environmentPool);
 
-    const pidA = service.create("code-a", "alpha");
-    const pidB = service.create("code-b", "beta");
-    const pidC = service.create("code-c", "beta");
+    const pidA = service.create("code-a", "node", "alpha");
+    const pidB = service.create("code-b", "node", "beta");
+    const pidC = service.create("code-c", "node", "beta");
 
     setState(service, pidA, "idle").process.status = "success";
     setState(service, pidB, "running").process.status = null;
@@ -470,7 +470,7 @@ describe("ProcessService", () => {
     );
     const service = new ProcessService(environmentPool);
 
-    const pid = service.create("code");
+    const pid = service.create("code", "node");
     expect(service.get(pid).pid).toBe(pid);
     expect(() => service.get(999)).toThrow(HttpError);
 
@@ -500,7 +500,7 @@ describe("ProcessService", () => {
     );
     const service = new ProcessService(environmentPool);
 
-    const pid = service.create("code");
+    const pid = service.create("code", "node");
 
     expect(() => service.run(pid, false)).toThrow(HttpError);
 
@@ -517,7 +517,7 @@ describe("ProcessService", () => {
     );
     const service = new ProcessService(environmentPool);
 
-    const pid = service.create("code");
+    const pid = service.create("code", "node");
 
     const stored = setState(service, pid, "idle");
     stored.output = { prior: true };
@@ -538,7 +538,7 @@ describe("ProcessService", () => {
     );
     const service = new ProcessService(environmentPool);
 
-    const pid = service.create("code");
+    const pid = service.create("code", "node");
 
     expect(() => service.delete(pid)).toThrow(HttpError);
 
@@ -546,7 +546,7 @@ describe("ProcessService", () => {
     const removed = service.delete(pid);
     expect(removed.pid).toBe(pid);
 
-    const newPid = service.create("next");
+    const newPid = service.create("next", "node");
     expect(newPid).toBe(pid);
 
     waitingAcquire.resolve(instance);
