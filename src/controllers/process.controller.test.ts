@@ -87,6 +87,53 @@ describe("process.controller", () => {
     expect(res.json).toHaveBeenCalledWith({ pid: 42 });
   });
 
+  it("rejects invalid environment in create payload", () => {
+    const res = makeRes();
+
+    let err: unknown;
+
+    try {
+      createProcess(makeReq({ body: { code: "code" } }) as any, res);
+    } catch (caught) {
+      err = caught;
+    }
+
+    expect(err).toBeInstanceOf(HttpError);
+    expect((err as Error).message).toBe("Missing required field: environment");
+
+    err = undefined;
+
+    try {
+      createProcess(
+        makeReq({ body: { code: "code", environment: 123 } }) as any,
+        res,
+      );
+    } catch (caught) {
+      err = caught;
+    }
+
+    expect(err).toBeInstanceOf(HttpError);
+    expect((err as Error).message).toBe(
+      "Field 'environment' must be a string.",
+    );
+
+    err = undefined;
+
+    try {
+      createProcess(
+        makeReq({ body: { code: "code", environment: "   " } }) as any,
+        res,
+      );
+    } catch (caught) {
+      err = caught;
+    }
+
+    expect(err).toBeInstanceOf(HttpError);
+    expect((err as Error).message).toBe(
+      "Field 'environment' must not be empty.",
+    );
+  });
+
   it("gets a process and validates pid", () => {
     const res = makeRes();
     const req: any = makeReq({ params: { pid: "12" } });
