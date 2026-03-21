@@ -284,7 +284,6 @@ class EnvironmentPoolService implements EnvironmentPool {
   }
 
   private matchesEnvironment(matcher: RegExp, environment: string): boolean {
-    matcher.lastIndex = 0;
     return matcher.test(environment);
   }
 
