@@ -172,6 +172,10 @@ class EnvironmentPoolService implements EnvironmentPool {
       const [id, module] = this.modules.shift()!;
       try {
         await module.setup();
+        if (this.isShutdown) {
+          await module.teardown().catch(() => {});
+          return null;
+        }
         const instance = { module, busy: true };
         this.instances.push(instance);
         return instance;
