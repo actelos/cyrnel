@@ -68,7 +68,7 @@ class TestEnvironmentModule extends EventEmitter implements EnvironmentModule {
 }
 
 const createMockPool = (
-  acquireImpl: () => Promise<EnvironmentPoolInstance>,
+  acquireImpl: (environment: string) => Promise<EnvironmentPoolInstance>,
 ): {
   environmentPool: EnvironmentPool;
   release: ReturnType<typeof vi.fn>;
@@ -76,6 +76,7 @@ const createMockPool = (
 } => {
   const acquire = vi.fn(acquireImpl);
   const release = vi.fn();
+  const supportsEnvironment = vi.fn(() => true);
 
   return {
     environmentPool: {
@@ -83,6 +84,7 @@ const createMockPool = (
       shutdown: vi.fn(),
       acquire,
       release,
+      supportsEnvironment,
       getInstances: vi.fn(() => []),
       getQueue: vi.fn(() => []),
     },
@@ -112,11 +114,15 @@ describe("ProcessService", () => {
   it("create() triggers async execution and transitions queued -> running -> idle", async () => {
     const executeGate = deferred<ExecutionStatus>();
     const module = new TestEnvironmentModule(async () => executeGate.promise);
-    const instance: EnvironmentPoolInstance = { module, busy: true };
+    const instance: EnvironmentPoolInstance = {
+      module,
+      matcher: /test/,
+      busy: true,
+    };
     const { environmentPool, release } = createMockPool(async () => instance);
     const service = new ProcessService(environmentPool);
 
-    const pid = service.create("console.log('hi')", "abc");
+    const pid = service.create("console.log('hi')", "node", "abc");
 
     expect(getStored(service, pid).process.state).toBe("queued");
 
@@ -132,6 +138,20 @@ describe("ProcessService", () => {
     expect(release).toHaveBeenCalledWith(instance);
   });
 
+  it("create() throws when environment has no matching module", () => {
+    const module = new TestEnvironmentModule(async () => "success");
+    const instance: EnvironmentPoolInstance = {
+      module,
+      matcher: /test/,
+      busy: true,
+    };
+    const { environmentPool } = createMockPool(async () => instance);
+    environmentPool.supportsEnvironment = vi.fn(() => false);
+    const service = new ProcessService(environmentPool);
+
+    expect(() => service.create("code", "unknown")).toThrow(HttpError);
+  });
+
   it("create() appends stdout/stderr chunks and stores output events", async () => {
     const module = new TestEnvironmentModule(async () => {
       module.emit("stdout", Buffer.from("hello "));
@@ -140,11 +160,15 @@ describe("ProcessService", () => {
       module.emit("output", { ok: true });
       return "success";
     });
-    const instance: EnvironmentPoolInstance = { module, busy: true };
+    const instance: EnvironmentPoolInstance = {
+      module,
+      matcher: /test/,
+      busy: true,
+    };
     const { environmentPool } = createMockPool(async () => instance);
     const service = new ProcessService(environmentPool);
 
-    const pid = service.create("code");
+    const pid = service.create("code", "node");
     await flush();
 
     const stored = getStored(service, pid);
@@ -163,11 +187,15 @@ describe("ProcessService", () => {
 
     for (const status of statuses) {
       const module = new TestEnvironmentModule(async () => status);
-      const instance: EnvironmentPoolInstance = { module, busy: true };
+      const instance: EnvironmentPoolInstance = {
+        module,
+        matcher: /test/,
+        busy: true,
+      };
       const { environmentPool } = createMockPool(async () => instance);
       const service = new ProcessService(environmentPool);
 
-      const pid = service.create("code");
+      const pid = service.create("code", "node");
       await waitForState(service, pid, "idle");
 
       expect(service.get(pid).status).toBe(status);
@@ -182,11 +210,15 @@ describe("ProcessService", () => {
       async () => executeGate.promise,
       kill,
     );
-    const instance: EnvironmentPoolInstance = { module, busy: true };
+    const instance: EnvironmentPoolInstance = {
+      module,
+      matcher: /test/,
+      busy: true,
+    };
     const { environmentPool } = createMockPool(async () => instance);
     const service = new ProcessService(environmentPool);
 
-    const pid = service.create("code");
+    const pid = service.create("code", "node");
     await flush();
     expect(service.get(pid).state).toBe("running");
 
@@ -207,13 +239,17 @@ describe("ProcessService", () => {
     try {
       const executeGate = deferred<ExecutionStatus>();
       const module = new TestEnvironmentModule(async () => executeGate.promise);
-      const instance: EnvironmentPoolInstance = { module, busy: true };
+      const instance: EnvironmentPoolInstance = {
+        module,
+        matcher: /test/,
+        busy: true,
+      };
       const { environmentPool, release } = createMockPool(async () => instance);
       const service = new ProcessService(environmentPool, {
         executeTimeoutMs: 50,
       });
 
-      const pid = service.create("code");
+      const pid = service.create("code", "node");
       await flush();
       expect(service.get(pid).state).toBe("running");
 
@@ -238,13 +274,17 @@ describe("ProcessService", () => {
         async () => executeGate.promise,
         kill,
       );
-      const instance: EnvironmentPoolInstance = { module, busy: true };
+      const instance: EnvironmentPoolInstance = {
+        module,
+        matcher: /test/,
+        busy: true,
+      };
       const { environmentPool, release } = createMockPool(async () => instance);
       const service = new ProcessService(environmentPool, {
         executeTimeoutMs: 50,
       });
 
-      const pid = service.create("code");
+      const pid = service.create("code", "node");
       await flush();
       service.kill(pid);
       expect(service.get(pid).state).toBe("terminating");
@@ -268,14 +308,18 @@ describe("ProcessService", () => {
       async () => executeGate.promise,
       kill,
     );
-    const instance: EnvironmentPoolInstance = { module, busy: true };
+    const instance: EnvironmentPoolInstance = {
+      module,
+      matcher: /test/,
+      busy: true,
+    };
     const { environmentPool } = createMockPool(async () => instance);
     const service = new ProcessService(environmentPool);
     const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => logger);
     const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => logger);
 
     try {
-      const pid = service.create("code");
+      const pid = service.create("code", "node");
       await flush();
 
       service.kill(pid);
@@ -302,14 +346,18 @@ describe("ProcessService", () => {
     const module = new TestEnvironmentModule(async () => {
       throw new Error("boom");
     });
-    const instance: EnvironmentPoolInstance = { module, busy: true };
+    const instance: EnvironmentPoolInstance = {
+      module,
+      matcher: /test/,
+      busy: true,
+    };
     const { environmentPool } = createMockPool(async () => instance);
     const service = new ProcessService(environmentPool);
     const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => logger);
     const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => logger);
 
     try {
-      const pid = service.create("code");
+      const pid = service.create("code", "node");
       await waitForState(service, pid, "idle");
 
       expect(service.get(pid).state).toBe("idle");
@@ -333,13 +381,17 @@ describe("ProcessService", () => {
     const kill = vi.fn(async () => {});
     const execute = vi.fn(async () => "success" as ExecutionStatus);
     const module = new TestEnvironmentModule(execute, kill);
-    const instance: EnvironmentPoolInstance = { module, busy: true };
+    const instance: EnvironmentPoolInstance = {
+      module,
+      matcher: /test/,
+      busy: true,
+    };
     const { environmentPool } = createMockPool(
       async () => waitingAcquire.promise,
     );
     const service = new ProcessService(environmentPool);
 
-    const pid = service.create("code");
+    const pid = service.create("code", "node");
     await flush();
 
     expect(service.get(pid).state).toBe("queued");
@@ -359,13 +411,17 @@ describe("ProcessService", () => {
   it("releases acquired instance only once when process is no longer queued", async () => {
     const waitingAcquire = deferred<EnvironmentPoolInstance>();
     const module = new TestEnvironmentModule(async () => "success");
-    const instance: EnvironmentPoolInstance = { module, busy: true };
+    const instance: EnvironmentPoolInstance = {
+      module,
+      matcher: /test/,
+      busy: true,
+    };
     const { environmentPool, release } = createMockPool(
       async () => waitingAcquire.promise,
     );
     const service = new ProcessService(environmentPool);
 
-    const pid = service.create("code");
+    const pid = service.create("code", "node");
     await flush();
 
     service.kill(pid);
@@ -380,11 +436,15 @@ describe("ProcessService", () => {
 
   it("run() re-triggers execution for idle process", async () => {
     const module = new TestEnvironmentModule(async () => "success");
-    const instance: EnvironmentPoolInstance = { module, busy: true };
+    const instance: EnvironmentPoolInstance = {
+      module,
+      matcher: /test/,
+      busy: true,
+    };
     const { environmentPool, acquire } = createMockPool(async () => instance);
     const service = new ProcessService(environmentPool);
 
-    const pid = service.create("code");
+    const pid = service.create("code", "node");
     await waitForState(service, pid, "idle");
 
     const stored = getStored(service, pid);
@@ -408,11 +468,15 @@ describe("ProcessService", () => {
   it("removes module event listeners after execution completes", async () => {
     const module = new TestEnvironmentModule(async () => "success");
     const offSpy = vi.spyOn(module, "off");
-    const instance: EnvironmentPoolInstance = { module, busy: true };
+    const instance: EnvironmentPoolInstance = {
+      module,
+      matcher: /test/,
+      busy: true,
+    };
     const { environmentPool } = createMockPool(async () => instance);
     const service = new ProcessService(environmentPool);
 
-    const pid = service.create("code");
+    const pid = service.create("code", "node");
     await waitForState(service, pid, "idle");
 
     expect(offSpy).toHaveBeenCalledWith("stdout", expect.any(Function));
@@ -426,15 +490,19 @@ describe("ProcessService", () => {
   it("lists processes with filters", async () => {
     const waitingAcquire = deferred<EnvironmentPoolInstance>();
     const module = new TestEnvironmentModule(async () => "success");
-    const instance: EnvironmentPoolInstance = { module, busy: true };
+    const instance: EnvironmentPoolInstance = {
+      module,
+      matcher: /test/,
+      busy: true,
+    };
     const { environmentPool } = createMockPool(
       async () => waitingAcquire.promise,
     );
     const service = new ProcessService(environmentPool);
 
-    const pidA = service.create("code-a", "alpha");
-    const pidB = service.create("code-b", "beta");
-    const pidC = service.create("code-c", "beta");
+    const pidA = service.create("code-a", "node", "alpha");
+    const pidB = service.create("code-b", "node", "beta");
+    const pidC = service.create("code-c", "node", "beta");
 
     setState(service, pidA, "idle").process.status = "success";
     setState(service, pidB, "running").process.status = null;
@@ -464,13 +532,17 @@ describe("ProcessService", () => {
   it("gets process and guards output access until idle", async () => {
     const waitingAcquire = deferred<EnvironmentPoolInstance>();
     const module = new TestEnvironmentModule(async () => "success");
-    const instance: EnvironmentPoolInstance = { module, busy: true };
+    const instance: EnvironmentPoolInstance = {
+      module,
+      matcher: /test/,
+      busy: true,
+    };
     const { environmentPool } = createMockPool(
       async () => waitingAcquire.promise,
     );
     const service = new ProcessService(environmentPool);
 
-    const pid = service.create("code");
+    const pid = service.create("code", "node");
     expect(service.get(pid).pid).toBe(pid);
     expect(() => service.get(999)).toThrow(HttpError);
 
@@ -494,13 +566,17 @@ describe("ProcessService", () => {
   it("run() throws when process is not idle", async () => {
     const waitingAcquire = deferred<EnvironmentPoolInstance>();
     const module = new TestEnvironmentModule(async () => "success");
-    const instance: EnvironmentPoolInstance = { module, busy: true };
+    const instance: EnvironmentPoolInstance = {
+      module,
+      matcher: /test/,
+      busy: true,
+    };
     const { environmentPool } = createMockPool(
       async () => waitingAcquire.promise,
     );
     const service = new ProcessService(environmentPool);
 
-    const pid = service.create("code");
+    const pid = service.create("code", "node");
 
     expect(() => service.run(pid, false)).toThrow(HttpError);
 
@@ -508,16 +584,64 @@ describe("ProcessService", () => {
     await flush();
   });
 
+  it("run() throws when environment is no longer supported", async () => {
+    const module = new TestEnvironmentModule(async () => "success");
+    const instance: EnvironmentPoolInstance = {
+      module,
+      matcher: /test/,
+      busy: true,
+    };
+    const { environmentPool, acquire } = createMockPool(async () => instance);
+    const supportsEnvironment = vi
+      .fn<(environment: string) => boolean>()
+      .mockReturnValue(true);
+    environmentPool.supportsEnvironment = supportsEnvironment;
+    const service = new ProcessService(environmentPool);
+
+    const pid = service.create("code", "node");
+    await waitForState(service, pid, "idle");
+
+    supportsEnvironment.mockReturnValue(false);
+
+    expect(() => service.run(pid, true)).toThrow(HttpError);
+    expect(acquire).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not acquire when environment becomes unsupported before execution", async () => {
+    const module = new TestEnvironmentModule(async () => "success");
+    const instance: EnvironmentPoolInstance = {
+      module,
+      matcher: /test/,
+      busy: true,
+    };
+    const { environmentPool, acquire } = createMockPool(async () => instance);
+    environmentPool.supportsEnvironment = vi
+      .fn<(environment: string) => boolean>()
+      .mockReturnValueOnce(true)
+      .mockReturnValue(false);
+    const service = new ProcessService(environmentPool);
+
+    const pid = service.create("code", "node");
+    await waitForState(service, pid, "idle");
+
+    expect(service.get(pid).status).toBe("failed");
+    expect(acquire).not.toHaveBeenCalled();
+  });
+
   it("run() enforces force when outputs already exist", async () => {
     const waitingAcquire = deferred<EnvironmentPoolInstance>();
     const module = new TestEnvironmentModule(async () => "success");
-    const instance: EnvironmentPoolInstance = { module, busy: true };
+    const instance: EnvironmentPoolInstance = {
+      module,
+      matcher: /test/,
+      busy: true,
+    };
     const { environmentPool } = createMockPool(
       async () => waitingAcquire.promise,
     );
     const service = new ProcessService(environmentPool);
 
-    const pid = service.create("code");
+    const pid = service.create("code", "node");
 
     const stored = setState(service, pid, "idle");
     stored.output = { prior: true };
@@ -532,13 +656,17 @@ describe("ProcessService", () => {
   it("deletes only idle processes and reuses pid", async () => {
     const waitingAcquire = deferred<EnvironmentPoolInstance>();
     const module = new TestEnvironmentModule(async () => "success");
-    const instance: EnvironmentPoolInstance = { module, busy: true };
+    const instance: EnvironmentPoolInstance = {
+      module,
+      matcher: /test/,
+      busy: true,
+    };
     const { environmentPool } = createMockPool(
       async () => waitingAcquire.promise,
     );
     const service = new ProcessService(environmentPool);
 
-    const pid = service.create("code");
+    const pid = service.create("code", "node");
 
     expect(() => service.delete(pid)).toThrow(HttpError);
 
@@ -546,7 +674,7 @@ describe("ProcessService", () => {
     const removed = service.delete(pid);
     expect(removed.pid).toBe(pid);
 
-    const newPid = service.create("next");
+    const newPid = service.create("next", "node");
     expect(newPid).toBe(pid);
 
     waitingAcquire.resolve(instance);

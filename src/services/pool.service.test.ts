@@ -87,8 +87,8 @@ describe("pool.service", () => {
     expect(setupB).not.toHaveBeenCalled();
     expect(pool.getInstances()).toHaveLength(0);
 
-    const first = await pool.acquire();
-    const second = await pool.acquire();
+    const first = await pool.acquire("a");
+    const second = await pool.acquire("b");
 
     expect(setupA).toHaveBeenCalledTimes(1);
     expect(setupB).toHaveBeenCalledTimes(1);
@@ -111,8 +111,8 @@ describe("pool.service", () => {
         ["b", moduleB],
       ]),
     );
-    const instanceA = await pool.acquire();
-    const instanceB = await pool.acquire();
+    const instanceA = await pool.acquire("a");
+    const instanceB = await pool.acquire("b");
     pool.release(instanceA);
     pool.release(instanceB);
     await pool.shutdown();
@@ -135,8 +135,8 @@ describe("pool.service", () => {
         ["b", moduleB],
       ]),
     );
-    const instanceA = await pool.acquire();
-    const instanceB = await pool.acquire();
+    const instanceA = await pool.acquire("a");
+    const instanceB = await pool.acquire("b");
     pool.release(instanceA);
     pool.release(instanceB);
 
@@ -152,8 +152,8 @@ describe("pool.service", () => {
 
     await pool.initialize(new Map([["a", moduleA]]));
 
-    const inUse = await pool.acquire();
-    const waitingAcquire = pool.acquire();
+    const inUse = await pool.acquire("a");
+    const waitingAcquire = pool.acquire("a");
 
     const shutdownPromise = pool.shutdown();
 
@@ -170,7 +170,7 @@ describe("pool.service", () => {
     const pool = createEnvironmentPool();
 
     await pool.initialize(new Map([["a", moduleA]]));
-    const instance = await pool.acquire();
+    const instance = await pool.acquire("a");
     pool.release(instance);
 
     await expect(pool.shutdown()).resolves.toBeUndefined();
@@ -185,7 +185,7 @@ describe("pool.service", () => {
     const setupBad = vi.fn().mockRejectedValue(badError);
     const setupGood = vi.fn().mockResolvedValue(undefined);
 
-    const bad = new TestEnvironmentModule("bad", setupBad);
+    const bad = new TestEnvironmentModule("bad|good", setupBad);
     const good = new TestEnvironmentModule("good", setupGood);
 
     const pool = createEnvironmentPool();
@@ -197,7 +197,7 @@ describe("pool.service", () => {
       ]),
     );
 
-    const instance = await pool.acquire();
+    const instance = await pool.acquire("good");
 
     expect(setupBad).toHaveBeenCalledTimes(1);
     expect(setupGood).toHaveBeenCalledTimes(1);
@@ -208,7 +208,7 @@ describe("pool.service", () => {
       {
         err: badError,
         moduleId: "bad-id",
-        moduleLabel: "bad",
+        moduleLabel: "bad|good",
       },
       "Failed to setup module instance; skipping",
     );
@@ -222,9 +222,32 @@ describe("pool.service", () => {
 
     await pool.initialize(new Map([["bad-id", bad]]));
 
-    await expect(pool.acquire()).rejects.toThrow(
+    await expect(pool.acquire("bad")).rejects.toThrow(
       "No pool instances initialized",
     );
+  });
+
+  it("supportsEnvironment() returns false after all matching modules fail setup", async () => {
+    const setupA = vi.fn().mockRejectedValue(new Error("boom-a"));
+    const setupB = vi.fn().mockRejectedValue(new Error("boom-b"));
+
+    const moduleA = new TestEnvironmentModule("node", setupA);
+    const moduleB = new TestEnvironmentModule("node", setupB);
+
+    const pool = createEnvironmentPool();
+
+    await pool.initialize(
+      new Map([
+        ["a", moduleA],
+        ["b", moduleB],
+      ]),
+    );
+
+    await expect(pool.acquire("node")).rejects.toThrow(
+      "No pool instances initialized",
+    );
+
+    expect(pool.supportsEnvironment("node")).toBe(false);
   });
 
   it("initialize() rejects callers waiting in acquire() queue", async () => {
@@ -233,8 +256,8 @@ describe("pool.service", () => {
     const moduleB = new TestEnvironmentModule("b");
 
     await pool.initialize(new Map([["a", moduleA]]));
-    const inUse = await pool.acquire();
-    const waitingAcquire = pool.acquire();
+    const inUse = await pool.acquire("a");
+    const waitingAcquire = pool.acquire("a");
 
     await waitForQueueLength(pool, 1);
     expect(pool.getQueue()).toHaveLength(1);
@@ -253,10 +276,10 @@ describe("pool.service", () => {
 
     await pool.initialize(new Map([["a", moduleA]]));
 
-    const first = await pool.acquire();
+    const first = await pool.acquire("a");
     pool.release(first);
 
-    const instance = await pool.acquire();
+    const instance = await pool.acquire("a");
 
     expect(instance.module).toBe(moduleA);
     expect(instance.busy).toBe(true);
@@ -268,8 +291,8 @@ describe("pool.service", () => {
     const moduleA = new TestEnvironmentModule("a");
     await pool.initialize(new Map([["a", moduleA]]));
 
-    const first = await pool.acquire();
-    const secondPromise = pool.acquire();
+    const first = await pool.acquire("a");
+    const secondPromise = pool.acquire("a");
 
     await waitForQueueLength(pool, 1);
     expect(pool.getQueue()).toHaveLength(1);
@@ -288,9 +311,12 @@ describe("pool.service", () => {
     const moduleA = new TestEnvironmentModule("a");
     await pool.initialize(new Map([["a", moduleA]]));
 
-    const first = await pool.acquire();
-    const secondPromise = pool.acquire();
-    const thirdPromise = pool.acquire();
+    const first = await pool.acquire("a");
+    const secondPromise = pool.acquire("a");
+    const thirdPromise = pool.acquire("a");
+
+    await waitForQueueLength(pool, 2);
+    expect(pool.getQueue()).toHaveLength(2);
 
     pool.release(first);
     const second = await secondPromise;
@@ -305,8 +331,8 @@ describe("pool.service", () => {
 
   it("acquire() returns multiple free instances in insertion order", async () => {
     const pool = createEnvironmentPool();
-    const moduleA = new TestEnvironmentModule("a");
-    const moduleB = new TestEnvironmentModule("b");
+    const moduleA = new TestEnvironmentModule("node");
+    const moduleB = new TestEnvironmentModule("node");
     await pool.initialize(
       new Map([
         ["a", moduleA],
@@ -314,13 +340,13 @@ describe("pool.service", () => {
       ]),
     );
 
-    const firstBusy = await pool.acquire();
-    const secondBusy = await pool.acquire();
+    const firstBusy = await pool.acquire("node");
+    const secondBusy = await pool.acquire("node");
     pool.release(firstBusy);
     pool.release(secondBusy);
 
-    const first = await pool.acquire();
-    const second = await pool.acquire();
+    const first = await pool.acquire("node");
+    const second = await pool.acquire("node");
 
     expect(first.module).toBe(moduleA);
     expect(second.module).toBe(moduleB);
@@ -330,8 +356,8 @@ describe("pool.service", () => {
 
   it("acquire() picks first available instance when another is busy", async () => {
     const pool = createEnvironmentPool();
-    const moduleA = new TestEnvironmentModule("a");
-    const moduleB = new TestEnvironmentModule("b");
+    const moduleA = new TestEnvironmentModule("node");
+    const moduleB = new TestEnvironmentModule("node");
     await pool.initialize(
       new Map([
         ["a", moduleA],
@@ -339,11 +365,11 @@ describe("pool.service", () => {
       ]),
     );
 
-    const instanceA = await pool.acquire();
-    const instanceB = await pool.acquire();
+    const instanceA = await pool.acquire("node");
+    const instanceB = await pool.acquire("node");
     pool.release(instanceB);
 
-    const acquired = await pool.acquire();
+    const acquired = await pool.acquire("node");
 
     expect(acquired).toBe(instanceB);
     expect(instanceA.busy).toBe(true);
@@ -358,8 +384,8 @@ describe("pool.service", () => {
       const moduleA = new TestEnvironmentModule("a");
       await pool.initialize(new Map([["a", moduleA]]));
 
-      const first = await pool.acquire();
-      const waitingAcquire = pool.acquire();
+      const first = await pool.acquire("a");
+      const waitingAcquire = pool.acquire("a");
 
       let resolved = false;
       waitingAcquire.then(() => {
@@ -385,8 +411,8 @@ describe("pool.service", () => {
     const moduleA = new TestEnvironmentModule("a");
     await pool.initialize(new Map([["a", moduleA]]));
 
-    const first = await pool.acquire();
-    const secondPromise = pool.acquire();
+    const first = await pool.acquire("a");
+    const secondPromise = pool.acquire("a");
 
     await waitForQueueLength(pool, 1);
     pool.release(first);
@@ -401,7 +427,7 @@ describe("pool.service", () => {
     const moduleA = new TestEnvironmentModule("a");
     await pool.initialize(new Map([["a", moduleA]]));
 
-    const first = await pool.acquire();
+    const first = await pool.acquire("a");
     pool.release(first);
 
     expect(first.busy).toBe(false);
@@ -413,7 +439,7 @@ describe("pool.service", () => {
 
     await pool.initialize(new Map([["a", moduleA]]));
 
-    const instance = await pool.acquire();
+    const instance = await pool.acquire("a");
     pool.release(instance);
     const idleInstance = pool.getInstances()[0];
 
@@ -432,7 +458,7 @@ describe("pool.service", () => {
   it("release() ignores instances that do not belong to the pool", () => {
     const pool = createEnvironmentPool();
     const moduleA = new TestEnvironmentModule("a");
-    const foreign = { module: moduleA, busy: true };
+    const foreign = { module: moduleA, matcher: /a/, busy: true };
 
     pool.release(foreign);
 
@@ -450,6 +476,6 @@ describe("pool.service", () => {
 
     await pool.shutdown();
 
-    await expect(pool.acquire()).rejects.toThrow("Pool has been shut down");
+    await expect(pool.acquire("a")).rejects.toThrow("Pool has been shut down");
   });
 });

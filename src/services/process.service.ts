@@ -55,7 +55,11 @@ export class ProcessService {
     });
   }
 
-  create(code: string, ref?: string): number {
+  create(code: string, environment: string, ref?: string): number {
+    if (!this.environmentPool.supportsEnvironment(environment)) {
+      throw new HttpError(400, `No environment modules match "${environment}"`);
+    }
+
     const pid = this.createPid();
 
     this.processes.set(pid, {
@@ -65,6 +69,7 @@ export class ProcessService {
         status: null,
         ...(ref !== undefined ? { ref } : {}),
       },
+      environment,
       code,
       output: null,
       stdoutChunks: [],
@@ -132,6 +137,13 @@ export class ProcessService {
 
     if (stored.process.state !== "idle") {
       throw new HttpError(409, "Process must be idle to accept a run signal.");
+    }
+
+    if (!this.environmentPool.supportsEnvironment(stored.environment)) {
+      throw new HttpError(
+        400,
+        `No environment modules match "${stored.environment}"`,
+      );
     }
 
     const hasExistingOutputs =
@@ -213,7 +225,19 @@ export class ProcessService {
     const stderrDecoder = new StringDecoder("utf8");
 
     try {
-      instance = await this.environmentPool.acquire();
+      const queued = this.processes.get(pid);
+      if (!queued || queued.process.state !== "queued") {
+        return;
+      }
+
+      if (!this.environmentPool.supportsEnvironment(queued.environment)) {
+        throw new HttpError(
+          400,
+          `No environment modules match "${queued.environment}"`,
+        );
+      }
+
+      instance = await this.environmentPool.acquire(queued.environment);
 
       const stored = this.processes.get(pid);
       if (!stored || stored.process.state !== "queued") {
