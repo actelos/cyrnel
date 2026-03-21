@@ -48,6 +48,7 @@ class EnvironmentPoolService implements EnvironmentPool {
 
   async shutdown(): Promise<void> {
     this.isShutdown = true;
+    this.modules = [];
     const queuedEntries = this.queue.splice(0);
 
     for (const entry of queuedEntries) {
