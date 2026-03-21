@@ -30,6 +30,8 @@ class EnvironmentPoolService implements EnvironmentPool {
   private readonly instances: EnvironmentPoolInstance[] = [];
   private readonly queue: EnvironmentPoolQueueEntry[] = [];
   private readonly shutdownWaiters: Array<() => void> = [];
+  private modules: Array<[string, EnvironmentModule]> = [];
+  private setupLock: Promise<void> = Promise.resolve();
   private isShutdown = false;
 
   async initialize(modules: Map<string, EnvironmentModule>): Promise<void> {
@@ -41,26 +43,7 @@ class EnvironmentPoolService implements EnvironmentPool {
     }
 
     this.instances.length = 0;
-
-    for (const [id, module] of modules) {
-      try {
-        await module.setup();
-        this.instances.push({ module, busy: false });
-      } catch (err) {
-        logger.warn(
-          {
-            err,
-            moduleId: id,
-            moduleLabel: module.label,
-          },
-          "Failed to setup module instance; skipping",
-        );
-      }
-    }
-
-    if (this.instances.length === 0) {
-      throw new Error("No pool instances initialized");
-    }
+    this.modules = Array.from(modules.entries());
   }
 
   async shutdown(): Promise<void> {
@@ -105,8 +88,29 @@ class EnvironmentPoolService implements EnvironmentPool {
       return free;
     }
 
-    return new Promise<EnvironmentPoolInstance>((resolve, reject) => {
-      this.queue.push({ resolve, reject });
+    return this.withSetupLock(async () => {
+      if (this.isShutdown) {
+        throw new Error("Pool has been shut down");
+      }
+
+      const available = this.instances.find((instance) => !instance.busy);
+      if (available) {
+        available.busy = true;
+        return available;
+      }
+
+      const instance = await this.setupNextInstance();
+      if (instance) {
+        return instance;
+      }
+
+      if (this.instances.length === 0) {
+        throw new Error("No pool instances initialized");
+      }
+
+      return new Promise<EnvironmentPoolInstance>((resolve, reject) => {
+        this.queue.push({ resolve, reject });
+      });
     });
   }
 
@@ -159,6 +163,44 @@ class EnvironmentPoolService implements EnvironmentPool {
 
     for (const waiter of waiters) {
       waiter();
+    }
+  }
+
+  private async setupNextInstance(): Promise<EnvironmentPoolInstance | null> {
+    while (this.modules.length > 0) {
+      const [id, module] = this.modules.shift()!;
+      try {
+        await module.setup();
+        const instance = { module, busy: true };
+        this.instances.push(instance);
+        return instance;
+      } catch (err) {
+        logger.warn(
+          {
+            err,
+            moduleId: id,
+            moduleLabel: module.label,
+          },
+          "Failed to setup module instance; skipping",
+        );
+      }
+    }
+
+    return null;
+  }
+
+  private async withSetupLock<T>(task: () => Promise<T>): Promise<T> {
+    const previous = this.setupLock;
+    let release: () => void;
+    this.setupLock = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous;
+
+    try {
+      return await task();
+    } finally {
+      release!();
     }
   }
 }
