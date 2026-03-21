@@ -11,9 +11,23 @@ vi.mock("@/logger", () => ({
   },
 }));
 
-const flushMicrotasks = async () => {
-  await Promise.resolve();
-  await Promise.resolve();
+const waitForQueueLength = async (
+  pool: ReturnType<typeof createEnvironmentPool>,
+  expectedLength: number,
+  attempts = 20,
+): Promise<void> => {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (pool.getQueue().length === expectedLength) {
+      return;
+    }
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 0);
+    });
+  }
+
+  throw new Error(
+    `Timed out waiting for queue length ${expectedLength} (current: ${pool.getQueue().length})`,
+  );
 };
 
 class TestEnvironmentModule extends EventEmitter implements EnvironmentModule {
@@ -222,20 +236,15 @@ describe("pool.service", () => {
     const inUse = await pool.acquire();
     const waitingAcquire = pool.acquire();
 
-    await flushMicrotasks();
+    await waitForQueueLength(pool, 1);
     expect(pool.getQueue()).toHaveLength(1);
 
-    await pool.initialize(new Map([["b", moduleB]]));
-
-    await expect(waitingAcquire).rejects.toThrow("Pool was re-initialized");
-    expect(pool.getQueue()).toHaveLength(0);
-    expect(pool.getInstances()).toHaveLength(0);
+    await expect(pool.initialize(new Map([["b", moduleB]]))).rejects.toThrow(
+      "Pool has active instances",
+    );
 
     pool.release(inUse);
-    expect(vi.mocked(logger.warn)).toHaveBeenCalledWith(
-      { module: "a" },
-      "Attempted to release unknown instance",
-    );
+    await waitingAcquire;
   });
 
   it("acquire() returns a free instance immediately and marks it busy", async () => {
@@ -262,7 +271,7 @@ describe("pool.service", () => {
     const first = await pool.acquire();
     const secondPromise = pool.acquire();
 
-    await flushMicrotasks();
+    await waitForQueueLength(pool, 1);
     expect(pool.getQueue()).toHaveLength(1);
 
     pool.release(first);
@@ -379,7 +388,7 @@ describe("pool.service", () => {
     const first = await pool.acquire();
     const secondPromise = pool.acquire();
 
-    await flushMicrotasks();
+    await waitForQueueLength(pool, 1);
     pool.release(first);
 
     expect(first.busy).toBe(true);

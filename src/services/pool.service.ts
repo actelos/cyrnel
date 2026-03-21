@@ -33,8 +33,17 @@ class EnvironmentPoolService implements EnvironmentPool {
   private modules: Array<[string, EnvironmentModule]> = [];
   private setupLock: Promise<void> = Promise.resolve();
   private isShutdown = false;
+  private generation = 0;
 
   async initialize(modules: Map<string, EnvironmentModule>): Promise<void> {
+    if (
+      this.queue.length > 0 ||
+      this.instances.some((instance) => instance.busy)
+    ) {
+      throw new Error("Pool has active instances");
+    }
+
+    this.generation += 1;
     this.isShutdown = false;
     const queuedEntries = this.queue.splice(0);
 
@@ -48,6 +57,7 @@ class EnvironmentPoolService implements EnvironmentPool {
 
   async shutdown(): Promise<void> {
     this.isShutdown = true;
+    this.generation += 1;
     this.modules = [];
     const queuedEntries = this.queue.splice(0);
 
@@ -89,7 +99,7 @@ class EnvironmentPoolService implements EnvironmentPool {
       return free;
     }
 
-    return this.withSetupLock(async () => {
+    const decision = await this.withSetupLock(async () => {
       if (this.isShutdown) {
         throw new Error("Pool has been shut down");
       }
@@ -97,21 +107,39 @@ class EnvironmentPoolService implements EnvironmentPool {
       const available = this.instances.find((instance) => !instance.busy);
       if (available) {
         available.busy = true;
-        return available;
+        return { kind: "instance", instance: available } as const;
       }
 
       const instance = await this.setupNextInstance();
       if (instance) {
-        return instance;
+        return { kind: "instance", instance } as const;
       }
 
       if (this.instances.length === 0) {
         throw new Error("No pool instances initialized");
       }
 
-      return new Promise<EnvironmentPoolInstance>((resolve, reject) => {
-        this.queue.push({ resolve, reject });
-      });
+      return { kind: "queue" } as const;
+    });
+
+    if (decision.kind === "instance") {
+      return decision.instance;
+    }
+
+    if (this.isShutdown) {
+      throw new Error("Pool has been shut down");
+    }
+
+    return new Promise<EnvironmentPoolInstance>((resolve, reject) => {
+      const entry = { resolve, reject };
+      this.queue.push(entry);
+
+      const available = this.instances.find((instance) => !instance.busy);
+      if (available && this.queue[0] === entry) {
+        this.queue.shift();
+        available.busy = true;
+        resolve(available);
+      }
     });
   }
 
@@ -170,8 +198,13 @@ class EnvironmentPoolService implements EnvironmentPool {
   private async setupNextInstance(): Promise<EnvironmentPoolInstance | null> {
     while (this.modules.length > 0) {
       const [id, module] = this.modules.shift()!;
+      const generation = this.generation;
       try {
         await module.setup();
+        if (generation !== this.generation) {
+          await module.teardown().catch(() => {});
+          continue;
+        }
         if (this.isShutdown) {
           await module.teardown().catch(() => {});
           return null;
