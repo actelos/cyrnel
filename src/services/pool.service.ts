@@ -155,7 +155,16 @@ class EnvironmentPoolService implements EnvironmentPool {
         throw new Error(`No environment modules match "${environment}"`);
       }
 
-      if (!hasMatchingInstances && this.instances.length === 0) {
+      const hasMatchingInstancesAfterSetup = this.instances.some((instance) =>
+        this.matchesEnvironment(instance.matcher, environment),
+      );
+      const hasMatchingCandidatesAfterSetup =
+        hasMatchingInstancesAfterSetup ||
+        this.modules.some((entry) =>
+          this.matchesEnvironment(entry.matcher, environment),
+        );
+
+      if (!hasMatchingCandidatesAfterSetup) {
         throw new Error("No pool instances initialized");
       }
 
@@ -209,6 +218,10 @@ class EnvironmentPoolService implements EnvironmentPool {
   }
 
   supportsEnvironment(environment: string): boolean {
+    if (this.isShutdown) {
+      return false;
+    }
+
     return (
       this.instances.some((instance) =>
         this.matchesEnvironment(instance.matcher, environment),
@@ -246,7 +259,7 @@ class EnvironmentPoolService implements EnvironmentPool {
         return null;
       }
 
-      const [entry] = this.modules.splice(index, 1);
+      const entry = this.modules[index];
       const { id, module, matcher } = entry;
       const generation = this.generation;
       try {
@@ -259,10 +272,19 @@ class EnvironmentPoolService implements EnvironmentPool {
           await module.teardown().catch(() => {});
           return null;
         }
+        this.modules.splice(index, 1);
         const instance = { module, matcher, busy: true };
         this.instances.push(instance);
         return instance;
       } catch (err) {
+        if (generation === this.generation && !this.isShutdown) {
+          const failedIndex = this.modules.findIndex(
+            (candidate) => candidate.id === id,
+          );
+          if (failedIndex !== -1) {
+            this.modules.splice(failedIndex, 1);
+          }
+        }
         logger.warn(
           {
             err,
