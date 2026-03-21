@@ -227,6 +227,29 @@ describe("pool.service", () => {
     );
   });
 
+  it("supportsEnvironment() returns false after all matching modules fail setup", async () => {
+    const setupA = vi.fn().mockRejectedValue(new Error("boom-a"));
+    const setupB = vi.fn().mockRejectedValue(new Error("boom-b"));
+
+    const moduleA = new TestEnvironmentModule("node", setupA);
+    const moduleB = new TestEnvironmentModule("node", setupB);
+
+    const pool = createEnvironmentPool();
+
+    await pool.initialize(
+      new Map([
+        ["a", moduleA],
+        ["b", moduleB],
+      ]),
+    );
+
+    await expect(pool.acquire("node")).rejects.toThrow(
+      "No pool instances initialized",
+    );
+
+    expect(pool.supportsEnvironment("node")).toBe(false);
+  });
+
   it("initialize() rejects callers waiting in acquire() queue", async () => {
     const pool = createEnvironmentPool();
     const moduleA = new TestEnvironmentModule("a");

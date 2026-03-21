@@ -40,7 +40,6 @@ class EnvironmentPoolService implements EnvironmentPool {
   private readonly queue: EnvironmentPoolQueueEntry[] = [];
   private readonly shutdownWaiters: Array<() => void> = [];
   private modules: EnvironmentPoolModuleEntry[] = [];
-  private readonly initializedModules: EnvironmentPoolModuleEntry[] = [];
   private setupLock: Promise<void> = Promise.resolve();
   private isShutdown = false;
   private generation = 0;
@@ -81,8 +80,6 @@ class EnvironmentPoolService implements EnvironmentPool {
     }
 
     this.modules = compiled.slice();
-    this.initializedModules.length = 0;
-    this.initializedModules.push(...compiled);
   }
 
   async shutdown(): Promise<void> {
@@ -217,9 +214,6 @@ class EnvironmentPoolService implements EnvironmentPool {
         this.matchesEnvironment(instance.matcher, environment),
       ) ||
       this.modules.some((entry) =>
-        this.matchesEnvironment(entry.matcher, environment),
-      ) ||
-      this.initializedModules.some((entry) =>
         this.matchesEnvironment(entry.matcher, environment),
       )
     );
