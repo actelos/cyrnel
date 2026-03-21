@@ -176,8 +176,6 @@ class EnvironmentPoolService implements EnvironmentPool {
     return new Promise<EnvironmentPoolInstance>((resolve, reject) => {
       const entry = { environment, resolve, reject };
       this.queue.push(entry);
-
-      this.assignQueuedInstances();
     });
   }
 

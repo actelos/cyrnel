@@ -292,6 +292,9 @@ describe("pool.service", () => {
     const secondPromise = pool.acquire("a");
     const thirdPromise = pool.acquire("a");
 
+    await waitForQueueLength(pool, 2);
+    expect(pool.getQueue()).toHaveLength(2);
+
     pool.release(first);
     const second = await secondPromise;
 
