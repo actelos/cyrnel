@@ -2,6 +2,7 @@ import { logger } from "@/logger";
 import {
   loadModule,
   loadModulesConfig,
+  type AdapterModule,
   type EnvironmentModule,
   type ModulesConfig,
 } from "@/config/modules";
@@ -14,6 +15,7 @@ export type ModulesState = {
   config: ModulesConfig;
   loaded: {
     environment: Map<string, EnvironmentModule>;
+    adapter: Map<string, AdapterModule>;
   };
   errors: Map<string, Error>;
 };
@@ -38,6 +40,7 @@ export const loadServerState = async (): Promise<ServerState> => {
     config: modulesConfig,
     loaded: {
       environment: new Map(),
+      adapter: new Map(),
     },
     errors: new Map(),
   };
@@ -72,16 +75,21 @@ export const loadServerState = async (): Promise<ServerState> => {
         case "environment":
           modulesState.loaded.environment.set(id, result.module);
           break;
-        default:
+        case "adapter":
+          modulesState.loaded.adapter.set(id, result.module);
+          break;
+        default: {
+          const moduleType = (result.module as { type?: string }).type;
           modulesState.errors.set(
             id,
-            new Error(`Unknown module type: ${result.module.type}`),
+            new Error(`Unknown module type: ${moduleType}`),
           );
           logger.error(
-            { moduleId: id, moduleType: result.module.type },
+            { moduleId: id, moduleType },
             "Unknown module type loaded",
           );
           return;
+        }
       }
     }),
   );
@@ -105,13 +113,20 @@ export const loadServerState = async (): Promise<ServerState> => {
     );
   }
 
-  const loadedModules = Object.entries(modulesState.loaded).flatMap(
-    ([, modules]) =>
-      Array.from(modules.entries()).map(([id, module]) => ({
+  const loadedModules = [
+    ...Array.from(modulesState.loaded.environment.entries()).map(
+      ([id, module]) => ({
         id,
         type: module.type,
-      })),
-  );
+      }),
+    ),
+    ...Array.from(modulesState.loaded.adapter.entries()).map(
+      ([id, module]) => ({
+        id,
+        type: module.type,
+      }),
+    ),
+  ];
   logger.info({ modules: loadedModules }, "Loaded modules");
 
   return {

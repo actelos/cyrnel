@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   loadModule,
   loadModulesConfig,
+  type AdapterModule,
   type EnvironmentModule,
   type ExecutionStatus,
 } from "@/config/modules";
@@ -44,6 +45,10 @@ class TestEnvironmentModule extends EventEmitter implements EnvironmentModule {
   }
 
   async kill(): Promise<void> {}
+}
+
+class TestAdapterModule implements AdapterModule {
+  readonly type = "adapter";
 }
 
 beforeEach(() => {
@@ -209,6 +214,27 @@ describe("loadServerState", () => {
     expect(state.modules.errors.get("bad")).toBeInstanceOf(Error);
     expect(mockedLogger.info).toHaveBeenCalledWith(
       { modules: [{ id: "good", type: "environment" }] },
+      "Loaded modules",
+    );
+  });
+
+  it("loads adapter modules into state", async () => {
+    mockedLoadModulesConfig.mockReturnValue({
+      adapter: {
+        id: "adapter",
+        enabled: true,
+        path: "./modules/adapter.ts",
+      },
+    });
+
+    const adapterModule = new TestAdapterModule();
+    mockedLoadModule.mockResolvedValue({ module: adapterModule, error: null });
+
+    const state = await loadServerState();
+
+    expect(state.modules.loaded.adapter.get("adapter")).toBe(adapterModule);
+    expect(mockedLogger.info).toHaveBeenCalledWith(
+      { modules: [{ id: "adapter", type: "adapter" }] },
       "Loaded modules",
     );
   });

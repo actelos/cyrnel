@@ -14,8 +14,10 @@ export type ModuleConfig = {
 
 export type ModulesConfig = Record<string, ModuleConfig>;
 
+export type ModuleType = "environment" | "adapter";
+
 export type BaseModule = {
-  type: "environment";
+  type: ModuleType;
 };
 
 export type ExecutionStatus = "success" | "failed" | "timeout" | "canceled";
@@ -51,8 +53,12 @@ export interface EnvironmentModule extends BaseModule, EventEmitter {
   ): this;
 }
 
+export interface AdapterModule extends BaseModule {
+  type: "adapter";
+}
+
 export type LoadedModule =
-  | { module: EnvironmentModule; error: null }
+  | { module: EnvironmentModule | AdapterModule; error: null }
   | { module: null; error: Error };
 
 const getConfigDir = () => {
@@ -157,12 +163,13 @@ export const loadModule = async (modulePath: string): Promise<LoadedModule> => {
     const imported = await import(moduleUrl.href);
     const value = imported?.default;
 
+    const moduleType = (value as BaseModule | null | undefined)?.type;
     if (
       value === null ||
       value === undefined ||
       typeof value !== "object" ||
       Array.isArray(value) ||
-      (value as EnvironmentModule).type !== "environment"
+      (moduleType !== "environment" && moduleType !== "adapter")
     ) {
       return {
         module: null,
@@ -172,58 +179,64 @@ export const loadModule = async (modulePath: string): Promise<LoadedModule> => {
       };
     }
 
-    const moduleValue = value as EnvironmentModule;
-    if (
-      typeof moduleValue.label !== "string" ||
-      moduleValue.label.trim().length === 0
-    ) {
-      return {
-        module: null,
-        error: new Error(
-          `Module at "${resolvedPath}" returned an invalid label`,
-        ),
-      };
+    if (moduleType === "environment") {
+      const moduleValue = value as EnvironmentModule;
+      if (
+        typeof moduleValue.label !== "string" ||
+        moduleValue.label.trim().length === 0
+      ) {
+        return {
+          module: null,
+          error: new Error(
+            `Module at "${resolvedPath}" returned an invalid label`,
+          ),
+        };
+      }
+      if (typeof moduleValue.setup !== "function") {
+        return {
+          module: null,
+          error: new Error(
+            `Module at "${resolvedPath}" is missing a setup() function`,
+          ),
+        };
+      }
+      if (typeof moduleValue.teardown !== "function") {
+        return {
+          module: null,
+          error: new Error(
+            `Module at "${resolvedPath}" is missing a teardown() function`,
+          ),
+        };
+      }
+      if (typeof moduleValue.execute !== "function") {
+        return {
+          module: null,
+          error: new Error(
+            `Module at "${resolvedPath}" is missing an execute() function`,
+          ),
+        };
+      }
+      if (typeof moduleValue.kill !== "function") {
+        return {
+          module: null,
+          error: new Error(
+            `Module at "${resolvedPath}" is missing a kill() function`,
+          ),
+        };
+      }
+      if (!(moduleValue instanceof EventEmitter)) {
+        return {
+          module: null,
+          error: new Error(
+            `Module at "${resolvedPath}" must extend EventEmitter`,
+          ),
+        };
+      }
+
+      return { module: moduleValue, error: null };
     }
-    if (typeof moduleValue.setup !== "function") {
-      return {
-        module: null,
-        error: new Error(
-          `Module at "${resolvedPath}" is missing a setup() function`,
-        ),
-      };
-    }
-    if (typeof moduleValue.teardown !== "function") {
-      return {
-        module: null,
-        error: new Error(
-          `Module at "${resolvedPath}" is missing a teardown() function`,
-        ),
-      };
-    }
-    if (typeof moduleValue.execute !== "function") {
-      return {
-        module: null,
-        error: new Error(
-          `Module at "${resolvedPath}" is missing an execute() function`,
-        ),
-      };
-    }
-    if (typeof moduleValue.kill !== "function") {
-      return {
-        module: null,
-        error: new Error(
-          `Module at "${resolvedPath}" is missing a kill() function`,
-        ),
-      };
-    }
-    if (!(moduleValue instanceof EventEmitter)) {
-      return {
-        module: null,
-        error: new Error(
-          `Module at "${resolvedPath}" must extend EventEmitter`,
-        ),
-      };
-    }
+
+    const moduleValue = value as AdapterModule;
 
     return { module: moduleValue, error: null };
   } catch (err) {

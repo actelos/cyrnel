@@ -204,6 +204,11 @@ class TestModule extends EventEmitter {
 export default new TestModule();
 `.trim();
 
+const adapterModuleSource = () =>
+  `
+export default { type: "adapter" };
+`.trim();
+
 describe("loadModule", () => {
   const originalConfigDir = process.env.MCI_CONFIG_DIR;
   let tempDirs: string[] = [];
@@ -238,7 +243,25 @@ describe("loadModule", () => {
     const result = await loadModule(modulePath);
 
     expect(result.module?.type).toBe("environment");
-    expect(result.module?.label).toBe("test");
+    if (result.module?.type === "environment") {
+      expect(result.module.label).toBe("test");
+    }
+    expect(result.error).toBeNull();
+  });
+
+  it("loads a default-exported adapter module", async () => {
+    const configDir = fs.mkdtempSync(path.join(os.tmpdir(), "mci-adapter-"));
+    tempDirs.push(configDir);
+    process.env.MCI_CONFIG_DIR = configDir;
+    const modulePath = writeModuleFile(
+      path.join(configDir, "modules"),
+      "adapter.mjs",
+      adapterModuleSource(),
+    );
+
+    const result = await loadModule(modulePath);
+
+    expect(result.module?.type).toBe("adapter");
     expect(result.error).toBeNull();
   });
 
@@ -256,7 +279,9 @@ describe("loadModule", () => {
     const result = await loadModule(relativePath);
 
     expect(result.module?.type).toBe("environment");
-    expect(result.module?.label).toBe("relative");
+    if (result.module?.type === "environment") {
+      expect(result.module.label).toBe("relative");
+    }
     expect(result.error).toBeNull();
   });
 
