@@ -56,6 +56,25 @@ beforeEach(() => {
 });
 
 describe("loadServerState", () => {
+  const validConfig = {
+    environment: {
+      localjs: {
+        id: "localjs",
+        type: "environment" as const,
+        enabled: true,
+        path: "./modules/localjs.ts",
+      },
+    },
+    adapter: {
+      openapi: {
+        id: "openapi",
+        type: "adapter" as const,
+        enabled: true,
+        path: "./modules/openapi.ts",
+      },
+    },
+  };
+
   it("throws when modules config cannot be loaded", async () => {
     mockedLoadModulesConfig.mockImplementation(() => {
       throw new Error("no config");
@@ -70,171 +89,117 @@ describe("loadServerState", () => {
     );
   });
 
-  it("throws when no modules are loaded", async () => {
-    mockedLoadModulesConfig.mockReturnValue({
-      "node-sandbox": {
-        id: "node-sandbox",
-        enabled: true,
-        path: "./modules/node-sandbox.ts",
-      },
-    });
-    mockedLoadModule.mockResolvedValue({
-      module: null,
-      error: new Error("bad module"),
-    });
+  it("throws when no environment modules load", async () => {
+    mockedLoadModulesConfig.mockReturnValue(validConfig);
+    mockedLoadModule
+      .mockResolvedValueOnce({ module: null, error: new Error("bad env") })
+      .mockResolvedValueOnce({ module: new TestAdapterModule(), error: null });
 
     await expect(loadServerState()).rejects.toThrow(
-      "No modules loaded (configured: 1, enabled: 1, loaded: 0, errors: 1)",
+      "No environment modules loaded",
     );
 
     expect(mockedLogger.error).toHaveBeenCalledWith(
       expect.objectContaining({
         err: expect.any(Error),
-        moduleId: "node-sandbox",
-        modulePath: "./modules/node-sandbox.ts",
+        moduleType: "environment",
+        moduleId: "localjs",
       }),
       "Failed to load module",
-    );
-    expect(mockedLogger.error).toHaveBeenCalledWith(
-      {
-        moduleErrors: 1,
-        modulesLoaded: 0,
-        modulesConfigured: 1,
-        modulesEnabled: 1,
-      },
-      "No modules loaded",
-    );
-  });
-
-  it("throws when config has no enabled modules", async () => {
-    mockedLoadModulesConfig.mockReturnValue({});
-
-    await expect(loadServerState()).rejects.toThrow(
-      "No modules are enabled in config",
-    );
-    expect(mockedLoadModule).not.toHaveBeenCalled();
-    expect(mockedLogger.error).toHaveBeenCalledWith(
-      {},
-      "No modules are enabled in config",
     );
   });
 
   it("skips disabled modules in config", async () => {
     mockedLoadModulesConfig.mockReturnValue({
-      enabled: {
-        id: "enabled",
-        enabled: true,
-        path: "./modules/enabled.ts",
+      environment: {
+        enabled: {
+          id: "enabled",
+          type: "environment",
+          enabled: true,
+          path: "./modules/enabled.ts",
+        },
+        disabled: {
+          id: "disabled",
+          type: "environment",
+          enabled: false,
+          path: "./modules/disabled.ts",
+        },
       },
-      disabled: {
-        id: "disabled",
-        enabled: false,
-        path: "./modules/disabled.ts",
+      adapter: {
+        openapi: {
+          id: "openapi",
+          type: "adapter",
+          enabled: true,
+          path: "./modules/openapi.ts",
+        },
       },
     });
     const enabledModule = new TestEnvironmentModule("enabled");
-    mockedLoadModule.mockResolvedValue({
-      module: enabledModule,
-      error: null,
-    });
-
-    const state = await loadServerState();
-
-    expect(mockedLoadModule).toHaveBeenCalledTimes(1);
-    expect(mockedLoadModule).toHaveBeenCalledWith("./modules/enabled.ts");
-    expect(state.modules.loaded.environment.get("enabled")).toBe(enabledModule);
-    expect(state.modules.loaded.environment.has("disabled")).toBe(false);
-    expect(mockedLogger.info).toHaveBeenCalledWith(
-      { moduleId: "disabled", modulePath: "./modules/disabled.ts" },
-      "Skipped disabled module",
-    );
-  });
-
-  it("logs unknown module types and fails if none load", async () => {
-    mockedLoadModulesConfig.mockReturnValue({
-      mystery: {
-        id: "mystery",
-        enabled: true,
-        path: "./modules/mystery.ts",
-      },
-    });
-    const unknownModule = {
-      type: "other",
-      label: "custom",
-      async setup() {},
-      async execute() {
-        return "success";
-      },
-      on() {
-        return this;
-      },
-      once() {
-        return this;
-      },
-      emit() {
-        return true;
-      },
-    } as unknown as EnvironmentModule;
-    mockedLoadModule.mockResolvedValue({ module: unknownModule, error: null });
-
-    await expect(loadServerState()).rejects.toThrow("No modules loaded");
-
-    expect(mockedLogger.error).toHaveBeenCalledWith(
-      { moduleId: "mystery", moduleType: "other" },
-      "Unknown module type loaded",
-    );
-    expect(mockedLogger.error).toHaveBeenCalledWith(
-      expect.objectContaining({ modulesLoaded: 0 }),
-      "No modules loaded",
-    );
-  });
-
-  it("returns state when at least one module loads", async () => {
-    mockedLoadModulesConfig.mockReturnValue({
-      good: {
-        id: "good",
-        enabled: true,
-        path: "./modules/good.ts",
-      },
-      bad: {
-        id: "bad",
-        enabled: true,
-        path: "./modules/bad.ts",
-      },
-    });
-    const goodModule = new TestEnvironmentModule("good");
     mockedLoadModule
-      .mockResolvedValueOnce({ module: goodModule, error: null })
-      .mockResolvedValueOnce({ module: null, error: new Error("bad module") });
+      .mockResolvedValueOnce({ module: enabledModule, error: null })
+      .mockResolvedValueOnce({ module: new TestAdapterModule(), error: null });
 
     const state = await loadServerState();
 
     expect(mockedLoadModule).toHaveBeenCalledTimes(2);
-    expect(state.modules.loaded.environment.get("good")).toBe(goodModule);
-    expect(state.modules.errors.get("bad")).toBeInstanceOf(Error);
+    expect(mockedLoadModule).toHaveBeenNthCalledWith(
+      1,
+      "./modules/enabled.ts",
+      "environment",
+    );
+    expect(mockedLoadModule).toHaveBeenNthCalledWith(
+      2,
+      "./modules/openapi.ts",
+      "adapter",
+    );
+    expect(state.modules.loaded.environment.get("enabled")).toBe(enabledModule);
+    expect(state.modules.loaded.environment.has("disabled")).toBe(false);
     expect(mockedLogger.info).toHaveBeenCalledWith(
-      { modules: [{ id: "good", type: "environment" }] },
-      "Loaded modules",
+      {
+        moduleType: "environment",
+        moduleId: "disabled",
+        modulePath: "./modules/disabled.ts",
+      },
+      "Skipped disabled module",
     );
   });
 
-  it("loads adapter modules into state", async () => {
-    mockedLoadModulesConfig.mockReturnValue({
-      adapter: {
-        id: "adapter",
-        enabled: true,
-        path: "./modules/adapter.ts",
-      },
-    });
+  it("throws when no adapter modules load", async () => {
+    mockedLoadModulesConfig.mockReturnValue(validConfig);
+    mockedLoadModule
+      .mockResolvedValueOnce({
+        module: new TestEnvironmentModule("good"),
+        error: null,
+      })
+      .mockResolvedValueOnce({ module: null, error: new Error("bad adapter") });
 
-    const adapterModule = new TestAdapterModule();
-    mockedLoadModule.mockResolvedValue({ module: adapterModule, error: null });
+    await expect(loadServerState()).rejects.toThrow(
+      "No adapter modules loaded",
+    );
+  });
+
+  it("returns state when environment and adapter groups both load", async () => {
+    mockedLoadModulesConfig.mockReturnValue(validConfig);
+    const goodEnvironmentModule = new TestEnvironmentModule("good");
+    const goodAdapterModule = new TestAdapterModule();
+    mockedLoadModule
+      .mockResolvedValueOnce({ module: goodEnvironmentModule, error: null })
+      .mockResolvedValueOnce({ module: goodAdapterModule, error: null });
 
     const state = await loadServerState();
 
-    expect(state.modules.loaded.adapter.get("adapter")).toBe(adapterModule);
+    expect(mockedLoadModule).toHaveBeenCalledTimes(2);
+    expect(state.modules.loaded.environment.get("localjs")).toBe(
+      goodEnvironmentModule,
+    );
+    expect(state.modules.loaded.adapter.get("openapi")).toBe(goodAdapterModule);
     expect(mockedLogger.info).toHaveBeenCalledWith(
-      { modules: [{ id: "adapter", type: "adapter" }] },
+      {
+        modules: [
+          { id: "localjs", type: "environment" },
+          { id: "openapi", type: "adapter" },
+        ],
+      },
       "Loaded modules",
     );
   });

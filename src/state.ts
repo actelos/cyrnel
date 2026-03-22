@@ -45,54 +45,96 @@ export const loadServerState = async (): Promise<ServerState> => {
     errors: new Map(),
   };
 
-  const entries = Object.entries(modulesConfig);
+  const entries = [
+    ...Object.entries(modulesConfig.environment),
+    ...Object.entries(modulesConfig.adapter),
+  ];
   const totalConfigured = entries.length;
   const totalEnabled = entries.filter(([, config]) => config.enabled).length;
 
-  if (totalEnabled === 0) {
-    logger.error({}, "No modules are enabled in config");
-    throw new Error("No modules are enabled in config");
-  }
   await Promise.all(
     entries.map(async ([id, config]) => {
       if (!config.enabled) {
         logger.info(
-          { moduleId: id, modulePath: config.path },
+          {
+            moduleType: config.type,
+            moduleId: id,
+            modulePath: config.path,
+          },
           "Skipped disabled module",
         );
         return;
       }
-      const result = await loadModule(config.path);
+      const result = await loadModule(config.path, config.type);
       if (result.error) {
-        modulesState.errors.set(id, result.error);
+        modulesState.errors.set(`${config.type}.${id}`, result.error);
         logger.error(
-          { err: result.error, moduleId: id, modulePath: config.path },
+          {
+            err: result.error,
+            moduleType: config.type,
+            moduleId: id,
+            modulePath: config.path,
+          },
           "Failed to load module",
         );
         return;
       }
-      switch (result.module.type) {
-        case "environment":
-          modulesState.loaded.environment.set(id, result.module);
-          break;
-        case "adapter":
-          modulesState.loaded.adapter.set(id, result.module);
-          break;
-        default: {
-          const moduleType = (result.module as { type?: string }).type;
-          modulesState.errors.set(
-            id,
-            new Error(`Unknown module type: ${moduleType}`),
-          );
-          logger.error(
-            { moduleId: id, moduleType },
-            "Unknown module type loaded",
-          );
-          return;
-        }
+
+      if (config.type === "environment") {
+        modulesState.loaded.environment.set(
+          id,
+          result.module as EnvironmentModule,
+        );
+        return;
       }
+
+      modulesState.loaded.adapter.set(id, result.module as AdapterModule);
     }),
   );
+
+  const enabledEnvironmentCount = Object.values(
+    modulesConfig.environment,
+  ).filter((config) => config.enabled).length;
+  const enabledAdapterCount = Object.values(modulesConfig.adapter).filter(
+    (config) => config.enabled,
+  ).length;
+
+  if (enabledEnvironmentCount === 0 || enabledAdapterCount === 0) {
+    logger.error(
+      {
+        environmentEnabled: enabledEnvironmentCount,
+        adapterEnabled: enabledAdapterCount,
+      },
+      "Every module type must have at least one enabled module",
+    );
+    throw new Error("Every module type must have at least one enabled module");
+  }
+
+  if (modulesState.loaded.environment.size === 0) {
+    logger.error(
+      {
+        environmentEnabled: enabledEnvironmentCount,
+        environmentErrors: Array.from(modulesState.errors.keys()).filter(
+          (key) => key.startsWith("environment."),
+        ).length,
+      },
+      "No environment modules loaded",
+    );
+    throw new Error("No environment modules loaded");
+  }
+
+  if (modulesState.loaded.adapter.size === 0) {
+    logger.error(
+      {
+        adapterEnabled: enabledAdapterCount,
+        adapterErrors: Array.from(modulesState.errors.keys()).filter((key) =>
+          key.startsWith("adapter."),
+        ).length,
+      },
+      "No adapter modules loaded",
+    );
+    throw new Error("No adapter modules loaded");
+  }
 
   const totalLoadedCount = Object.values(modulesState.loaded).reduce(
     (total, modules) => total + modules.size,
@@ -114,18 +156,14 @@ export const loadServerState = async (): Promise<ServerState> => {
   }
 
   const loadedModules = [
-    ...Array.from(modulesState.loaded.environment.entries()).map(
-      ([id, module]) => ({
-        id,
-        type: module.type,
-      }),
-    ),
-    ...Array.from(modulesState.loaded.adapter.entries()).map(
-      ([id, module]) => ({
-        id,
-        type: module.type,
-      }),
-    ),
+    ...Array.from(modulesState.loaded.environment.keys()).map((id) => ({
+      id,
+      type: "environment" as const,
+    })),
+    ...Array.from(modulesState.loaded.adapter.keys()).map((id) => ({
+      id,
+      type: "adapter" as const,
+    })),
   ];
   logger.info({ modules: loadedModules }, "Loaded modules");
 

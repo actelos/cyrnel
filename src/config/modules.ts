@@ -8,17 +8,17 @@ import { parse } from "toml";
 
 export type ModuleConfig = {
   id: string;
+  type: ModuleType;
   enabled: boolean;
   path: string;
 };
 
-export type ModulesConfig = Record<string, ModuleConfig>;
+export type ModulesConfig = {
+  environment: Record<string, ModuleConfig>;
+  adapter: Record<string, ModuleConfig>;
+};
 
 export type ModuleType = "environment" | "adapter";
-
-export type BaseModule = {
-  type: ModuleType;
-};
 
 export type ExecutionStatus = "success" | "failed" | "timeout" | "canceled";
 
@@ -28,8 +28,7 @@ export interface EnvironmentModuleEvents {
   output: (data: unknown) => void;
 }
 
-export interface EnvironmentModule extends BaseModule, EventEmitter {
-  type: "environment";
+export interface EnvironmentModule extends EventEmitter {
   label: string;
   setup(): Promise<void>;
   teardown(): Promise<void>;
@@ -53,9 +52,7 @@ export interface EnvironmentModule extends BaseModule, EventEmitter {
   ): this;
 }
 
-export interface AdapterModule extends BaseModule {
-  type: "adapter";
-}
+export interface AdapterModule {}
 
 export type LoadedModule =
   | { module: EnvironmentModule | AdapterModule; error: null }
@@ -66,39 +63,95 @@ const getConfigDir = () => {
   return env ? env : path.join(os.homedir(), "mci");
 };
 
+const MODULE_TYPES = ["environment", "adapter"] as const;
+
+const isReservedObjectKey = (value: string): boolean =>
+  value === "__proto__" || value === "constructor" || value === "prototype";
+
 const parseModulesToml = (contents: string): ModulesConfig => {
   const parsed = parse(contents) as Record<string, unknown>;
-  const modules = Object.create(null) as ModulesConfig;
+  const modules: ModulesConfig = {
+    environment: Object.create(null) as Record<string, ModuleConfig>,
+    adapter: Object.create(null) as Record<string, ModuleConfig>,
+  };
 
-  Object.entries(parsed).forEach(([id, value]) => {
-    if (id === "__proto__" || id === "constructor" || id === "prototype") {
-      throw new Error(`modules.toml has invalid section "${id}"`);
+  if (Object.keys(parsed).length === 0) {
+    throw new Error("modules.toml is empty");
+  }
+
+  for (const key of Object.keys(parsed)) {
+    if (isReservedObjectKey(key)) {
+      throw new Error(`modules.toml has invalid section "${key}"`);
     }
-    if (!value || typeof value !== "object") {
-      throw new Error(`modules.toml section "${id}" is invalid`);
-    }
-
-    const section = value as Record<string, unknown>;
-    const modulePath = section.path;
-    const moduleEnabled = section.enabled ?? true;
-
-    if (typeof modulePath !== "string" || modulePath.length === 0) {
-      throw new Error(`modules.toml section "${id}" missing "path"`);
-    }
-
-    if (typeof moduleEnabled !== "boolean") {
+    if (!(MODULE_TYPES as readonly string[]).includes(key)) {
       throw new Error(
-        `modules.toml section "${id}" has invalid "enabled" value "${String(
-          moduleEnabled,
-        )}"`,
+        `modules.toml has unsupported top-level section "${key}"; expected one of: ${MODULE_TYPES.join(", ")}`,
+      );
+    }
+  }
+
+  MODULE_TYPES.forEach((moduleType) => {
+    const groupValue = parsed[moduleType];
+
+    if (
+      !groupValue ||
+      typeof groupValue !== "object" ||
+      Array.isArray(groupValue)
+    ) {
+      throw new Error(
+        `modules.toml section "${moduleType}" is missing or invalid`,
       );
     }
 
-    if (!moduleEnabled) {
-      return;
-    }
+    const groupEntries = groupValue as Record<string, unknown>;
 
-    modules[id] = { id, enabled: moduleEnabled, path: modulePath };
+    Object.entries(groupEntries).forEach(([id, value]) => {
+      if (isReservedObjectKey(id)) {
+        throw new Error(
+          `modules.toml section "${moduleType}" has invalid module id "${id}"`,
+        );
+      }
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        throw new Error(
+          `modules.toml section "${moduleType}.${id}" is invalid`,
+        );
+      }
+
+      const section = value as Record<string, unknown>;
+      const modulePath = section.path;
+      const moduleEnabled = section.enabled ?? true;
+
+      if (typeof modulePath !== "string" || modulePath.length === 0) {
+        throw new Error(
+          `modules.toml section "${moduleType}.${id}" missing "path"`,
+        );
+      }
+
+      if (typeof moduleEnabled !== "boolean") {
+        throw new Error(
+          `modules.toml section "${moduleType}.${id}" has invalid "enabled" value "${String(
+            moduleEnabled,
+          )}"`,
+        );
+      }
+
+      modules[moduleType][id] = {
+        id,
+        type: moduleType,
+        enabled: moduleEnabled,
+        path: modulePath,
+      };
+    });
+
+    const enabledCount = Object.values(modules[moduleType]).filter(
+      (moduleConfig) => moduleConfig.enabled,
+    ).length;
+
+    if (enabledCount === 0) {
+      throw new Error(
+        `modules.toml must enable at least one module in section "${moduleType}"`,
+      );
+    }
   });
 
   return modules;
@@ -120,7 +173,30 @@ export const loadModulesConfig = (): ModulesConfig => {
   return parseModulesToml(contents);
 };
 
-export const loadModule = async (modulePath: string): Promise<LoadedModule> => {
+const validateDeclaredModuleType = (
+  value: Record<string, unknown>,
+  expectedType: ModuleType,
+  resolvedPath: string,
+): Error | null => {
+  if (!("type" in value)) {
+    return null;
+  }
+
+  const loadedType = value.type;
+
+  if (loadedType !== expectedType) {
+    return new Error(
+      `Module at "${resolvedPath}" declares type "${String(loadedType)}" but config expects "${expectedType}"`,
+    );
+  }
+
+  return null;
+};
+
+export const loadModule = async (
+  modulePath: string,
+  moduleType: ModuleType,
+): Promise<LoadedModule> => {
   const configDir = getConfigDir();
   const resolvedPath = path.isAbsolute(modulePath)
     ? modulePath
@@ -162,14 +238,11 @@ export const loadModule = async (modulePath: string): Promise<LoadedModule> => {
     }
     const imported = await import(moduleUrl.href);
     const value = imported?.default;
-
-    const moduleType = (value as BaseModule | null | undefined)?.type;
     if (
       value === null ||
       value === undefined ||
       typeof value !== "object" ||
-      Array.isArray(value) ||
-      (moduleType !== "environment" && moduleType !== "adapter")
+      Array.isArray(value)
     ) {
       return {
         module: null,
@@ -179,11 +252,24 @@ export const loadModule = async (modulePath: string): Promise<LoadedModule> => {
       };
     }
 
+    const moduleValue = value as Record<string, unknown>;
+    const moduleTypeError = validateDeclaredModuleType(
+      moduleValue,
+      moduleType,
+      resolvedPath,
+    );
+    if (moduleTypeError) {
+      return {
+        module: null,
+        error: moduleTypeError,
+      };
+    }
+
     if (moduleType === "environment") {
-      const moduleValue = value as EnvironmentModule;
+      const environmentModule = value as EnvironmentModule;
       if (
-        typeof moduleValue.label !== "string" ||
-        moduleValue.label.trim().length === 0
+        typeof environmentModule.label !== "string" ||
+        environmentModule.label.trim().length === 0
       ) {
         return {
           module: null,
@@ -192,7 +278,7 @@ export const loadModule = async (modulePath: string): Promise<LoadedModule> => {
           ),
         };
       }
-      if (typeof moduleValue.setup !== "function") {
+      if (typeof environmentModule.setup !== "function") {
         return {
           module: null,
           error: new Error(
@@ -200,7 +286,7 @@ export const loadModule = async (modulePath: string): Promise<LoadedModule> => {
           ),
         };
       }
-      if (typeof moduleValue.teardown !== "function") {
+      if (typeof environmentModule.teardown !== "function") {
         return {
           module: null,
           error: new Error(
@@ -208,7 +294,7 @@ export const loadModule = async (modulePath: string): Promise<LoadedModule> => {
           ),
         };
       }
-      if (typeof moduleValue.execute !== "function") {
+      if (typeof environmentModule.execute !== "function") {
         return {
           module: null,
           error: new Error(
@@ -216,7 +302,7 @@ export const loadModule = async (modulePath: string): Promise<LoadedModule> => {
           ),
         };
       }
-      if (typeof moduleValue.kill !== "function") {
+      if (typeof environmentModule.kill !== "function") {
         return {
           module: null,
           error: new Error(
@@ -224,7 +310,7 @@ export const loadModule = async (modulePath: string): Promise<LoadedModule> => {
           ),
         };
       }
-      if (!(moduleValue instanceof EventEmitter)) {
+      if (!(environmentModule instanceof EventEmitter)) {
         return {
           module: null,
           error: new Error(
@@ -233,12 +319,12 @@ export const loadModule = async (modulePath: string): Promise<LoadedModule> => {
         };
       }
 
-      return { module: moduleValue, error: null };
+      return { module: environmentModule, error: null };
     }
 
-    const moduleValue = value as AdapterModule;
+    const adapterModule = value as AdapterModule;
 
-    return { module: moduleValue, error: null };
+    return { module: adapterModule, error: null };
   } catch (err) {
     return {
       module: null,
