@@ -46,7 +46,7 @@ path="./modules/localpy.mjs"
 ```
 
 The module files referenced by this configuration can be found in the
-[mci-module](https://github.com/actelos/mci-module) repository.
+[mci-module](https://github.com/actelos/mci-modules) repository.
 
 ### Run the server
 
