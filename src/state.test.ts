@@ -176,6 +176,15 @@ describe("loadServerState", () => {
     await expect(loadServerState()).rejects.toThrow(
       "No adapter modules loaded",
     );
+
+    expect(mockedLogger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        err: expect.objectContaining({ message: "bad adapter" }),
+        moduleType: "adapter",
+        moduleId: "openapi",
+      }),
+      "Failed to load module",
+    );
   });
 
   it("returns state when environment and adapter groups both load", async () => {

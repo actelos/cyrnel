@@ -373,9 +373,8 @@ describe("loadModule", () => {
     const result = await loadModule(modulePath, "environment");
 
     expect(result.error).toBeNull();
-    if (result.module) {
-      expect(result.module).toHaveProperty("label", "test");
-    }
+    expect(result.module).not.toBeNull();
+    expect(result.module).toHaveProperty("label", "test");
   });
 
   it("loads a default-exported adapter module", async () => {
@@ -408,9 +407,8 @@ describe("loadModule", () => {
     const result = await loadModule(relativePath, "environment");
 
     expect(result.error).toBeNull();
-    if (result.module) {
-      expect(result.module).toHaveProperty("label", "relative");
-    }
+    expect(result.module).not.toBeNull();
+    expect(result.module).toHaveProperty("label", "relative");
   });
 
   it("returns an error when the module cannot be resolved", async () => {

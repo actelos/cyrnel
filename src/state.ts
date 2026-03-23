@@ -49,8 +49,6 @@ export const loadServerState = async (): Promise<ServerState> => {
     ...Object.entries(modulesConfig.environment),
     ...Object.entries(modulesConfig.adapter),
   ];
-  const totalConfigured = entries.length;
-  const totalEnabled = entries.filter(([, config]) => config.enabled).length;
 
   await Promise.all(
     entries.map(async ([id, config]) => {
@@ -134,25 +132,6 @@ export const loadServerState = async (): Promise<ServerState> => {
       "No adapter modules loaded",
     );
     throw new Error("No adapter modules loaded");
-  }
-
-  const totalLoadedCount = Object.values(modulesState.loaded).reduce(
-    (total, modules) => total + modules.size,
-    0,
-  );
-  if (totalLoadedCount === 0) {
-    logger.error(
-      {
-        moduleErrors: modulesState.errors.size,
-        modulesLoaded: totalLoadedCount,
-        modulesConfigured: totalConfigured,
-        modulesEnabled: totalEnabled,
-      },
-      "No modules loaded",
-    );
-    throw new Error(
-      `No modules loaded (configured: ${totalConfigured}, enabled: ${totalEnabled}, loaded: ${totalLoadedCount}, errors: ${modulesState.errors.size})`,
-    );
   }
 
   const loadedModules = [
