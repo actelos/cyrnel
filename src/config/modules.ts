@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 import { EventEmitter } from "node:events";
 
 import { parse } from "toml";
+import { Schema } from "effect";
 
 export type ModuleConfig = {
   id: string;
@@ -52,7 +53,32 @@ export interface EnvironmentModule extends EventEmitter {
   ): this;
 }
 
-export interface AdapterModule {}
+export interface AdapterToolDefinition {
+  id: string;
+  inputSchema: Schema.Schema.Any;
+  outputSchema: Schema.Schema.Any;
+  execute(): Promise<(input: unknown) => Promise<unknown>>;
+}
+
+export interface AdapterService {
+  id: string;
+  tools: AdapterToolDefinition[];
+}
+
+export interface AdapterModule {
+  parse(): Promise<AdapterService>;
+}
+
+export const executeAdapterTool = async (
+  tool: AdapterToolDefinition,
+  input: unknown,
+): Promise<unknown> => {
+  const validatedInput = Schema.decodeUnknownSync(
+    tool.inputSchema as Schema.Schema<unknown, unknown, never>,
+  )(input);
+  const executor = await tool.execute();
+  return executor(validatedInput);
+};
 
 export type LoadedModule =
   | { module: EnvironmentModule | AdapterModule; error: null }
@@ -323,6 +349,14 @@ export const loadModule = async (
     }
 
     const adapterModule = value as AdapterModule;
+    if (typeof adapterModule.parse !== "function") {
+      return {
+        module: null,
+        error: new Error(
+          `Module at "${resolvedPath}" is missing a parse() function`,
+        ),
+      };
+    }
 
     return { module: adapterModule, error: null };
   } catch (err) {

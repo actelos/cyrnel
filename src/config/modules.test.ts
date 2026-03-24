@@ -3,8 +3,13 @@ import os from "node:os";
 import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Schema } from "effect";
 
-import { loadModule, loadModulesConfig } from "@/config/modules";
+import {
+  executeAdapterTool,
+  loadModule,
+  loadModulesConfig,
+} from "@/config/modules";
 
 const modulesToml = `
 [environment]
@@ -336,8 +341,74 @@ export default new TestModule();
 
 const adapterModuleSource = () =>
   `
-export default { type: "adapter" };
+export default {
+  type: "adapter",
+  async parse() {
+    return {
+      id: "test-adapter",
+      tools: [
+        {
+          id: "echo",
+          inputSchema: { _tag: "Schema" },
+          outputSchema: { _tag: "Schema" },
+          async execute() {
+            return async (input) => input;
+          },
+        },
+      ],
+    };
+  },
+};
 `.trim();
+
+describe("executeAdapterTool", () => {
+  it("validates input before calling tool executor", async () => {
+    const executor = vi.fn(async (input: unknown) => input);
+    const execute = vi.fn(async () => executor);
+    const tool = {
+      id: "echo",
+      inputSchema: Schema.Struct({ value: Schema.String }),
+      outputSchema: Schema.Struct({ value: Schema.String }),
+      execute,
+    };
+
+    const result = await executeAdapterTool(tool, { value: "ok" });
+
+    expect(result).toEqual({ value: "ok" });
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(executor).toHaveBeenCalledWith({ value: "ok" });
+  });
+
+  it("throws when input does not match schema", async () => {
+    const executor = vi.fn(async (input: unknown) => input);
+    const execute = vi.fn(async () => executor);
+    const tool = {
+      id: "echo",
+      inputSchema: Schema.Struct({ value: Schema.String }),
+      outputSchema: Schema.Struct({ value: Schema.String }),
+      execute,
+    };
+
+    await expect(executeAdapterTool(tool, { value: 123 })).rejects.toThrow();
+    expect(execute).not.toHaveBeenCalled();
+    expect(executor).not.toHaveBeenCalled();
+  });
+
+  it("supports async execute returning async executor", async () => {
+    const tool = {
+      id: "sync",
+      inputSchema: Schema.Struct({ value: Schema.String }),
+      outputSchema: Schema.Struct({ value: Schema.String }),
+      async execute() {
+        return async (input: unknown) => input;
+      },
+    };
+
+    await expect(executeAdapterTool(tool, { value: "sync" })).resolves.toEqual(
+      { value: "sync" },
+    );
+  });
+});
 
 describe("loadModule", () => {
   const originalConfigDir = process.env.MCI_CONFIG_DIR;
@@ -391,6 +462,124 @@ describe("loadModule", () => {
 
     expect(result.error).toBeNull();
     expect(result.module).not.toBeNull();
+    expect(typeof (result.module as { parse: unknown }).parse).toBe("function");
+    await expect((result.module as { parse: () => unknown }).parse()).resolves
+      .toEqual({
+      id: "test-adapter",
+      tools: [
+        {
+          id: "echo",
+          inputSchema: { _tag: "Schema" },
+          outputSchema: { _tag: "Schema" },
+          execute: expect.any(Function),
+        },
+      ],
+    });
+  });
+
+  it("returns an error when adapter module is missing parse", async () => {
+    const configDir = fs.mkdtempSync(path.join(os.tmpdir(), "mci-adapter-np-"));
+    tempDirs.push(configDir);
+    process.env.MCI_CONFIG_DIR = configDir;
+    const modulePath = writeModuleFile(
+      path.join(configDir, "modules"),
+      "adapter-no-parse.mjs",
+      'export default { type: "adapter" };',
+    );
+
+    const result = await loadModule(modulePath, "adapter");
+
+    expect(result.module).toBeNull();
+    expect(result.error).toBeInstanceOf(Error);
+    expect(result.error?.message).toMatch(/parse\(\)/i);
+  });
+
+  it("does not execute adapter parse() during module load", async () => {
+    const configDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "mci-adapter-parse-fail-"),
+    );
+    tempDirs.push(configDir);
+    process.env.MCI_CONFIG_DIR = configDir;
+    const modulePath = writeModuleFile(
+      path.join(configDir, "modules"),
+      "adapter-parse-fail.mjs",
+      `
+export default {
+  type: "adapter",
+  async parse() {
+    throw new Error("boom");
+  },
+};
+`.trim(),
+    );
+
+    const result = await loadModule(modulePath, "adapter");
+
+    expect(result.error).toBeNull();
+    expect(result.module).not.toBeNull();
+    await expect(
+      (result.module as { parse: () => unknown }).parse(),
+    ).rejects.toThrow(/boom/i);
+  });
+
+  it("loads adapter modules without validating parse() result", async () => {
+    const configDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "mci-adapter-bad-service-"),
+    );
+    tempDirs.push(configDir);
+    process.env.MCI_CONFIG_DIR = configDir;
+    const modulePath = writeModuleFile(
+      path.join(configDir, "modules"),
+      "adapter-bad-service.mjs",
+      `
+export default {
+  type: "adapter",
+  async parse() {
+    return { id: "", tools: [] };
+  },
+};
+`.trim(),
+    );
+
+    const result = await loadModule(modulePath, "adapter");
+
+    expect(result.error).toBeNull();
+    expect(result.module).not.toBeNull();
+    await expect((result.module as { parse: () => unknown }).parse()).resolves
+      .toEqual({ id: "", tools: [] });
+  });
+
+  it("loads adapter modules even when schema metadata is missing", async () => {
+    const configDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "mci-adapter-missing-schema-"),
+    );
+    tempDirs.push(configDir);
+    process.env.MCI_CONFIG_DIR = configDir;
+    const modulePath = writeModuleFile(
+      path.join(configDir, "modules"),
+      "adapter-missing-schema.mjs",
+      `
+export default {
+  type: "adapter",
+  async parse() {
+    return {
+      id: "svc",
+      tools: [{ id: "tool", outputSchema: { _tag: "Schema" } }],
+    };
+  },
+};
+`.trim(),
+    );
+
+    const result = await loadModule(modulePath, "adapter");
+
+    expect(result.error).toBeNull();
+    expect(result.module).not.toBeNull();
+    await expect((result.module as { parse: () => unknown }).parse()).resolves
+      .toEqual({
+        id: "svc",
+        tools: [{ id: "tool", outputSchema: { _tag: "Schema" } }],
+      });
   });
 
   it("resolves relative paths from the config directory", async () => {

@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Schema } from "effect";
 
 import {
   loadModule,
@@ -48,7 +49,21 @@ class TestEnvironmentModule extends EventEmitter implements EnvironmentModule {
 }
 
 class TestAdapterModule implements AdapterModule {
-  readonly type = "adapter";
+  async parse() {
+    return {
+      id: "test-adapter",
+      tools: [
+        {
+          id: "echo",
+          inputSchema: Schema.Struct({ value: Schema.String }),
+          outputSchema: Schema.Struct({ value: Schema.String }),
+          async execute() {
+            return async (input: unknown) => input;
+          },
+        },
+      ],
+    };
+  }
 }
 
 beforeEach(() => {
