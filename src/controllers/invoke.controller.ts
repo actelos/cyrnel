@@ -1,4 +1,5 @@
 import type { Request, Response } from "express";
+import { ParseResult } from "effect";
 
 import { logger } from "@/logger";
 import { HttpError } from "@/models/error";
@@ -75,13 +76,7 @@ export async function invokeTool(req: Request, res: Response): Promise<void> {
 
     res.status(200).json({ output });
   } catch (error) {
-    const parseErrorTag =
-      typeof error === "object" &&
-      error !== null &&
-      "_tag" in error &&
-      (error as { _tag?: unknown })._tag;
-
-    if (parseErrorTag === "ParseError") {
+    if (ParseResult.isParseError(error)) {
       logger.warn(
         {
           adapterId,

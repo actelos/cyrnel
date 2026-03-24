@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import * as modules from "@/config/modules";
 import { HttpError } from "@/models/error";
 import { createAdapterToolPath } from "@/state";
 import { invokeTool } from "@/controllers/invoke.controller";
@@ -331,5 +332,48 @@ describe("invoke.controller", () => {
     expect(res.json).toHaveBeenCalledWith({
       output: { value: "from-graphql" },
     });
+  });
+
+  it("does not treat arbitrary ParseError-shaped objects as validation failures", async () => {
+    const res = makeRes();
+    const tool = makeTool();
+    const catalog = makeCatalogState({
+      adapterId: "echo-adapter",
+      serviceId: "echo",
+      tools: [tool],
+    });
+    const parseError = {
+      _tag: "ParseError",
+      message: "fake parse failure",
+    };
+    const executeAdapterToolSpy = vi
+      .spyOn(modules, "executeAdapterTool")
+      .mockRejectedValueOnce(parseError);
+
+    const req: any = makeReq(
+      {
+        adapterId: "echo-adapter",
+        serviceId: "echo",
+        toolId: "echo",
+        input: { value: "ok" },
+      },
+      {
+        app: {
+          locals: {
+            serverState: {
+              modules: {
+                catalog,
+                loaded: { adapter: new Map() },
+              },
+            },
+          },
+        },
+      },
+    );
+
+    await expect(invokeTool(req, res)).rejects.toBe(parseError);
+    expect(executeAdapterToolSpy).toHaveBeenCalledTimes(1);
+    expect(res.status).not.toHaveBeenCalled();
+    expect(res.json).not.toHaveBeenCalled();
   });
 });
