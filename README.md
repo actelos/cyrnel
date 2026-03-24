@@ -38,11 +38,11 @@ configuration directory must be located at `~/mci/` or provided through the
 The required configuration file is `modules.toml`:
 
 ```toml
-[localjsenv]
-path="./modules/localjs.mjs"
+[environment]
+localjs = { enabled = true, path = "./modules/localjs.mjs" }
 
-[localpyenv]
-path="./modules/localpy.mjs"
+[adapter]
+openapi = { enabled = true, path = "./modules/openapi.mjs" }
 ```
 
 The module files referenced by this configuration can be found in the

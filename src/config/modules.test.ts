@@ -3,17 +3,22 @@ import os from "node:os";
 import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Schema } from "effect";
 
-import { loadModule, loadModulesConfig } from "@/config/modules";
+import {
+  executeAdapterTool,
+  loadModule,
+  loadModulesConfig,
+} from "@/config/modules";
 
 const modulesToml = `
-[node-sandbox]
-enabled = true
-path = "./modules/node-sandbox.ts"
+[environment]
+localjs = { enabled = true, path = "./modules/localjs.ts" }
+localpy = { enabled = false, path = "./modules/localpy.ts" }
 
-[python-sandbox]
-enabled = false
-path = "./modules/python-sandbox.ts"
+[adapter]
+openapi = { enabled = true, path = "./modules/openapi.ts" }
+grpc = { enabled = false, path = "./modules/grpc.ts" }
 `;
 
 const writeModulesToml = (configDir: string) => {
@@ -54,10 +59,33 @@ describe("loadModulesConfig", () => {
     process.env.MCI_CONFIG_DIR = configDir;
 
     expect(loadModulesConfig()).toEqual({
-      "node-sandbox": {
-        id: "node-sandbox",
-        enabled: true,
-        path: "./modules/node-sandbox.ts",
+      environment: {
+        localjs: {
+          id: "localjs",
+          type: "environment",
+          enabled: true,
+          path: "./modules/localjs.ts",
+        },
+        localpy: {
+          id: "localpy",
+          type: "environment",
+          enabled: false,
+          path: "./modules/localpy.ts",
+        },
+      },
+      adapter: {
+        openapi: {
+          id: "openapi",
+          type: "adapter",
+          enabled: true,
+          path: "./modules/openapi.ts",
+        },
+        grpc: {
+          id: "grpc",
+          type: "adapter",
+          enabled: false,
+          path: "./modules/grpc.ts",
+        },
       },
     });
   });
@@ -72,10 +100,33 @@ describe("loadModulesConfig", () => {
     vi.spyOn(os, "homedir").mockReturnValue(homeDir);
 
     expect(loadModulesConfig()).toEqual({
-      "node-sandbox": {
-        id: "node-sandbox",
-        enabled: true,
-        path: "./modules/node-sandbox.ts",
+      environment: {
+        localjs: {
+          id: "localjs",
+          type: "environment",
+          enabled: true,
+          path: "./modules/localjs.ts",
+        },
+        localpy: {
+          id: "localpy",
+          type: "environment",
+          enabled: false,
+          path: "./modules/localpy.ts",
+        },
+      },
+      adapter: {
+        openapi: {
+          id: "openapi",
+          type: "adapter",
+          enabled: true,
+          path: "./modules/openapi.ts",
+        },
+        grpc: {
+          id: "grpc",
+          type: "adapter",
+          enabled: false,
+          path: "./modules/grpc.ts",
+        },
       },
     });
   });
@@ -88,31 +139,36 @@ describe("loadModulesConfig", () => {
     expect(() => loadModulesConfig()).toThrow();
   });
 
-  it("throws when a section is missing a path", () => {
+  it("throws when a module section is missing a path", () => {
     const configDir = fs.mkdtempSync(path.join(os.tmpdir(), "mci-nopath-"));
     tempDirs.push(configDir);
     process.env.MCI_CONFIG_DIR = configDir;
     writeModulesTomlContents(
       configDir,
       `
-      [node-sandbox]
-      enabled = true
+      [environment]
+      localjs = { enabled = true }
+
+      [adapter]
+      openapi = { path = "./modules/openapi.ts" }
       `,
     );
 
     expect(() => loadModulesConfig()).toThrow(/missing "path"/);
   });
 
-  it("throws when a section has an empty path", () => {
+  it("throws when a module section has an empty path", () => {
     const configDir = fs.mkdtempSync(path.join(os.tmpdir(), "mci-emptypath-"));
     tempDirs.push(configDir);
     process.env.MCI_CONFIG_DIR = configDir;
     writeModulesTomlContents(
       configDir,
       `
-      [node-sandbox]
-      enabled = true
-      path = ""
+      [environment]
+      localjs = { enabled = true, path = "" }
+
+      [adapter]
+      openapi = { path = "./modules/openapi.ts" }
       `,
     );
 
@@ -126,34 +182,114 @@ describe("loadModulesConfig", () => {
     writeModulesTomlContents(
       configDir,
       `
-      [node-sandbox]
-      path = "./modules/node-sandbox.ts"
+      [environment]
+      localjs = { path = "./modules/localjs.ts" }
+
+      [adapter]
+      openapi = { path = "./modules/openapi.ts" }
       `,
     );
 
     expect(loadModulesConfig()).toEqual({
-      "node-sandbox": {
-        id: "node-sandbox",
-        enabled: true,
-        path: "./modules/node-sandbox.ts",
+      environment: {
+        localjs: {
+          id: "localjs",
+          type: "environment",
+          enabled: true,
+          path: "./modules/localjs.ts",
+        },
+      },
+      adapter: {
+        openapi: {
+          id: "openapi",
+          type: "adapter",
+          enabled: true,
+          path: "./modules/openapi.ts",
+        },
       },
     });
   });
 
-  it("throws when a section has an invalid enabled value", () => {
+  it("throws when a module section has an invalid enabled value", () => {
     const configDir = fs.mkdtempSync(path.join(os.tmpdir(), "mci-badtype-"));
     tempDirs.push(configDir);
     process.env.MCI_CONFIG_DIR = configDir;
     writeModulesTomlContents(
       configDir,
       `
-      [node-sandbox]
-      enabled = "yes"
-      path = "./modules/node-sandbox.ts"
+      [environment]
+      localjs = { enabled = "yes", path = "./modules/localjs.ts" }
+
+      [adapter]
+      openapi = { path = "./modules/openapi.ts" }
       `,
     );
 
     expect(() => loadModulesConfig()).toThrow(/invalid "enabled"/);
+  });
+
+  it("throws when required groups are missing", () => {
+    const configDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "mci-missing-group-"),
+    );
+    tempDirs.push(configDir);
+    process.env.MCI_CONFIG_DIR = configDir;
+    writeModulesTomlContents(
+      configDir,
+      `
+      [environment]
+      localjs = { enabled = true, path = "./modules/localjs.ts" }
+      `,
+    );
+
+    expect(() => loadModulesConfig()).toThrow(
+      /section "adapter" is missing or invalid/i,
+    );
+  });
+
+  it("throws when an unsupported top-level section exists", () => {
+    const configDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "mci-unsupported-"),
+    );
+    tempDirs.push(configDir);
+    process.env.MCI_CONFIG_DIR = configDir;
+    writeModulesTomlContents(
+      configDir,
+      `
+      [environment]
+      localjs = { enabled = true, path = "./modules/localjs.ts" }
+
+      [adapter]
+      openapi = { enabled = true, path = "./modules/openapi.ts" }
+
+      [modules]
+      legacy = { enabled = true, path = "./modules/legacy.ts" }
+      `,
+    );
+
+    expect(() => loadModulesConfig()).toThrow(/unsupported top-level section/i);
+  });
+
+  it("throws when a group has no enabled modules", () => {
+    const configDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "mci-no-enabled-group-"),
+    );
+    tempDirs.push(configDir);
+    process.env.MCI_CONFIG_DIR = configDir;
+    writeModulesTomlContents(
+      configDir,
+      `
+      [environment]
+      localjs = { enabled = false, path = "./modules/localjs.ts" }
+
+      [adapter]
+      openapi = { enabled = true, path = "./modules/openapi.ts" }
+      `,
+    );
+
+    expect(() => loadModulesConfig()).toThrow(
+      /at least one module in section "environment"/i,
+    );
   });
 
   it("throws when modules.toml is malformed", () => {
@@ -163,9 +299,8 @@ describe("loadModulesConfig", () => {
     writeModulesTomlContents(
       configDir,
       `
-      [node-sandbox
-      enabled = true
-      path = "./modules/node-sandbox.ts"
+      [environment
+      localjs = { enabled = true, path = "./modules/localjs.ts" }
       `,
     );
 
@@ -204,6 +339,92 @@ class TestModule extends EventEmitter {
 export default new TestModule();
 `.trim();
 
+const adapterModuleSource = () =>
+  `
+export default {
+  type: "adapter",
+  async parse() {
+    return {
+      id: "test-adapter",
+      tools: [
+        {
+          id: "echo",
+          inputSchema: { _tag: "Schema" },
+          outputSchema: { _tag: "Schema" },
+          async execute() {
+            return async (input) => input;
+          },
+        },
+      ],
+    };
+  },
+};
+`.trim();
+
+describe("executeAdapterTool", () => {
+  it("validates input before calling tool executor", async () => {
+    const executor = vi.fn(async (input: unknown) => input);
+    const execute = vi.fn(async () => executor);
+    const tool = {
+      id: "echo",
+      inputSchema: Schema.Struct({ value: Schema.String }),
+      outputSchema: Schema.Struct({ value: Schema.String }),
+      execute,
+    };
+
+    const result = await executeAdapterTool(tool, { value: "ok" });
+
+    expect(result).toEqual({ value: "ok" });
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(executor).toHaveBeenCalledWith({ value: "ok" });
+  });
+
+  it("throws when input does not match schema", async () => {
+    const executor = vi.fn(async (input: unknown) => input);
+    const execute = vi.fn(async () => executor);
+    const tool = {
+      id: "echo",
+      inputSchema: Schema.Struct({ value: Schema.String }),
+      outputSchema: Schema.Struct({ value: Schema.String }),
+      execute,
+    };
+
+    await expect(executeAdapterTool(tool, { value: 123 })).rejects.toThrow();
+    expect(execute).not.toHaveBeenCalled();
+    expect(executor).not.toHaveBeenCalled();
+  });
+
+  it("throws when output does not match schema", async () => {
+    const executor = vi.fn(async () => ({ value: 123 }));
+    const execute = vi.fn(async () => executor);
+    const tool = {
+      id: "echo",
+      inputSchema: Schema.Struct({ value: Schema.String }),
+      outputSchema: Schema.Struct({ value: Schema.String }),
+      execute,
+    };
+
+    await expect(executeAdapterTool(tool, { value: "ok" })).rejects.toThrow();
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(executor).toHaveBeenCalledWith({ value: "ok" });
+  });
+
+  it("supports async execute returning async executor", async () => {
+    const tool = {
+      id: "sync",
+      inputSchema: Schema.Struct({ value: Schema.String }),
+      outputSchema: Schema.Struct({ value: Schema.String }),
+      async execute() {
+        return async (input: unknown) => input;
+      },
+    };
+
+    await expect(executeAdapterTool(tool, { value: "sync" })).resolves.toEqual({
+      value: "sync",
+    });
+  });
+});
+
 describe("loadModule", () => {
   const originalConfigDir = process.env.MCI_CONFIG_DIR;
   let tempDirs: string[] = [];
@@ -235,11 +456,148 @@ describe("loadModule", () => {
       environmentModuleSource(),
     );
 
-    const result = await loadModule(modulePath);
+    const result = await loadModule(modulePath, "environment");
 
-    expect(result.module?.type).toBe("environment");
-    expect(result.module?.label).toBe("test");
     expect(result.error).toBeNull();
+    expect(result.module).not.toBeNull();
+    expect(result.module).toHaveProperty("label", "test");
+  });
+
+  it("loads a default-exported adapter module", async () => {
+    const configDir = fs.mkdtempSync(path.join(os.tmpdir(), "mci-adapter-"));
+    tempDirs.push(configDir);
+    process.env.MCI_CONFIG_DIR = configDir;
+    const modulePath = writeModuleFile(
+      path.join(configDir, "modules"),
+      "adapter.mjs",
+      adapterModuleSource(),
+    );
+
+    const result = await loadModule(modulePath, "adapter");
+
+    expect(result.error).toBeNull();
+    expect(result.module).not.toBeNull();
+    expect(typeof (result.module as { parse: unknown }).parse).toBe("function");
+    await expect(
+      (result.module as { parse: () => unknown }).parse(),
+    ).resolves.toEqual({
+      id: "test-adapter",
+      tools: [
+        {
+          id: "echo",
+          inputSchema: { _tag: "Schema" },
+          outputSchema: { _tag: "Schema" },
+          execute: expect.any(Function),
+        },
+      ],
+    });
+  });
+
+  it("returns an error when adapter module is missing parse", async () => {
+    const configDir = fs.mkdtempSync(path.join(os.tmpdir(), "mci-adapter-np-"));
+    tempDirs.push(configDir);
+    process.env.MCI_CONFIG_DIR = configDir;
+    const modulePath = writeModuleFile(
+      path.join(configDir, "modules"),
+      "adapter-no-parse.mjs",
+      'export default { type: "adapter" };',
+    );
+
+    const result = await loadModule(modulePath, "adapter");
+
+    expect(result.module).toBeNull();
+    expect(result.error).toBeInstanceOf(Error);
+    expect(result.error?.message).toMatch(/parse\(\)/i);
+  });
+
+  it("does not execute adapter parse() during module load", async () => {
+    const configDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "mci-adapter-parse-fail-"),
+    );
+    tempDirs.push(configDir);
+    process.env.MCI_CONFIG_DIR = configDir;
+    const modulePath = writeModuleFile(
+      path.join(configDir, "modules"),
+      "adapter-parse-fail.mjs",
+      `
+export default {
+  type: "adapter",
+  async parse() {
+    throw new Error("boom");
+  },
+};
+`.trim(),
+    );
+
+    const result = await loadModule(modulePath, "adapter");
+
+    expect(result.error).toBeNull();
+    expect(result.module).not.toBeNull();
+    await expect(
+      (result.module as { parse: () => unknown }).parse(),
+    ).rejects.toThrow(/boom/i);
+  });
+
+  it("loads adapter modules without validating parse() result", async () => {
+    const configDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "mci-adapter-bad-service-"),
+    );
+    tempDirs.push(configDir);
+    process.env.MCI_CONFIG_DIR = configDir;
+    const modulePath = writeModuleFile(
+      path.join(configDir, "modules"),
+      "adapter-bad-service.mjs",
+      `
+export default {
+  type: "adapter",
+  async parse() {
+    return { id: "", tools: [] };
+  },
+};
+`.trim(),
+    );
+
+    const result = await loadModule(modulePath, "adapter");
+
+    expect(result.error).toBeNull();
+    expect(result.module).not.toBeNull();
+    await expect(
+      (result.module as { parse: () => unknown }).parse(),
+    ).resolves.toEqual({ id: "", tools: [] });
+  });
+
+  it("loads adapter modules even when schema metadata is missing", async () => {
+    const configDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "mci-adapter-missing-schema-"),
+    );
+    tempDirs.push(configDir);
+    process.env.MCI_CONFIG_DIR = configDir;
+    const modulePath = writeModuleFile(
+      path.join(configDir, "modules"),
+      "adapter-missing-schema.mjs",
+      `
+export default {
+  type: "adapter",
+  async parse() {
+    return {
+      id: "svc",
+      tools: [{ id: "tool", outputSchema: { _tag: "Schema" } }],
+    };
+  },
+};
+`.trim(),
+    );
+
+    const result = await loadModule(modulePath, "adapter");
+
+    expect(result.error).toBeNull();
+    expect(result.module).not.toBeNull();
+    await expect(
+      (result.module as { parse: () => unknown }).parse(),
+    ).resolves.toEqual({
+      id: "svc",
+      tools: [{ id: "tool", outputSchema: { _tag: "Schema" } }],
+    });
   });
 
   it("resolves relative paths from the config directory", async () => {
@@ -253,11 +611,11 @@ describe("loadModule", () => {
     );
     const relativePath = path.relative(configDir, modulePath);
 
-    const result = await loadModule(relativePath);
+    const result = await loadModule(relativePath, "environment");
 
-    expect(result.module?.type).toBe("environment");
-    expect(result.module?.label).toBe("relative");
     expect(result.error).toBeNull();
+    expect(result.module).not.toBeNull();
+    expect(result.module).toHaveProperty("label", "relative");
   });
 
   it("returns an error when the module cannot be resolved", async () => {
@@ -268,7 +626,7 @@ describe("loadModule", () => {
     process.env.MCI_CONFIG_DIR = configDir;
     const modulePath = path.join(configDir, "modules", "missing.mjs");
 
-    const result = await loadModule(modulePath);
+    const result = await loadModule(modulePath, "environment");
 
     expect(result.module).toBeNull();
     expect(result.error).toBeInstanceOf(Error);
@@ -285,7 +643,7 @@ describe("loadModule", () => {
       "export const value = 1;",
     );
 
-    const result = await loadModule(modulePath);
+    const result = await loadModule(modulePath, "environment");
 
     expect(result.module).toBeNull();
     expect(result.error).toBeInstanceOf(Error);
@@ -302,14 +660,14 @@ describe("loadModule", () => {
       'export default "not-an-object";',
     );
 
-    const result = await loadModule(modulePath);
+    const result = await loadModule(modulePath, "environment");
 
     expect(result.module).toBeNull();
     expect(result.error).toBeInstanceOf(Error);
     expect(result.error?.message).toMatch(/default export/i);
   });
 
-  it("returns an error when the default export has an invalid type", async () => {
+  it("returns an error when declared type conflicts with config type", async () => {
     const configDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "mci-module-type-"),
     );
@@ -321,11 +679,30 @@ describe("loadModule", () => {
       'export default { type: "other" };',
     );
 
-    const result = await loadModule(modulePath);
+    const result = await loadModule(modulePath, "adapter");
 
     expect(result.module).toBeNull();
     expect(result.error).toBeInstanceOf(Error);
-    expect(result.error?.message).toMatch(/default export/i);
+    expect(result.error?.message).toMatch(/config expects "adapter"/i);
+  });
+
+  it("returns an error when environment module is loaded as adapter", async () => {
+    const configDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "mci-module-group-mismatch-"),
+    );
+    tempDirs.push(configDir);
+    process.env.MCI_CONFIG_DIR = configDir;
+    const modulePath = writeModuleFile(
+      path.join(configDir, "modules"),
+      "env-in-adapter.mjs",
+      environmentModuleSource("wrong-group"),
+    );
+
+    const result = await loadModule(modulePath, "adapter");
+
+    expect(result.module).toBeNull();
+    expect(result.error).toBeInstanceOf(Error);
+    expect(result.error?.message).toMatch(/config expects "adapter"/i);
   });
 
   it("returns an error when the default export has an invalid label", async () => {
@@ -343,7 +720,7 @@ describe("loadModule", () => {
       }),
     );
 
-    const result = await loadModule(modulePath);
+    const result = await loadModule(modulePath, "environment");
 
     expect(result.module).toBeNull();
     expect(result.error).toBeInstanceOf(Error);
@@ -365,7 +742,7 @@ describe("loadModule", () => {
       }),
     );
 
-    const result = await loadModule(modulePath);
+    const result = await loadModule(modulePath, "environment");
 
     expect(result.module).toBeNull();
     expect(result.error).toBeInstanceOf(Error);
@@ -387,7 +764,7 @@ describe("loadModule", () => {
       }),
     );
 
-    const result = await loadModule(modulePath);
+    const result = await loadModule(modulePath, "environment");
 
     expect(result.module).toBeNull();
     expect(result.error).toBeInstanceOf(Error);
@@ -410,7 +787,7 @@ describe("loadModule", () => {
       }),
     );
 
-    const result = await loadModule(modulePath);
+    const result = await loadModule(modulePath, "environment");
 
     expect(result.module).toBeNull();
     expect(result.error).toBeInstanceOf(Error);
@@ -433,7 +810,7 @@ describe("loadModule", () => {
       }),
     );
 
-    const result = await loadModule(modulePath);
+    const result = await loadModule(modulePath, "environment");
 
     expect(result.module).toBeNull();
     expect(result.error).toBeInstanceOf(Error);
@@ -463,7 +840,7 @@ export default {
 `.trim(),
     );
 
-    const result = await loadModule(modulePath);
+    const result = await loadModule(modulePath, "environment");
 
     expect(result.module).toBeNull();
     expect(result.error).toBeInstanceOf(Error);
@@ -484,7 +861,7 @@ export default {
       "outside.mjs",
       environmentModuleSource(),
     );
-    const result = await loadModule(modulePath);
+    const result = await loadModule(modulePath, "environment");
 
     expect(result.module).toBeNull();
     expect(result.error).toBeInstanceOf(Error);
@@ -503,18 +880,19 @@ export default {
       environmentModuleSource(),
     );
 
-    const firstResult = await loadModule(modulePath);
+    const firstResult = await loadModule(modulePath, "environment");
 
-    expect(firstResult.module?.type).toBe("environment");
     expect(firstResult.error).toBeNull();
 
     fs.writeFileSync(modulePath, 'export default { type: "other" };', "utf8");
     fs.utimesSync(modulePath, new Date(), new Date(Date.now() + 1000));
 
-    const secondResult = await loadModule(modulePath);
+    const secondResult = await loadModule(modulePath, "environment");
 
     expect(secondResult.module).toBeNull();
     expect(secondResult.error).toBeInstanceOf(Error);
-    expect(secondResult.error?.message).toMatch(/default export/i);
+    expect(secondResult.error?.message).toMatch(
+      /config expects "environment"/i,
+    );
   });
 });

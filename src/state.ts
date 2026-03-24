@@ -2,6 +2,9 @@ import { logger } from "@/logger";
 import {
   loadModule,
   loadModulesConfig,
+  type AdapterModule,
+  type AdapterService,
+  type AdapterToolDefinition,
   type EnvironmentModule,
   type ModulesConfig,
 } from "@/config/modules";
@@ -14,6 +17,26 @@ export type ModulesState = {
   config: ModulesConfig;
   loaded: {
     environment: Map<string, EnvironmentModule>;
+    adapter: Map<string, AdapterModule>;
+  };
+  catalog: {
+    services: Map<
+      string,
+      {
+        adapterId: string;
+        service: AdapterService;
+      }
+    >;
+    tools: Map<
+      string,
+      {
+        adapterId: string;
+        serviceId: string;
+        toolId: string;
+        toolPath: string;
+        tool: AdapterToolDefinition;
+      }
+    >;
   };
   errors: Map<string, Error>;
 };
@@ -23,6 +46,259 @@ export type ServerState = {
   pools: {
     environment: EnvironmentPool;
   };
+};
+
+export const createAdapterToolPath = (
+  adapterId: string,
+  serviceId: string,
+  toolId: string,
+): string => {
+  validateAdapterToolPathId(adapterId, "adapterId");
+  validateAdapterToolPathId(serviceId, "serviceId");
+  validateAdapterToolPathId(toolId, "toolId");
+
+  return `${adapterId}.${serviceId}.${toolId}`;
+};
+
+const validateAdapterToolPathId = (
+  id: string,
+  field: "adapterId" | "serviceId" | "toolId",
+): void => {
+  if (id.includes(".")) {
+    throw new Error(
+      `Invalid ${field} "${id}": identifiers used in tool paths must not contain '.'.`,
+    );
+  }
+};
+
+const clearCatalogErrors = (modulesState: ModulesState): void => {
+  for (const key of Array.from(modulesState.errors.keys())) {
+    if (
+      key.startsWith("adapter.") &&
+      (key.endsWith(".parse") || key.includes(".catalog."))
+    ) {
+      modulesState.errors.delete(key);
+    }
+  }
+};
+
+const normalizeId = (value: unknown): string | null => {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : null;
+};
+
+const isSchemaLike = (value: unknown): boolean =>
+  value !== null && (typeof value === "object" || typeof value === "function");
+
+export const refreshAdapterCatalog = async (
+  modulesState: ModulesState,
+): Promise<void> => {
+  clearCatalogErrors(modulesState);
+  modulesState.catalog.services.clear();
+  modulesState.catalog.tools.clear();
+
+  for (const [
+    adapterId,
+    adapterModule,
+  ] of modulesState.loaded.adapter.entries()) {
+    try {
+      validateAdapterToolPathId(adapterId, "adapterId");
+    } catch (err) {
+      const error =
+        err instanceof Error
+          ? err
+          : new Error(`Adapter id validation failed: ${String(err)}`);
+      modulesState.errors.set(`adapter.${adapterId}.catalog.adapter`, error);
+      logger.error({ err: error, adapterId }, "Invalid adapter id");
+      continue;
+    }
+
+    let service: AdapterService;
+
+    try {
+      service = await adapterModule.parse();
+    } catch (err) {
+      const error =
+        err instanceof Error
+          ? err
+          : new Error(`Adapter parse failed: ${String(err)}`);
+      modulesState.errors.set(`adapter.${adapterId}.parse`, error);
+      logger.error(
+        { err: error, adapterId },
+        "Failed to parse adapter service",
+      );
+      continue;
+    }
+
+    const serviceId = normalizeId(service?.id);
+    if (!serviceId) {
+      const error = new Error("Adapter parse returned service with invalid id");
+      modulesState.errors.set(`adapter.${adapterId}.catalog.service`, error);
+      logger.error({ err: error, adapterId }, "Invalid adapter service id");
+      continue;
+    }
+
+    try {
+      validateAdapterToolPathId(serviceId, "serviceId");
+    } catch (err) {
+      const error =
+        err instanceof Error
+          ? err
+          : new Error(`Service id validation failed: ${String(err)}`);
+      modulesState.errors.set(`adapter.${adapterId}.catalog.service`, error);
+      logger.error(
+        { err: error, adapterId, serviceId },
+        "Invalid adapter service id",
+      );
+      continue;
+    }
+
+    const existingService = modulesState.catalog.services.get(serviceId);
+    if (existingService) {
+      const error = new Error(
+        `Duplicate service id "${serviceId}" from adapter "${adapterId}"; already provided by "${existingService.adapterId}"`,
+      );
+      modulesState.errors.set(`adapter.${adapterId}.catalog.service`, error);
+      logger.error(
+        {
+          err: error,
+          adapterId,
+          serviceId,
+          existingAdapterId: existingService.adapterId,
+        },
+        "Duplicate adapter service id",
+      );
+      continue;
+    }
+
+    if (!Array.isArray(service.tools)) {
+      const error = new Error(
+        `Service "${serviceId}" returned invalid tools list from adapter "${adapterId}"`,
+      );
+      modulesState.errors.set(`adapter.${adapterId}.catalog.tools`, error);
+      logger.error({ err: error, adapterId, serviceId }, "Invalid tools list");
+      continue;
+    }
+
+    const seenToolIds = new Set<string>();
+    const validatedTools: Array<{
+      tool: AdapterToolDefinition;
+      toolId: string;
+    }> = [];
+    let hasToolValidationError = false;
+    for (const tool of service.tools) {
+      const toolId = normalizeId(tool?.id);
+      if (!toolId) {
+        hasToolValidationError = true;
+        const error = new Error(
+          `Service "${serviceId}" has tool with invalid id in adapter "${adapterId}"`,
+        );
+        modulesState.errors.set(`adapter.${adapterId}.catalog.tools`, error);
+        logger.error({ err: error, adapterId, serviceId }, "Invalid tool id");
+        break;
+      }
+
+      try {
+        validateAdapterToolPathId(toolId, "toolId");
+      } catch (err) {
+        hasToolValidationError = true;
+        const error =
+          err instanceof Error
+            ? err
+            : new Error(`Tool id validation failed: ${String(err)}`);
+        modulesState.errors.set(`adapter.${adapterId}.catalog.tools`, error);
+        logger.error(
+          { err: error, adapterId, serviceId, toolId },
+          "Invalid tool id",
+        );
+        break;
+      }
+
+      if (typeof tool?.execute !== "function") {
+        hasToolValidationError = true;
+        const error = new Error(
+          `Service "${serviceId}" has tool "${toolId}" with invalid execute function in adapter "${adapterId}"`,
+        );
+        modulesState.errors.set(`adapter.${adapterId}.catalog.tools`, error);
+        logger.error(
+          { err: error, adapterId, serviceId, toolId },
+          "Invalid tool execute function",
+        );
+        break;
+      }
+
+      if (!isSchemaLike(tool?.inputSchema)) {
+        hasToolValidationError = true;
+        const error = new Error(
+          `Service "${serviceId}" has tool "${toolId}" with invalid inputSchema in adapter "${adapterId}"`,
+        );
+        modulesState.errors.set(`adapter.${adapterId}.catalog.tools`, error);
+        logger.error(
+          { err: error, adapterId, serviceId, toolId },
+          "Invalid tool input schema",
+        );
+        break;
+      }
+
+      if (!isSchemaLike(tool?.outputSchema)) {
+        hasToolValidationError = true;
+        const error = new Error(
+          `Service "${serviceId}" has tool "${toolId}" with invalid outputSchema in adapter "${adapterId}"`,
+        );
+        modulesState.errors.set(`adapter.${adapterId}.catalog.tools`, error);
+        logger.error(
+          { err: error, adapterId, serviceId, toolId },
+          "Invalid tool output schema",
+        );
+        break;
+      }
+
+      if (seenToolIds.has(toolId)) {
+        hasToolValidationError = true;
+        const error = new Error(
+          `Service "${serviceId}" has duplicate tool id "${toolId}" in adapter "${adapterId}"`,
+        );
+        modulesState.errors.set(`adapter.${adapterId}.catalog.tools`, error);
+        logger.error(
+          { err: error, adapterId, serviceId, toolId },
+          "Duplicate tool id within service",
+        );
+        break;
+      }
+
+      seenToolIds.add(toolId);
+      validatedTools.push({ tool, toolId });
+    }
+
+    if (hasToolValidationError) {
+      continue;
+    }
+
+    modulesState.catalog.services.set(serviceId, { adapterId, service });
+
+    for (const { tool, toolId } of validatedTools) {
+      const toolPath = createAdapterToolPath(adapterId, serviceId, toolId);
+      modulesState.catalog.tools.set(toolPath, {
+        adapterId,
+        serviceId,
+        toolId,
+        toolPath,
+        tool,
+      });
+    }
+  }
+
+  logger.info(
+    {
+      catalogServices: modulesState.catalog.services.size,
+      catalogTools: modulesState.catalog.tools.size,
+    },
+    "Built adapter catalog",
+  );
 };
 
 export const loadServerState = async (): Promise<ServerState> => {
@@ -38,80 +314,112 @@ export const loadServerState = async (): Promise<ServerState> => {
     config: modulesConfig,
     loaded: {
       environment: new Map(),
+      adapter: new Map(),
+    },
+    catalog: {
+      services: new Map(),
+      tools: new Map(),
     },
     errors: new Map(),
   };
 
-  const entries = Object.entries(modulesConfig);
-  const totalConfigured = entries.length;
-  const totalEnabled = entries.filter(([, config]) => config.enabled).length;
+  const entries = [
+    ...Object.entries(modulesConfig.environment),
+    ...Object.entries(modulesConfig.adapter),
+  ];
 
-  if (totalEnabled === 0) {
-    logger.error({}, "No modules are enabled in config");
-    throw new Error("No modules are enabled in config");
-  }
   await Promise.all(
     entries.map(async ([id, config]) => {
       if (!config.enabled) {
         logger.info(
-          { moduleId: id, modulePath: config.path },
+          {
+            moduleType: config.type,
+            moduleId: id,
+            modulePath: config.path,
+          },
           "Skipped disabled module",
         );
         return;
       }
-      const result = await loadModule(config.path);
+      const result = await loadModule(config.path, config.type);
       if (result.error) {
-        modulesState.errors.set(id, result.error);
+        modulesState.errors.set(`${config.type}.${id}`, result.error);
         logger.error(
-          { err: result.error, moduleId: id, modulePath: config.path },
+          {
+            err: result.error,
+            moduleType: config.type,
+            moduleId: id,
+            modulePath: config.path,
+          },
           "Failed to load module",
         );
         return;
       }
-      switch (result.module.type) {
-        case "environment":
-          modulesState.loaded.environment.set(id, result.module);
-          break;
-        default:
-          modulesState.errors.set(
-            id,
-            new Error(`Unknown module type: ${result.module.type}`),
-          );
-          logger.error(
-            { moduleId: id, moduleType: result.module.type },
-            "Unknown module type loaded",
-          );
-          return;
+
+      if (config.type === "environment") {
+        modulesState.loaded.environment.set(
+          id,
+          result.module as EnvironmentModule,
+        );
+        return;
       }
+
+      modulesState.loaded.adapter.set(id, result.module as AdapterModule);
     }),
   );
 
-  const totalLoadedCount = Object.values(modulesState.loaded).reduce(
-    (total, modules) => total + modules.size,
-    0,
-  );
-  if (totalLoadedCount === 0) {
+  if (modulesState.loaded.environment.size === 0) {
     logger.error(
       {
-        moduleErrors: modulesState.errors.size,
-        modulesLoaded: totalLoadedCount,
-        modulesConfigured: totalConfigured,
-        modulesEnabled: totalEnabled,
+        environmentErrors: Array.from(modulesState.errors.keys()).filter(
+          (key) => key.startsWith("environment."),
+        ).length,
       },
-      "No modules loaded",
+      "No environment modules loaded",
     );
-    throw new Error(
-      `No modules loaded (configured: ${totalConfigured}, enabled: ${totalEnabled}, loaded: ${totalLoadedCount}, errors: ${modulesState.errors.size})`,
-    );
+    throw new Error("No environment modules loaded");
   }
 
-  const loadedModules = Object.entries(modulesState.loaded).flatMap(
-    ([, modules]) =>
-      Array.from(modules.entries()).map(([id, module]) => ({
-        id,
-        type: module.type,
-      })),
-  );
+  if (modulesState.loaded.adapter.size === 0) {
+    logger.error(
+      {
+        adapterErrors: Array.from(modulesState.errors.keys()).filter((key) =>
+          key.startsWith("adapter."),
+        ).length,
+      },
+      "No adapter modules loaded",
+    );
+    throw new Error("No adapter modules loaded");
+  }
+
+  await refreshAdapterCatalog(modulesState);
+
+  if (modulesState.catalog.services.size === 0) {
+    logger.error(
+      {
+        adapterLoaded: modulesState.loaded.adapter.size,
+        adapterCatalogErrors: Array.from(modulesState.errors.keys()).filter(
+          (key) => key.startsWith("adapter.") && key.includes(".catalog."),
+        ).length,
+        adapterParseErrors: Array.from(modulesState.errors.keys()).filter(
+          (key) => key.endsWith(".parse"),
+        ).length,
+      },
+      "No adapter services catalogued",
+    );
+    throw new Error("No adapter services catalogued");
+  }
+
+  const loadedModules = [
+    ...Array.from(modulesState.loaded.environment.keys()).map((id) => ({
+      id,
+      type: "environment" as const,
+    })),
+    ...Array.from(modulesState.loaded.adapter.keys()).map((id) => ({
+      id,
+      type: "adapter" as const,
+    })),
+  ];
   logger.info({ modules: loadedModules }, "Loaded modules");
 
   return {

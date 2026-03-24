@@ -5,18 +5,21 @@ import { pathToFileURL } from "node:url";
 import { EventEmitter } from "node:events";
 
 import { parse } from "toml";
+import { ParseResult, Schema } from "effect";
 
 export type ModuleConfig = {
   id: string;
+  type: ModuleType;
   enabled: boolean;
   path: string;
 };
 
-export type ModulesConfig = Record<string, ModuleConfig>;
-
-export type BaseModule = {
-  type: "environment";
+export type ModulesConfig = {
+  environment: Record<string, ModuleConfig>;
+  adapter: Record<string, ModuleConfig>;
 };
+
+export type ModuleType = "environment" | "adapter";
 
 export type ExecutionStatus = "success" | "failed" | "timeout" | "canceled";
 
@@ -26,8 +29,7 @@ export interface EnvironmentModuleEvents {
   output: (data: unknown) => void;
 }
 
-export interface EnvironmentModule extends BaseModule, EventEmitter {
-  type: "environment";
+export interface EnvironmentModule extends EventEmitter {
   label: string;
   setup(): Promise<void>;
   teardown(): Promise<void>;
@@ -51,8 +53,64 @@ export interface EnvironmentModule extends BaseModule, EventEmitter {
   ): this;
 }
 
+export interface AdapterToolDefinition<TInput = any, TOutput = any> {
+  id: string;
+  inputSchema: Schema.Schema<TInput, any, never>;
+  outputSchema: Schema.Schema<TOutput, any, never>;
+  execute(): Promise<(input: TInput) => Promise<unknown>>;
+}
+
+export interface AdapterService {
+  id: string;
+  tools: AdapterToolDefinition<any, any>[];
+}
+
+export interface AdapterModule {
+  parse(): Promise<AdapterService>;
+}
+
+const ADAPTER_TOOL_PARSE_STAGE_KEY = "mciParseStage";
+
+type AdapterToolParseStage = "input" | "output";
+
+const tagParseError = (error: unknown, stage: AdapterToolParseStage): never => {
+  if (ParseResult.isParseError(error) && error && typeof error === "object") {
+    try {
+      Object.defineProperty(error, ADAPTER_TOOL_PARSE_STAGE_KEY, {
+        configurable: true,
+        enumerable: false,
+        value: stage,
+        writable: true,
+      });
+    } catch {}
+  }
+
+  throw error;
+};
+
+export const executeAdapterTool = async <TInput, TOutput>(
+  tool: AdapterToolDefinition<TInput, TOutput>,
+  input: unknown,
+): Promise<TOutput> => {
+  let validatedInput!: TInput;
+  try {
+    validatedInput = Schema.decodeUnknownSync(tool.inputSchema)(input);
+  } catch (error) {
+    throw tagParseError(error, "input");
+  }
+
+  const executor = await tool.execute();
+  const output = await executor(validatedInput);
+
+  try {
+    return Schema.decodeUnknownSync(tool.outputSchema)(output);
+  } catch (error) {
+    throw tagParseError(error, "output");
+  }
+};
+
 export type LoadedModule =
-  | { module: EnvironmentModule; error: null }
+  | { module: EnvironmentModule | AdapterModule; error: null }
   | { module: null; error: Error };
 
 const getConfigDir = () => {
@@ -60,39 +118,95 @@ const getConfigDir = () => {
   return env ? env : path.join(os.homedir(), "mci");
 };
 
+const MODULE_TYPES = ["environment", "adapter"] as const;
+
+const isReservedObjectKey = (value: string): boolean =>
+  value === "__proto__" || value === "constructor" || value === "prototype";
+
 const parseModulesToml = (contents: string): ModulesConfig => {
   const parsed = parse(contents) as Record<string, unknown>;
-  const modules = Object.create(null) as ModulesConfig;
+  const modules: ModulesConfig = {
+    environment: Object.create(null) as Record<string, ModuleConfig>,
+    adapter: Object.create(null) as Record<string, ModuleConfig>,
+  };
 
-  Object.entries(parsed).forEach(([id, value]) => {
-    if (id === "__proto__" || id === "constructor" || id === "prototype") {
-      throw new Error(`modules.toml has invalid section "${id}"`);
+  if (Object.keys(parsed).length === 0) {
+    throw new Error("modules.toml is empty");
+  }
+
+  for (const key of Object.keys(parsed)) {
+    if (isReservedObjectKey(key)) {
+      throw new Error(`modules.toml has invalid section "${key}"`);
     }
-    if (!value || typeof value !== "object") {
-      throw new Error(`modules.toml section "${id}" is invalid`);
-    }
-
-    const section = value as Record<string, unknown>;
-    const modulePath = section.path;
-    const moduleEnabled = section.enabled ?? true;
-
-    if (typeof modulePath !== "string" || modulePath.length === 0) {
-      throw new Error(`modules.toml section "${id}" missing "path"`);
-    }
-
-    if (typeof moduleEnabled !== "boolean") {
+    if (!(MODULE_TYPES as readonly string[]).includes(key)) {
       throw new Error(
-        `modules.toml section "${id}" has invalid "enabled" value "${String(
-          moduleEnabled,
-        )}"`,
+        `modules.toml has unsupported top-level section "${key}"; expected one of: ${MODULE_TYPES.join(", ")}`,
+      );
+    }
+  }
+
+  MODULE_TYPES.forEach((moduleType) => {
+    const groupValue = parsed[moduleType];
+
+    if (
+      !groupValue ||
+      typeof groupValue !== "object" ||
+      Array.isArray(groupValue)
+    ) {
+      throw new Error(
+        `modules.toml section "${moduleType}" is missing or invalid`,
       );
     }
 
-    if (!moduleEnabled) {
-      return;
-    }
+    const groupEntries = groupValue as Record<string, unknown>;
 
-    modules[id] = { id, enabled: moduleEnabled, path: modulePath };
+    Object.entries(groupEntries).forEach(([id, value]) => {
+      if (isReservedObjectKey(id)) {
+        throw new Error(
+          `modules.toml section "${moduleType}" has invalid module id "${id}"`,
+        );
+      }
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        throw new Error(
+          `modules.toml section "${moduleType}.${id}" is invalid`,
+        );
+      }
+
+      const section = value as Record<string, unknown>;
+      const modulePath = section.path;
+      const moduleEnabled = section.enabled ?? true;
+
+      if (typeof modulePath !== "string" || modulePath.length === 0) {
+        throw new Error(
+          `modules.toml section "${moduleType}.${id}" missing "path"`,
+        );
+      }
+
+      if (typeof moduleEnabled !== "boolean") {
+        throw new Error(
+          `modules.toml section "${moduleType}.${id}" has invalid "enabled" value "${String(
+            moduleEnabled,
+          )}"`,
+        );
+      }
+
+      modules[moduleType][id] = {
+        id,
+        type: moduleType,
+        enabled: moduleEnabled,
+        path: modulePath,
+      };
+    });
+
+    const enabledCount = Object.values(modules[moduleType]).filter(
+      (moduleConfig) => moduleConfig.enabled,
+    ).length;
+
+    if (enabledCount === 0) {
+      throw new Error(
+        `modules.toml must enable at least one module in section "${moduleType}"`,
+      );
+    }
   });
 
   return modules;
@@ -114,7 +228,30 @@ export const loadModulesConfig = (): ModulesConfig => {
   return parseModulesToml(contents);
 };
 
-export const loadModule = async (modulePath: string): Promise<LoadedModule> => {
+const validateDeclaredModuleType = (
+  value: Record<string, unknown>,
+  expectedType: ModuleType,
+  resolvedPath: string,
+): Error | null => {
+  if (!("type" in value)) {
+    return null;
+  }
+
+  const loadedType = value.type;
+
+  if (loadedType !== expectedType) {
+    return new Error(
+      `Module at "${resolvedPath}" declares type "${String(loadedType)}" but config expects "${expectedType}"`,
+    );
+  }
+
+  return null;
+};
+
+export const loadModule = async (
+  modulePath: string,
+  moduleType: ModuleType,
+): Promise<LoadedModule> => {
   const configDir = getConfigDir();
   const resolvedPath = path.isAbsolute(modulePath)
     ? modulePath
@@ -156,13 +293,11 @@ export const loadModule = async (modulePath: string): Promise<LoadedModule> => {
     }
     const imported = await import(moduleUrl.href);
     const value = imported?.default;
-
     if (
       value === null ||
       value === undefined ||
       typeof value !== "object" ||
-      Array.isArray(value) ||
-      (value as EnvironmentModule).type !== "environment"
+      Array.isArray(value)
     ) {
       return {
         module: null,
@@ -172,60 +307,87 @@ export const loadModule = async (modulePath: string): Promise<LoadedModule> => {
       };
     }
 
-    const moduleValue = value as EnvironmentModule;
-    if (
-      typeof moduleValue.label !== "string" ||
-      moduleValue.label.trim().length === 0
-    ) {
+    const moduleValue = value as Record<string, unknown>;
+    const moduleTypeError = validateDeclaredModuleType(
+      moduleValue,
+      moduleType,
+      resolvedPath,
+    );
+    if (moduleTypeError) {
       return {
         module: null,
-        error: new Error(
-          `Module at "${resolvedPath}" returned an invalid label`,
-        ),
+        error: moduleTypeError,
       };
     }
-    if (typeof moduleValue.setup !== "function") {
-      return {
-        module: null,
-        error: new Error(
-          `Module at "${resolvedPath}" is missing a setup() function`,
-        ),
-      };
+
+    if (moduleType === "environment") {
+      const environmentModule = value as EnvironmentModule;
+      if (
+        typeof environmentModule.label !== "string" ||
+        environmentModule.label.trim().length === 0
+      ) {
+        return {
+          module: null,
+          error: new Error(
+            `Module at "${resolvedPath}" returned an invalid label`,
+          ),
+        };
+      }
+      if (typeof environmentModule.setup !== "function") {
+        return {
+          module: null,
+          error: new Error(
+            `Module at "${resolvedPath}" is missing a setup() function`,
+          ),
+        };
+      }
+      if (typeof environmentModule.teardown !== "function") {
+        return {
+          module: null,
+          error: new Error(
+            `Module at "${resolvedPath}" is missing a teardown() function`,
+          ),
+        };
+      }
+      if (typeof environmentModule.execute !== "function") {
+        return {
+          module: null,
+          error: new Error(
+            `Module at "${resolvedPath}" is missing an execute() function`,
+          ),
+        };
+      }
+      if (typeof environmentModule.kill !== "function") {
+        return {
+          module: null,
+          error: new Error(
+            `Module at "${resolvedPath}" is missing a kill() function`,
+          ),
+        };
+      }
+      if (!(environmentModule instanceof EventEmitter)) {
+        return {
+          module: null,
+          error: new Error(
+            `Module at "${resolvedPath}" must extend EventEmitter`,
+          ),
+        };
+      }
+
+      return { module: environmentModule, error: null };
     }
-    if (typeof moduleValue.teardown !== "function") {
+
+    const adapterModule = value as AdapterModule;
+    if (typeof adapterModule.parse !== "function") {
       return {
         module: null,
         error: new Error(
-          `Module at "${resolvedPath}" is missing a teardown() function`,
-        ),
-      };
-    }
-    if (typeof moduleValue.execute !== "function") {
-      return {
-        module: null,
-        error: new Error(
-          `Module at "${resolvedPath}" is missing an execute() function`,
-        ),
-      };
-    }
-    if (typeof moduleValue.kill !== "function") {
-      return {
-        module: null,
-        error: new Error(
-          `Module at "${resolvedPath}" is missing a kill() function`,
-        ),
-      };
-    }
-    if (!(moduleValue instanceof EventEmitter)) {
-      return {
-        module: null,
-        error: new Error(
-          `Module at "${resolvedPath}" must extend EventEmitter`,
+          `Module at "${resolvedPath}" is missing a parse() function`,
         ),
       };
     }
 
-    return { module: moduleValue, error: null };
+    return { module: adapterModule, error: null };
   } catch (err) {
     return {
       module: null,
