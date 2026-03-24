@@ -31,17 +31,26 @@ const makeCatalogState = (input: {
     id: input.serviceId,
     tools: input.tools,
   };
-  const services = new Map([[input.serviceId, { adapterId: input.adapterId, service }]]);
-  const tools = new Map<string, {
-    adapterId: string;
-    serviceId: string;
-    toolId: string;
-    toolPath: string;
-    tool: ReturnType<typeof makeTool>;
-  }>();
+  const services = new Map([
+    [input.serviceId, { adapterId: input.adapterId, service }],
+  ]);
+  const tools = new Map<
+    string,
+    {
+      adapterId: string;
+      serviceId: string;
+      toolId: string;
+      toolPath: string;
+      tool: ReturnType<typeof makeTool>;
+    }
+  >();
 
   for (const tool of input.tools) {
-    const toolPath = createAdapterToolPath(input.adapterId, input.serviceId, tool.id);
+    const toolPath = createAdapterToolPath(
+      input.adapterId,
+      input.serviceId,
+      tool.id,
+    );
     tools.set(toolPath, {
       adapterId: input.adapterId,
       serviceId: input.serviceId,
@@ -124,7 +133,9 @@ describe("invoke.controller", () => {
   it("rejects invalid request body and ids", async () => {
     const res = makeRes();
 
-    await expect(invokeTool(makeReq({}) as any, res)).rejects.toThrow(HttpError);
+    await expect(invokeTool(makeReq({}) as any, res)).rejects.toThrow(
+      HttpError,
+    );
     await expect(
       invokeTool(
         makeReq(
@@ -137,18 +148,29 @@ describe("invoke.controller", () => {
 
     await expect(
       invokeTool(
-        makeReq({ adapterId: "echo-adapter", serviceId: 123, toolId: "echo" }) as any,
+        makeReq({
+          adapterId: "echo-adapter",
+          serviceId: 123,
+          toolId: "echo",
+        }) as any,
         res,
       ),
     ).rejects.toThrow("Field 'serviceId' must be a string.");
 
     await expect(
-      invokeTool(makeReq({ adapterId: "   ", serviceId: "echo", toolId: "echo" }) as any, res),
+      invokeTool(
+        makeReq({ adapterId: "   ", serviceId: "echo", toolId: "echo" }) as any,
+        res,
+      ),
     ).rejects.toThrow("Field 'adapterId' must not be empty.");
 
     await expect(
       invokeTool(
-        makeReq({ adapterId: "echo-adapter", serviceId: "echo", toolId: "   " }) as any,
+        makeReq({
+          adapterId: "echo-adapter",
+          serviceId: "echo",
+          toolId: "   ",
+        }) as any,
         res,
       ),
     ).rejects.toThrow("Field 'toolId' must not be empty.");
@@ -255,14 +277,12 @@ describe("invoke.controller", () => {
 
   it("dispatches to the catalogued adapter tool entry", async () => {
     const res = makeRes();
-    const openApiTool = makeTool(
-      "echo",
-      async (_input) => ({ value: "from-openapi" }),
-    );
-    const graphQlTool = makeTool(
-      "echo",
-      async (_input) => ({ value: "from-graphql" }),
-    );
+    const openApiTool = makeTool("echo", async (_input) => ({
+      value: "from-openapi",
+    }));
+    const graphQlTool = makeTool("echo", async (_input) => ({
+      value: "from-graphql",
+    }));
 
     const openApiCatalog = makeCatalogState({
       adapterId: "openapi",
@@ -275,7 +295,10 @@ describe("invoke.controller", () => {
       tools: [graphQlTool],
     });
     const catalog = {
-      services: new Map([...openApiCatalog.services, ...graphQlCatalog.services]),
+      services: new Map([
+        ...openApiCatalog.services,
+        ...graphQlCatalog.services,
+      ]),
       tools: new Map([...openApiCatalog.tools, ...graphQlCatalog.tools]),
     };
 

@@ -419,9 +419,9 @@ describe("executeAdapterTool", () => {
       },
     };
 
-    await expect(executeAdapterTool(tool, { value: "sync" })).resolves.toEqual(
-      { value: "sync" },
-    );
+    await expect(executeAdapterTool(tool, { value: "sync" })).resolves.toEqual({
+      value: "sync",
+    });
   });
 });
 
@@ -478,8 +478,9 @@ describe("loadModule", () => {
     expect(result.error).toBeNull();
     expect(result.module).not.toBeNull();
     expect(typeof (result.module as { parse: unknown }).parse).toBe("function");
-    await expect((result.module as { parse: () => unknown }).parse()).resolves
-      .toEqual({
+    await expect(
+      (result.module as { parse: () => unknown }).parse(),
+    ).resolves.toEqual({
       id: "test-adapter",
       tools: [
         {
@@ -560,8 +561,9 @@ export default {
 
     expect(result.error).toBeNull();
     expect(result.module).not.toBeNull();
-    await expect((result.module as { parse: () => unknown }).parse()).resolves
-      .toEqual({ id: "", tools: [] });
+    await expect(
+      (result.module as { parse: () => unknown }).parse(),
+    ).resolves.toEqual({ id: "", tools: [] });
   });
 
   it("loads adapter modules even when schema metadata is missing", async () => {
@@ -590,11 +592,12 @@ export default {
 
     expect(result.error).toBeNull();
     expect(result.module).not.toBeNull();
-    await expect((result.module as { parse: () => unknown }).parse()).resolves
-      .toEqual({
-        id: "svc",
-        tools: [{ id: "tool", outputSchema: { _tag: "Schema" } }],
-      });
+    await expect(
+      (result.module as { parse: () => unknown }).parse(),
+    ).resolves.toEqual({
+      id: "svc",
+      tools: [{ id: "tool", outputSchema: { _tag: "Schema" } }],
+    });
   });
 
   it("resolves relative paths from the config directory", async () => {

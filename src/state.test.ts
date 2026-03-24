@@ -266,7 +266,10 @@ describe("loadServerState", () => {
     const goodAdapter = new TestAdapterModule();
 
     mockedLoadModule
-      .mockResolvedValueOnce({ module: new TestEnvironmentModule("good"), error: null })
+      .mockResolvedValueOnce({
+        module: new TestEnvironmentModule("good"),
+        error: null,
+      })
       .mockResolvedValueOnce({ module: badAdapter, error: null })
       .mockResolvedValueOnce({ module: goodAdapter, error: null });
 
