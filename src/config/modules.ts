@@ -55,8 +55,8 @@ export interface EnvironmentModule extends EventEmitter {
 
 export interface AdapterToolDefinition {
   id: string;
-  inputSchema: Schema.Schema.Any;
-  outputSchema: Schema.Schema.Any;
+  inputSchema: Schema.Schema<unknown, unknown, never>;
+  outputSchema: Schema.Schema<unknown, unknown, never>;
   execute(): Promise<(input: unknown) => Promise<unknown>>;
 }
 
@@ -94,9 +94,7 @@ export const executeAdapterTool = async (
 ): Promise<unknown> => {
   const validatedInput = (() => {
     try {
-      return Schema.decodeUnknownSync(
-        tool.inputSchema as Schema.Schema<unknown, unknown, never>,
-      )(input);
+      return Schema.decodeUnknownSync(tool.inputSchema)(input);
     } catch (error) {
       tagParseError(error, "input");
     }
@@ -106,9 +104,7 @@ export const executeAdapterTool = async (
   const output = await executor(validatedInput);
 
   try {
-    return Schema.decodeUnknownSync(
-      tool.outputSchema as Schema.Schema<unknown, unknown, never>,
-    )(output);
+    return Schema.decodeUnknownSync(tool.outputSchema)(output);
   } catch (error) {
     tagParseError(error, "output");
   }
