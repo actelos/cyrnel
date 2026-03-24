@@ -52,7 +52,24 @@ export const createAdapterToolPath = (
   adapterId: string,
   serviceId: string,
   toolId: string,
-): string => `${adapterId}.${serviceId}.${toolId}`;
+): string => {
+  validateAdapterToolPathId(adapterId, "adapterId");
+  validateAdapterToolPathId(serviceId, "serviceId");
+  validateAdapterToolPathId(toolId, "toolId");
+
+  return `${adapterId}.${serviceId}.${toolId}`;
+};
+
+const validateAdapterToolPathId = (
+  id: string,
+  field: "adapterId" | "serviceId" | "toolId",
+): void => {
+  if (id.includes(".")) {
+    throw new Error(
+      `Invalid ${field} "${id}": identifiers used in tool paths must not contain '.'.`,
+    );
+  }
+};
 
 const clearCatalogErrors = (modulesState: ModulesState): void => {
   for (const key of Array.from(modulesState.errors.keys())) {
@@ -85,6 +102,18 @@ export const refreshAdapterCatalog = async (
     adapterId,
     adapterModule,
   ] of modulesState.loaded.adapter.entries()) {
+    try {
+      validateAdapterToolPathId(adapterId, "adapterId");
+    } catch (err) {
+      const error =
+        err instanceof Error
+          ? err
+          : new Error(`Adapter id validation failed: ${String(err)}`);
+      modulesState.errors.set(`adapter.${adapterId}.catalog.adapter`, error);
+      logger.error({ err: error, adapterId }, "Invalid adapter id");
+      continue;
+    }
+
     let service: AdapterService;
 
     try {
@@ -107,6 +136,21 @@ export const refreshAdapterCatalog = async (
       const error = new Error("Adapter parse returned service with invalid id");
       modulesState.errors.set(`adapter.${adapterId}.catalog.service`, error);
       logger.error({ err: error, adapterId }, "Invalid adapter service id");
+      continue;
+    }
+
+    try {
+      validateAdapterToolPathId(serviceId, "serviceId");
+    } catch (err) {
+      const error =
+        err instanceof Error
+          ? err
+          : new Error(`Service id validation failed: ${String(err)}`);
+      modulesState.errors.set(`adapter.${adapterId}.catalog.service`, error);
+      logger.error(
+        { err: error, adapterId, serviceId },
+        "Invalid adapter service id",
+      );
       continue;
     }
 
@@ -148,6 +192,22 @@ export const refreshAdapterCatalog = async (
         );
         modulesState.errors.set(`adapter.${adapterId}.catalog.tools`, error);
         logger.error({ err: error, adapterId, serviceId }, "Invalid tool id");
+        break;
+      }
+
+      try {
+        validateAdapterToolPathId(toolId, "toolId");
+      } catch (err) {
+        hasToolValidationError = true;
+        const error =
+          err instanceof Error
+            ? err
+            : new Error(`Tool id validation failed: ${String(err)}`);
+        modulesState.errors.set(`adapter.${adapterId}.catalog.tools`, error);
+        logger.error(
+          { err: error, adapterId, serviceId, toolId },
+          "Invalid tool id",
+        );
         break;
       }
 

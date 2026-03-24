@@ -181,6 +181,17 @@ describe("invoke.controller", () => {
         res,
       ),
     ).rejects.toThrow("Field 'toolId' must not be empty.");
+
+    await expect(
+      invokeTool(
+        makeReq({
+          adapterId: "echo-adapter",
+          serviceId: "echo.v2",
+          toolId: "echo",
+        }) as any,
+        res,
+      ),
+    ).rejects.toThrow("Field 'serviceId' must not contain '.'.");
   });
 
   it("returns 404 when service is not found", async () => {

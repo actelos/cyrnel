@@ -167,6 +167,10 @@ function parseId(
     throw new HttpError(400, `Field '${field}' must not be empty.`);
   }
 
+  if (normalized.includes(".")) {
+    throw new HttpError(400, `Field '${field}' must not contain '.'.`);
+  }
+
   return normalized;
 }
 

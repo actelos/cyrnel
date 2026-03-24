@@ -10,7 +10,7 @@ import {
   type ExecutionStatus,
 } from "@/config/modules";
 import { logger } from "@/logger";
-import { loadServerState } from "@/state";
+import { createAdapterToolPath, loadServerState } from "@/state";
 
 vi.mock("@/config/modules", () => ({
   loadModulesConfig: vi.fn(),
@@ -281,6 +281,120 @@ describe("loadServerState", () => {
     );
     expect(state.modules.errors.get("adapter.bad.parse")).toEqual(
       expect.objectContaining({ message: "parse failed" }),
+    );
+  });
+
+  it("rejects cataloguing when service id contains '.'", async () => {
+    mockedLoadModulesConfig.mockReturnValue({
+      environment: {
+        localjs: {
+          id: "localjs",
+          type: "environment",
+          enabled: true,
+          path: "./modules/localjs.ts",
+        },
+      },
+      adapter: {
+        a: {
+          id: "a",
+          type: "adapter",
+          enabled: true,
+          path: "./modules/a.ts",
+        },
+      },
+    });
+
+    const dottedServiceIdAdapter: AdapterModule = {
+      async parse() {
+        return {
+          id: "b.c",
+          tools: [
+            {
+              id: "d",
+              inputSchema: Schema.Struct({ value: Schema.String }),
+              outputSchema: Schema.Struct({ value: Schema.String }),
+              async execute() {
+                return async (input: unknown) => input;
+              },
+            },
+          ],
+        };
+      },
+    };
+
+    mockedLoadModule
+      .mockResolvedValueOnce({
+        module: new TestEnvironmentModule("good"),
+        error: null,
+      })
+      .mockResolvedValueOnce({ module: dottedServiceIdAdapter, error: null });
+
+    await expect(loadServerState()).rejects.toThrow(
+      "No adapter services catalogued",
+    );
+  });
+
+  it("rejects cataloguing when tool id contains '.'", async () => {
+    mockedLoadModulesConfig.mockReturnValue({
+      environment: {
+        localjs: {
+          id: "localjs",
+          type: "environment",
+          enabled: true,
+          path: "./modules/localjs.ts",
+        },
+      },
+      adapter: {
+        a: {
+          id: "a",
+          type: "adapter",
+          enabled: true,
+          path: "./modules/a.ts",
+        },
+      },
+    });
+
+    const dottedToolIdAdapter: AdapterModule = {
+      async parse() {
+        return {
+          id: "b",
+          tools: [
+            {
+              id: "c.d",
+              inputSchema: Schema.Struct({ value: Schema.String }),
+              outputSchema: Schema.Struct({ value: Schema.String }),
+              async execute() {
+                return async (input: unknown) => input;
+              },
+            },
+          ],
+        };
+      },
+    };
+
+    mockedLoadModule
+      .mockResolvedValueOnce({
+        module: new TestEnvironmentModule("good"),
+        error: null,
+      })
+      .mockResolvedValueOnce({ module: dottedToolIdAdapter, error: null });
+
+    await expect(loadServerState()).rejects.toThrow(
+      "No adapter services catalogued",
+    );
+  });
+});
+
+describe("createAdapterToolPath", () => {
+  it("rejects ambiguous tuple (a, b.c, d)", () => {
+    expect(() => createAdapterToolPath("a", "b.c", "d")).toThrow(
+      "Invalid serviceId \"b.c\": identifiers used in tool paths must not contain '.'.",
+    );
+  });
+
+  it("rejects ambiguous tuple (a, b, c.d)", () => {
+    expect(() => createAdapterToolPath("a", "b", "c.d")).toThrow(
+      "Invalid toolId \"c.d\": identifiers used in tool paths must not contain '.'.",
     );
   });
 });
