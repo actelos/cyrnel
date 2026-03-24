@@ -194,6 +194,100 @@ describe("invoke.controller", () => {
     ).rejects.toThrow("Field 'serviceId' must not contain '.'.");
   });
 
+  it("maps ParseError to 400 when request input fails tool input validation", async () => {
+    const res = makeRes();
+    const tool = makeTool("echo", async (input) => input, {
+      inputSchema: Schema.Struct({ value: Schema.String }),
+    });
+    const catalog = makeCatalogState({
+      adapterId: "echo-adapter",
+      serviceId: "echo",
+      tools: [tool],
+    });
+    const req: any = makeReq(
+      {
+        adapterId: "echo-adapter",
+        serviceId: "echo",
+        toolId: "echo",
+        input: { value: 123 },
+      },
+      {
+        app: {
+          locals: {
+            serverState: {
+              modules: {
+                catalog,
+                loaded: { adapter: new Map() },
+              },
+            },
+          },
+        },
+      },
+    );
+
+    await expect(invokeTool(req, res)).rejects.toMatchObject({
+      statusCode: 400,
+    });
+    expect(res.status).not.toHaveBeenCalled();
+    expect(res.json).not.toHaveBeenCalled();
+  });
+
+  it("maps ParseError-tagged tool execution failures to 502 output validation errors", async () => {
+    const res = makeRes();
+    const tool = makeTool("echo");
+    const parseError = (() => {
+      try {
+        Schema.decodeUnknownSync(Schema.String)(123);
+      } catch (error) {
+        const tagged = error as { _tag: "ParseError" };
+        Object.defineProperty(tagged, "mciParseStage", {
+          configurable: true,
+          enumerable: false,
+          value: "output",
+          writable: true,
+        });
+        return tagged;
+      }
+
+      throw new Error("Expected parse error generation to fail");
+    })();
+
+    tool.execute = vi.fn().mockRejectedValue(parseError);
+
+    const catalog = makeCatalogState({
+      adapterId: "echo-adapter",
+      serviceId: "echo",
+      tools: [tool],
+    });
+    const req: any = makeReq(
+      {
+        adapterId: "echo-adapter",
+        serviceId: "echo",
+        toolId: "echo",
+        input: { value: "ok" },
+      },
+      {
+        app: {
+          locals: {
+            serverState: {
+              modules: {
+                catalog,
+                loaded: { adapter: new Map() },
+              },
+            },
+          },
+        },
+      },
+    );
+
+    await expect(invokeTool(req, res)).rejects.toMatchObject({
+      statusCode: 502,
+      message: "Adapter tool output did not match its declared schema.",
+    });
+    expect(res.status).not.toHaveBeenCalled();
+    expect(res.json).not.toHaveBeenCalled();
+  });
+
   it("returns 404 when service is not found", async () => {
     const res = makeRes();
     const catalog = makeCatalogState({
