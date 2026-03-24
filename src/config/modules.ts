@@ -53,16 +53,16 @@ export interface EnvironmentModule extends EventEmitter {
   ): this;
 }
 
-export interface AdapterToolDefinition {
+export interface AdapterToolDefinition<TInput = any, TOutput = any> {
   id: string;
-  inputSchema: Schema.Schema<unknown, unknown, never>;
-  outputSchema: Schema.Schema<unknown, unknown, never>;
-  execute(): Promise<(input: unknown) => Promise<unknown>>;
+  inputSchema: Schema.Schema<TInput, any, never>;
+  outputSchema: Schema.Schema<TOutput, any, never>;
+  execute(): Promise<(input: TInput) => Promise<unknown>>;
 }
 
 export interface AdapterService {
   id: string;
-  tools: AdapterToolDefinition[];
+  tools: AdapterToolDefinition<any, any>[];
 }
 
 export interface AdapterModule {
@@ -88,17 +88,16 @@ const tagParseError = (error: unknown, stage: AdapterToolParseStage): never => {
   throw error;
 };
 
-export const executeAdapterTool = async (
-  tool: AdapterToolDefinition,
+export const executeAdapterTool = async <TInput, TOutput>(
+  tool: AdapterToolDefinition<TInput, TOutput>,
   input: unknown,
-): Promise<unknown> => {
-  const validatedInput = (() => {
-    try {
-      return Schema.decodeUnknownSync(tool.inputSchema)(input);
-    } catch (error) {
-      tagParseError(error, "input");
-    }
-  })();
+): Promise<TOutput> => {
+  let validatedInput!: TInput;
+  try {
+    validatedInput = Schema.decodeUnknownSync(tool.inputSchema)(input);
+  } catch (error) {
+    throw tagParseError(error, "input");
+  }
 
   const executor = await tool.execute();
   const output = await executor(validatedInput);
@@ -106,7 +105,7 @@ export const executeAdapterTool = async (
   try {
     return Schema.decodeUnknownSync(tool.outputSchema)(output);
   } catch (error) {
-    tagParseError(error, "output");
+    throw tagParseError(error, "output");
   }
 };
 
