@@ -8,8 +8,9 @@ class HostNodeModule extends EventEmitter {
 
   async setup() {}
 
-  async teardown() {}
-
+  async teardown() {
+    await this.kill();
+  }
   async execute(code) {
     if (this.#child) {
       return "failed";
