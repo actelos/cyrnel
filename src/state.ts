@@ -262,28 +262,9 @@ export const loadServerState = async (): Promise<ServerState> => {
     }),
   );
 
-  const enabledEnvironmentCount = Object.values(
-    modulesConfig.environment,
-  ).filter((config) => config.enabled).length;
-  const enabledAdapterCount = Object.values(modulesConfig.adapter).filter(
-    (config) => config.enabled,
-  ).length;
-
-  if (enabledEnvironmentCount === 0 || enabledAdapterCount === 0) {
-    logger.error(
-      {
-        environmentEnabled: enabledEnvironmentCount,
-        adapterEnabled: enabledAdapterCount,
-      },
-      "Every module type must have at least one enabled module",
-    );
-    throw new Error("Every module type must have at least one enabled module");
-  }
-
   if (modulesState.loaded.environment.size === 0) {
     logger.error(
       {
-        environmentEnabled: enabledEnvironmentCount,
         environmentErrors: Array.from(modulesState.errors.keys()).filter(
           (key) => key.startsWith("environment."),
         ).length,
@@ -296,7 +277,6 @@ export const loadServerState = async (): Promise<ServerState> => {
   if (modulesState.loaded.adapter.size === 0) {
     logger.error(
       {
-        adapterEnabled: enabledAdapterCount,
         adapterErrors: Array.from(modulesState.errors.keys()).filter((key) =>
           key.startsWith("adapter."),
         ).length,
