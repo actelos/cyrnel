@@ -91,6 +91,9 @@ const normalizeId = (value: unknown): string | null => {
   return normalized.length > 0 ? normalized : null;
 };
 
+const isSchemaLike = (value: unknown): boolean =>
+  value !== null && (typeof value === "object" || typeof value === "function");
+
 export const refreshAdapterCatalog = async (
   modulesState: ModulesState,
 ): Promise<void> => {
@@ -182,6 +185,10 @@ export const refreshAdapterCatalog = async (
     }
 
     const seenToolIds = new Set<string>();
+    const validatedTools: Array<{
+      tool: AdapterToolDefinition;
+      toolId: string;
+    }> = [];
     let hasToolValidationError = false;
     for (const tool of service.tools) {
       const toolId = normalizeId(tool?.id);
@@ -211,6 +218,45 @@ export const refreshAdapterCatalog = async (
         break;
       }
 
+      if (typeof tool?.execute !== "function") {
+        hasToolValidationError = true;
+        const error = new Error(
+          `Service "${serviceId}" has tool "${toolId}" with invalid execute function in adapter "${adapterId}"`,
+        );
+        modulesState.errors.set(`adapter.${adapterId}.catalog.tools`, error);
+        logger.error(
+          { err: error, adapterId, serviceId, toolId },
+          "Invalid tool execute function",
+        );
+        break;
+      }
+
+      if (!isSchemaLike(tool?.inputSchema)) {
+        hasToolValidationError = true;
+        const error = new Error(
+          `Service "${serviceId}" has tool "${toolId}" with invalid inputSchema in adapter "${adapterId}"`,
+        );
+        modulesState.errors.set(`adapter.${adapterId}.catalog.tools`, error);
+        logger.error(
+          { err: error, adapterId, serviceId, toolId },
+          "Invalid tool input schema",
+        );
+        break;
+      }
+
+      if (!isSchemaLike(tool?.outputSchema)) {
+        hasToolValidationError = true;
+        const error = new Error(
+          `Service "${serviceId}" has tool "${toolId}" with invalid outputSchema in adapter "${adapterId}"`,
+        );
+        modulesState.errors.set(`adapter.${adapterId}.catalog.tools`, error);
+        logger.error(
+          { err: error, adapterId, serviceId, toolId },
+          "Invalid tool output schema",
+        );
+        break;
+      }
+
       if (seenToolIds.has(toolId)) {
         hasToolValidationError = true;
         const error = new Error(
@@ -225,6 +271,7 @@ export const refreshAdapterCatalog = async (
       }
 
       seenToolIds.add(toolId);
+      validatedTools.push({ tool, toolId });
     }
 
     if (hasToolValidationError) {
@@ -233,8 +280,7 @@ export const refreshAdapterCatalog = async (
 
     modulesState.catalog.services.set(serviceId, { adapterId, service });
 
-    for (const tool of service.tools) {
-      const toolId = tool.id.trim();
+    for (const { tool, toolId } of validatedTools) {
       const toolPath = createAdapterToolPath(adapterId, serviceId, toolId);
       modulesState.catalog.tools.set(toolPath, {
         adapterId,
