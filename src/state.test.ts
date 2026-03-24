@@ -217,6 +217,10 @@ describe("loadServerState", () => {
       goodEnvironmentModule,
     );
     expect(state.modules.loaded.adapter.get("openapi")).toBe(goodAdapterModule);
+    expect(state.modules.catalog.services.has("test-adapter")).toBe(true);
+    expect(state.modules.catalog.tools.has("openapi.test-adapter.echo")).toBe(
+      true,
+    );
     expect(mockedLogger.info).toHaveBeenCalledWith(
       {
         modules: [
@@ -225,6 +229,55 @@ describe("loadServerState", () => {
         ],
       },
       "Loaded modules",
+    );
+  });
+
+  it("starts with working services when one adapter parse fails", async () => {
+    mockedLoadModulesConfig.mockReturnValue({
+      environment: {
+        localjs: {
+          id: "localjs",
+          type: "environment",
+          enabled: true,
+          path: "./modules/localjs.ts",
+        },
+      },
+      adapter: {
+        bad: {
+          id: "bad",
+          type: "adapter",
+          enabled: true,
+          path: "./modules/bad.ts",
+        },
+        good: {
+          id: "good",
+          type: "adapter",
+          enabled: true,
+          path: "./modules/good.ts",
+        },
+      },
+    });
+
+    const badAdapter: AdapterModule = {
+      async parse() {
+        throw new Error("parse failed");
+      },
+    };
+    const goodAdapter = new TestAdapterModule();
+
+    mockedLoadModule
+      .mockResolvedValueOnce({ module: new TestEnvironmentModule("good"), error: null })
+      .mockResolvedValueOnce({ module: badAdapter, error: null })
+      .mockResolvedValueOnce({ module: goodAdapter, error: null });
+
+    const state = await loadServerState();
+
+    expect(state.modules.catalog.services.size).toBe(1);
+    expect(state.modules.catalog.services.get("test-adapter")).toEqual(
+      expect.objectContaining({ adapterId: "good" }),
+    );
+    expect(state.modules.errors.get("adapter.bad.parse")).toEqual(
+      expect.objectContaining({ message: "parse failed" }),
     );
   });
 });

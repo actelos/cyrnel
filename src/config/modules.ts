@@ -77,7 +77,11 @@ export const executeAdapterTool = async (
     tool.inputSchema as Schema.Schema<unknown, unknown, never>,
   )(input);
   const executor = await tool.execute();
-  return executor(validatedInput);
+  const output = await executor(validatedInput);
+
+  return Schema.decodeUnknownSync(
+    tool.outputSchema as Schema.Schema<unknown, unknown, never>,
+  )(output);
 };
 
 export type LoadedModule =

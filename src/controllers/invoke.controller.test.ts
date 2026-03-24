@@ -2,6 +2,7 @@ import { Schema } from "effect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { HttpError } from "@/models/error";
+import { createAdapterToolPath } from "@/state";
 import { invokeTool } from "@/controllers/invoke.controller";
 
 const makeRes = () => {
@@ -11,12 +12,50 @@ const makeRes = () => {
   return res;
 };
 
-const makeTool = () => ({
-  id: "echo",
+const makeTool = (
+  id = "echo",
+  executorImpl: (input: unknown) => Promise<unknown> = async (input) => input,
+) => ({
+  id,
   inputSchema: Schema.Struct({ value: Schema.Unknown }),
   outputSchema: Schema.Struct({ value: Schema.Unknown }),
-  execute: vi.fn(async () => async (input: unknown) => input),
+  execute: vi.fn(async () => executorImpl),
 });
+
+const makeCatalogState = (input: {
+  adapterId: string;
+  serviceId: string;
+  tools: Array<ReturnType<typeof makeTool>>;
+}) => {
+  const service = {
+    id: input.serviceId,
+    tools: input.tools,
+  };
+  const services = new Map([[input.serviceId, { adapterId: input.adapterId, service }]]);
+  const tools = new Map<string, {
+    adapterId: string;
+    serviceId: string;
+    toolId: string;
+    toolPath: string;
+    tool: ReturnType<typeof makeTool>;
+  }>();
+
+  for (const tool of input.tools) {
+    const toolPath = createAdapterToolPath(input.adapterId, input.serviceId, tool.id);
+    tools.set(toolPath, {
+      adapterId: input.adapterId,
+      serviceId: input.serviceId,
+      toolId: tool.id,
+      toolPath,
+      tool,
+    });
+  }
+
+  return {
+    services,
+    tools,
+  };
+};
 
 const makeReq = (
   body: Record<string, unknown>,
@@ -26,6 +65,10 @@ const makeReq = (
     locals: {
       serverState: {
         modules: {
+          catalog: {
+            services: new Map(),
+            tools: new Map(),
+          },
           loaded: {
             adapter: new Map(),
           },
@@ -42,15 +85,17 @@ describe("invoke.controller", () => {
     vi.clearAllMocks();
   });
 
-  it("invokes tool output by service and tool id", async () => {
+  it("invokes tool output by adapter, service and tool id", async () => {
     const res = makeRes();
     const tool = makeTool();
-    const parse = vi.fn(async () => ({
-      id: "echo",
+    const catalog = makeCatalogState({
+      adapterId: "echo-adapter",
+      serviceId: "echo",
       tools: [tool],
-    }));
+    });
     const req: any = makeReq(
       {
+        adapterId: "echo-adapter",
         serviceId: "echo",
         toolId: "echo",
         input: { value: "ok" },
@@ -60,9 +105,8 @@ describe("invoke.controller", () => {
           locals: {
             serverState: {
               modules: {
-                loaded: {
-                  adapter: new Map([["echo-module", { parse }]]),
-                },
+                catalog,
+                loaded: { adapter: new Map() },
               },
             },
           },
@@ -72,7 +116,6 @@ describe("invoke.controller", () => {
 
     await invokeTool(req, res);
 
-    expect(parse).toHaveBeenCalledTimes(1);
     expect(tool.execute).toHaveBeenCalledTimes(1);
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith({ output: { value: "ok" } });
@@ -84,28 +127,43 @@ describe("invoke.controller", () => {
     await expect(invokeTool(makeReq({}) as any, res)).rejects.toThrow(HttpError);
     await expect(
       invokeTool(
-        makeReq({ serviceId: "echo", toolId: "echo" }, { body: undefined }) as any,
+        makeReq(
+          { adapterId: "echo-adapter", serviceId: "echo", toolId: "echo" },
+          { body: undefined },
+        ) as any,
         res,
       ),
     ).rejects.toThrow(HttpError);
 
     await expect(
-      invokeTool(makeReq({ serviceId: 123, toolId: "echo" }) as any, res),
+      invokeTool(
+        makeReq({ adapterId: "echo-adapter", serviceId: 123, toolId: "echo" }) as any,
+        res,
+      ),
     ).rejects.toThrow("Field 'serviceId' must be a string.");
 
     await expect(
-      invokeTool(makeReq({ serviceId: "echo", toolId: "   " }) as any, res),
+      invokeTool(makeReq({ adapterId: "   ", serviceId: "echo", toolId: "echo" }) as any, res),
+    ).rejects.toThrow("Field 'adapterId' must not be empty.");
+
+    await expect(
+      invokeTool(
+        makeReq({ adapterId: "echo-adapter", serviceId: "echo", toolId: "   " }) as any,
+        res,
+      ),
     ).rejects.toThrow("Field 'toolId' must not be empty.");
   });
 
   it("returns 404 when service is not found", async () => {
     const res = makeRes();
-    const parse = vi.fn(async () => ({
-      id: "other-service",
+    const catalog = makeCatalogState({
+      adapterId: "echo-adapter",
+      serviceId: "other-service",
       tools: [makeTool()],
-    }));
+    });
     const req: any = makeReq(
       {
+        adapterId: "echo-adapter",
         serviceId: "echo",
         toolId: "echo",
         input: { value: "ok" },
@@ -115,9 +173,8 @@ describe("invoke.controller", () => {
           locals: {
             serverState: {
               modules: {
-                loaded: {
-                  adapter: new Map([["echo-module", { parse }]]),
-                },
+                catalog,
+                loaded: { adapter: new Map() },
               },
             },
           },
@@ -132,12 +189,14 @@ describe("invoke.controller", () => {
 
   it("returns 404 when tool is not found", async () => {
     const res = makeRes();
-    const parse = vi.fn(async () => ({
-      id: "echo",
-      tools: [{ ...makeTool(), id: "other-tool" }],
-    }));
+    const catalog = makeCatalogState({
+      adapterId: "echo-adapter",
+      serviceId: "echo",
+      tools: [makeTool("other-tool")],
+    });
     const req: any = makeReq(
       {
+        adapterId: "echo-adapter",
         serviceId: "echo",
         toolId: "echo",
         input: { value: "ok" },
@@ -147,9 +206,8 @@ describe("invoke.controller", () => {
           locals: {
             serverState: {
               modules: {
-                loaded: {
-                  adapter: new Map([["echo-module", { parse }]]),
-                },
+                catalog,
+                loaded: { adapter: new Map() },
               },
             },
           },
@@ -160,5 +218,95 @@ describe("invoke.controller", () => {
     await expect(invokeTool(req, res)).rejects.toThrow(
       'Tool "echo" not found for service "echo".',
     );
+  });
+
+  it("returns 409 when service belongs to a different adapter", async () => {
+    const res = makeRes();
+    const catalog = makeCatalogState({
+      adapterId: "openapi",
+      serviceId: "payments",
+      tools: [makeTool("create-charge")],
+    });
+    const req: any = makeReq(
+      {
+        adapterId: "graphql",
+        serviceId: "payments",
+        toolId: "create-charge",
+        input: { value: "ok" },
+      },
+      {
+        app: {
+          locals: {
+            serverState: {
+              modules: {
+                catalog,
+                loaded: { adapter: new Map() },
+              },
+            },
+          },
+        },
+      },
+    );
+
+    await expect(invokeTool(req, res)).rejects.toThrow(
+      'Service "payments" belongs to adapter "openapi", not "graphql".',
+    );
+  });
+
+  it("dispatches to the catalogued adapter tool entry", async () => {
+    const res = makeRes();
+    const openApiTool = makeTool(
+      "echo",
+      async (_input) => ({ value: "from-openapi" }),
+    );
+    const graphQlTool = makeTool(
+      "echo",
+      async (_input) => ({ value: "from-graphql" }),
+    );
+
+    const openApiCatalog = makeCatalogState({
+      adapterId: "openapi",
+      serviceId: "billing",
+      tools: [openApiTool],
+    });
+    const graphQlCatalog = makeCatalogState({
+      adapterId: "graphql",
+      serviceId: "users",
+      tools: [graphQlTool],
+    });
+    const catalog = {
+      services: new Map([...openApiCatalog.services, ...graphQlCatalog.services]),
+      tools: new Map([...openApiCatalog.tools, ...graphQlCatalog.tools]),
+    };
+
+    const req: any = makeReq(
+      {
+        adapterId: "graphql",
+        serviceId: "users",
+        toolId: "echo",
+        input: { value: "ignored" },
+      },
+      {
+        app: {
+          locals: {
+            serverState: {
+              modules: {
+                catalog,
+                loaded: { adapter: new Map() },
+              },
+            },
+          },
+        },
+      },
+    );
+
+    await invokeTool(req, res);
+
+    expect(openApiTool.execute).not.toHaveBeenCalled();
+    expect(graphQlTool.execute).toHaveBeenCalledTimes(1);
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith({
+      output: { value: "from-graphql" },
+    });
   });
 });

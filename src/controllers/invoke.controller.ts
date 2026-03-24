@@ -2,8 +2,8 @@ import type { Request, Response } from "express";
 
 import { logger } from "@/logger";
 import { HttpError } from "@/models/error";
-import type { ServerState } from "@/state";
-import { executeAdapterTool, type AdapterService } from "@/config/modules";
+import { executeAdapterTool } from "@/config/modules";
+import { createAdapterToolPath, type ServerState } from "@/state";
 
 export async function invokeTool(req: Request, res: Response): Promise<void> {
   if (!req.body || typeof req.body !== "object") {
@@ -11,25 +11,45 @@ export async function invokeTool(req: Request, res: Response): Promise<void> {
     throw new HttpError(400, "Request body must be an object.");
   }
 
+  const adapterId = parseId(req.body.adapterId, "adapterId");
   const serviceId = parseId(req.body.serviceId, "serviceId");
   const toolId = parseId(req.body.toolId, "toolId");
   const input = (req.body as { input?: unknown }).input;
   const serverState = getServerState(req);
-  const service = await findServiceById(serverState, serviceId);
+  const cataloguedService = serverState.modules.catalog.services.get(serviceId);
 
-  if (!service) {
+  if (!cataloguedService) {
     logger.warn({ serviceId }, "Invoke request failed: service not found");
     throw new HttpError(404, `Service \"${serviceId}\" not found.`);
   }
 
-  const tool = service.tools.find((candidate) => candidate.id === toolId);
-
-  if (!tool) {
+  if (cataloguedService.adapterId !== adapterId) {
     logger.warn(
       {
+        adapterId,
+        serviceId,
+        expectedAdapterId: cataloguedService.adapterId,
+      },
+      "Invoke request failed: service belongs to different adapter",
+    );
+    throw new HttpError(
+      409,
+      `Service \"${serviceId}\" belongs to adapter \"${cataloguedService.adapterId}\", not \"${adapterId}\".`,
+    );
+  }
+
+  const toolPath = createAdapterToolPath(adapterId, serviceId, toolId);
+  const cataloguedTool = serverState.modules.catalog.tools.get(toolPath);
+
+  if (!cataloguedTool) {
+    logger.warn(
+      {
+        adapterId,
         serviceId,
         requestedToolId: toolId,
-        availableToolIds: service.tools.map((candidate) => candidate.id),
+        availableToolIds: cataloguedService.service.tools.map(
+          (candidate) => candidate.id,
+        ),
       },
       "Invoke request failed: tool not found",
     );
@@ -40,10 +60,16 @@ export async function invokeTool(req: Request, res: Response): Promise<void> {
   }
 
   try {
-    const output = await executeAdapterTool(tool, input);
+    const output = await executeAdapterTool(cataloguedTool.tool, input);
 
     logger.info(
-      { serviceId, toolId, outputType: output === null ? "null" : typeof output },
+      {
+        adapterId,
+        serviceId,
+        toolId,
+        toolPath,
+        outputType: output === null ? "null" : typeof output,
+      },
       "Adapter tool executed successfully",
     );
 
@@ -58,11 +84,12 @@ export async function invokeTool(req: Request, res: Response): Promise<void> {
     if (parseErrorTag === "ParseError") {
       logger.warn(
         {
+          adapterId,
           serviceId,
           toolId,
           err: error,
         },
-        "Adapter tool input validation failed",
+        "Adapter tool payload validation failed",
       );
 
       throw new HttpError(400, (error as Error).message);
@@ -71,6 +98,7 @@ export async function invokeTool(req: Request, res: Response): Promise<void> {
     logger.error(
       {
         err: error,
+        adapterId,
         serviceId,
         toolId,
       },
@@ -90,22 +118,10 @@ function getServerState(req: Request): ServerState {
   return serverState;
 }
 
-async function findServiceById(
-  serverState: ServerState,
-  serviceId: string,
-): Promise<AdapterService | null> {
-  for (const [moduleId, adapterModule] of serverState.modules.loaded.adapter.entries()) {
-    const service = await adapterModule.parse();
-
-    if (service.id === serviceId) {
-      return service;
-    }
-  }
-
-  return null;
-}
-
-function parseId(raw: unknown, field: "serviceId" | "toolId"): string {
+function parseId(
+  raw: unknown,
+  field: "adapterId" | "serviceId" | "toolId",
+): string {
   if (typeof raw !== "string") {
     throw new HttpError(400, `Field '${field}' must be a string.`);
   }

@@ -394,6 +394,21 @@ describe("executeAdapterTool", () => {
     expect(executor).not.toHaveBeenCalled();
   });
 
+  it("throws when output does not match schema", async () => {
+    const executor = vi.fn(async () => ({ value: 123 }));
+    const execute = vi.fn(async () => executor);
+    const tool = {
+      id: "echo",
+      inputSchema: Schema.Struct({ value: Schema.String }),
+      outputSchema: Schema.Struct({ value: Schema.String }),
+      execute,
+    };
+
+    await expect(executeAdapterTool(tool, { value: "ok" })).rejects.toThrow();
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(executor).toHaveBeenCalledWith({ value: "ok" });
+  });
+
   it("supports async execute returning async executor", async () => {
     const tool = {
       id: "sync",
