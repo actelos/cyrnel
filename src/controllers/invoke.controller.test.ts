@@ -1,8 +1,9 @@
 import { Schema } from "effect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import * as modules from "@/config/modules";
+import { logger } from "@/logger";
 import { HttpError } from "@/models/error";
+import * as modules from "@/config/modules";
 import { createAdapterToolPath } from "@/state";
 import { invokeTool } from "@/controllers/invoke.controller";
 
@@ -16,10 +17,15 @@ const makeRes = () => {
 const makeTool = (
   id = "echo",
   executorImpl: (input: unknown) => Promise<unknown> = async (input) => input,
+  schemas: {
+    inputSchema?: any;
+    outputSchema?: any;
+  } = {},
 ) => ({
   id,
-  inputSchema: Schema.Struct({ value: Schema.Unknown }),
-  outputSchema: Schema.Struct({ value: Schema.Unknown }),
+  inputSchema: schemas.inputSchema ?? Schema.Struct({ value: Schema.Unknown }),
+  outputSchema:
+    schemas.outputSchema ?? Schema.Struct({ value: Schema.Unknown }),
   execute: vi.fn(async () => executorImpl),
 });
 
@@ -375,5 +381,99 @@ describe("invoke.controller", () => {
     expect(executeAdapterToolSpy).toHaveBeenCalledTimes(1);
     expect(res.status).not.toHaveBeenCalled();
     expect(res.json).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 for adapter tool input decoding failures", async () => {
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => logger);
+    const res = makeRes();
+    const tool = makeTool("echo", async (input) => input, {
+      inputSchema: Schema.String,
+    });
+    const catalog = makeCatalogState({
+      adapterId: "echo-adapter",
+      serviceId: "echo",
+      tools: [tool],
+    });
+    const req: any = makeReq(
+      {
+        adapterId: "echo-adapter",
+        serviceId: "echo",
+        toolId: "echo",
+        input: { value: 123 },
+      },
+      {
+        app: {
+          locals: {
+            serverState: {
+              modules: {
+                catalog,
+                loaded: { adapter: new Map() },
+              },
+            },
+          },
+        },
+      },
+    );
+
+    await expect(invokeTool(req, res)).rejects.toMatchObject({
+      statusCode: 400,
+    });
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        adapterId: "echo-adapter",
+        serviceId: "echo",
+        toolId: "echo",
+        parseStage: "input",
+      }),
+      expect.stringContaining("input validation failed"),
+    );
+  });
+
+  it("returns 502 for adapter tool output parsing failures", async () => {
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => logger);
+    const res = makeRes();
+    const tool = makeTool("echo", async () => ({ value: 123 }), {
+      outputSchema: Schema.String,
+    });
+    const catalog = makeCatalogState({
+      adapterId: "echo-adapter",
+      serviceId: "echo",
+      tools: [tool],
+    });
+    const req: any = makeReq(
+      {
+        adapterId: "echo-adapter",
+        serviceId: "echo",
+        toolId: "echo",
+        input: { value: "ok" },
+      },
+      {
+        app: {
+          locals: {
+            serverState: {
+              modules: {
+                catalog,
+                loaded: { adapter: new Map() },
+              },
+            },
+          },
+        },
+      },
+    );
+
+    await expect(invokeTool(req, res)).rejects.toMatchObject({
+      statusCode: 502,
+    });
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        adapterId: "echo-adapter",
+        serviceId: "echo",
+        toolId: "echo",
+        parseStage: "output",
+      }),
+      expect.stringContaining("output validation failed"),
+    );
   });
 });

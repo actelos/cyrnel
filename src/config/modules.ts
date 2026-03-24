@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url";
 import { EventEmitter } from "node:events";
 
 import { parse } from "toml";
-import { Schema } from "effect";
+import { ParseResult, Schema } from "effect";
 
 export type ModuleConfig = {
   id: string;
@@ -69,19 +69,49 @@ export interface AdapterModule {
   parse(): Promise<AdapterService>;
 }
 
+const ADAPTER_TOOL_PARSE_STAGE_KEY = "mciParseStage";
+
+type AdapterToolParseStage = "input" | "output";
+
+const tagParseError = (error: unknown, stage: AdapterToolParseStage): never => {
+  if (ParseResult.isParseError(error) && error && typeof error === "object") {
+    try {
+      Object.defineProperty(error, ADAPTER_TOOL_PARSE_STAGE_KEY, {
+        configurable: true,
+        enumerable: false,
+        value: stage,
+        writable: true,
+      });
+    } catch {}
+  }
+
+  throw error;
+};
+
 export const executeAdapterTool = async (
   tool: AdapterToolDefinition,
   input: unknown,
 ): Promise<unknown> => {
-  const validatedInput = Schema.decodeUnknownSync(
-    tool.inputSchema as Schema.Schema<unknown, unknown, never>,
-  )(input);
+  const validatedInput = (() => {
+    try {
+      return Schema.decodeUnknownSync(
+        tool.inputSchema as Schema.Schema<unknown, unknown, never>,
+      )(input);
+    } catch (error) {
+      tagParseError(error, "input");
+    }
+  })();
+
   const executor = await tool.execute();
   const output = await executor(validatedInput);
 
-  return Schema.decodeUnknownSync(
-    tool.outputSchema as Schema.Schema<unknown, unknown, never>,
-  )(output);
+  try {
+    return Schema.decodeUnknownSync(
+      tool.outputSchema as Schema.Schema<unknown, unknown, never>,
+    )(output);
+  } catch (error) {
+    tagParseError(error, "output");
+  }
 };
 
 export type LoadedModule =

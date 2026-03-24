@@ -6,6 +6,10 @@ import { HttpError } from "@/models/error";
 import { executeAdapterTool } from "@/config/modules";
 import { createAdapterToolPath, type ServerState } from "@/state";
 
+type AdapterToolParseStage = "input" | "output";
+
+const ADAPTER_TOOL_PARSE_STAGE_KEY = "mciParseStage";
+
 export async function invokeTool(req: Request, res: Response): Promise<void> {
   if (!req.body || typeof req.body !== "object") {
     logger.warn("Invoke request rejected: body must be an object");
@@ -77,17 +81,53 @@ export async function invokeTool(req: Request, res: Response): Promise<void> {
     res.status(200).json({ output });
   } catch (error) {
     if (ParseResult.isParseError(error)) {
+      const parseStage = getAdapterToolParseStage(error);
+
+      if (parseStage === "input") {
+        logger.warn(
+          {
+            adapterId,
+            serviceId,
+            toolId,
+            parseStage,
+            err: error,
+          },
+          "Adapter tool input validation failed",
+        );
+
+        throw new HttpError(400, (error as Error).message);
+      }
+
+      if (parseStage === "output") {
+        logger.warn(
+          {
+            adapterId,
+            serviceId,
+            toolId,
+            parseStage,
+            err: error,
+          },
+          "Adapter tool output validation failed",
+        );
+
+        throw new HttpError(
+          502,
+          "Adapter tool output did not match its declared schema.",
+        );
+      }
+
       logger.warn(
         {
           adapterId,
           serviceId,
           toolId,
+          parseStage,
           err: error,
         },
-        "Adapter tool payload validation failed",
+        "Adapter tool parse error without stage metadata",
       );
 
-      throw new HttpError(400, (error as Error).message);
+      throw error;
     }
 
     logger.error(
@@ -128,4 +168,18 @@ function parseId(
   }
 
   return normalized;
+}
+
+function getAdapterToolParseStage(
+  error: unknown,
+): AdapterToolParseStage | undefined {
+  if (!ParseResult.isParseError(error) || !error || typeof error !== "object") {
+    return undefined;
+  }
+
+  const parseStage = Reflect.get(error as object, ADAPTER_TOOL_PARSE_STAGE_KEY);
+
+  return parseStage === "input" || parseStage === "output"
+    ? parseStage
+    : undefined;
 }
