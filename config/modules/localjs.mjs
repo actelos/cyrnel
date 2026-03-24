@@ -6,6 +6,8 @@ class HostNodeModule extends EventEmitter {
   label = "javascript";
   #child = null;
 
+  static MAX_STDOUT_BUFFER = 64 * 1024;
+
   async setup() {}
 
   async teardown() {
@@ -22,10 +24,16 @@ class HostNodeModule extends EventEmitter {
       });
 
       this.#child = child;
-      let stdout = "";
+      let stdoutBuffer = Buffer.alloc(0);
 
       child.stdout.on("data", (chunk) => {
-        stdout += String(chunk);
+        const data = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        stdoutBuffer = Buffer.concat([stdoutBuffer, data]);
+        if (stdoutBuffer.length > HostNodeModule.MAX_STDOUT_BUFFER) {
+          stdoutBuffer = stdoutBuffer.subarray(
+            stdoutBuffer.length - HostNodeModule.MAX_STDOUT_BUFFER,
+          );
+        }
         this.emit("stdout", Buffer.from(chunk));
       });
 
@@ -42,7 +50,7 @@ class HostNodeModule extends EventEmitter {
         }
 
         if (code === 0) {
-          const text = stdout.trim();
+          const text = stdoutBuffer.toString("utf8").trim();
           if (text) {
             try {
               this.emit("output", JSON.parse(text));
