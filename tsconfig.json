@@ -10,12 +10,11 @@
     "resolveJsonModule": true,
     "forceConsistentCasingInFileNames": true,
 
-    "baseUrl": ".",
     "outDir": "dist",
     "rootDir": "src",
     "types": ["node"],
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["./src/*"]
     }
   },
   "include": ["src/**/*.ts", "src/**/*.d.ts"],
