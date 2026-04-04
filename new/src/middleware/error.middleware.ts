@@ -1,19 +1,18 @@
-import type { ErrorRequestHandler } from "express";
+import type { NextFunction, Request, Response } from "express";
 
-import { logger } from "@/logger";
+import { HttpError } from "@/models/error.model";
 
-export const errorMiddleware: ErrorRequestHandler = (err, _req, res, _next) => {
-  logger.error({ err }, "request failed");
-
-  const status =
-    typeof (err as { status?: unknown }).status === "number"
-      ? (err as { status: number }).status
-      : 500;
-
-  if (status >= 400 && status < 500) {
-    res.status(status).json({ error: err.message });
+export function errorMiddleware(
+  error: unknown,
+  req: Request,
+  res: Response,
+  _next: NextFunction,
+): void {
+  if (req) (req as Request & { err?: unknown }).err = error;
+  if (error instanceof HttpError) {
+    res.status(error.statusCode).json({ error: error.message });
     return;
   }
 
-  res.status(500).json({ error: "internal_server_error" });
-};
+  res.status(500).json({ error: "Internal server error." });
+}

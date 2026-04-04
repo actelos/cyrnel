@@ -1,33 +1,49 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import type { Request, Response } from "express";
+import { describe, expect, it, vi } from "vitest";
 
-vi.mock("@/logger", () => ({
-  logger: {
-    error: vi.fn(),
-  },
-}));
-
-import { logger } from "@/logger";
 import { errorMiddleware } from "@/middleware/error.middleware";
+import { HttpError } from "@/models/error.model";
+
+type MockResponse = {
+  status: ReturnType<typeof vi.fn>;
+  json: ReturnType<typeof vi.fn>;
+};
+
+const makeRes = () => {
+  const res = {} as MockResponse;
+
+  res.status = vi.fn().mockReturnValue(res);
+  res.json = vi.fn().mockReturnValue(res);
+
+  return res;
+};
 
 describe("errorMiddleware", () => {
-  afterEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("logs and returns internal server error payload", () => {
-    const err = new Error("boom");
-    const status = vi.fn().mockReturnThis();
-    const json = vi.fn();
+  it("returns status/message for HttpError", () => {
+    const res = makeRes();
 
     errorMiddleware(
-      err,
-      {} as never,
-      { status, json } as never,
-      vi.fn() as never,
+      new HttpError(400, "Bad request"),
+      {} as unknown as Request,
+      res as unknown as Response,
+      vi.fn(),
     );
 
-    expect(logger.error).toHaveBeenCalledWith({ err }, "request failed");
-    expect(status).toHaveBeenCalledWith(500);
-    expect(json).toHaveBeenCalledWith({ error: "internal_server_error" });
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith({ error: "Bad request" });
+  });
+
+  it("returns 500 for generic errors", () => {
+    const res = makeRes();
+
+    errorMiddleware(
+      new Error("boom"),
+      {} as unknown as Request,
+      res as unknown as Response,
+      vi.fn(),
+    );
+
+    expect(res.status).toHaveBeenCalledWith(500);
+    expect(res.json).toHaveBeenCalledWith({ error: "Internal server error." });
   });
 });
