@@ -36,6 +36,8 @@ describe("EnvironmentPoolService", () => {
 
     await pool.shutdown();
 
-    expect(() => pool.allocate()).toThrow("Environment pool has been shut down");
+    expect(() => pool.allocate()).toThrow(
+      "Environment pool has been shut down",
+    );
   });
 });
