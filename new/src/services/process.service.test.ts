@@ -303,6 +303,58 @@ describe("ProcessService", () => {
     }
   });
 
+  it("shutdown() cancels queued processes and terminates the running one", async () => {
+    const first = deferred<ExecutionStatus>();
+    const kill = vi.fn(async () => {});
+    const module = new TestEnvironmentModule(async () => first.promise, kill);
+    const pool = new TestEnvironmentPoolService(
+      () => module as unknown as EnvironmentModule,
+    );
+    const service = new ProcessService(pool);
+
+    const runningPid = service.create("running");
+    const queuedPid = service.create("queued");
+
+    await waitForState(service, runningPid, "running");
+    expect(service.get(queuedPid).state).toBe("queued");
+
+    const shutdownPromise = service.shutdown();
+    await flush();
+
+    expect(service.get(queuedPid)).toMatchObject({
+      pid: queuedPid,
+      state: "idle",
+      status: "canceled",
+    });
+    expect(service.get(runningPid).state).toBe("terminating");
+    expect(kill).toHaveBeenCalledTimes(1);
+
+    first.reject(new Error("killed during shutdown"));
+    await shutdownPromise;
+
+    expect(service.get(runningPid)).toMatchObject({
+      pid: runningPid,
+      state: "idle",
+      status: "canceled",
+    });
+  });
+
+  it("rejects create() and run() after shutdown starts", async () => {
+    const module = new TestEnvironmentModule(async () => "success");
+    const pool = new TestEnvironmentPoolService(
+      () => module as unknown as EnvironmentModule,
+    );
+    const service = new ProcessService(pool);
+
+    const pid = service.create("before-shutdown");
+    await waitForState(service, pid, "idle");
+
+    await service.shutdown();
+
+    expect(() => service.create("after-shutdown")).toThrow(HttpError);
+    expect(() => service.run(pid, true)).toThrow(HttpError);
+  });
+
   it("run() enforces force for existing outputs and resets data when forced", async () => {
     let runCount = 0;
 
