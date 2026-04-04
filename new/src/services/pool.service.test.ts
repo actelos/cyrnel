@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { EnvironmentModule } from "@/modules/environment.module";
 import { EnvironmentPoolService } from "@/services/pool.service";
@@ -19,5 +19,23 @@ describe("EnvironmentPoolService", () => {
     const second = pool.allocate();
 
     expect(first).toBe(second);
+  });
+
+  it("shutdown() kills the default environment module", async () => {
+    const pool = new EnvironmentPoolService();
+    const module = pool.allocate();
+    const killSpy = vi.spyOn(module, "kill").mockResolvedValue();
+
+    await pool.shutdown();
+
+    expect(killSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("allocate() throws after shutdown", async () => {
+    const pool = new EnvironmentPoolService();
+
+    await pool.shutdown();
+
+    expect(() => pool.allocate()).toThrow("Environment pool has been shut down");
   });
 });

@@ -31,6 +31,8 @@ export class ProcessService {
   private readonly queuedPids: number[] = [];
   private currentPid: number | null = null;
   private currentEnvironmentModule: EnvironmentModule | null = null;
+  private currentExecutionPromise: Promise<void> | null = null;
+  private isShuttingDown = false;
   private nextId = 1;
 
   constructor(
@@ -61,6 +63,10 @@ export class ProcessService {
   }
 
   create(code: string, ref?: string): number {
+    if (this.isShuttingDown) {
+      throw new HttpError(503, "Service is shutting down.");
+    }
+
     const pid = this.createPid();
 
     this.processes.set(pid, {
@@ -142,6 +148,10 @@ export class ProcessService {
   }
 
   run(pid: number, force: boolean): Process {
+    if (this.isShuttingDown) {
+      throw new HttpError(503, "Service is shutting down.");
+    }
+
     const stored = this.getStored(pid);
 
     if (stored.process.state !== "idle") {
@@ -192,6 +202,47 @@ export class ProcessService {
     return stored.process;
   }
 
+  async shutdown(): Promise<void> {
+    this.isShuttingDown = true;
+
+    const queued = this.queuedPids.splice(0);
+    for (const pid of queued) {
+      const stored = this.processes.get(pid);
+      if (!stored || stored.process.state !== "queued") {
+        continue;
+      }
+
+      stored.process.state = "idle";
+      stored.process.status = "canceled";
+    }
+
+    if (this.currentPid !== null) {
+      const running = this.processes.get(this.currentPid);
+      if (
+        running &&
+        (running.process.state === "running" ||
+          running.process.state === "terminating")
+      ) {
+        running.process.state = "terminating";
+
+        if (this.currentEnvironmentModule) {
+          try {
+            await this.currentEnvironmentModule.kill();
+          } catch (err) {
+            logger.warn(
+              { err, pid: running.process.pid },
+              "Failed to kill running process during shutdown",
+            );
+          }
+        }
+      }
+    }
+
+    if (this.currentExecutionPromise) {
+      await this.currentExecutionPromise;
+    }
+  }
+
   private getStored(pid: number): StoredProcess {
     const found = this.processes.get(pid);
 
@@ -233,6 +284,10 @@ export class ProcessService {
   }
 
   private drainQueue(): void {
+    if (this.isShuttingDown) {
+      return;
+    }
+
     if (this.currentPid !== null) {
       return;
     }
@@ -249,13 +304,18 @@ export class ProcessService {
       }
 
       this.currentPid = pid;
-      void this.executeProcess(pid).finally(() => {
+      const execution = this.executeProcess(pid).finally(() => {
         if (this.currentPid === pid) {
           this.currentPid = null;
         }
 
+        if (this.currentExecutionPromise === execution) {
+          this.currentExecutionPromise = null;
+        }
+
         this.drainQueue();
       });
+      this.currentExecutionPromise = execution;
       return;
     }
   }
