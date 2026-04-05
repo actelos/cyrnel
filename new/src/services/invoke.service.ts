@@ -2,7 +2,10 @@ import type {
   InvokeMessage,
   InvokeMessageResponse,
 } from "@/models/invoke.model";
+import type { JSONSchema } from "@/models/manifest.model";
 import type { AdapterModule } from "@/modules/adapter.module";
+import { ManifestService } from "@/services/manifest.service";
+import Ajv, { type ValidateFunction } from "ajv";
 
 export interface ProcessMessageChannel {
   on(event: "message", listener: (message: unknown) => void): this;
@@ -10,12 +13,26 @@ export interface ProcessMessageChannel {
   send?: (message: InvokeMessageResponse) => boolean;
 }
 
+interface ProcessMessageSystemOptions {
+  manifestService?: Pick<ManifestService, "getTool">;
+}
+
 export function createProcessMessageSystem(
   adapterModule: AdapterModule,
   channel: ProcessMessageChannel = process,
+  options: ProcessMessageSystemOptions = {},
 ): () => void {
+  const manifestService = options.manifestService ?? new ManifestService();
+  const validator = new SchemaValidator();
+
   const onMessage = (message: unknown) => {
-    void handleInvokeMessage(adapterModule, channel, message);
+    void handleInvokeMessage(
+      adapterModule,
+      channel,
+      manifestService,
+      validator,
+      message,
+    );
   };
 
   channel.on("message", onMessage);
@@ -28,6 +45,8 @@ export function createProcessMessageSystem(
 async function handleInvokeMessage(
   adapterModule: AdapterModule,
   channel: ProcessMessageChannel,
+  manifestService: Pick<ManifestService, "getTool">,
+  validator: SchemaValidator,
   message: unknown,
 ): Promise<void> {
   if (!isProcessInvokeMessage(message)) {
@@ -35,10 +54,19 @@ async function handleInvokeMessage(
   }
 
   try {
-    const output = await adapterModule.invoke(
-      message.serviceId,
-      message.toolId,
+    const tool = await manifestService.getTool(message.serviceId, message.toolId);
+    validator.validate(
+      tool.inputSchema,
       message.parameters,
+      `Invalid invoke parameters for tool '${message.toolId}'.`,
+    );
+
+    const output = await adapterModule.invoke(message.toolId, message.parameters);
+
+    validator.validate(
+      tool.outputSchema,
+      output,
+      `Invalid invoke output for tool '${message.toolId}'.`,
     );
 
     channel.send?.({
@@ -79,4 +107,41 @@ function isProcessInvokeMessage(message: unknown): message is InvokeMessage {
     typeof candidate.parameters === "object" &&
     !Array.isArray(candidate.parameters)
   );
+}
+
+class SchemaValidator {
+  private readonly ajv = new Ajv({ allErrors: true, strict: false });
+  private readonly validators = new Map<string, ValidateFunction>();
+
+  validate(schema: JSONSchema, payload: unknown, message: string): void {
+    const validate = this.getValidator(schema);
+    const valid = validate(payload);
+
+    if (valid) {
+      return;
+    }
+
+    const details =
+      validate.errors
+        ?.map((error) => {
+          const location = error.instancePath || "/";
+          return `${location} ${error.message}`.trim();
+        })
+        .join("; ") ?? "Schema validation failed.";
+
+    throw new Error(`${message} ${details}`);
+  }
+
+  private getValidator(schema: JSONSchema): ValidateFunction {
+    const key = JSON.stringify(schema);
+    const cached = this.validators.get(key);
+
+    if (cached) {
+      return cached;
+    }
+
+    const compiled = this.ajv.compile(schema);
+    this.validators.set(key, compiled);
+    return compiled;
+  }
 }

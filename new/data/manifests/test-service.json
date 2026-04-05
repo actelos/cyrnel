@@ -1,0 +1,20 @@
+{
+  "tools": [
+    {
+      "name": "echo",
+      "input_schema": {
+        "type": "object",
+        "required": ["input"],
+        "properties": {
+          "input": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "string"
+      }
+    }
+  ]
+}

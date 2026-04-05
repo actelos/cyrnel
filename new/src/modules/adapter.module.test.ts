@@ -10,8 +10,8 @@ describe("AdapterModule", () => {
   it("invoke() returns hello world", async () => {
     const adapter = new AdapterModule();
 
-    await expect(
-      adapter.invoke("service-1", "tool-1", { input: "anything" }),
-    ).resolves.toBe("hello world");
+    await expect(adapter.invoke("tool-1", { input: "anything" })).resolves.toBe(
+      "hello world",
+    );
   });
 });
