@@ -4,7 +4,13 @@ import { readFile } from "node:fs/promises";
 import { existsSync, mkdirSync } from "node:fs";
 
 import { HttpError } from "@/models/error.model";
-import type { JSONSchema, ManifestTool } from "@/models/manifest.model";
+import type {
+  Manifest,
+  JSONSchema,
+  ManifestMetadata,
+  ManifestTool,
+  ManifestToolDefinition,
+} from "@/models/manifest.model";
 
 const DEFAULT_DATA_DIR = "~/mci";
 
@@ -58,7 +64,10 @@ export class ManifestService {
       );
     }
 
-    const tools = normalizeManifest(parsedManifest, normalizedServiceId);
+    const { metadata, tools } = normalizeManifest(
+      parsedManifest,
+      normalizedServiceId,
+    );
     const tool = tools.find((item) => item.name === normalizedToolId);
 
     if (!tool) {
@@ -68,7 +77,10 @@ export class ManifestService {
       );
     }
 
-    return tool;
+    return {
+      tool,
+      serviceMetadata: metadata,
+    };
   }
 
   private ensureManifestsDirectory(): void {
@@ -115,13 +127,15 @@ function normalizeServiceId(serviceId: string): string {
 function normalizeManifest(
   manifest: unknown,
   serviceId: string,
-): ManifestTool[] {
+): Manifest {
   if (!isRecord(manifest)) {
     throw new HttpError(
       400,
       `Manifest for service '${serviceId}' must be a JSON object.`,
     );
   }
+
+  const metadata = extractManifestMetadata(manifest, serviceId);
 
   const toolsValue = findToolsCollection(manifest);
 
@@ -134,7 +148,7 @@ function normalizeManifest(
 
   const tools = toolsValue
     .map((tool, index) => normalizeTool(tool, serviceId, index))
-    .filter((tool): tool is ManifestTool => tool !== null);
+    .filter((tool): tool is ManifestToolDefinition => tool !== null);
 
   if (tools.length === 0) {
     throw new HttpError(
@@ -143,7 +157,23 @@ function normalizeManifest(
     );
   }
 
-  return tools;
+  return { metadata, tools };
+}
+
+function extractManifestMetadata(
+  manifest: Record<string, unknown>,
+  serviceId: string,
+): ManifestMetadata {
+  const candidate = manifest.metadata;
+
+  if (!isRecord(candidate)) {
+    throw new HttpError(
+      400,
+      `Manifest for service '${serviceId}' must contain a metadata object.`,
+    );
+  }
+
+  return candidate;
 }
 
 function findToolsCollection(manifest: Record<string, unknown>): unknown {
@@ -168,7 +198,7 @@ function normalizeTool(
   value: unknown,
   serviceId: string,
   index: number,
-): ManifestTool | null {
+): ManifestToolDefinition | null {
   if (!isRecord(value)) {
     return null;
   }
@@ -176,8 +206,14 @@ function normalizeTool(
   const name = extractToolName(value);
   const inputSchema = extractSchema(value, true);
   const outputSchema = extractSchema(value, false);
+  const metadata = value.metadata;
 
-  if (!name || inputSchema === undefined || outputSchema === undefined) {
+  if (
+    !name ||
+    inputSchema === undefined ||
+    outputSchema === undefined ||
+    !isRecord(metadata)
+  ) {
     throw new HttpError(
       400,
       `Invalid tool definition at index ${index} in manifest for service '${serviceId}'.`,
@@ -188,6 +224,7 @@ function normalizeTool(
     name,
     inputSchema,
     outputSchema,
+    metadata,
   };
 }
 

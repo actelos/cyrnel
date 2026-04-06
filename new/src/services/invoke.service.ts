@@ -54,17 +54,27 @@ async function handleInvokeMessage(
   }
 
   try {
-    const tool = await manifestService.getTool(message.serviceId, message.toolId);
+    const tool = await manifestService.getTool(
+      message.serviceId,
+      message.toolId,
+    );
     validator.validate(
-      tool.inputSchema,
+      tool.tool.inputSchema,
       message.parameters,
       `Invalid invoke parameters for tool '${message.toolId}'.`,
     );
 
-    const output = await adapterModule.invoke(message.toolId, message.parameters);
+    const output = await adapterModule.invoke(
+      message.toolId,
+      message.parameters,
+      {
+        serviceMetadata: tool.serviceMetadata,
+        toolMetadata: tool.tool.metadata,
+      },
+    );
 
     validator.validate(
-      tool.outputSchema,
+      tool.tool.outputSchema,
       output,
       `Invalid invoke output for tool '${message.toolId}'.`,
     );

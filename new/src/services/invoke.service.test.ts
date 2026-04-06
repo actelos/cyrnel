@@ -23,7 +23,7 @@ class TestManifestService {
   constructor(private readonly tools: ManifestTool[]) {}
 
   async getTool(_serviceId: string, toolId: string): Promise<ManifestTool> {
-    const found = this.tools.find((tool) => tool.name === toolId);
+    const found = this.tools.find((tool) => tool.tool.name === toolId);
 
     if (!found) {
       throw new Error(`Tool '${toolId}' not found`);
@@ -34,12 +34,21 @@ class TestManifestService {
 }
 
 const permissiveTool: ManifestTool = {
-  name: "tool-1",
-  inputSchema: {
-    type: "object",
-    additionalProperties: true,
+  tool: {
+    name: "tool-1",
+    inputSchema: {
+      type: "object",
+      additionalProperties: true,
+    },
+    outputSchema: {},
+    metadata: {
+      requestKind: "rpc.invoke",
+      route: "tool-1",
+    },
   },
-  outputSchema: {},
+  serviceMetadata: {
+    serverUrl: "http://127.0.0.1:9999",
+  },
 };
 
 async function flushMessageHandling(): Promise<void> {
@@ -53,8 +62,12 @@ describe("invoke.service", () => {
   });
 
   it("handles process.invoke and sends process.response", async () => {
-    const adapter = new AdapterModule();
+    const adapter = new AdapterModule({
+      baseUrl: "http://127.0.0.1:9999",
+      fetchImpl: vi.fn<typeof fetch>(),
+    });
     const invokeSpy = vi.spyOn(adapter, "invoke");
+    invokeSpy.mockResolvedValueOnce("hello world");
     const channel = new TestProcessChannel();
     const manifestService = new TestManifestService([permissiveTool]);
 
@@ -70,7 +83,10 @@ describe("invoke.service", () => {
 
     await flushMessageHandling();
 
-    expect(invokeSpy).toHaveBeenCalledWith("tool-1", { key: "value" });
+    expect(invokeSpy).toHaveBeenCalledWith("tool-1", { key: "value" }, {
+      serviceMetadata: permissiveTool.serviceMetadata,
+      toolMetadata: permissiveTool.tool.metadata,
+    });
     expect(channel.sent).toEqual([
       {
         type: "process.response",
@@ -81,7 +97,10 @@ describe("invoke.service", () => {
   });
 
   it("ignores invalid process messages", async () => {
-    const adapter = new AdapterModule();
+    const adapter = new AdapterModule({
+      baseUrl: "http://127.0.0.1:9999",
+      fetchImpl: vi.fn<typeof fetch>(),
+    });
     const invokeSpy = vi.spyOn(adapter, "invoke");
     const channel = new TestProcessChannel();
     const manifestService = new TestManifestService([permissiveTool]);
@@ -105,7 +124,10 @@ describe("invoke.service", () => {
   });
 
   it("sends process.error when invoke throws", async () => {
-    const adapter = new AdapterModule();
+    const adapter = new AdapterModule({
+      baseUrl: "http://127.0.0.1:9999",
+      fetchImpl: vi.fn<typeof fetch>(),
+    });
     const channel = new TestProcessChannel();
     const manifestService = new TestManifestService([permissiveTool]);
 
@@ -135,21 +157,33 @@ describe("invoke.service", () => {
   });
 
   it("sends process.error when input parameters do not match schema", async () => {
-    const adapter = new AdapterModule();
+    const adapter = new AdapterModule({
+      baseUrl: "http://127.0.0.1:9999",
+      fetchImpl: vi.fn<typeof fetch>(),
+    });
     const invokeSpy = vi.spyOn(adapter, "invoke");
     const channel = new TestProcessChannel();
     const manifestService = new TestManifestService([
       {
-        name: "tool-1",
-        inputSchema: {
-          type: "object",
-          required: ["count"],
-          properties: {
-            count: { type: "number" },
+        tool: {
+          name: "tool-1",
+          inputSchema: {
+            type: "object",
+            required: ["count"],
+            properties: {
+              count: { type: "number" },
+            },
+            additionalProperties: false,
           },
-          additionalProperties: false,
+          outputSchema: {},
+          metadata: {
+            requestKind: "rpc.invoke",
+            route: "tool-1",
+          },
         },
-        outputSchema: {},
+        serviceMetadata: {
+          serverUrl: "http://127.0.0.1:9999",
+        },
       },
     ]);
 
@@ -174,14 +208,26 @@ describe("invoke.service", () => {
   });
 
   it("sends process.error when adapter output does not match schema", async () => {
-    const adapter = new AdapterModule();
+    const adapter = new AdapterModule({
+      baseUrl: "http://127.0.0.1:9999",
+      fetchImpl: vi.fn<typeof fetch>(),
+    });
     const channel = new TestProcessChannel();
     const manifestService = new TestManifestService([
       {
-        name: "tool-1",
-        inputSchema: {},
-        outputSchema: {
-          type: "string",
+        tool: {
+          name: "tool-1",
+          inputSchema: {},
+          outputSchema: {
+            type: "string",
+          },
+          metadata: {
+            requestKind: "rpc.invoke",
+            route: "tool-1",
+          },
+        },
+        serviceMetadata: {
+          serverUrl: "http://127.0.0.1:9999",
         },
       },
     ]);

@@ -44,9 +44,16 @@ describe("manifest.service", () => {
       writeFileSync(
         manifestPath,
         JSON.stringify({
+          metadata: {
+            serverUrl: "http://127.0.0.1:8787",
+          },
           tools: [
             {
               name: "tool-1",
+              metadata: {
+                requestKind: "rpc.invoke",
+                route: "echo",
+              },
               input_schema: {
                 type: "object",
                 properties: {
@@ -64,15 +71,24 @@ describe("manifest.service", () => {
       const tool = await service.getTool("svc-1", "tool-1");
 
       expect(tool).toMatchObject({
-        name: "tool-1",
-        inputSchema: {
-          type: "object",
-          properties: {
-            count: { type: "number" },
+        tool: {
+          name: "tool-1",
+          inputSchema: {
+            type: "object",
+            properties: {
+              count: { type: "number" },
+            },
+          },
+          outputSchema: {
+            type: "string",
+          },
+          metadata: {
+            requestKind: "rpc.invoke",
+            route: "echo",
           },
         },
-        outputSchema: {
-          type: "string",
+        serviceMetadata: {
+          serverUrl: "http://127.0.0.1:8787",
         },
       });
     } finally {
@@ -90,9 +106,16 @@ describe("manifest.service", () => {
       writeFileSync(
         manifestPath,
         JSON.stringify({
+          metadata: {
+            serverUrl: "http://127.0.0.1:8788",
+          },
           functions: [
             {
               id: "tool-2",
+              metadata: {
+                route: "invoke/tool-2",
+                kind: "rpc.invoke",
+              },
               inputSchema: {
                 type: "object",
               },
@@ -106,8 +129,15 @@ describe("manifest.service", () => {
 
       const tool = await service.getTool("svc-2", "tool-2");
 
-      expect(tool.name).toBe("tool-2");
-      expect(tool.outputSchema).toEqual({ type: "number" });
+      expect(tool.tool.name).toBe("tool-2");
+      expect(tool.tool.outputSchema).toEqual({ type: "number" });
+      expect(tool.tool.metadata).toEqual({
+        route: "invoke/tool-2",
+        kind: "rpc.invoke",
+      });
+      expect(tool.serviceMetadata).toEqual({
+        serverUrl: "http://127.0.0.1:8788",
+      });
     } finally {
       rmSync(base, { recursive: true, force: true });
     }
