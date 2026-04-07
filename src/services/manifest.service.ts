@@ -5,15 +5,58 @@ import { manifests } from "@/db/schema";
 import { HttpError } from "@/models/error.model";
 import type {
   JSONSchema,
-  Manifest,
   ManifestTool,
-  ManifestToolDefinition,
+  ServiceManifest,
+  ToolDefinition,
 } from "@/models/manifest.model";
 
-type ManifestLoader = (serviceId: string) => Promise<Manifest | null>;
+type ManifestLoader = (serviceId: string) => Promise<ServiceManifest | null>;
+
+export interface ServiceManifestSummary {
+  name: string;
+}
 
 export class ManifestService {
   constructor(private readonly loadManifest: ManifestLoader = loadManifestByServiceId) {}
+
+  async listServices(): Promise<ServiceManifestSummary[]> {
+    let rows: Array<{ id: string }>;
+
+    try {
+      rows = await db.select({ id: manifests.id }).from(manifests);
+    } catch {
+      throw new HttpError(500, "Failed to list service manifests.");
+    }
+
+    return rows.map((row) => ({ name: row.id }));
+  }
+
+  async getService(serviceId: string): Promise<ServiceManifestSummary> {
+    const normalizedServiceId = normalizeServiceId(serviceId);
+
+    let rows: Array<{ id: string }>;
+    try {
+      rows = await db
+        .select({ id: manifests.id })
+        .from(manifests)
+        .where(eq(manifests.id, normalizedServiceId))
+        .limit(1);
+    } catch {
+      throw new HttpError(
+        500,
+        `Failed to load manifest for service '${normalizedServiceId}'.`,
+      );
+    }
+
+    if (rows.length === 0) {
+      throw new HttpError(
+        404,
+        `Manifest not found for service '${normalizedServiceId}'.`,
+      );
+    }
+
+    return { name: rows[0].id };
+  }
 
   async getTool(serviceId: string, toolId: string): Promise<ManifestTool> {
     const normalizedServiceId = normalizeServiceId(serviceId);
@@ -23,7 +66,7 @@ export class ManifestService {
       throw new HttpError(400, "Tool id must not be empty.");
     }
 
-    let manifest: Manifest | null;
+    let manifest: ServiceManifest | null;
     try {
       manifest = await this.loadManifest(normalizedServiceId);
     } catch {
@@ -79,9 +122,9 @@ function normalizeServiceId(serviceId: string): string {
 }
 
 function normalizeStoredManifest(
-  manifest: Manifest,
+  manifest: ServiceManifest,
   serviceId: string,
-): Manifest {
+): ServiceManifest {
   if (!isRecord(manifest.metadata)) {
     throw new HttpError(
       500,
@@ -97,7 +140,7 @@ function normalizeStoredManifest(
   }
 
   const tools = manifest.tools.filter((tool, index) => {
-    if (isManifestToolDefinition(tool)) {
+    if (isToolDefinition(tool)) {
       return true;
     }
 
@@ -120,7 +163,7 @@ function normalizeStoredManifest(
   };
 }
 
-async function loadManifestByServiceId(serviceId: string): Promise<Manifest | null> {
+async function loadManifestByServiceId(serviceId: string): Promise<ServiceManifest | null> {
   const rows = await db
     .select({
       metadata: manifests.metadata,
@@ -140,7 +183,7 @@ async function loadManifestByServiceId(serviceId: string): Promise<Manifest | nu
   };
 }
 
-function isManifestToolDefinition(value: unknown): value is ManifestToolDefinition {
+function isToolDefinition(value: unknown): value is ToolDefinition {
   if (!isRecord(value)) {
     return false;
   }

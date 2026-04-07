@@ -6,6 +6,8 @@ import { logger } from "@/logger";
 import { errorMiddleware } from "@/middleware/error.middleware";
 import { healthRouter } from "@/routes/health.routes";
 import { processRouter } from "@/routes/process.route";
+import { serviceRouter } from "@/routes/service.route";
+import { ManifestService } from "@/services/manifest.service";
 import { EnvironmentPoolService } from "@/services/pool.service";
 import { ProcessService } from "@/services/process.service";
 
@@ -13,8 +15,10 @@ export function createApp() {
   const app = express();
 
   const environmentPoolService = new EnvironmentPoolService();
+  const manifestService = new ManifestService();
 
   app.locals.environmentPoolService = environmentPoolService;
+  app.locals.manifestService = manifestService;
   app.locals.processService = new ProcessService(environmentPoolService);
 
   app.use(pinoHttp({ logger }));
@@ -22,6 +26,7 @@ export function createApp() {
   app.use(express.json());
   app.use("/health", healthRouter);
   app.use("/processes", processRouter);
+  app.use("/services", serviceRouter);
   app.use(errorMiddleware);
 
   return app;

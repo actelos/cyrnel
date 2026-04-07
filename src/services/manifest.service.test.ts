@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import type { Manifest } from "@/models/manifest.model";
+import type { ServiceManifest } from "@/models/manifest.model";
 import { ManifestService } from "@/services/manifest.service";
 
 describe("manifest.service", () => {
   it("loads tool schemas from the manifest record", async () => {
-    const manifest: Manifest = {
+    const manifest: ServiceManifest = {
       metadata: {
         serverUrl: "http://127.0.0.1:8787",
       },
@@ -66,7 +66,7 @@ describe("manifest.service", () => {
   });
 
   it("throws 404 when tool is missing", async () => {
-    const manifest: Manifest = {
+    const manifest: ServiceManifest = {
       metadata: {
         serverUrl: "http://127.0.0.1:8788",
       },
