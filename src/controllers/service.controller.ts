@@ -18,6 +18,14 @@ export async function getService(req: Request, res: Response): Promise<void> {
 	res.status(200).json(service);
 }
 
+export async function deleteService(req: Request, res: Response): Promise<void> {
+	const manifestService = getManifestService(req);
+	const serviceId = parseServiceId(req.params.serviceId);
+
+	await manifestService.deleteService(serviceId);
+	res.status(204).send();
+}
+
 function parseServiceId(raw: unknown): string {
 	if (typeof raw !== "string") {
 		throw new HttpError(400, "Field 'serviceId' must be a string.");

@@ -7,6 +7,7 @@ import { errorMiddleware } from "@/middleware/error.middleware";
 import { healthRouter } from "@/routes/health.routes";
 import { processRouter } from "@/routes/process.route";
 import { serviceRouter } from "@/routes/service.route";
+import { toolRouter } from "@/routes/tool.route";
 import { ManifestService } from "@/services/manifest.service";
 import { EnvironmentPoolService } from "@/services/pool.service";
 import { ProcessService } from "@/services/process.service";
@@ -27,6 +28,7 @@ export function createApp() {
   app.use("/health", healthRouter);
   app.use("/processes", processRouter);
   app.use("/services", serviceRouter);
+  app.use("/tools", toolRouter);
   app.use(errorMiddleware);
 
   return app;

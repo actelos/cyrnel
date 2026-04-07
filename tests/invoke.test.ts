@@ -10,7 +10,7 @@ import { sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { db } from "@/db/client";
-import { manifests } from "@/db/schema";
+import { manifests, tools } from "@/db/schema";
 import type { InvokeMessageResponse } from "@/models/invoke.model";
 import { AdapterModule } from "@/modules/adapter.module";
 import { ManifestService } from "@/services/manifest.service";
@@ -147,14 +147,28 @@ function isObject(
 }
 
 async function resetManifestsTable(): Promise<void> {
+  await db.run(sql`PRAGMA foreign_keys = OFF`);
+  await db.run(sql`DROP TABLE IF EXISTS tools`);
   await db.run(sql`DROP TABLE IF EXISTS manifests`);
   await db.run(sql`
     CREATE TABLE manifests (
       id text PRIMARY KEY NOT NULL,
-      metadata text NOT NULL,
-      tools text NOT NULL
+      metadata text NOT NULL
     )
   `);
+  await db.run(sql`
+    CREATE TABLE tools (
+      service_id text NOT NULL,
+      name text NOT NULL,
+      input_schema text NOT NULL,
+      output_schema text NOT NULL,
+      metadata text NOT NULL,
+      PRIMARY KEY(service_id, name),
+      FOREIGN KEY (service_id) REFERENCES manifests(id) ON UPDATE no action ON DELETE cascade
+    )
+  `);
+  await db.run(sql`CREATE INDEX tools_name_idx ON tools (name)`);
+  await db.run(sql`PRAGMA foreign_keys = ON`);
 }
 
 describe("invoke echo integration", () => {
@@ -169,37 +183,40 @@ describe("invoke echo integration", () => {
       metadata: {
         serverUrl: server.baseUrl,
       },
-      tools: [
-        {
-          name: "echo",
-          metadata: {},
-          inputSchema: {
-            type: "object",
-            required: ["input"],
-            properties: {
-              input: {
-                type: "string",
-              },
-            },
-            additionalProperties: false,
-          },
-          outputSchema: {
-            type: "string",
-          },
-        },
-        {
-          name: "broken-output",
-          metadata: {},
-          inputSchema: {
-            type: "object",
-            additionalProperties: true,
-          },
-          outputSchema: {
-            type: "number",
-          },
-        },
-      ],
     });
+
+    await db.insert(tools).values([
+      {
+        serviceId: "test-service",
+        name: "echo",
+        metadata: {},
+        inputSchema: {
+          type: "object",
+          required: ["input"],
+          properties: {
+            input: {
+              type: "string",
+            },
+          },
+          additionalProperties: false,
+        },
+        outputSchema: {
+          type: "string",
+        },
+      },
+      {
+        serviceId: "test-service",
+        name: "broken-output",
+        metadata: {},
+        inputSchema: {
+          type: "object",
+          additionalProperties: true,
+        },
+        outputSchema: {
+          type: "number",
+        },
+      },
+    ]);
   });
 
   afterEach(async () => {

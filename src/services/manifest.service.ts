@@ -1,23 +1,73 @@
-import { eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 
 import { db } from "@/db/client";
-import { manifests } from "@/db/schema";
+import { manifests, tools } from "@/db/schema";
 import { HttpError } from "@/models/error.model";
 import type {
-  JSONSchema,
+  ManifestMetadata,
   ManifestTool,
-  ServiceManifest,
+  PublicToolDefinition,
   ToolDefinition,
 } from "@/models/manifest.model";
 
-type ManifestLoader = (serviceId: string) => Promise<ServiceManifest | null>;
+type ServiceMetadataLoader = (serviceId: string) => Promise<ManifestMetadata | null>;
+type ToolLoader = (serviceId: string, toolId: string) => Promise<ToolDefinition | null>;
 
 export interface ServiceManifestSummary {
   name: string;
 }
 
 export class ManifestService {
-  constructor(private readonly loadManifest: ManifestLoader = loadManifestByServiceId) {}
+  constructor(
+    private readonly loadServiceMetadata: ServiceMetadataLoader = loadServiceMetadataByServiceId,
+    private readonly loadToolById: ToolLoader = loadToolByServiceAndToolId,
+  ) {}
+
+  async getToolByName(toolName: string): Promise<PublicToolDefinition> {
+    const normalizedToolName = normalizeToolId(toolName);
+
+    let rows: Array<PublicToolDefinition>;
+    try {
+      rows = await db
+        .select({
+          serviceId: tools.serviceId,
+          name: tools.name,
+          inputSchema: tools.inputSchema,
+          outputSchema: tools.outputSchema,
+        })
+        .from(tools)
+        .where(eq(tools.name, normalizedToolName))
+        .orderBy(asc(tools.serviceId))
+        .limit(1);
+    } catch {
+      throw new HttpError(500, `Failed to load tool '${normalizedToolName}'.`);
+    }
+
+    if (rows.length === 0) {
+      throw new HttpError(404, `Tool '${normalizedToolName}' not found.`);
+    }
+
+    return rows[0];
+  }
+
+  async listToolsByName(toolName: string): Promise<PublicToolDefinition[]> {
+    const normalizedToolName = normalizeToolId(toolName);
+
+    try {
+      return await db
+        .select({
+          serviceId: tools.serviceId,
+          name: tools.name,
+          inputSchema: tools.inputSchema,
+          outputSchema: tools.outputSchema,
+        })
+        .from(tools)
+        .where(eq(tools.name, normalizedToolName))
+        .orderBy(asc(tools.serviceId));
+    } catch {
+      throw new HttpError(500, `Failed to list tools named '${normalizedToolName}'.`);
+    }
+  }
 
   async listServices(): Promise<ServiceManifestSummary[]> {
     let rows: Array<{ id: string }>;
@@ -60,15 +110,11 @@ export class ManifestService {
 
   async getTool(serviceId: string, toolId: string): Promise<ManifestTool> {
     const normalizedServiceId = normalizeServiceId(serviceId);
-    const normalizedToolId = toolId.trim();
+    const normalizedToolId = normalizeToolId(toolId);
 
-    if (!normalizedToolId) {
-      throw new HttpError(400, "Tool id must not be empty.");
-    }
-
-    let manifest: ServiceManifest | null;
+    let serviceMetadata: ManifestMetadata | null;
     try {
-      manifest = await this.loadManifest(normalizedServiceId);
+      serviceMetadata = await this.loadServiceMetadata(normalizedServiceId);
     } catch {
       throw new HttpError(
         500,
@@ -76,19 +122,22 @@ export class ManifestService {
       );
     }
 
-    if (!manifest) {
+    if (!serviceMetadata) {
       throw new HttpError(
         404,
         `Manifest not found for service '${normalizedServiceId}'.`,
       );
     }
 
-    const { metadata, tools } = normalizeStoredManifest(
-      manifest,
-      normalizedServiceId,
-    );
-
-    const tool = tools.find((item) => item.name === normalizedToolId);
+    let tool: ToolDefinition | null;
+    try {
+      tool = await this.loadToolById(normalizedServiceId, normalizedToolId);
+    } catch {
+      throw new HttpError(
+        500,
+        `Failed to load tool '${normalizedToolId}' for service '${normalizedServiceId}'.`,
+      );
+    }
 
     if (!tool) {
       throw new HttpError(
@@ -99,8 +148,32 @@ export class ManifestService {
 
     return {
       tool,
-      serviceMetadata: metadata,
+      serviceMetadata,
     };
+  }
+
+  async deleteService(serviceId: string): Promise<void> {
+    const normalizedServiceId = normalizeServiceId(serviceId);
+
+    let deletedRows: Array<{ id: string }>;
+    try {
+      deletedRows = await db
+        .delete(manifests)
+        .where(eq(manifests.id, normalizedServiceId))
+        .returning({ id: manifests.id });
+    } catch {
+      throw new HttpError(
+        500,
+        `Failed to delete manifest for service '${normalizedServiceId}'.`,
+      );
+    }
+
+    if (deletedRows.length === 0) {
+      throw new HttpError(
+        404,
+        `Manifest not found for service '${normalizedServiceId}'.`,
+      );
+    }
   }
 }
 
@@ -121,54 +194,21 @@ function normalizeServiceId(serviceId: string): string {
   return normalized;
 }
 
-function normalizeStoredManifest(
-  manifest: ServiceManifest,
-  serviceId: string,
-): ServiceManifest {
-  if (!isRecord(manifest.metadata)) {
-    throw new HttpError(
-      500,
-      `Stored manifest for service '${serviceId}' has invalid metadata.`,
-    );
+function normalizeToolId(toolId: string): string {
+  const normalized = toolId.trim();
+
+  if (!normalized) {
+    throw new HttpError(400, "Tool id must not be empty.");
   }
 
-  if (!Array.isArray(manifest.tools)) {
-    throw new HttpError(
-      500,
-      `Stored manifest for service '${serviceId}' has invalid tools.`,
-    );
-  }
-
-  const tools = manifest.tools.filter((tool, index) => {
-    if (isToolDefinition(tool)) {
-      return true;
-    }
-
-    throw new HttpError(
-      500,
-      `Stored manifest for service '${serviceId}' has an invalid tool at index ${index}.`,
-    );
-  });
-
-  if (tools.length === 0) {
-    throw new HttpError(
-      500,
-      `Stored manifest for service '${serviceId}' has no tools.`,
-    );
-  }
-
-  return {
-    metadata: manifest.metadata,
-    tools,
-  };
+  return normalized;
 }
 
-async function loadManifestByServiceId(serviceId: string): Promise<ServiceManifest | null> {
+async function loadServiceMetadataByServiceId(
+  serviceId: string,
+): Promise<ManifestMetadata | null> {
   const rows = await db
-    .select({
-      metadata: manifests.metadata,
-      tools: manifests.tools,
-    })
+    .select({ metadata: manifests.metadata })
     .from(manifests)
     .where(eq(manifests.id, serviceId))
     .limit(1);
@@ -177,10 +217,49 @@ async function loadManifestByServiceId(serviceId: string): Promise<ServiceManife
     return null;
   }
 
-  return {
-    metadata: rows[0].metadata,
-    tools: rows[0].tools,
-  };
+  const metadata = rows[0].metadata;
+  if (!isRecord(metadata)) {
+    throw new HttpError(
+      500,
+      `Stored manifest for service '${serviceId}' has invalid metadata.`,
+    );
+  }
+
+  return metadata;
+}
+
+async function loadToolByServiceAndToolId(
+  serviceId: string,
+  toolId: string,
+): Promise<ToolDefinition | null> {
+  const rows = await db
+    .select({
+      name: tools.name,
+      inputSchema: tools.inputSchema,
+      outputSchema: tools.outputSchema,
+      metadata: tools.metadata,
+    })
+    .from(tools)
+    .where(and(eq(tools.serviceId, serviceId), eq(tools.name, toolId)))
+    .limit(1);
+
+  if (rows.length === 0) {
+    return null;
+  }
+
+  const tool = rows[0];
+  if (!isToolDefinition(tool)) {
+    throw new HttpError(
+      500,
+      `Stored tool '${toolId}' for service '${serviceId}' is invalid.`,
+    );
+  }
+
+  return tool;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 function isToolDefinition(value: unknown): value is ToolDefinition {
@@ -191,16 +270,8 @@ function isToolDefinition(value: unknown): value is ToolDefinition {
   return (
     typeof value.name === "string" &&
     value.name.trim().length > 0 &&
-    isSchema(value.inputSchema) &&
-    isSchema(value.outputSchema) &&
+    isRecord(value.inputSchema) &&
+    isRecord(value.outputSchema) &&
     isRecord(value.metadata)
   );
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
-}
-
-function isSchema(value: unknown): value is JSONSchema {
-  return isRecord(value);
 }

@@ -17,3 +17,10 @@ export interface ManifestTool {
   tool: ToolDefinition;
   serviceMetadata: ManifestMetadata;
 }
+
+export interface PublicToolDefinition {
+  serviceId: string;
+  name: string;
+  inputSchema: JSONSchema;
+  outputSchema: JSONSchema;
+}

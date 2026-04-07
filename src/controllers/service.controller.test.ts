@@ -1,22 +1,29 @@
 import type { Request, Response } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { getService, listServices } from "@/controllers/service.controller";
+import {
+	deleteService,
+	getService,
+	listServices,
+} from "@/controllers/service.controller";
 
 const manifestService = {
 	listServices: vi.fn(),
 	getService: vi.fn(),
+	deleteService: vi.fn(),
 };
 
 type MockResponse = {
 	status: ReturnType<typeof vi.fn>;
 	json: ReturnType<typeof vi.fn>;
+	send: ReturnType<typeof vi.fn>;
 };
 
 const makeRes = () => {
 	const res = {} as MockResponse;
 	res.status = vi.fn().mockReturnValue(res);
 	res.json = vi.fn().mockReturnValue(res);
+	res.send = vi.fn().mockReturnValue(res);
 	return res;
 };
 
@@ -59,5 +66,17 @@ describe("service.controller", () => {
 		expect(manifestService.getService).toHaveBeenCalledWith("svc-1");
 		expect(res.status).toHaveBeenCalledWith(200);
 		expect(res.json).toHaveBeenCalledWith({ name: "svc-1" });
+	});
+
+	it("deletes a service", async () => {
+		const res = makeRes();
+		const req = makeReq({ params: { serviceId: "svc-1" } });
+		manifestService.deleteService.mockResolvedValue(undefined);
+
+		await deleteService(req, res as unknown as Response);
+
+		expect(manifestService.deleteService).toHaveBeenCalledWith("svc-1");
+		expect(res.status).toHaveBeenCalledWith(204);
+		expect(res.send).toHaveBeenCalledWith();
 	});
 });
