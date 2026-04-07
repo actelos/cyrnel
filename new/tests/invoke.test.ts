@@ -1,16 +1,16 @@
 import { EventEmitter } from "node:events";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import {
   createServer,
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import { type AddressInfo } from "node:net";
 
+import { sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { db } from "@/db/client";
+import { manifests } from "@/db/schema";
 import type { InvokeMessageResponse } from "@/models/invoke.model";
 import { AdapterModule } from "@/modules/adapter.module";
 import { ManifestService } from "@/services/manifest.service";
@@ -146,70 +146,71 @@ function isObject(
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
+async function resetManifestsTable(): Promise<void> {
+  await db.run(sql`DROP TABLE IF EXISTS manifests`);
+  await db.run(sql`
+    CREATE TABLE manifests (
+      id text PRIMARY KEY NOT NULL,
+      metadata text NOT NULL,
+      tools text NOT NULL
+    )
+  `);
+}
+
 describe("invoke echo integration", () => {
-  let dataDir: string;
   let server: StartedTestServer;
 
   beforeEach(async () => {
-    dataDir = await mkdtemp(path.join(tmpdir(), "mci-invoke-int-"));
+    await resetManifestsTable();
     server = await startTestServer();
 
-    const manifestsDir = path.join(dataDir, "manifests");
-    await mkdir(manifestsDir, { recursive: true });
-    await writeFile(
-      path.join(manifestsDir, "test-service.json"),
-      JSON.stringify(
+    await db.insert(manifests).values({
+      id: "test-service",
+      metadata: {
+        serverUrl: server.baseUrl,
+      },
+      tools: [
         {
-          metadata: {
-            serverUrl: server.baseUrl,
-          },
-          tools: [
-            {
-              name: "echo",
-              metadata: {},
-              input_schema: {
-                type: "object",
-                required: ["input"],
-                properties: {
-                  input: {
-                    type: "string",
-                  },
-                },
-                additionalProperties: false,
-              },
-              output_schema: {
+          name: "echo",
+          metadata: {},
+          inputSchema: {
+            type: "object",
+            required: ["input"],
+            properties: {
+              input: {
                 type: "string",
               },
             },
-            {
-              name: "broken-output",
-              metadata: {},
-              input_schema: {
-                type: "object",
-                additionalProperties: true,
-              },
-              output_schema: {
-                type: "number",
-              },
-            },
-          ],
+            additionalProperties: false,
+          },
+          outputSchema: {
+            type: "string",
+          },
         },
-        null,
-        2,
-      ),
-      "utf8",
-    );
+        {
+          name: "broken-output",
+          metadata: {},
+          inputSchema: {
+            type: "object",
+            additionalProperties: true,
+          },
+          outputSchema: {
+            type: "number",
+          },
+        },
+      ],
+    });
   });
 
   afterEach(async () => {
+    await db.delete(manifests);
     await server.close();
-    await rm(dataDir, { recursive: true, force: true });
   });
 
   it("sends process.invoke to echo tool and receives echoed output", async () => {
     const adapter = new AdapterModule({ baseUrl: server.baseUrl });
     const channel = new TestProcessChannel();
-    const manifestService = new ManifestService(dataDir);
+    const manifestService = new ManifestService();
 
     createProcessMessageSystem(adapter, channel, { manifestService });
 
@@ -246,7 +247,7 @@ describe("invoke echo integration", () => {
   it("returns process.error when the requested tool is not in the manifest", async () => {
     const adapter = new AdapterModule({ baseUrl: server.baseUrl });
     const channel = new TestProcessChannel();
-    const manifestService = new ManifestService(dataDir);
+    const manifestService = new ManifestService();
 
     createProcessMessageSystem(adapter, channel, { manifestService });
 
@@ -279,7 +280,7 @@ describe("invoke echo integration", () => {
   it("returns process.error when invoke parameters do not match schema", async () => {
     const adapter = new AdapterModule({ baseUrl: server.baseUrl });
     const channel = new TestProcessChannel();
-    const manifestService = new ManifestService(dataDir);
+    const manifestService = new ManifestService();
 
     createProcessMessageSystem(adapter, channel, { manifestService });
 
@@ -306,7 +307,7 @@ describe("invoke echo integration", () => {
   it("returns process.error when tool output does not match schema", async () => {
     const adapter = new AdapterModule({ baseUrl: server.baseUrl });
     const channel = new TestProcessChannel();
-    const manifestService = new ManifestService(dataDir);
+    const manifestService = new ManifestService();
 
     createProcessMessageSystem(adapter, channel, { manifestService });
 

@@ -13,6 +13,8 @@ node_modules
 dist
 dist-ssr
 *.local
+mci.db
+mci.db-*
 
 # Editor directories and files
 .vscode/*

@@ -1,28 +1,19 @@
-import path from "node:path";
-import { homedir } from "node:os";
-import { readFile } from "node:fs/promises";
-import { existsSync, mkdirSync } from "node:fs";
+import { eq } from "drizzle-orm";
 
+import { db } from "@/db/client";
+import { manifests } from "@/db/schema";
 import { HttpError } from "@/models/error.model";
 import type {
-  Manifest,
   JSONSchema,
-  ManifestMetadata,
+  Manifest,
   ManifestTool,
   ManifestToolDefinition,
 } from "@/models/manifest.model";
 
-const DEFAULT_DATA_DIR = "~/mci";
+type ManifestLoader = (serviceId: string) => Promise<Manifest | null>;
 
 export class ManifestService {
-  readonly dataDir: string;
-  readonly manifestsDir: string;
-
-  constructor(dataDir = resolveMciDataDir(process.env.MCI_DATA_DIR)) {
-    this.dataDir = dataDir;
-    this.manifestsDir = path.join(this.dataDir, "manifests");
-    this.ensureManifestsDirectory();
-  }
+  constructor(private readonly loadManifest: ManifestLoader = loadManifestByServiceId) {}
 
   async getTool(serviceId: string, toolId: string): Promise<ManifestTool> {
     const normalizedServiceId = normalizeServiceId(serviceId);
@@ -32,42 +23,28 @@ export class ManifestService {
       throw new HttpError(400, "Tool id must not be empty.");
     }
 
-    const manifestPath = path.join(
-      this.manifestsDir,
-      `${normalizedServiceId}.json`,
-    );
-
-    let rawManifest: string;
+    let manifest: Manifest | null;
     try {
-      rawManifest = await readFile(manifestPath, "utf8");
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-        throw new HttpError(
-          404,
-          `Manifest not found for service '${normalizedServiceId}'.`,
-        );
-      }
-
-      throw new HttpError(
-        500,
-        `Failed to read manifest for service '${normalizedServiceId}'.`,
-      );
-    }
-
-    let parsedManifest: unknown;
-    try {
-      parsedManifest = JSON.parse(rawManifest);
+      manifest = await this.loadManifest(normalizedServiceId);
     } catch {
       throw new HttpError(
-        400,
-        `Manifest '${normalizedServiceId}.json' contains invalid JSON.`,
+        500,
+        `Failed to load manifest for service '${normalizedServiceId}'.`,
       );
     }
 
-    const { metadata, tools } = normalizeManifest(
-      parsedManifest,
+    if (!manifest) {
+      throw new HttpError(
+        404,
+        `Manifest not found for service '${normalizedServiceId}'.`,
+      );
+    }
+
+    const { metadata, tools } = normalizeStoredManifest(
+      manifest,
       normalizedServiceId,
     );
+
     const tool = tools.find((item) => item.name === normalizedToolId);
 
     if (!tool) {
@@ -82,29 +59,6 @@ export class ManifestService {
       serviceMetadata: metadata,
     };
   }
-
-  private ensureManifestsDirectory(): void {
-    if (existsSync(this.manifestsDir)) {
-      return;
-    }
-
-    mkdirSync(this.manifestsDir, { recursive: true });
-  }
-}
-
-export function resolveMciDataDir(rawValue: string | undefined): string {
-  const value = rawValue?.trim();
-  const chosen = value && value.length > 0 ? value : DEFAULT_DATA_DIR;
-
-  if (chosen === "~") {
-    return homedir();
-  }
-
-  if (chosen.startsWith("~/")) {
-    return path.join(homedir(), chosen.slice(2));
-  }
-
-  return chosen;
 }
 
 function normalizeServiceId(serviceId: string): string {
@@ -124,171 +78,80 @@ function normalizeServiceId(serviceId: string): string {
   return normalized;
 }
 
-function normalizeManifest(
-  manifest: unknown,
+function normalizeStoredManifest(
+  manifest: Manifest,
   serviceId: string,
 ): Manifest {
-  if (!isRecord(manifest)) {
+  if (!isRecord(manifest.metadata)) {
     throw new HttpError(
-      400,
-      `Manifest for service '${serviceId}' must be a JSON object.`,
+      500,
+      `Stored manifest for service '${serviceId}' has invalid metadata.`,
     );
   }
 
-  const metadata = extractManifestMetadata(manifest, serviceId);
-
-  const toolsValue = findToolsCollection(manifest);
-
-  if (!Array.isArray(toolsValue)) {
+  if (!Array.isArray(manifest.tools)) {
     throw new HttpError(
-      400,
-      `Manifest for service '${serviceId}' must contain a tools array.`,
+      500,
+      `Stored manifest for service '${serviceId}' has invalid tools.`,
     );
   }
 
-  const tools = toolsValue
-    .map((tool, index) => normalizeTool(tool, serviceId, index))
-    .filter((tool): tool is ManifestToolDefinition => tool !== null);
+  const tools = manifest.tools.filter((tool, index) => {
+    if (isManifestToolDefinition(tool)) {
+      return true;
+    }
+
+    throw new HttpError(
+      500,
+      `Stored manifest for service '${serviceId}' has an invalid tool at index ${index}.`,
+    );
+  });
 
   if (tools.length === 0) {
     throw new HttpError(
-      400,
-      `Manifest for service '${serviceId}' has no valid tools.`,
-    );
-  }
-
-  return { metadata, tools };
-}
-
-function extractManifestMetadata(
-  manifest: Record<string, unknown>,
-  serviceId: string,
-): ManifestMetadata {
-  const candidate = manifest.metadata;
-
-  if (!isRecord(candidate)) {
-    throw new HttpError(
-      400,
-      `Manifest for service '${serviceId}' must contain a metadata object.`,
-    );
-  }
-
-  return candidate;
-}
-
-function findToolsCollection(manifest: Record<string, unknown>): unknown {
-  const preferredKeys = ["tools", "tool", "functions", "capabilities"];
-
-  for (const key of preferredKeys) {
-    if (Array.isArray(manifest[key])) {
-      return manifest[key];
-    }
-  }
-
-  for (const value of Object.values(manifest)) {
-    if (Array.isArray(value)) {
-      return value;
-    }
-  }
-
-  return undefined;
-}
-
-function normalizeTool(
-  value: unknown,
-  serviceId: string,
-  index: number,
-): ManifestToolDefinition | null {
-  if (!isRecord(value)) {
-    return null;
-  }
-
-  const name = extractToolName(value);
-  const inputSchema = extractSchema(value, true);
-  const outputSchema = extractSchema(value, false);
-  const metadata = value.metadata;
-
-  if (
-    !name ||
-    inputSchema === undefined ||
-    outputSchema === undefined ||
-    !isRecord(metadata)
-  ) {
-    throw new HttpError(
-      400,
-      `Invalid tool definition at index ${index} in manifest for service '${serviceId}'.`,
+      500,
+      `Stored manifest for service '${serviceId}' has no tools.`,
     );
   }
 
   return {
-    name,
-    inputSchema,
-    outputSchema,
-    metadata,
+    metadata: manifest.metadata,
+    tools,
   };
 }
 
-function extractToolName(tool: Record<string, unknown>): string | null {
-  const preferredKeys = ["name", "id", "tool", "toolId"];
+async function loadManifestByServiceId(serviceId: string): Promise<Manifest | null> {
+  const rows = await db
+    .select({
+      metadata: manifests.metadata,
+      tools: manifests.tools,
+    })
+    .from(manifests)
+    .where(eq(manifests.id, serviceId))
+    .limit(1);
 
-  for (const key of preferredKeys) {
-    const candidate = tool[key];
-    if (typeof candidate === "string" && candidate.trim().length > 0) {
-      return candidate.trim();
-    }
+  if (rows.length === 0) {
+    return null;
   }
 
-  for (const candidate of Object.values(tool)) {
-    if (typeof candidate === "string" && candidate.trim().length > 0) {
-      return candidate.trim();
-    }
-  }
-
-  return null;
+  return {
+    metadata: rows[0].metadata,
+    tools: rows[0].tools,
+  };
 }
 
-function extractSchema(
-  tool: Record<string, unknown>,
-  input: boolean,
-): JSONSchema | undefined {
-  const preferredInputKeys = [
-    "input_schema",
-    "inputSchema",
-    "parameters",
-    "paramsSchema",
-  ];
-  const preferredOutputKeys = [
-    "output_schema",
-    "outputSchema",
-    "response_schema",
-    "resultSchema",
-  ];
-
-  const preferredKeys = input ? preferredInputKeys : preferredOutputKeys;
-
-  for (const key of preferredKeys) {
-    const candidate = tool[key];
-    if (isSchema(candidate)) {
-      return candidate;
-    }
+function isManifestToolDefinition(value: unknown): value is ManifestToolDefinition {
+  if (!isRecord(value)) {
+    return false;
   }
 
-  for (const [key, candidate] of Object.entries(tool)) {
-    if (!isSchema(candidate)) {
-      continue;
-    }
-
-    const lower = key.toLowerCase();
-    if (input && lower.includes("input") && lower.includes("schema")) {
-      return candidate;
-    }
-
-    if (!input && lower.includes("output") && lower.includes("schema")) {
-      return candidate;
-    }
-  }
-
-  return undefined;
+  return (
+    typeof value.name === "string" &&
+    value.name.trim().length > 0 &&
+    isSchema(value.inputSchema) &&
+    isSchema(value.outputSchema) &&
+    isRecord(value.metadata)
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
