@@ -1,3 +1,4 @@
+import Ajv, { type ValidateFunction } from "ajv";
 import type {
   InvokeMessage,
   InvokeMessageResponse,
@@ -5,7 +6,6 @@ import type {
 import type { JSONSchema } from "@/models/manifest.model";
 import type { AdapterModule } from "@/modules/adapter.module";
 import { ManifestService } from "@/services/manifest.service";
-import Ajv, { type ValidateFunction } from "ajv";
 
 export interface ProcessMessageChannel {
   on(event: "message", listener: (message: unknown) => void): this;

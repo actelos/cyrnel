@@ -4,7 +4,7 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
-import { type AddressInfo } from "node:net";
+import type { AddressInfo } from "node:net";
 
 import { sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -13,11 +13,11 @@ import { db } from "@/db/client";
 import { manifests, tools } from "@/db/schema";
 import type { InvokeMessageResponse } from "@/models/invoke.model";
 import { AdapterModule } from "@/modules/adapter.module";
-import { ManifestService } from "@/services/manifest.service";
 import {
   createProcessMessageSystem,
   type ProcessMessageChannel,
 } from "@/services/invoke.service";
+import { ManifestService } from "@/services/manifest.service";
 
 class TestProcessChannel extends EventEmitter implements ProcessMessageChannel {
   readonly sent: InvokeMessageResponse[] = [];
