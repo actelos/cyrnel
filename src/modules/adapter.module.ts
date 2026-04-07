@@ -29,7 +29,10 @@ export class AdapterModule {
   ): Promise<unknown> {
     const normalizedToolName = normalizeToolName(toolName);
     const baseUrl = resolveInvocationBaseUrl(metadata?.serviceMetadata);
-    const routeName = resolveToolRouteName(normalizedToolName, metadata?.toolMetadata);
+    const routeName = resolveToolRouteName(
+      normalizedToolName,
+      metadata?.toolMetadata,
+    );
     const endpoint = buildToolEndpoint(baseUrl, routeName);
     const requestKind = resolveToolRequestKind(metadata?.toolMetadata);
 
@@ -90,9 +93,7 @@ function resolveInvocationBaseUrl(
   ]);
 
   if (!candidate) {
-    throw new Error(
-      "Service manifest metadata must include an adapter URL.",
-    );
+    throw new Error("Service manifest metadata must include an adapter URL.");
   }
 
   return resolveAdapterBaseUrl(candidate);

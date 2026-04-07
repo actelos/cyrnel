@@ -83,10 +83,14 @@ describe("invoke.service", () => {
 
     await flushMessageHandling();
 
-    expect(invokeSpy).toHaveBeenCalledWith("tool-1", { key: "value" }, {
-      serviceMetadata: permissiveTool.serviceMetadata,
-      toolMetadata: permissiveTool.tool.metadata,
-    });
+    expect(invokeSpy).toHaveBeenCalledWith(
+      "tool-1",
+      { key: "value" },
+      {
+        serviceMetadata: permissiveTool.serviceMetadata,
+        toolMetadata: permissiveTool.tool.metadata,
+      },
+    );
     expect(channel.sent).toEqual([
       {
         type: "process.response",

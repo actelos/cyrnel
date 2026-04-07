@@ -54,9 +54,14 @@ describe("manifest.service", () => {
   });
 
   it("throws 404 when manifest is missing", async () => {
-    const service = new ManifestService(async () => null, async () => null);
+    const service = new ManifestService(
+      async () => null,
+      async () => null,
+    );
 
-    await expect(service.getTool("missing-service", "tool-1")).rejects.toMatchObject({
+    await expect(
+      service.getTool("missing-service", "tool-1"),
+    ).rejects.toMatchObject({
       statusCode: 404,
     });
   });
@@ -65,17 +70,25 @@ describe("manifest.service", () => {
     const metadata: ManifestMetadata = {
       serverUrl: "http://127.0.0.1:8788",
     };
-    const service = new ManifestService(async () => metadata, async () => null);
+    const service = new ManifestService(
+      async () => metadata,
+      async () => null,
+    );
 
-    await expect(service.getTool("svc-2", "missing-tool")).rejects.toMatchObject({
+    await expect(
+      service.getTool("svc-2", "missing-tool"),
+    ).rejects.toMatchObject({
       statusCode: 404,
     });
   });
 
   it("throws 500 when database read fails", async () => {
-    const service = new ManifestService(async () => {
-      throw new Error("boom");
-    }, async () => null);
+    const service = new ManifestService(
+      async () => {
+        throw new Error("boom");
+      },
+      async () => null,
+    );
 
     await expect(service.getTool("svc-3", "tool-1")).rejects.toMatchObject({
       statusCode: 500,
@@ -83,9 +96,12 @@ describe("manifest.service", () => {
   });
 
   it("throws 500 when tool read fails", async () => {
-    const service = new ManifestService(async () => ({ serverUrl: "http://localhost" }), async () => {
-      throw new Error("boom");
-    });
+    const service = new ManifestService(
+      async () => ({ serverUrl: "http://localhost" }),
+      async () => {
+        throw new Error("boom");
+      },
+    );
 
     await expect(service.getTool("svc-3", "tool-1")).rejects.toMatchObject({
       statusCode: 500,

@@ -1,9 +1,9 @@
 import { Router } from "express";
 
 import {
-	deleteService,
-	getService,
-	listServices,
+  deleteService,
+  getService,
+  listServices,
 } from "@/controllers/service.controller";
 
 export const serviceRouter = Router();

@@ -14,12 +14,16 @@ describe("AdapterModule", () => {
     const adapter = new AdapterModule({ fetchImpl });
 
     await expect(
-      adapter.invoke("tool-1", { input: "anything" }, {
-        serviceMetadata: {
-          url: "http://127.0.0.1:9999",
+      adapter.invoke(
+        "tool-1",
+        { input: "anything" },
+        {
+          serviceMetadata: {
+            url: "http://127.0.0.1:9999",
+          },
+          toolMetadata: {},
         },
-        toolMetadata: {},
-      }),
+      ),
     ).resolves.toEqual({ ok: true });
 
     expect(fetchImpl).toHaveBeenCalledTimes(1);
@@ -95,12 +99,16 @@ describe("AdapterModule", () => {
     const adapter = new AdapterModule({ fetchImpl });
 
     await expect(
-      adapter.invoke("tool-1", { input: "anything" }, {
-        serviceMetadata: {
-          url: "http://127.0.0.1:9999",
+      adapter.invoke(
+        "tool-1",
+        { input: "anything" },
+        {
+          serviceMetadata: {
+            url: "http://127.0.0.1:9999",
+          },
+          toolMetadata: {},
         },
-        toolMetadata: {},
-      }),
+      ),
     ).resolves.toBe("hello world");
   });
 
@@ -113,12 +121,16 @@ describe("AdapterModule", () => {
     const adapter = new AdapterModule({ fetchImpl });
 
     await expect(
-      adapter.invoke("missing", {}, {
-        serviceMetadata: {
-          url: "http://127.0.0.1:9999",
+      adapter.invoke(
+        "missing",
+        {},
+        {
+          serviceMetadata: {
+            url: "http://127.0.0.1:9999",
+          },
+          toolMetadata: {},
         },
-        toolMetadata: {},
-      }),
+      ),
     ).rejects.toThrow("tool not found");
   });
 
@@ -127,10 +139,14 @@ describe("AdapterModule", () => {
     const adapter = new AdapterModule({ fetchImpl });
 
     await expect(
-      adapter.invoke("tool-1", { input: "anything" }, {
-        serviceMetadata: {},
-        toolMetadata: {},
-      }),
+      adapter.invoke(
+        "tool-1",
+        { input: "anything" },
+        {
+          serviceMetadata: {},
+          toolMetadata: {},
+        },
+      ),
     ).rejects.toThrow("Service manifest metadata must include an adapter URL");
   });
 });

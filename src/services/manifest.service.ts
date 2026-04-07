@@ -10,8 +10,13 @@ import type {
   ToolDefinition,
 } from "@/models/manifest.model";
 
-type ServiceMetadataLoader = (serviceId: string) => Promise<ManifestMetadata | null>;
-type ToolLoader = (serviceId: string, toolId: string) => Promise<ToolDefinition | null>;
+type ServiceMetadataLoader = (
+  serviceId: string,
+) => Promise<ManifestMetadata | null>;
+type ToolLoader = (
+  serviceId: string,
+  toolId: string,
+) => Promise<ToolDefinition | null>;
 
 export interface ServiceManifestSummary {
   name: string;
@@ -65,7 +70,10 @@ export class ManifestService {
         .where(eq(tools.name, normalizedToolName))
         .orderBy(asc(tools.serviceId));
     } catch {
-      throw new HttpError(500, `Failed to list tools named '${normalizedToolName}'.`);
+      throw new HttpError(
+        500,
+        `Failed to list tools named '${normalizedToolName}'.`,
+      );
     }
   }
 
