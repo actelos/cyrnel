@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AdapterModule } from "@/modules/adapter.module";
+import {
+  AdapterModule,
+  parseServiceManifest,
+} from "@/modules/adapter.module";
 
 describe("AdapterModule", () => {
   beforeEach(() => {
@@ -148,5 +151,78 @@ describe("AdapterModule", () => {
         },
       ),
     ).rejects.toThrow("Service manifest metadata must include an adapter URL");
+  });
+});
+
+describe("parseServiceManifest", () => {
+  it("parses a JSON manifest string", () => {
+    const parsed = parseServiceManifest(`
+      {
+        "metadata": {
+          "serverUrl": "http://127.0.0.1:8787"
+        },
+        "tools": [
+          {
+            "name": "echo",
+            "metadata": {
+              "route": "invoke/echo"
+            },
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "input": { "type": "string" }
+              }
+            },
+            "outputSchema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    `);
+
+    expect(parsed).toEqual({
+      metadata: {
+        serverUrl: "http://127.0.0.1:8787",
+      },
+      tools: [
+        {
+          name: "echo",
+          metadata: {
+            route: "invoke/echo",
+          },
+          inputSchema: {
+            type: "object",
+            properties: {
+              input: { type: "string" },
+            },
+          },
+          outputSchema: {
+            type: "string",
+          },
+        },
+      ],
+    });
+  });
+
+  it("rejects invalid JSON", () => {
+    expect(() => parseServiceManifest("{ missing quote }")).toThrow(
+      "Manifest JSON is invalid.",
+    );
+  });
+
+  it("rejects malformed manifest shape", () => {
+    expect(() =>
+      parseServiceManifest(
+        JSON.stringify({
+          metadata: {},
+          tools: [
+            {
+              name: "echo",
+            },
+          ],
+        }),
+      ),
+    ).toThrow("Manifest JSON is not a valid service manifest.");
   });
 });

@@ -3,6 +3,18 @@ interface AdapterModuleOptions {
   fetchImpl?: typeof fetch;
 }
 
+interface ParsedServiceManifest {
+  metadata: Record<string, unknown>;
+  tools: ParsedManifestTool[];
+}
+
+interface ParsedManifestTool {
+  name: string;
+  inputSchema: Record<string, unknown>;
+  outputSchema: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+}
+
 interface AdapterInvokeMetadata {
   serviceMetadata: Record<string, unknown>;
   toolMetadata: Record<string, unknown>;
@@ -72,6 +84,27 @@ export class AdapterModule {
 
     return payload;
   }
+}
+
+export function parseServiceManifest(manifestSource: string): ParsedServiceManifest {
+  const normalized = manifestSource.trim();
+
+  if (!normalized) {
+    throw new Error("Manifest JSON must not be empty.");
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(normalized);
+  } catch {
+    throw new Error("Manifest JSON is invalid.");
+  }
+
+  if (!isServiceManifest(parsed)) {
+    throw new Error("Manifest JSON is not a valid service manifest.");
+  }
+
+  return parsed;
 }
 
 function resolveInvocationBaseUrl(
@@ -218,4 +251,38 @@ function extractErrorMessage(payload: unknown): string {
 
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function isManifestTool(value: unknown): value is ParsedManifestTool {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    typeof value.name === "string" &&
+    value.name.trim().length > 0 &&
+    isRecord(value.inputSchema) &&
+    isRecord(value.outputSchema) &&
+    isRecord(value.metadata)
+  );
+}
+
+function isServiceManifest(value: unknown): value is ParsedServiceManifest {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  if (!isRecord(value.metadata)) {
+    return false;
+  }
+
+  if (!Array.isArray(value.tools)) {
+    return false;
+  }
+
+  return value.tools.every(isManifestTool);
 }

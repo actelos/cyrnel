@@ -1,9 +1,41 @@
-import { describe, expect, it } from "vitest";
+import { sql } from "drizzle-orm";
+import { beforeEach, describe, expect, it } from "vitest";
 
+import { db } from "@/db/client";
+import { manifests, tools } from "@/db/schema";
 import type { ManifestMetadata, ToolDefinition } from "@/models/manifest.model";
 import { ManifestService } from "@/services/manifest.service";
 
+async function resetManifestTables(): Promise<void> {
+  await db.run(sql`PRAGMA foreign_keys = OFF`);
+  await db.run(sql`DROP TABLE IF EXISTS tools`);
+  await db.run(sql`DROP TABLE IF EXISTS manifests`);
+  await db.run(sql`
+    CREATE TABLE manifests (
+      id text PRIMARY KEY NOT NULL,
+      metadata text NOT NULL
+    )
+  `);
+  await db.run(sql`
+    CREATE TABLE tools (
+      service_id text NOT NULL,
+      name text NOT NULL,
+      input_schema text NOT NULL,
+      output_schema text NOT NULL,
+      metadata text NOT NULL,
+      PRIMARY KEY(service_id, name),
+      FOREIGN KEY (service_id) REFERENCES manifests(id) ON UPDATE no action ON DELETE cascade
+    )
+  `);
+  await db.run(sql`CREATE INDEX tools_name_idx ON tools (name)`);
+  await db.run(sql`PRAGMA foreign_keys = ON`);
+}
+
 describe("manifest.service", () => {
+  beforeEach(async () => {
+    await resetManifestTables();
+  });
+
   it("loads tool schemas from the tool record", async () => {
     const metadata: ManifestMetadata = {
       serverUrl: "http://127.0.0.1:8787",
@@ -105,6 +137,129 @@ describe("manifest.service", () => {
 
     await expect(service.getTool("svc-3", "tool-1")).rejects.toMatchObject({
       statusCode: 500,
+    });
+  });
+
+  it("creates a service manifest and persists tools", async () => {
+    const service = new ManifestService();
+
+    await service.createService(
+      "svc-create",
+      JSON.stringify({
+        metadata: {
+          serverUrl: "http://127.0.0.1:9001",
+        },
+        tools: [
+          {
+            name: "echo",
+            metadata: {
+              route: "invoke/echo",
+            },
+            inputSchema: {
+              type: "object",
+              properties: {
+                input: { type: "string" },
+              },
+            },
+            outputSchema: {
+              type: "string",
+            },
+          },
+        ],
+      }),
+    );
+
+    await expect(service.getService("svc-create")).resolves.toEqual({
+      name: "svc-create",
+      metadata: {
+        serverUrl: "http://127.0.0.1:9001",
+      },
+      tools: [
+        {
+          name: "echo",
+          metadata: {
+            route: "invoke/echo",
+          },
+          inputSchema: {
+            type: "object",
+            properties: {
+              input: { type: "string" },
+            },
+          },
+          outputSchema: {
+            type: "string",
+          },
+        },
+      ],
+    });
+  });
+
+  it("updates a service by fully replacing tools", async () => {
+    const service = new ManifestService();
+    await db.insert(manifests).values({
+      id: "svc-update",
+      metadata: {
+        serverUrl: "http://127.0.0.1:9000",
+      },
+    });
+    await db.insert(tools).values([
+      {
+        serviceId: "svc-update",
+        name: "old-tool",
+        metadata: {},
+        inputSchema: { type: "object" },
+        outputSchema: { type: "null" },
+      },
+    ]);
+
+    await service.updateService(
+      "svc-update",
+      JSON.stringify({
+        metadata: {
+          serverUrl: "http://127.0.0.1:9002",
+        },
+        tools: [
+          {
+            name: "new-tool",
+            metadata: {
+              route: "invoke/new-tool",
+            },
+            inputSchema: {
+              type: "object",
+              properties: {
+                count: { type: "number" },
+              },
+            },
+            outputSchema: {
+              type: "number",
+            },
+          },
+        ],
+      }),
+    );
+
+    await expect(service.getService("svc-update")).resolves.toEqual({
+      name: "svc-update",
+      metadata: {
+        serverUrl: "http://127.0.0.1:9002",
+      },
+      tools: [
+        {
+          name: "new-tool",
+          metadata: {
+            route: "invoke/new-tool",
+          },
+          inputSchema: {
+            type: "object",
+            properties: {
+              count: { type: "number" },
+            },
+          },
+          outputSchema: {
+            type: "number",
+          },
+        },
+      ],
     });
   });
 });

@@ -7,19 +7,22 @@ import type {
   ManifestMetadata,
   ManifestTool,
   PublicToolDefinition,
+  ServiceManifest,
   ToolDefinition,
 } from "@/models/manifest.model";
+import { parseServiceManifest } from "@/modules/adapter.module";
 
-type ServiceMetadataLoader = (
-  serviceId: string,
-) => Promise<ManifestMetadata | null>;
-type ToolLoader = (
-  serviceId: string,
-  toolId: string,
-) => Promise<ToolDefinition | null>;
+type ServiceMetadataLoader = (serviceId: string) => Promise<ManifestMetadata | null>;
+type ToolLoader = (serviceId: string, toolId: string) => Promise<ToolDefinition | null>;
 
 export interface ServiceManifestSummary {
   name: string;
+}
+
+export interface ServiceManifestDetails {
+  name: string;
+  metadata: ManifestMetadata;
+  tools: ToolDefinition[];
 }
 
 export class ManifestService {
@@ -70,10 +73,7 @@ export class ManifestService {
         .where(eq(tools.name, normalizedToolName))
         .orderBy(asc(tools.serviceId));
     } catch {
-      throw new HttpError(
-        500,
-        `Failed to list tools named '${normalizedToolName}'.`,
-      );
+      throw new HttpError(500, `Failed to list tools named '${normalizedToolName}'.`);
     }
   }
 
@@ -89,13 +89,13 @@ export class ManifestService {
     return rows.map((row) => ({ name: row.id }));
   }
 
-  async getService(serviceId: string): Promise<ServiceManifestSummary> {
+  async getService(serviceId: string): Promise<ServiceManifestDetails> {
     const normalizedServiceId = normalizeServiceId(serviceId);
 
-    let rows: Array<{ id: string }>;
+    let rows: Array<{ id: string; metadata: ManifestMetadata }>;
     try {
       rows = await db
-        .select({ id: manifests.id })
+        .select({ id: manifests.id, metadata: manifests.metadata })
         .from(manifests)
         .where(eq(manifests.id, normalizedServiceId))
         .limit(1);
@@ -113,7 +113,134 @@ export class ManifestService {
       );
     }
 
-    return { name: rows[0].id };
+    const metadata = rows[0].metadata;
+    if (!isRecord(metadata)) {
+      throw new HttpError(
+        500,
+        `Stored manifest for service '${normalizedServiceId}' has invalid metadata.`,
+      );
+    }
+
+    let toolRows: unknown[];
+    try {
+      toolRows = await db
+        .select({
+          name: tools.name,
+          inputSchema: tools.inputSchema,
+          outputSchema: tools.outputSchema,
+          metadata: tools.metadata,
+        })
+        .from(tools)
+        .where(eq(tools.serviceId, normalizedServiceId))
+        .orderBy(asc(tools.name));
+    } catch {
+      throw new HttpError(
+        500,
+        `Failed to load tools for service '${normalizedServiceId}'.`,
+      );
+    }
+
+    for (const tool of toolRows) {
+      if (!isToolDefinition(tool)) {
+        const invalidToolName =
+          isRecord(tool) && typeof tool.name === "string" ? tool.name : "unknown";
+        throw new HttpError(
+          500,
+          `Stored tool '${invalidToolName}' for service '${normalizedServiceId}' is invalid.`,
+        );
+      }
+    }
+
+    const validatedTools = toolRows as ToolDefinition[];
+
+    return {
+      name: rows[0].id,
+      metadata,
+      tools: validatedTools,
+    };
+  }
+
+  async createService(serviceId: string, manifestSource: string): Promise<void> {
+    const normalizedServiceId = normalizeServiceId(serviceId);
+    const parsedManifest = parseManifestSource(manifestSource);
+
+    try {
+      await db.transaction(async (tx) => {
+        await tx.insert(manifests).values({
+          id: normalizedServiceId,
+          metadata: parsedManifest.metadata,
+        });
+
+        if (parsedManifest.tools.length > 0) {
+          await tx.insert(tools).values(
+            parsedManifest.tools.map((tool) => ({
+              serviceId: normalizedServiceId,
+              name: tool.name,
+              metadata: tool.metadata,
+              inputSchema: tool.inputSchema,
+              outputSchema: tool.outputSchema,
+            })),
+          );
+        }
+      });
+    } catch (error) {
+      if (isUniqueConstraintViolation(error)) {
+        throw new HttpError(
+          409,
+          `Manifest already exists for service '${normalizedServiceId}'.`,
+        );
+      }
+
+      throw new HttpError(
+        500,
+        `Failed to create manifest for service '${normalizedServiceId}'.`,
+      );
+    }
+  }
+
+  async updateService(serviceId: string, manifestSource: string): Promise<void> {
+    const normalizedServiceId = normalizeServiceId(serviceId);
+    const parsedManifest = parseManifestSource(manifestSource);
+
+    try {
+      await db.transaction(async (tx) => {
+        const updatedRows = await tx
+          .update(manifests)
+          .set({ metadata: parsedManifest.metadata })
+          .where(eq(manifests.id, normalizedServiceId))
+          .returning({ id: manifests.id });
+
+        if (updatedRows.length === 0) {
+          throw new HttpError(
+            404,
+            `Manifest not found for service '${normalizedServiceId}'.`,
+          );
+        }
+
+        await tx.delete(tools).where(eq(tools.serviceId, normalizedServiceId));
+
+        if (parsedManifest.tools.length > 0) {
+          await tx.insert(tools).values(
+            parsedManifest.tools.map((tool) => ({
+              serviceId: normalizedServiceId,
+              name: tool.name,
+              metadata: tool.metadata,
+              inputSchema: tool.inputSchema,
+              outputSchema: tool.outputSchema,
+            })),
+          );
+        }
+      });
+    } catch (error) {
+      if (error instanceof HttpError) {
+        throw error;
+      }
+
+      throw new HttpError(
+        500,
+        `Failed to update manifest for service '${normalizedServiceId}'.`,
+      );
+    }
   }
 
   async getTool(serviceId: string, toolId: string): Promise<ManifestTool> {
@@ -183,6 +310,29 @@ export class ManifestService {
       );
     }
   }
+}
+
+function parseManifestSource(manifestSource: string): ServiceManifest {
+  if (typeof manifestSource !== "string") {
+    throw new HttpError(400, "Field 'manifest' must be a JSON string.");
+  }
+
+  try {
+    return parseServiceManifest(manifestSource);
+  } catch (error) {
+    throw new HttpError(
+      400,
+      error instanceof Error ? error.message : "Invalid manifest JSON.",
+    );
+  }
+}
+
+function isUniqueConstraintViolation(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  return /unique|constraint/i.test(error.message);
 }
 
 function normalizeServiceId(serviceId: string): string {
