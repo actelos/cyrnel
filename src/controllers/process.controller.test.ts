@@ -93,7 +93,7 @@ describe("process.controller", () => {
 
     createProcess(req, res as unknown as Response);
 
-    expect(processService.create).toHaveBeenCalledWith("code", "ref");
+    expect(processService.create).toHaveBeenCalledWith("code", "ref", undefined);
     expect(res.status).toHaveBeenCalledWith(201);
     expect(res.json).toHaveBeenCalledWith({ pid: 42 });
   });
@@ -105,9 +105,59 @@ describe("process.controller", () => {
 
     createProcess(req, res as unknown as Response);
 
-    expect(processService.create).toHaveBeenCalledWith("code", undefined);
+    expect(processService.create).toHaveBeenCalledWith(
+      "code",
+      undefined,
+      undefined,
+    );
     expect(res.status).toHaveBeenCalledWith(201);
     expect(res.json).toHaveBeenCalledWith({ pid: 7 });
+  });
+
+  it("creates process with numeric timeout", () => {
+    const res = makeRes();
+    const req = makeReq({ body: { code: "code", timeout: 5000 } });
+    processService.create.mockReturnValue(8);
+
+    createProcess(req, res as unknown as Response);
+
+    expect(processService.create).toHaveBeenCalledWith(
+      "code",
+      undefined,
+      5000,
+    );
+    expect(res.status).toHaveBeenCalledWith(201);
+    expect(res.json).toHaveBeenCalledWith({ pid: 8 });
+  });
+
+  it("creates process with null timeout", () => {
+    const res = makeRes();
+    const req = makeReq({ body: { code: "code", timeout: null } });
+    processService.create.mockReturnValue(9);
+
+    createProcess(req, res as unknown as Response);
+
+    expect(processService.create).toHaveBeenCalledWith("code", undefined, null);
+    expect(res.status).toHaveBeenCalledWith(201);
+    expect(res.json).toHaveBeenCalledWith({ pid: 9 });
+  });
+
+  it("rejects invalid timeout values", () => {
+    const res = makeRes();
+
+    expect(() =>
+      createProcess(
+        makeReq({ body: { code: "code", timeout: 0 } }),
+        res as unknown as Response,
+      ),
+    ).toThrow(HttpError);
+
+    expect(() =>
+      createProcess(
+        makeReq({ body: { code: "code", timeout: "1000" } }),
+        res as unknown as Response,
+      ),
+    ).toThrow(HttpError);
   });
 
   it("gets a process and validates pid", () => {

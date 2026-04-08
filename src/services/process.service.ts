@@ -16,8 +16,6 @@ import type {
 } from "@/modules/environment.module";
 import type { EnvironmentPoolService } from "@/services/pool.service";
 
-const DEFAULT_EXECUTION_TIMEOUT_MS = 30_000;
-
 class ProcessExecutionTimeoutError extends Error {
   constructor(message: string) {
     super(message);
@@ -62,7 +60,7 @@ export class ProcessService {
     });
   }
 
-  create(code: string, ref?: string): number {
+  create(code: string, ref?: string, timeoutMs?: number | null): number {
     if (this.isShuttingDown) {
       throw new HttpError(503, "Service is shutting down.");
     }
@@ -77,6 +75,7 @@ export class ProcessService {
         ...(ref !== undefined ? { ref } : {}),
       },
       code,
+      timeoutMs,
       output: {},
       stdoutChunks: [],
       stderrChunks: [],
@@ -377,13 +376,15 @@ export class ProcessService {
       environmentModule.on("stderr", onStderr);
       environmentModule.on("output", onOutput);
 
+      const defaultTimeoutMs = this.options.executeTimeoutMs ?? 30_000;
       const timeoutMs =
-        this.options.executeTimeoutMs ?? DEFAULT_EXECUTION_TIMEOUT_MS;
+        stored.timeoutMs === undefined ? defaultTimeoutMs : stored.timeoutMs;
 
-      const status = await this.executeWithTimeout(
-        environmentModule.execute(stored.code, { timeoutMs }),
-        timeoutMs,
-      );
+      const execution = environmentModule.execute(stored.code, { timeoutMs });
+      const status =
+        timeoutMs === null
+          ? await execution
+          : await this.executeWithTimeout(execution, timeoutMs);
 
       const current = this.processes.get(pid);
       if (current) {

@@ -197,6 +197,14 @@ describe("EnvironmentModule", () => {
       const status = await mod.execute(`return "recovered";`);
       expect(status).toBe("success");
     });
+
+    it("does not treat null timeout as immediate timeout", async () => {
+      const status = await mod.execute(
+        `await new Promise(r => setTimeout(r, 10)); return "ok";`,
+        { timeoutMs: null },
+      );
+      expect(status).toBe("success");
+    });
   });
 
   describe("kill()", () => {

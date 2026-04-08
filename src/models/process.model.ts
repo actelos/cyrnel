@@ -31,6 +31,7 @@ export interface ProcessList {
 export interface CreateProcessRequest {
   code: string;
   ref?: string;
+  timeout?: number | null;
 }
 
 export interface ProcessCreatedResponse {
@@ -54,6 +55,7 @@ export interface ProcessQueryFilters {
 export interface StoredProcess {
   process: Process;
   code: string;
+  timeoutMs?: number | null;
   output: ProcessOutput;
   stdoutChunks: string[];
   stderrChunks: string[];

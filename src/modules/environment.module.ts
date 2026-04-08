@@ -32,7 +32,6 @@ type WorkerMessage =
   | WorkerResultMessage
   | WorkerFailureMessage;
 
-const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_OUTPUT_BYTES = 5 * 1024 * 1024;
 
 export class EnvironmentModule extends EventEmitter {
@@ -42,7 +41,7 @@ export class EnvironmentModule extends EventEmitter {
 
   async execute(
     code: string,
-    { timeoutMs = DEFAULT_TIMEOUT_MS }: { timeoutMs?: number } = {},
+    { timeoutMs }: { timeoutMs?: number | null } = {},
   ): Promise<ExecutionStatus> {
     if (this.worker) {
       throw new Error("Execution already in progress");
@@ -54,6 +53,9 @@ export class EnvironmentModule extends EventEmitter {
     const worker = this.createWorker(transpiled);
 
     this.worker = worker;
+
+    const effectiveTimeoutMs =
+      timeoutMs === undefined || timeoutMs === null ? 2_147_483_647 : timeoutMs;
 
     return new Promise<ExecutionStatus>((resolve, reject) => {
       let settled = false;
@@ -102,11 +104,11 @@ export class EnvironmentModule extends EventEmitter {
 
         this.emit(
           "stderr",
-          Buffer.from(`Execution timed out after ${timeoutMs}ms`),
+          Buffer.from(`Execution timed out after ${effectiveTimeoutMs}ms`),
         );
 
         settleResolved("failed");
-      }, timeoutMs);
+      }, effectiveTimeoutMs);
 
       worker.on("message", (message: WorkerMessage) => {
         if (message.type === "output") {

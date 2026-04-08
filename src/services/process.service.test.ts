@@ -50,7 +50,7 @@ class TestEnvironmentModule extends EventEmitter {
   constructor(
     private readonly executeImpl: (
       code: string,
-      options?: { timeoutMs?: number },
+      options?: { timeoutMs?: number | null },
     ) => Promise<ExecutionStatus>,
     private readonly killImpl: () => Promise<void> = async () => {},
   ) {
@@ -59,7 +59,7 @@ class TestEnvironmentModule extends EventEmitter {
 
   async execute(
     code: string,
-    options?: { timeoutMs?: number },
+    options?: { timeoutMs?: number | null },
   ): Promise<ExecutionStatus> {
     return this.executeImpl(code, options);
   }
@@ -266,6 +266,69 @@ describe("ProcessService", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("forwards default timeout when create timeout is undefined", async () => {
+    const execute = vi.fn(
+      async (
+        _code: string,
+        _options?: { timeoutMs?: number | null },
+      ): Promise<ExecutionStatus> => "success",
+    );
+    const module = new TestEnvironmentModule(async (code, options) =>
+      execute(code, options),
+    );
+    const pool = new TestEnvironmentPoolService(
+      () => module as unknown as EnvironmentModule,
+    );
+    const service = new ProcessService(pool, { executeTimeoutMs: 1234 });
+
+    const pid = service.create("code");
+    await waitForState(service, pid, "idle");
+
+    expect(execute).toHaveBeenCalledWith("code", { timeoutMs: 1234 });
+  });
+
+  it("forwards explicit timeout when provided in create", async () => {
+    const execute = vi.fn(
+      async (
+        _code: string,
+        _options?: { timeoutMs?: number | null },
+      ): Promise<ExecutionStatus> => "success",
+    );
+    const module = new TestEnvironmentModule(async (code, options) =>
+      execute(code, options),
+    );
+    const pool = new TestEnvironmentPoolService(
+      () => module as unknown as EnvironmentModule,
+    );
+    const service = new ProcessService(pool, { executeTimeoutMs: 1234 });
+
+    const pid = service.create("code", undefined, 2000);
+    await waitForState(service, pid, "idle");
+
+    expect(execute).toHaveBeenCalledWith("code", { timeoutMs: 2000 });
+  });
+
+  it("forwards null timeout when provided in create", async () => {
+    const execute = vi.fn(
+      async (
+        _code: string,
+        _options?: { timeoutMs?: number | null },
+      ): Promise<ExecutionStatus> => "success",
+    );
+    const module = new TestEnvironmentModule(async (code, options) =>
+      execute(code, options),
+    );
+    const pool = new TestEnvironmentPoolService(
+      () => module as unknown as EnvironmentModule,
+    );
+    const service = new ProcessService(pool, { executeTimeoutMs: 1234 });
+
+    const pid = service.create("code", undefined, null);
+    await waitForState(service, pid, "idle");
+
+    expect(execute).toHaveBeenCalledWith("code", { timeoutMs: null });
   });
 
   it("marks timeout during termination as canceled", async () => {

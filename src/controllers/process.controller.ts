@@ -44,7 +44,8 @@ export function createProcess(req: Request, res: Response): void {
   }
 
   const ref = parseRef((req.body as { ref?: unknown }).ref, "body");
-  const pid = processService.create(code, ref);
+  const timeout = parseTimeout((req.body as { timeout?: unknown }).timeout);
+  const pid = processService.create(code, ref, timeout);
   res.status(201).json({ pid });
 }
 
@@ -192,6 +193,25 @@ function parseRef(raw: unknown, source: "body" | "query"): string | undefined {
   }
 
   return normalized;
+}
+
+function parseTimeout(raw: unknown): number | null | undefined {
+  if (raw === undefined) {
+    return undefined;
+  }
+
+  if (raw === null) {
+    return null;
+  }
+
+  if (!Number.isInteger(raw) || (raw as number) <= 0) {
+    throw new HttpError(
+      400,
+      "Field 'timeout' must be a positive integer or null.",
+    );
+  }
+
+  return raw as number;
 }
 
 function parsePid(raw: unknown): number {
