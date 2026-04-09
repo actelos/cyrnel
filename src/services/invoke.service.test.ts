@@ -2,8 +2,10 @@ import { EventEmitter } from "node:events";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { InvokeMessageResponse } from "@/models/invoke.model";
-import type { ManifestTool } from "@/models/manifest.model";
+import type {
+  InvokeMessageResponse,
+  ResolvedToolInvocation,
+} from "@/models/invoke.model";
 import { AdapterModule } from "@/modules/adapter.module";
 import {
   createProcessMessageSystem,
@@ -20,20 +22,23 @@ class TestProcessChannel extends EventEmitter implements ProcessMessageChannel {
 }
 
 class TestManifestService {
-  constructor(private readonly tools: ManifestTool[]) {}
+  constructor(private readonly tools: ResolvedToolInvocation[]) {}
 
-  async getTool(_serviceId: string, toolId: string): Promise<ManifestTool> {
-    const found = this.tools.find((tool) => tool.tool.name === toolId);
+  async getTool(
+    _serviceName: string,
+    toolName: string,
+  ): Promise<ResolvedToolInvocation> {
+    const found = this.tools.find((tool) => tool.tool.name === toolName);
 
     if (!found) {
-      throw new Error(`Tool '${toolId}' not found`);
+      throw new Error(`Tool '${toolName}' not found`);
     }
 
     return found;
   }
 }
 
-const permissiveTool: ManifestTool = {
+const permissiveTool: ResolvedToolInvocation = {
   tool: {
     name: "tool-1",
     inputSchema: {
@@ -61,7 +66,7 @@ describe("invoke.service", () => {
     vi.clearAllMocks();
   });
 
-  it("handles process.invoke and sends process.response", async () => {
+  it("handles tool.invoke and sends tool.response", async () => {
     const adapter = new AdapterModule({
       baseUrl: "http://127.0.0.1:9999",
       fetchImpl: vi.fn<typeof fetch>(),
@@ -74,10 +79,10 @@ describe("invoke.service", () => {
     createProcessMessageSystem(adapter, channel, { manifestService });
 
     channel.emit("message", {
-      type: "process.invoke",
+      type: "tool.invoke",
       requestId: "req-1",
-      serviceId: "service-1",
-      toolId: "tool-1",
+      serviceName: "service-1",
+      toolName: "tool-1",
       parameters: { key: "value" },
     });
 
@@ -93,7 +98,7 @@ describe("invoke.service", () => {
     );
     expect(channel.sent).toEqual([
       {
-        type: "process.response",
+        type: "tool.response",
         requestId: "req-1",
         output: "hello world",
       },
@@ -114,10 +119,10 @@ describe("invoke.service", () => {
     channel.emit("message", { type: "unknown" });
     channel.emit("message", null);
     channel.emit("message", {
-      type: "process.invoke",
+      type: "tool.invoke",
       requestId: "",
-      serviceId: "service-1",
-      toolId: "tool-1",
+      serviceName: "service-1",
+      toolName: "tool-1",
       parameters: {},
     });
 
@@ -127,7 +132,7 @@ describe("invoke.service", () => {
     expect(channel.sent).toEqual([]);
   });
 
-  it("sends process.error when invoke throws", async () => {
+  it("sends tool.error when invoke throws", async () => {
     const adapter = new AdapterModule({
       baseUrl: "http://127.0.0.1:9999",
       fetchImpl: vi.fn<typeof fetch>(),
@@ -140,10 +145,10 @@ describe("invoke.service", () => {
     createProcessMessageSystem(adapter, channel, { manifestService });
 
     channel.emit("message", {
-      type: "process.invoke",
+      type: "tool.invoke",
       requestId: "req-2",
-      serviceId: "service-1",
-      toolId: "tool-1",
+      serviceName: "service-1",
+      toolName: "tool-1",
       parameters: {},
     });
 
@@ -151,7 +156,7 @@ describe("invoke.service", () => {
 
     expect(channel.sent).toEqual([
       {
-        type: "process.error",
+        type: "tool.error",
         requestId: "req-2",
         error: {
           message: "boom",
@@ -160,7 +165,7 @@ describe("invoke.service", () => {
     ]);
   });
 
-  it("sends process.error when input parameters do not match schema", async () => {
+  it("sends tool.error when input parameters do not match schema", async () => {
     const adapter = new AdapterModule({
       baseUrl: "http://127.0.0.1:9999",
       fetchImpl: vi.fn<typeof fetch>(),
@@ -194,10 +199,10 @@ describe("invoke.service", () => {
     createProcessMessageSystem(adapter, channel, { manifestService });
 
     channel.emit("message", {
-      type: "process.invoke",
+      type: "tool.invoke",
       requestId: "req-3",
-      serviceId: "service-1",
-      toolId: "tool-1",
+      serviceName: "service-1",
+      toolName: "tool-1",
       parameters: { count: "wrong" },
     });
 
@@ -206,12 +211,12 @@ describe("invoke.service", () => {
     expect(invokeSpy).not.toHaveBeenCalled();
     expect(channel.sent).toHaveLength(1);
     expect(channel.sent[0]).toMatchObject({
-      type: "process.error",
+      type: "tool.error",
       requestId: "req-3",
     });
   });
 
-  it("sends process.error when adapter output does not match schema", async () => {
+  it("sends tool.error when adapter output does not match schema", async () => {
     const adapter = new AdapterModule({
       baseUrl: "http://127.0.0.1:9999",
       fetchImpl: vi.fn<typeof fetch>(),
@@ -241,10 +246,10 @@ describe("invoke.service", () => {
     createProcessMessageSystem(adapter, channel, { manifestService });
 
     channel.emit("message", {
-      type: "process.invoke",
+      type: "tool.invoke",
       requestId: "req-4",
-      serviceId: "service-1",
-      toolId: "tool-1",
+      serviceName: "service-1",
+      toolName: "tool-1",
       parameters: {},
     });
 
@@ -252,7 +257,7 @@ describe("invoke.service", () => {
 
     expect(channel.sent).toHaveLength(1);
     expect(channel.sent[0]).toMatchObject({
-      type: "process.error",
+      type: "tool.error",
       requestId: "req-4",
     });
   });

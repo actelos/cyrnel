@@ -1,9 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  AdapterModule,
-  parseServiceManifest,
-} from "@/modules/adapter.module";
+import { AdapterModule, parseServiceManifest } from "@/modules/adapter.module";
 
 describe("AdapterModule", () => {
   beforeEach(() => {
@@ -158,6 +155,7 @@ describe("parseServiceManifest", () => {
   it("parses a JSON manifest string", () => {
     const parsed = parseServiceManifest(`
       {
+        "name": "svc-echo",
         "metadata": {
           "serverUrl": "http://127.0.0.1:8787"
         },
@@ -182,6 +180,7 @@ describe("parseServiceManifest", () => {
     `);
 
     expect(parsed).toEqual({
+      name: "svc-echo",
       metadata: {
         serverUrl: "http://127.0.0.1:8787",
       },
@@ -215,6 +214,7 @@ describe("parseServiceManifest", () => {
     expect(() =>
       parseServiceManifest(
         JSON.stringify({
+          name: "svc-echo",
           metadata: {},
           tools: [
             {

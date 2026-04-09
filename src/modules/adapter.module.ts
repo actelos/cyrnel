@@ -1,23 +1,17 @@
+import type {
+  ManifestMetadata,
+  ServiceManifest,
+  ToolDefinition,
+} from "@/models/manifest.model";
+
 interface AdapterModuleOptions {
   baseUrl?: string;
   fetchImpl?: typeof fetch;
 }
 
-interface ParsedServiceManifest {
-  metadata: Record<string, unknown>;
-  tools: ParsedManifestTool[];
-}
-
-interface ParsedManifestTool {
-  name: string;
-  inputSchema: Record<string, unknown>;
-  outputSchema: Record<string, unknown>;
-  metadata: Record<string, unknown>;
-}
-
 interface AdapterInvokeMetadata {
-  serviceMetadata: Record<string, unknown>;
-  toolMetadata: Record<string, unknown>;
+  serviceMetadata: ManifestMetadata;
+  toolMetadata: ManifestMetadata;
 }
 
 interface AdapterErrorPayload {
@@ -86,7 +80,7 @@ export class AdapterModule {
   }
 }
 
-export function parseServiceManifest(manifestSource: string): ParsedServiceManifest {
+export function parseServiceManifest(manifestSource: string): ServiceManifest {
   const normalized = manifestSource.trim();
 
   if (!normalized) {
@@ -108,7 +102,7 @@ export function parseServiceManifest(manifestSource: string): ParsedServiceManif
 }
 
 function resolveInvocationBaseUrl(
-  serviceMetadata: Record<string, unknown> | undefined,
+  serviceMetadata: ManifestMetadata | undefined,
 ): string {
   if (!serviceMetadata) {
     throw new Error(
@@ -134,7 +128,7 @@ function resolveInvocationBaseUrl(
 
 function resolveToolRouteName(
   fallbackToolName: string,
-  toolMetadata: Record<string, unknown> | undefined,
+  toolMetadata: ManifestMetadata | undefined,
 ): string {
   if (!toolMetadata) {
     return fallbackToolName;
@@ -152,7 +146,7 @@ function resolveToolRouteName(
 }
 
 function resolveToolRequestKind(
-  toolMetadata: Record<string, unknown> | undefined,
+  toolMetadata: ManifestMetadata | undefined,
 ): string | undefined {
   if (!toolMetadata) {
     return undefined;
@@ -166,7 +160,7 @@ function resolveToolRequestKind(
 }
 
 function extractStringValue(
-  source: Record<string, unknown>,
+  source: ManifestMetadata,
   keys: string[],
 ): string | undefined {
   for (const key of keys) {
@@ -257,7 +251,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-function isManifestTool(value: unknown): value is ParsedManifestTool {
+function isManifestTool(value: unknown): value is ToolDefinition {
   if (!isRecord(value)) {
     return false;
   }
@@ -271,8 +265,12 @@ function isManifestTool(value: unknown): value is ParsedManifestTool {
   );
 }
 
-function isServiceManifest(value: unknown): value is ParsedServiceManifest {
+function isServiceManifest(value: unknown): value is ServiceManifest {
   if (!isRecord(value)) {
+    return false;
+  }
+
+  if (typeof value.name !== "string" || value.name.trim().length === 0) {
     return false;
   }
 

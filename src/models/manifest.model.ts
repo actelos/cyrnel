@@ -9,18 +9,24 @@ export interface ToolDefinition {
 }
 
 export interface ServiceManifest {
+  name: string;
   metadata: ManifestMetadata;
   tools: ToolDefinition[];
 }
 
-export interface ManifestTool {
-  tool: ToolDefinition;
-  serviceMetadata: ManifestMetadata;
-}
-
 export interface PublicToolDefinition {
-  serviceId: string;
   name: string;
   inputSchema: JSONSchema;
   outputSchema: JSONSchema;
 }
+
+export interface ToolDefinitionResponse extends PublicToolDefinition {
+  serviceName: string;
+}
+
+export interface ServiceManifestResponse {
+  name: string;
+  tools: PublicToolDefinition[];
+}
+
+export type ServiceManifestDetails = ServiceManifest;

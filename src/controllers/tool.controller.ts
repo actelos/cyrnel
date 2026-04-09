@@ -5,15 +5,19 @@ import type { ManifestService } from "@/services/manifest.service";
 
 export async function listTools(req: Request, res: Response): Promise<void> {
   const manifestService = getManifestService(req);
-  const toolName = parseToolName(req.params.toolName);
-  const tools = await manifestService.listToolsByName(toolName);
+  const toolName = parseToolNameFilter(req.query.name);
+  const tools = await manifestService.listTools(toolName);
 
   res.status(200).json({ tools });
 }
 
-function parseToolName(raw: unknown): string {
+function parseToolNameFilter(raw: unknown): string | undefined {
+  if (typeof raw === "undefined") {
+    return undefined;
+  }
+
   if (typeof raw !== "string") {
-    throw new HttpError(400, "Field 'toolName' must be a string.");
+    throw new HttpError(400, "Query param 'name' must be a string.");
   }
 
   return raw;

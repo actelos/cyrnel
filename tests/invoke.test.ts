@@ -187,7 +187,7 @@ describe("invoke echo integration", () => {
 
     await db.insert(tools).values([
       {
-        serviceId: "test-service",
+        serviceName: "test-service",
         name: "echo",
         metadata: {},
         inputSchema: {
@@ -205,7 +205,7 @@ describe("invoke echo integration", () => {
         },
       },
       {
-        serviceId: "test-service",
+        serviceName: "test-service",
         name: "broken-output",
         metadata: {},
         inputSchema: {
@@ -234,8 +234,8 @@ describe("invoke echo integration", () => {
     channel.emit("message", {
       type: "process.invoke",
       requestId: "req-echo",
-      serviceId: "test-service",
-      toolId: "echo",
+      serviceName: "test-service",
+      toolName: "echo",
       parameters: {
         input: "hello echo",
       },
@@ -271,8 +271,8 @@ describe("invoke echo integration", () => {
     channel.emit("message", {
       type: "process.invoke",
       requestId: "req-missing-tool",
-      serviceId: "test-service",
-      toolId: "does-not-exist",
+      serviceName: "test-service",
+      toolName: "does-not-exist",
       parameters: {
         input: "hello",
       },
@@ -304,8 +304,8 @@ describe("invoke echo integration", () => {
     channel.emit("message", {
       type: "process.invoke",
       requestId: "req-invalid-input",
-      serviceId: "test-service",
-      toolId: "echo",
+      serviceName: "test-service",
+      toolName: "echo",
       parameters: {
         input: 123,
       },
@@ -331,8 +331,8 @@ describe("invoke echo integration", () => {
     channel.emit("message", {
       type: "process.invoke",
       requestId: "req-broken-output",
-      serviceId: "test-service",
-      toolId: "broken-output",
+      serviceName: "test-service",
+      toolName: "broken-output",
       parameters: {},
     });
 

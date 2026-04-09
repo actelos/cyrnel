@@ -93,7 +93,11 @@ describe("process.controller", () => {
 
     createProcess(req, res as unknown as Response);
 
-    expect(processService.create).toHaveBeenCalledWith("code", "ref", undefined);
+    expect(processService.create).toHaveBeenCalledWith(
+      "code",
+      "ref",
+      undefined,
+    );
     expect(res.status).toHaveBeenCalledWith(201);
     expect(res.json).toHaveBeenCalledWith({ pid: 42 });
   });
@@ -121,11 +125,7 @@ describe("process.controller", () => {
 
     createProcess(req, res as unknown as Response);
 
-    expect(processService.create).toHaveBeenCalledWith(
-      "code",
-      undefined,
-      5000,
-    );
+    expect(processService.create).toHaveBeenCalledWith("code", undefined, 5000);
     expect(res.status).toHaveBeenCalledWith(201);
     expect(res.json).toHaveBeenCalledWith({ pid: 8 });
   });

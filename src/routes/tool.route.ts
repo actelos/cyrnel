@@ -4,4 +4,4 @@ import { listTools } from "@/controllers/tool.controller";
 
 export const toolRouter = Router();
 
-toolRouter.get("/:toolName", listTools);
+toolRouter.get("/", listTools);

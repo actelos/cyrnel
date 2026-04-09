@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { listTools } from "@/controllers/tool.controller";
 
 const manifestService = {
-  listToolsByName: vi.fn(),
+  listTools: vi.fn(),
 };
 
 type MockResponse = {
@@ -31,18 +31,18 @@ describe("tool.controller", () => {
     vi.clearAllMocks();
   });
 
-  it("gets tools filtered by name", async () => {
+  it("gets tools filtered by name query", async () => {
     const res = makeRes();
-    const req = makeReq({ params: { toolName: "echo" } });
-    manifestService.listToolsByName.mockResolvedValue([
+    const req = makeReq({ query: { name: "echo" } });
+    manifestService.listTools.mockResolvedValue([
       {
-        serviceId: "svc-1",
+        serviceName: "svc-1",
         name: "echo",
         inputSchema: {},
         outputSchema: {},
       },
       {
-        serviceId: "svc-2",
+        serviceName: "svc-2",
         name: "echo",
         inputSchema: {},
         outputSchema: {},
@@ -51,23 +51,35 @@ describe("tool.controller", () => {
 
     await listTools(req, res as unknown as Response);
 
-    expect(manifestService.listToolsByName).toHaveBeenCalledWith("echo");
+    expect(manifestService.listTools).toHaveBeenCalledWith("echo");
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith({
       tools: [
         {
-          serviceId: "svc-1",
+          serviceName: "svc-1",
           name: "echo",
           inputSchema: {},
           outputSchema: {},
         },
         {
-          serviceId: "svc-2",
+          serviceName: "svc-2",
           name: "echo",
           inputSchema: {},
           outputSchema: {},
         },
       ],
     });
+  });
+
+  it("gets all tools when no name filter is provided", async () => {
+    const res = makeRes();
+    const req = makeReq({ query: {} });
+    manifestService.listTools.mockResolvedValue([]);
+
+    await listTools(req, res as unknown as Response);
+
+    expect(manifestService.listTools).toHaveBeenCalledWith(undefined);
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith({ tools: [] });
   });
 });

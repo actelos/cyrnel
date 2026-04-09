@@ -55,17 +55,17 @@ async function handleInvokeMessage(
 
   try {
     const tool = await manifestService.getTool(
-      message.serviceId,
-      message.toolId,
+      message.serviceName,
+      message.toolName,
     );
     validator.validate(
       tool.tool.inputSchema,
       message.parameters,
-      `Invalid invoke parameters for tool '${message.toolId}'.`,
+      `Invalid invoke parameters for tool '${message.toolName}'.`,
     );
 
     const output = await adapterModule.invoke(
-      message.toolId,
+      message.toolName,
       message.parameters,
       {
         serviceMetadata: tool.serviceMetadata,
@@ -76,17 +76,17 @@ async function handleInvokeMessage(
     validator.validate(
       tool.tool.outputSchema,
       output,
-      `Invalid invoke output for tool '${message.toolId}'.`,
+      `Invalid invoke output for tool '${message.toolName}'.`,
     );
 
     channel.send?.({
-      type: "process.response",
+      type: "tool.response",
       requestId: message.requestId,
       output,
     });
   } catch (error) {
     channel.send?.({
-      type: "process.error",
+      type: "tool.error",
       requestId: message.requestId,
       error: {
         message:
@@ -106,13 +106,13 @@ function isProcessInvokeMessage(message: unknown): message is InvokeMessage {
   const candidate = message as Partial<InvokeMessage>;
 
   return (
-    candidate.type === "process.invoke" &&
+    candidate.type === "tool.invoke" &&
     typeof candidate.requestId === "string" &&
     candidate.requestId.length > 0 &&
-    typeof candidate.serviceId === "string" &&
-    candidate.serviceId.length > 0 &&
-    typeof candidate.toolId === "string" &&
-    candidate.toolId.length > 0 &&
+    typeof candidate.serviceName === "string" &&
+    candidate.serviceName.length > 0 &&
+    typeof candidate.toolName === "string" &&
+    candidate.toolName.length > 0 &&
     !!candidate.parameters &&
     typeof candidate.parameters === "object" &&
     !Array.isArray(candidate.parameters)

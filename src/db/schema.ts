@@ -12,7 +12,7 @@ export const manifests = sqliteTable("manifests", {
 export const tools = sqliteTable(
   "tools",
   {
-    serviceId: text("service_id")
+    serviceName: text("service_id")
       .notNull()
       .references(() => manifests.id, {
         onDelete: "cascade",
@@ -29,7 +29,7 @@ export const tools = sqliteTable(
       .notNull(),
   },
   (table) => [
-    primaryKey({ columns: [table.serviceId, table.name] }),
+    primaryKey({ columns: [table.serviceName, table.name] }),
     index("tools_name_idx").on(table.name),
   ],
 );

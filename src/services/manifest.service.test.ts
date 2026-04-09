@@ -57,9 +57,11 @@ describe("manifest.service", () => {
       },
     };
     const service = new ManifestService(
-      async (serviceId) => (serviceId === "svc-1" ? metadata : null),
-      async (serviceId, toolId) =>
-        serviceId === "svc-1" && toolId === "tool-1" ? toolDefinition : null,
+      async (serviceName) => (serviceName === "svc-1" ? metadata : null),
+      async (serviceName, toolName) =>
+        serviceName === "svc-1" && toolName === "tool-1"
+          ? toolDefinition
+          : null,
     );
 
     const tool = await service.getTool("svc-1", "tool-1");
@@ -146,6 +148,7 @@ describe("manifest.service", () => {
     await service.createService(
       "svc-create",
       JSON.stringify({
+        name: "svc-create",
         metadata: {
           serverUrl: "http://127.0.0.1:9001",
         },
@@ -194,72 +197,117 @@ describe("manifest.service", () => {
     });
   });
 
-  it("updates a service by fully replacing tools", async () => {
+  it("lists tools with and without name filter", async () => {
     const service = new ManifestService();
     await db.insert(manifests).values({
-      id: "svc-update",
+      id: "svc-tools",
       metadata: {
         serverUrl: "http://127.0.0.1:9000",
       },
     });
+    await db.insert(manifests).values({
+      id: "svc-tools-2",
+      metadata: {
+        serverUrl: "http://127.0.0.1:9001",
+      },
+    });
     await db.insert(tools).values([
       {
-        serviceId: "svc-update",
-        name: "old-tool",
+        serviceName: "svc-tools",
+        name: "echo",
         metadata: {},
+        inputSchema: { type: "object" },
+        outputSchema: { type: "string" },
+      },
+      {
+        serviceName: "svc-tools-2",
+        name: "echo",
+        metadata: {},
+        inputSchema: { type: "object" },
+        outputSchema: { type: "number" },
+      },
+    ]);
+
+    await expect(service.listTools("echo")).resolves.toEqual([
+      {
+        serviceName: "svc-tools",
+        name: "echo",
+        inputSchema: { type: "object" },
+        outputSchema: { type: "string" },
+      },
+      {
+        serviceName: "svc-tools-2",
+        name: "echo",
+        inputSchema: { type: "object" },
+        outputSchema: { type: "number" },
+      },
+    ]);
+
+    await expect(service.listTools()).resolves.toEqual([
+      {
+        serviceName: "svc-tools",
+        name: "echo",
+        inputSchema: { type: "object" },
+        outputSchema: { type: "string" },
+      },
+      {
+        serviceName: "svc-tools-2",
+        name: "echo",
+        inputSchema: { type: "object" },
+        outputSchema: { type: "number" },
+      },
+    ]);
+  });
+
+  it("lists services with tools and without metadata", async () => {
+    const service = new ManifestService();
+    await db.insert(manifests).values([
+      {
+        id: "svc-1",
+        metadata: { serverUrl: "http://127.0.0.1:8001" },
+      },
+      {
+        id: "svc-2",
+        metadata: { serverUrl: "http://127.0.0.1:8002" },
+      },
+    ]);
+    await db.insert(tools).values([
+      {
+        serviceName: "svc-1",
+        name: "echo",
+        metadata: { route: "invoke/echo" },
+        inputSchema: { type: "object" },
+        outputSchema: { type: "string" },
+      },
+      {
+        serviceName: "svc-1",
+        name: "ping",
+        metadata: { route: "invoke/ping" },
         inputSchema: { type: "object" },
         outputSchema: { type: "null" },
       },
     ]);
 
-    await service.updateService(
-      "svc-update",
-      JSON.stringify({
-        metadata: {
-          serverUrl: "http://127.0.0.1:9002",
-        },
+    await expect(service.listServices()).resolves.toEqual([
+      {
+        name: "svc-1",
         tools: [
           {
-            name: "new-tool",
-            metadata: {
-              route: "invoke/new-tool",
-            },
-            inputSchema: {
-              type: "object",
-              properties: {
-                count: { type: "number" },
-              },
-            },
-            outputSchema: {
-              type: "number",
-            },
+            name: "echo",
+            inputSchema: { type: "object" },
+            outputSchema: { type: "string" },
+          },
+          {
+            name: "ping",
+            inputSchema: { type: "object" },
+            outputSchema: { type: "null" },
           },
         ],
-      }),
-    );
-
-    await expect(service.getService("svc-update")).resolves.toEqual({
-      name: "svc-update",
-      metadata: {
-        serverUrl: "http://127.0.0.1:9002",
       },
-      tools: [
-        {
-          name: "new-tool",
-          metadata: {
-            route: "invoke/new-tool",
-          },
-          inputSchema: {
-            type: "object",
-            properties: {
-              count: { type: "number" },
-            },
-          },
-          outputSchema: {
-            type: "number",
-          },
-        },
-      ],
-    });
+      {
+        name: "svc-2",
+        tools: [],
+      },
+    ]);
   });
 });

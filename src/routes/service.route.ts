@@ -1,17 +1,15 @@
 import { Router } from "express";
 
 import {
-	createService,
-	deleteService,
-	getService,
-	listServices,
-	updateService,
+  createService,
+  deleteService,
+  getService,
+  listServices,
 } from "@/controllers/service.controller";
 
 export const serviceRouter = Router();
 
 serviceRouter.get("/", listServices);
-serviceRouter.get("/:serviceId", getService);
-serviceRouter.post("/:serviceId", createService);
-serviceRouter.put("/:serviceId", updateService);
-serviceRouter.delete("/:serviceId", deleteService);
+serviceRouter.get("/:serviceName", getService);
+serviceRouter.post("/:serviceName", createService);
+serviceRouter.delete("/:serviceName", deleteService);

@@ -70,9 +70,7 @@
       "indexes": {
         "tools_name_idx": {
           "name": "tools_name_idx",
-          "columns": [
-            "name"
-          ],
+          "columns": ["name"],
           "isUnique": false
         }
       },
@@ -81,22 +79,15 @@
           "name": "tools_service_id_manifests_id_fk",
           "tableFrom": "tools",
           "tableTo": "manifests",
-          "columnsFrom": [
-            "service_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["service_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {
         "tools_service_id_name_pk": {
-          "columns": [
-            "service_id",
-            "name"
-          ],
+          "columns": ["service_id", "name"],
           "name": "tools_service_id_name_pk"
         }
       },

@@ -1,21 +1,23 @@
+import type { ManifestMetadata, ToolDefinition } from "@/models/manifest.model";
+
 export interface InvokeRequestMessage {
-  type: "process.invoke";
+  type: "tool.invoke";
   requestId: string;
-  serviceId: string;
-  toolId: string;
+  serviceName: string;
+  toolName: string;
   parameters: Record<string, unknown>;
 }
 
 export type InvokeMessage = InvokeRequestMessage;
 
 export interface InvokeResponseMessage {
-  type: "process.response";
+  type: "tool.response";
   requestId: string;
   output: unknown;
 }
 
 export interface InvokeErrorResponseMessage {
-  type: "process.error";
+  type: "tool.error";
   requestId: string;
   error: {
     message: string;
@@ -25,3 +27,8 @@ export interface InvokeErrorResponseMessage {
 export type InvokeMessageResponse =
   | InvokeResponseMessage
   | InvokeErrorResponseMessage;
+
+export interface ResolvedToolInvocation {
+  tool: ToolDefinition;
+  serviceMetadata: ManifestMetadata;
+}
