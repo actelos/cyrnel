@@ -24,7 +24,9 @@ export interface InvokeErrorResponseMessage {
   };
 }
 
-export type InvokeMessageResponse = InvokeResponseMessage | InvokeErrorResponseMessage;
+export type InvokeMessageResponse =
+  | InvokeResponseMessage
+  | InvokeErrorResponseMessage;
 
 export interface ResolvedToolInvocation {
   tool: ToolDefinition;

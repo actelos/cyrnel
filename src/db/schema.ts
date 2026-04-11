@@ -10,19 +10,22 @@ export const definitions = sqliteTable("definitions", {
   hash: text("hash").notNull(),
 });
 
-export const manifests = sqliteTable("manifests", {
-  id: text("id").primaryKey(),
-  definitionId: text("definition_id")
-    .unique()
-    .references(() => definitions.id, {
-      onDelete: "cascade",
-    }),
-  hash: text("hash").notNull(),
-  metadata: text("metadata", { mode: "json" })
-    .$type<ManifestMetadata>()
-    .notNull(),
-},
-(table) => [index("manifests_definition_id_idx").on(table.definitionId)]);
+export const manifests = sqliteTable(
+  "manifests",
+  {
+    id: text("id").primaryKey(),
+    definitionId: text("definition_id")
+      .unique()
+      .references(() => definitions.id, {
+        onDelete: "cascade",
+      }),
+    hash: text("hash").notNull(),
+    metadata: text("metadata", { mode: "json" })
+      .$type<ManifestMetadata>()
+      .notNull(),
+  },
+  (table) => [index("manifests_definition_id_idx").on(table.definitionId)],
+);
 
 export const tools = sqliteTable(
   "tools",

@@ -77,16 +77,12 @@
       "indexes": {
         "manifests_definition_id_unique": {
           "name": "manifests_definition_id_unique",
-          "columns": [
-            "definition_id"
-          ],
+          "columns": ["definition_id"],
           "isUnique": true
         },
         "manifests_definition_id_idx": {
           "name": "manifests_definition_id_idx",
-          "columns": [
-            "definition_id"
-          ],
+          "columns": ["definition_id"],
           "isUnique": false
         }
       },
@@ -95,12 +91,8 @@
           "name": "manifests_definition_id_definitions_id_fk",
           "tableFrom": "manifests",
           "tableTo": "definitions",
-          "columnsFrom": [
-            "definition_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["definition_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -151,9 +143,7 @@
       "indexes": {
         "tools_name_idx": {
           "name": "tools_name_idx",
-          "columns": [
-            "name"
-          ],
+          "columns": ["name"],
           "isUnique": false
         }
       },
@@ -162,22 +152,15 @@
           "name": "tools_service_id_manifests_id_fk",
           "tableFrom": "tools",
           "tableTo": "manifests",
-          "columnsFrom": [
-            "service_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["service_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {
         "tools_service_id_name_pk": {
-          "columns": [
-            "service_id",
-            "name"
-          ],
+          "columns": ["service_id", "name"],
           "name": "tools_service_id_name_pk"
         }
       },

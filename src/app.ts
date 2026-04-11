@@ -4,9 +4,9 @@ import pinoHttp from "pino-http";
 
 import { logger } from "@/logger";
 import { errorMiddleware } from "@/middleware/error.middleware";
+import { definitionRouter } from "@/routes/definition.route";
 import { healthRouter } from "@/routes/health.routes";
 import { processRouter } from "@/routes/process.route";
-import { definitionRouter } from "@/routes/definition.route";
 import { serviceRouter } from "@/routes/service.route";
 import { toolRouter } from "@/routes/tool.route";
 import { DefinitionService } from "@/services/definition.service";

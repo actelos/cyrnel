@@ -1,14 +1,14 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
-import path from "node:path";
 import { tmpdir } from "node:os";
+import path from "node:path";
 
 import { sql } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { db } from "@/db/client";
 import { definitions } from "@/db/schema";
-import { computeContentHash } from "@/utils/hash.util";
 import { DefinitionService } from "@/services/definition.service";
+import { computeContentHash } from "@/utils/hash.util";
 
 async function resetTables(): Promise<void> {
   await db.run(sql`PRAGMA foreign_keys = OFF`);
@@ -55,6 +55,7 @@ describe("definition.service", () => {
   it("creates definition file and definition record", async () => {
     const service = new DefinitionService();
     const directory = await mkdtemp(path.join(tmpdir(), "mci-def-"));
+    const previousDataDir = process.env.MCI_DATA_DIR;
     process.env.MCI_DATA_DIR = directory;
 
     const content = JSON.stringify({
@@ -108,13 +109,18 @@ describe("definition.service", () => {
       await expect(service.getDefinition(created.id)).resolves.toEqual(created);
     } finally {
       await rm(directory, { recursive: true, force: true });
-      delete process.env.MCI_DATA_DIR;
+      if (previousDataDir === undefined) {
+        delete process.env.MCI_DATA_DIR;
+      } else {
+        process.env.MCI_DATA_DIR = previousDataDir;
+      }
     }
   });
 
   it("deletes definition and its file", async () => {
     const service = new DefinitionService();
     const directory = await mkdtemp(path.join(tmpdir(), "mci-def-"));
+    const previousDataDir = process.env.MCI_DATA_DIR;
     process.env.MCI_DATA_DIR = directory;
 
     const content = JSON.stringify({
@@ -152,7 +158,11 @@ describe("definition.service", () => {
       await expect(readFile(existing[0].path, "utf8")).rejects.toBeTruthy();
     } finally {
       await rm(directory, { recursive: true, force: true });
-      delete process.env.MCI_DATA_DIR;
+      if (previousDataDir === undefined) {
+        delete process.env.MCI_DATA_DIR;
+      } else {
+        process.env.MCI_DATA_DIR = previousDataDir;
+      }
     }
   });
 
@@ -160,14 +170,19 @@ describe("definition.service", () => {
     const service = new DefinitionService();
 
     await expect(
-      service.createDefinition("bar", '{"name":"svc","metadata":{},"tools":[]}'),
+      service.createDefinition(
+        "bar",
+        '{"name":"svc","metadata":{},"tools":[]}',
+      ),
     ).rejects.toMatchObject({ statusCode: 400 });
   });
 
   it("accepts non-JSON definition content", async () => {
     const service = new DefinitionService();
 
-    await expect(service.createDefinition("foo", "not-json")).resolves.toMatchObject({
+    await expect(
+      service.createDefinition("foo", "not-json"),
+    ).resolves.toMatchObject({
       id: expect.any(String),
       type: "foo",
       hash: computeContentHash("not-json"),

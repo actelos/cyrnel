@@ -6,12 +6,12 @@ import { asc, eq } from "drizzle-orm";
 
 import { db } from "@/db/client";
 import { definitions } from "@/db/schema";
-import { HttpError } from "@/models/error.model";
 import {
   DEFINITION_TYPES,
   type DefinitionResponse,
   type DefinitionType,
 } from "@/models/definition.model";
+import { HttpError } from "@/models/error.model";
 import { computeContentHash } from "@/utils/hash.util";
 
 export class DefinitionService {
@@ -52,7 +52,10 @@ export class DefinitionService {
     }
 
     if (rows.length === 0) {
-      throw new HttpError(404, `Definition '${normalizedDefinitionId}' not found.`);
+      throw new HttpError(
+        404,
+        `Definition '${normalizedDefinitionId}' not found.`,
+      );
     }
 
     return rows[0];
@@ -124,7 +127,10 @@ export class DefinitionService {
     }
 
     if (deletedRows.length === 0) {
-      throw new HttpError(404, `Definition '${normalizedDefinitionId}' not found.`);
+      throw new HttpError(
+        404,
+        `Definition '${normalizedDefinitionId}' not found.`,
+      );
     }
 
     await deleteFileIfPresent(deletedRows[0].path);
@@ -197,7 +203,7 @@ function buildDefinitionPath(type: DefinitionType): string {
 async function deleteFileIfPresent(filePath: string): Promise<void> {
   try {
     await unlink(filePath);
-  } catch { }
+  } catch {}
 }
 
 function isUniqueConstraintViolation(error: unknown): boolean {

@@ -13,7 +13,10 @@ export async function listDefinitions(
   res.status(200).json({ definitions });
 }
 
-export async function getDefinition(req: Request, res: Response): Promise<void> {
+export async function getDefinition(
+  req: Request,
+  res: Response,
+): Promise<void> {
   const definitionService = getDefinitionService(req);
   const definitionId = parseDefinitionId(req.params.definitionId);
   const definition = await definitionService.getDefinition(definitionId);

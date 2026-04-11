@@ -1,8 +1,7 @@
-import path from "node:path";
 import { mkdirSync } from "node:fs";
-
-import { drizzle } from "drizzle-orm/libsql";
+import path from "node:path";
 import { createClient } from "@libsql/client";
+import { drizzle } from "drizzle-orm/libsql";
 
 import * as schema from "@/db/schema";
 

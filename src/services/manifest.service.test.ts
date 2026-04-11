@@ -8,8 +8,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { db } from "@/db/client";
 import { definitions, manifests, tools } from "@/db/schema";
 import type { ManifestMetadata, ToolDefinition } from "@/models/manifest.model";
-import { computeContentHash } from "@/utils/hash.util";
 import { ManifestService } from "@/services/manifest.service";
+import { computeContentHash } from "@/utils/hash.util";
 
 async function resetManifestTables(): Promise<void> {
   await db.run(sql`PRAGMA foreign_keys = OFF`);

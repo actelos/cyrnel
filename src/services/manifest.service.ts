@@ -12,8 +12,8 @@ import type {
   ServiceManifest,
   ServiceManifestDetails,
   ServiceManifestResponse,
-  ToolDefinitionResponse,
   ToolDefinition,
+  ToolDefinitionResponse,
 } from "@/models/manifest.model";
 import { AdapterModule } from "@/modules/adapter.module";
 
