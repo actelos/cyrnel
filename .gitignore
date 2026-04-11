@@ -13,8 +13,8 @@ dist
 dist-ssr
 *.local
 
-local.db
-local.db-*
+mci.db
+mci.db-*
 
 .vscode/*
 !.vscode/extensions.json

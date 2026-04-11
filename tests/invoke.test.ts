@@ -150,12 +150,27 @@ async function resetManifestsTable(): Promise<void> {
   await db.run(sql`PRAGMA foreign_keys = OFF`);
   await db.run(sql`DROP TABLE IF EXISTS tools`);
   await db.run(sql`DROP TABLE IF EXISTS manifests`);
+  await db.run(sql`DROP TABLE IF EXISTS definitions`);
+  await db.run(sql`
+    CREATE TABLE definitions (
+      id text PRIMARY KEY NOT NULL,
+      type text NOT NULL,
+      path text NOT NULL,
+      hash text NOT NULL
+    )
+  `);
   await db.run(sql`
     CREATE TABLE manifests (
       id text PRIMARY KEY NOT NULL,
+      definition_id text,
+      hash text NOT NULL,
       metadata text NOT NULL
+      ,FOREIGN KEY (definition_id) REFERENCES definitions(id) ON UPDATE no action ON DELETE cascade
     )
   `);
+  await db.run(
+    sql`CREATE UNIQUE INDEX manifests_definition_id_unique ON manifests (definition_id)`,
+  );
   await db.run(sql`
     CREATE TABLE tools (
       service_id text NOT NULL,
@@ -180,6 +195,7 @@ describe("invoke echo integration", () => {
 
     await db.insert(manifests).values({
       id: "test-service",
+      hash: "test-manifest-hash",
       metadata: {
         serverUrl: server.baseUrl,
       },
@@ -224,7 +240,7 @@ describe("invoke echo integration", () => {
     await server.close();
   });
 
-  it("sends process.invoke to echo tool and receives echoed output", async () => {
+  it("sends tool.invoke to echo tool and receives echoed output", async () => {
     const adapter = new AdapterModule({ baseUrl: server.baseUrl });
     const channel = new TestProcessChannel();
     const manifestService = new ManifestService();
@@ -232,7 +248,7 @@ describe("invoke echo integration", () => {
     createProcessMessageSystem(adapter, channel, { manifestService });
 
     channel.emit("message", {
-      type: "process.invoke",
+      type: "tool.invoke",
       requestId: "req-echo",
       serviceName: "test-service",
       toolName: "echo",
@@ -245,7 +261,7 @@ describe("invoke echo integration", () => {
 
     expect(channel.sent).toEqual([
       {
-        type: "process.response",
+        type: "tool.response",
         requestId: "req-echo",
         output: "hello echo",
       },
@@ -261,7 +277,7 @@ describe("invoke echo integration", () => {
     ]);
   });
 
-  it("returns process.error when the requested tool is not in the manifest", async () => {
+  it("returns tool.error when the requested tool is not in the manifest", async () => {
     const adapter = new AdapterModule({ baseUrl: server.baseUrl });
     const channel = new TestProcessChannel();
     const manifestService = new ManifestService();
@@ -269,7 +285,7 @@ describe("invoke echo integration", () => {
     createProcessMessageSystem(adapter, channel, { manifestService });
 
     channel.emit("message", {
-      type: "process.invoke",
+      type: "tool.invoke",
       requestId: "req-missing-tool",
       serviceName: "test-service",
       toolName: "does-not-exist",
@@ -282,7 +298,7 @@ describe("invoke echo integration", () => {
 
     expect(channel.sent).toEqual([
       {
-        type: "process.error",
+        type: "tool.error",
         requestId: "req-missing-tool",
         error: {
           message:
@@ -294,7 +310,7 @@ describe("invoke echo integration", () => {
     expect(server.calls).toEqual([]);
   });
 
-  it("returns process.error when invoke parameters do not match schema", async () => {
+  it("returns tool.error when invoke parameters do not match schema", async () => {
     const adapter = new AdapterModule({ baseUrl: server.baseUrl });
     const channel = new TestProcessChannel();
     const manifestService = new ManifestService();
@@ -302,7 +318,7 @@ describe("invoke echo integration", () => {
     createProcessMessageSystem(adapter, channel, { manifestService });
 
     channel.emit("message", {
-      type: "process.invoke",
+      type: "tool.invoke",
       requestId: "req-invalid-input",
       serviceName: "test-service",
       toolName: "echo",
@@ -315,13 +331,13 @@ describe("invoke echo integration", () => {
 
     expect(channel.sent).toHaveLength(1);
     expect(channel.sent[0]).toMatchObject({
-      type: "process.error",
+      type: "tool.error",
       requestId: "req-invalid-input",
     });
     expect(server.calls).toEqual([]);
   });
 
-  it("returns process.error when tool output does not match schema", async () => {
+  it("returns tool.error when tool output does not match schema", async () => {
     const adapter = new AdapterModule({ baseUrl: server.baseUrl });
     const channel = new TestProcessChannel();
     const manifestService = new ManifestService();
@@ -329,7 +345,7 @@ describe("invoke echo integration", () => {
     createProcessMessageSystem(adapter, channel, { manifestService });
 
     channel.emit("message", {
-      type: "process.invoke",
+      type: "tool.invoke",
       requestId: "req-broken-output",
       serviceName: "test-service",
       toolName: "broken-output",
@@ -340,7 +356,7 @@ describe("invoke echo integration", () => {
 
     expect(channel.sent).toHaveLength(1);
     expect(channel.sent[0]).toMatchObject({
-      type: "process.error",
+      type: "tool.error",
       requestId: "req-broken-output",
     });
     expect(server.calls).toEqual([

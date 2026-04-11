@@ -1,9 +1,47 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "af5f405e-b4d4-41b2-9e74-f354dfc71974",
+  "id": "3dede415-3e45-4bbd-b5c2-db18858087f9",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
+    "definitions": {
+      "name": "definitions",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "path": {
+          "name": "path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "hash": {
+          "name": "hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "manifests": {
       "name": "manifests",
       "columns": {
@@ -11,6 +49,20 @@
           "name": "id",
           "type": "text",
           "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "definition_id": {
+          "name": "definition_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "hash": {
+          "name": "hash",
+          "type": "text",
+          "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
@@ -22,8 +74,37 @@
           "autoincrement": false
         }
       },
-      "indexes": {},
-      "foreignKeys": {},
+      "indexes": {
+        "manifests_definition_id_unique": {
+          "name": "manifests_definition_id_unique",
+          "columns": [
+            "definition_id"
+          ],
+          "isUnique": true
+        },
+        "manifests_definition_id_idx": {
+          "name": "manifests_definition_id_idx",
+          "columns": [
+            "definition_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "manifests_definition_id_definitions_id_fk": {
+          "name": "manifests_definition_id_definitions_id_fk",
+          "tableFrom": "manifests",
+          "tableTo": "definitions",
+          "columnsFrom": [
+            "definition_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
@@ -70,7 +151,9 @@
       "indexes": {
         "tools_name_idx": {
           "name": "tools_name_idx",
-          "columns": ["name"],
+          "columns": [
+            "name"
+          ],
           "isUnique": false
         }
       },
@@ -79,15 +162,22 @@
           "name": "tools_service_id_manifests_id_fk",
           "tableFrom": "tools",
           "tableTo": "manifests",
-          "columnsFrom": ["service_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "service_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {
         "tools_service_id_name_pk": {
-          "columns": ["service_id", "name"],
+          "columns": [
+            "service_id",
+            "name"
+          ],
           "name": "tools_service_id_name_pk"
         }
       },

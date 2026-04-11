@@ -4,18 +4,34 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { db } from "@/db/client";
 import { manifests, tools } from "@/db/schema";
 import type { ManifestMetadata, ToolDefinition } from "@/models/manifest.model";
+import { computeContentHash } from "@/utils/hash.util";
 import { ManifestService } from "@/services/manifest.service";
 
 async function resetManifestTables(): Promise<void> {
   await db.run(sql`PRAGMA foreign_keys = OFF`);
   await db.run(sql`DROP TABLE IF EXISTS tools`);
   await db.run(sql`DROP TABLE IF EXISTS manifests`);
+  await db.run(sql`DROP TABLE IF EXISTS definitions`);
+  await db.run(sql`
+    CREATE TABLE definitions (
+      id text PRIMARY KEY NOT NULL,
+      type text NOT NULL,
+      path text NOT NULL,
+      hash text NOT NULL
+    )
+  `);
   await db.run(sql`
     CREATE TABLE manifests (
       id text PRIMARY KEY NOT NULL,
+      definition_id text,
+      hash text NOT NULL,
       metadata text NOT NULL
+      ,FOREIGN KEY (definition_id) REFERENCES definitions(id) ON UPDATE no action ON DELETE cascade
     )
   `);
+  await db.run(
+    sql`CREATE UNIQUE INDEX manifests_definition_id_unique ON manifests (definition_id)`,
+  );
   await db.run(sql`
     CREATE TABLE tools (
       service_id text NOT NULL,
@@ -174,6 +190,31 @@ describe("manifest.service", () => {
 
     await expect(service.getService("svc-create")).resolves.toEqual({
       name: "svc-create",
+      hash: computeContentHash(
+        JSON.stringify({
+          name: "svc-create",
+          metadata: {
+            serverUrl: "http://127.0.0.1:9001",
+          },
+          tools: [
+            {
+              name: "echo",
+              metadata: {
+                route: "invoke/echo",
+              },
+              inputSchema: {
+                type: "object",
+                properties: {
+                  input: { type: "string" },
+                },
+              },
+              outputSchema: {
+                type: "string",
+              },
+            },
+          ],
+        }),
+      ),
       metadata: {
         serverUrl: "http://127.0.0.1:9001",
       },
@@ -201,12 +242,14 @@ describe("manifest.service", () => {
     const service = new ManifestService();
     await db.insert(manifests).values({
       id: "svc-tools",
+      hash: "hash-tools-1",
       metadata: {
         serverUrl: "http://127.0.0.1:9000",
       },
     });
     await db.insert(manifests).values({
       id: "svc-tools-2",
+      hash: "hash-tools-2",
       metadata: {
         serverUrl: "http://127.0.0.1:9001",
       },
@@ -264,10 +307,12 @@ describe("manifest.service", () => {
     await db.insert(manifests).values([
       {
         id: "svc-1",
+        hash: "hash-svc-1",
         metadata: { serverUrl: "http://127.0.0.1:8001" },
       },
       {
         id: "svc-2",
+        hash: "hash-svc-2",
         metadata: { serverUrl: "http://127.0.0.1:8002" },
       },
     ]);
@@ -291,6 +336,7 @@ describe("manifest.service", () => {
     await expect(service.listServices()).resolves.toEqual([
       {
         name: "svc-1",
+        hash: "hash-svc-1",
         tools: [
           {
             name: "echo",
@@ -306,6 +352,7 @@ describe("manifest.service", () => {
       },
       {
         name: "svc-2",
+        hash: "hash-svc-2",
         tools: [],
       },
     ]);

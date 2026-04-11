@@ -1,4 +1,5 @@
 import "dotenv/config";
+import path from "node:path";
 
 import { defineConfig } from "drizzle-kit";
 
@@ -7,7 +8,7 @@ export default defineConfig({
   schema: "./src/db/schema.ts",
   dialect: "sqlite",
   dbCredentials: {
-    url: process.env.MCI_DATA_DIR ?? "file:./local.db",
+    url: `file:${path.join(process.env.MCI_DATA_DIR ?? ".", "mci.db")}`,
   },
   strict: true,
   verbose: true,

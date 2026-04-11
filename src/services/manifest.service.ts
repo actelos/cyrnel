@@ -14,6 +14,7 @@ import type {
   ToolDefinition,
 } from "@/models/manifest.model";
 import { parseServiceManifest } from "@/modules/adapter.module";
+import { computeContentHash } from "@/utils/hash.util";
 
 type ServiceMetadataLoader = (
   serviceName: string,
@@ -30,11 +31,13 @@ export class ManifestService {
   ) {}
 
   async listServices(): Promise<ServiceManifestResponse[]> {
-    let serviceRows: Array<{ id: string }>;
+    let serviceRows: Array<{ id: string; hash: string }>;
     let toolRows: ToolDefinitionResponse[];
 
     try {
-      serviceRows = await db.select({ id: manifests.id }).from(manifests);
+      serviceRows = await db
+        .select({ id: manifests.id, hash: manifests.hash })
+        .from(manifests);
       toolRows = await db
         .select({
           serviceName: tools.serviceName,
@@ -62,6 +65,7 @@ export class ManifestService {
 
     return serviceRows.map((row) => ({
       name: row.id,
+      hash: row.hash,
       tools: toolMap.get(row.id) ?? [],
     }));
   }
@@ -69,10 +73,14 @@ export class ManifestService {
   async getService(serviceName: string): Promise<ServiceManifestDetails> {
     const normalizedServiceName = normalizeServiceName(serviceName);
 
-    let rows: Array<{ id: string; metadata: ManifestMetadata }>;
+    let rows: Array<{ id: string; metadata: ManifestMetadata; hash: string }>;
     try {
       rows = await db
-        .select({ id: manifests.id, metadata: manifests.metadata })
+        .select({
+          id: manifests.id,
+          metadata: manifests.metadata,
+          hash: manifests.hash,
+        })
         .from(manifests)
         .where(eq(manifests.id, normalizedServiceName))
         .limit(1);
@@ -134,6 +142,7 @@ export class ManifestService {
 
     return {
       name: rows[0].id,
+      hash: rows[0].hash,
       metadata,
       tools: validatedTools,
     };
@@ -148,11 +157,13 @@ export class ManifestService {
       manifestSource,
       normalizedServiceName,
     );
+    const hash = computeContentHash(manifestSource.trim());
 
     try {
       await db.transaction(async (tx) => {
         await tx.insert(manifests).values({
           id: normalizedServiceName,
+          hash,
           metadata: parsedManifest.metadata,
         });
 

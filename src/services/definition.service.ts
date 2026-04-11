@@ -1,0 +1,244 @@
+import { randomUUID } from "node:crypto";
+import { mkdir, unlink, writeFile } from "node:fs/promises";
+import path from "node:path";
+
+import { asc, eq } from "drizzle-orm";
+
+import { db } from "@/db/client";
+import { definitions, manifests, tools } from "@/db/schema";
+import { HttpError } from "@/models/error.model";
+import {
+  DEFINITION_TYPES,
+  type DefinitionResponse,
+  type DefinitionType,
+} from "@/models/definition.model";
+import { parseServiceManifest } from "@/modules/adapter.module";
+import { computeContentHash } from "@/utils/hash.util";
+
+export class DefinitionService {
+  async listDefinitions(): Promise<DefinitionResponse[]> {
+    try {
+      return await db
+        .select({
+          id: definitions.id,
+          type: definitions.type,
+          hash: definitions.hash,
+        })
+        .from(definitions)
+        .orderBy(asc(definitions.id));
+    } catch {
+      throw new HttpError(500, "Failed to list definitions.");
+    }
+  }
+
+  async getDefinition(definitionId: string): Promise<DefinitionResponse> {
+    const normalizedDefinitionId = normalizeDefinitionId(definitionId);
+
+    let rows: DefinitionResponse[];
+    try {
+      rows = await db
+        .select({
+          id: definitions.id,
+          type: definitions.type,
+          hash: definitions.hash,
+        })
+        .from(definitions)
+        .where(eq(definitions.id, normalizedDefinitionId))
+        .limit(1);
+    } catch {
+      throw new HttpError(
+        500,
+        `Failed to load definition '${normalizedDefinitionId}'.`,
+      );
+    }
+
+    if (rows.length === 0) {
+      throw new HttpError(404, `Definition '${normalizedDefinitionId}' not found.`);
+    }
+
+    return rows[0];
+  }
+
+  async createDefinition(
+    type: string,
+    content: string,
+  ): Promise<DefinitionResponse> {
+    const normalizedType = normalizeDefinitionType(type);
+    const normalizedContent = normalizeDefinitionContent(content);
+    const hash = computeContentHash(normalizedContent);
+    const definitionId = randomUUID();
+    const filePath = buildDefinitionPath(normalizedType);
+
+    await ensureDefinitionDirectory();
+
+    try {
+      await writeFile(filePath, normalizedContent, "utf8");
+    } catch {
+      throw new HttpError(500, "Failed to persist definition file.");
+    }
+
+    try {
+      const parsedManifest = parseManifestSource(normalizedContent);
+
+      await db.transaction(async (tx) => {
+        await tx.insert(definitions).values({
+          id: definitionId,
+          type: normalizedType,
+          path: filePath,
+          hash,
+        });
+
+        await tx.insert(manifests).values({
+          id: parsedManifest.name,
+          definitionId,
+          hash,
+          metadata: parsedManifest.metadata,
+        });
+
+        if (parsedManifest.tools.length > 0) {
+          await tx.insert(tools).values(
+            parsedManifest.tools.map((tool) => ({
+              serviceName: parsedManifest.name,
+              name: tool.name,
+              metadata: tool.metadata,
+              inputSchema: tool.inputSchema,
+              outputSchema: tool.outputSchema,
+            })),
+          );
+        }
+      });
+    } catch (error) {
+      await deleteFileIfPresent(filePath);
+
+      if (error instanceof HttpError) {
+        throw error;
+      }
+
+      if (isUniqueConstraintViolation(error)) {
+        throw new HttpError(
+          409,
+          "Definition cannot be created because a linked manifest already exists.",
+        );
+      }
+
+      throw new HttpError(500, "Failed to create definition.");
+    }
+
+    return {
+      id: definitionId,
+      type: normalizedType,
+      hash,
+    };
+  }
+
+  async deleteDefinition(definitionId: string): Promise<void> {
+    const normalizedDefinitionId = normalizeDefinitionId(definitionId);
+
+    let deletedRows: Array<{ id: string; path: string }>;
+    try {
+      deletedRows = await db
+        .delete(definitions)
+        .where(eq(definitions.id, normalizedDefinitionId))
+        .returning({ id: definitions.id, path: definitions.path });
+    } catch {
+      throw new HttpError(
+        500,
+        `Failed to delete definition '${normalizedDefinitionId}'.`,
+      );
+    }
+
+    if (deletedRows.length === 0) {
+      throw new HttpError(404, `Definition '${normalizedDefinitionId}' not found.`);
+    }
+
+    await deleteFileIfPresent(deletedRows[0].path);
+  }
+}
+
+function normalizeDefinitionType(type: string): DefinitionType {
+  const normalized = type.trim();
+
+  if (!normalized) {
+    throw new HttpError(400, "Field 'type' must not be empty.");
+  }
+
+  if (!DEFINITION_TYPES.includes(normalized as DefinitionType)) {
+    throw new HttpError(
+      400,
+      `Field 'type' must be one of: ${DEFINITION_TYPES.join(", ")}.`,
+    );
+  }
+
+  return normalized as DefinitionType;
+}
+
+function normalizeDefinitionContent(content: string): string {
+  if (typeof content !== "string") {
+    throw new HttpError(400, "Field 'content' must be a string.");
+  }
+
+  const normalized = content.trim();
+
+  if (!normalized) {
+    throw new HttpError(400, "Field 'content' must not be empty.");
+  }
+
+  return normalized;
+}
+
+function normalizeDefinitionId(definitionId: string): string {
+  const normalized = definitionId.trim();
+
+  if (!normalized) {
+    throw new HttpError(400, "Field 'definitionId' must not be empty.");
+  }
+
+  return normalized;
+}
+
+function resolveDataDirectory(): string {
+  const configured = process.env.MCI_DATA_DIR?.trim();
+
+  if (configured) {
+    return path.resolve(configured);
+  }
+
+  return path.resolve(".");
+}
+
+function resolveDefinitionsDirectory(): string {
+  return path.join(resolveDataDirectory(), "definitions");
+}
+
+async function ensureDefinitionDirectory(): Promise<void> {
+  await mkdir(resolveDefinitionsDirectory(), { recursive: true });
+}
+
+function buildDefinitionPath(type: DefinitionType): string {
+  return path.join(resolveDefinitionsDirectory(), `${randomUUID()}.${type}`);
+}
+
+async function deleteFileIfPresent(filePath: string): Promise<void> {
+  try {
+    await unlink(filePath);
+  } catch { }
+}
+
+function parseManifestSource(manifestSource: string) {
+  try {
+    return parseServiceManifest(manifestSource);
+  } catch (error) {
+    throw new HttpError(
+      400,
+      error instanceof Error ? error.message : "Invalid manifest JSON.",
+    );
+  }
+}
+
+function isUniqueConstraintViolation(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  return /unique|constraint/i.test(error.message);
+}

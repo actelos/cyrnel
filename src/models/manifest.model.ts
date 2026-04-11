@@ -26,7 +26,10 @@ export interface ToolDefinitionResponse extends PublicToolDefinition {
 
 export interface ServiceManifestResponse {
   name: string;
+  hash: string;
   tools: PublicToolDefinition[];
 }
 
-export type ServiceManifestDetails = ServiceManifest;
+export interface ServiceManifestDetails extends ServiceManifest {
+  hash: string;
+}

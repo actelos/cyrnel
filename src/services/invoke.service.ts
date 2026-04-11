@@ -49,7 +49,7 @@ async function handleInvokeMessage(
   validator: SchemaValidator,
   message: unknown,
 ): Promise<void> {
-  if (!isProcessInvokeMessage(message)) {
+  if (!isInvokeMessage(message)) {
     return;
   }
 
@@ -98,7 +98,7 @@ async function handleInvokeMessage(
   }
 }
 
-function isProcessInvokeMessage(message: unknown): message is InvokeMessage {
+function isInvokeMessage(message: unknown): message is InvokeMessage {
   if (!message || typeof message !== "object") {
     return false;
   }
