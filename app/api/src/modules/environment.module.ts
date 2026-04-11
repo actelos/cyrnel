@@ -99,13 +99,14 @@ export class EnvironmentModule extends EventEmitter {
       };
 
       this.timeoutHandle = setTimeout(async () => {
-        await worker.terminate();
         pendingStatus = "failed";
 
         this.emit(
           "stderr",
           Buffer.from(`Execution timed out after ${effectiveTimeoutMs}ms`),
         );
+
+        await worker.terminate();
 
         settleResolved("failed");
       }, effectiveTimeoutMs);
