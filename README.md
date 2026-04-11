@@ -29,10 +29,18 @@ extension for it.
 There are no releases yet. To use MCI, clone this repository and run it from
 source with npm or pnpm.
 
+Install dependencies:
+
+```bash
+cd app/api
+pnpm install
+```
+
 ### Run the server
 
 Start the server with:
 
 ```bash
+cd app/api
 pnpm run start
 ```

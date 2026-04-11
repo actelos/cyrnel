@@ -4,8 +4,15 @@ permissions:
 
 on:
   push:
+    paths:
+      - "app/api/**"
+      - ".github/workflows/ci.yml"
     branches: ["**"]
   pull_request:
+    paths:
+      - "app/api/**"
+      - ".github/workflows/ci.yml"
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -14,6 +21,9 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app/api
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -28,6 +38,7 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
+          cache-dependency-path: app/api/pnpm-lock.yaml
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
