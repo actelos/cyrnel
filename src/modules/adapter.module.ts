@@ -28,6 +28,10 @@ export class AdapterModule {
     this.fetchImpl = options.fetchImpl ?? fetch;
   }
 
+  async register(definitionContent: string): Promise<ServiceManifest> {
+    return parseServiceManifest(definitionContent);
+  }
+
   async invoke(
     toolName: string,
     parameters: Record<string, unknown>,

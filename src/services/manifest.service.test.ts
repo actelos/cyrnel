@@ -1,8 +1,12 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+
 import { sql } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { db } from "@/db/client";
-import { manifests, tools } from "@/db/schema";
+import { definitions, manifests, tools } from "@/db/schema";
 import type { ManifestMetadata, ToolDefinition } from "@/models/manifest.model";
 import { computeContentHash } from "@/utils/hash.util";
 import { ManifestService } from "@/services/manifest.service";
@@ -160,61 +164,10 @@ describe("manifest.service", () => {
 
   it("creates a service manifest and persists tools", async () => {
     const service = new ManifestService();
-
-    await service.createService(
-      "svc-create",
-      JSON.stringify({
-        name: "svc-create",
-        metadata: {
-          serverUrl: "http://127.0.0.1:9001",
-        },
-        tools: [
-          {
-            name: "echo",
-            metadata: {
-              route: "invoke/echo",
-            },
-            inputSchema: {
-              type: "object",
-              properties: {
-                input: { type: "string" },
-              },
-            },
-            outputSchema: {
-              type: "string",
-            },
-          },
-        ],
-      }),
-    );
-
-    await expect(service.getService("svc-create")).resolves.toEqual({
+    const directory = await mkdtemp(path.join(tmpdir(), "mci-manifest-def-"));
+    const definitionPath = path.join(directory, "svc-create.foo");
+    const definitionContent = JSON.stringify({
       name: "svc-create",
-      hash: computeContentHash(
-        JSON.stringify({
-          name: "svc-create",
-          metadata: {
-            serverUrl: "http://127.0.0.1:9001",
-          },
-          tools: [
-            {
-              name: "echo",
-              metadata: {
-                route: "invoke/echo",
-              },
-              inputSchema: {
-                type: "object",
-                properties: {
-                  input: { type: "string" },
-                },
-              },
-              outputSchema: {
-                type: "string",
-              },
-            },
-          ],
-        }),
-      ),
       metadata: {
         serverUrl: "http://127.0.0.1:9001",
       },
@@ -236,6 +189,45 @@ describe("manifest.service", () => {
         },
       ],
     });
+
+    await writeFile(definitionPath, definitionContent, "utf8");
+    await db.insert(definitions).values({
+      id: "def-create",
+      type: "foo",
+      path: definitionPath,
+      hash: computeContentHash(definitionContent),
+    });
+
+    try {
+      await service.createService("svc-create", "def-create");
+
+      await expect(service.getService("svc-create")).resolves.toEqual({
+        name: "svc-create",
+        hash: computeContentHash(definitionContent),
+        metadata: {
+          serverUrl: "http://127.0.0.1:9001",
+        },
+        tools: [
+          {
+            name: "echo",
+            metadata: {
+              route: "invoke/echo",
+            },
+            inputSchema: {
+              type: "object",
+              properties: {
+                input: { type: "string" },
+              },
+            },
+            outputSchema: {
+              type: "string",
+            },
+          },
+        ],
+      });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   it("lists tools with and without name filter", async () => {

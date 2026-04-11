@@ -5,14 +5,13 @@ import path from "node:path";
 import { asc, eq } from "drizzle-orm";
 
 import { db } from "@/db/client";
-import { definitions, manifests, tools } from "@/db/schema";
+import { definitions } from "@/db/schema";
 import { HttpError } from "@/models/error.model";
 import {
   DEFINITION_TYPES,
   type DefinitionResponse,
   type DefinitionType,
 } from "@/models/definition.model";
-import { parseServiceManifest } from "@/modules/adapter.module";
 import { computeContentHash } from "@/utils/hash.util";
 
 export class DefinitionService {
@@ -78,34 +77,11 @@ export class DefinitionService {
     }
 
     try {
-      const parsedManifest = parseManifestSource(normalizedContent);
-
-      await db.transaction(async (tx) => {
-        await tx.insert(definitions).values({
-          id: definitionId,
-          type: normalizedType,
-          path: filePath,
-          hash,
-        });
-
-        await tx.insert(manifests).values({
-          id: parsedManifest.name,
-          definitionId,
-          hash,
-          metadata: parsedManifest.metadata,
-        });
-
-        if (parsedManifest.tools.length > 0) {
-          await tx.insert(tools).values(
-            parsedManifest.tools.map((tool) => ({
-              serviceName: parsedManifest.name,
-              name: tool.name,
-              metadata: tool.metadata,
-              inputSchema: tool.inputSchema,
-              outputSchema: tool.outputSchema,
-            })),
-          );
-        }
+      await db.insert(definitions).values({
+        id: definitionId,
+        type: normalizedType,
+        path: filePath,
+        hash,
       });
     } catch (error) {
       await deleteFileIfPresent(filePath);
@@ -222,17 +198,6 @@ async function deleteFileIfPresent(filePath: string): Promise<void> {
   try {
     await unlink(filePath);
   } catch { }
-}
-
-function parseManifestSource(manifestSource: string) {
-  try {
-    return parseServiceManifest(manifestSource);
-  } catch (error) {
-    throw new HttpError(
-      400,
-      error instanceof Error ? error.message : "Invalid manifest JSON.",
-    );
-  }
 }
 
 function isUniqueConstraintViolation(error: unknown): boolean {

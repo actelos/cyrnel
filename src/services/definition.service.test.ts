@@ -6,7 +6,7 @@ import { sql } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { db } from "@/db/client";
-import { definitions, manifests, tools } from "@/db/schema";
+import { definitions } from "@/db/schema";
 import { computeContentHash } from "@/utils/hash.util";
 import { DefinitionService } from "@/services/definition.service";
 
@@ -52,7 +52,7 @@ describe("definition.service", () => {
     await resetTables();
   });
 
-  it("creates definition file, definition record, and linked manifest", async () => {
+  it("creates definition file and definition record", async () => {
     const service = new DefinitionService();
     const directory = await mkdtemp(path.join(tmpdir(), "mci-def-"));
     process.env.MCI_DATA_DIR = directory;
@@ -104,22 +104,6 @@ describe("definition.service", () => {
       const persistedFile = await readFile(definitionRows[0].path, "utf8");
       expect(persistedFile).toBe(content);
 
-      const manifestRows = await db
-        .select({
-          id: manifests.id,
-          definitionId: manifests.definitionId,
-          hash: manifests.hash,
-        })
-        .from(manifests);
-
-      expect(manifestRows).toEqual([
-        {
-          id: "svc-def-1",
-          definitionId: created.id,
-          hash: created.hash,
-        },
-      ]);
-
       await expect(service.listDefinitions()).resolves.toEqual([created]);
       await expect(service.getDefinition(created.id)).resolves.toEqual(created);
     } finally {
@@ -128,7 +112,7 @@ describe("definition.service", () => {
     }
   });
 
-  it("deletes definition and cascades to manifest and tools", async () => {
+  it("deletes definition and its file", async () => {
     const service = new DefinitionService();
     const directory = await mkdtemp(path.join(tmpdir(), "mci-def-"));
     process.env.MCI_DATA_DIR = directory;
@@ -164,8 +148,6 @@ describe("definition.service", () => {
       await service.deleteDefinition(created.id);
 
       await expect(service.listDefinitions()).resolves.toEqual([]);
-      await expect(db.select().from(manifests)).resolves.toEqual([]);
-      await expect(db.select().from(tools)).resolves.toEqual([]);
 
       await expect(readFile(existing[0].path, "utf8")).rejects.toBeTruthy();
     } finally {
@@ -182,13 +164,14 @@ describe("definition.service", () => {
     ).rejects.toMatchObject({ statusCode: 400 });
   });
 
-  it("throws 400 for invalid manifest payload", async () => {
+  it("accepts non-JSON definition content", async () => {
     const service = new DefinitionService();
 
-    await expect(service.createDefinition("foo", "not-json")).rejects.toMatchObject({
-      statusCode: 400,
+    await expect(service.createDefinition("foo", "not-json")).resolves.toMatchObject({
+      id: expect.any(String),
+      type: "foo",
+      hash: computeContentHash("not-json"),
     });
-    await expect(db.select().from(definitions)).resolves.toEqual([]);
-    await expect(db.select().from(manifests)).resolves.toEqual([]);
+    await expect(db.select().from(definitions)).resolves.toHaveLength(1);
   });
 });

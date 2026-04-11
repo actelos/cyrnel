@@ -1,7 +1,9 @@
+import { readFile } from "node:fs/promises";
+
 import { and, asc, eq } from "drizzle-orm";
 
 import { db } from "@/db/client";
-import { manifests, tools } from "@/db/schema";
+import { definitions, manifests, tools } from "@/db/schema";
 import { HttpError } from "@/models/error.model";
 import type { ResolvedToolInvocation } from "@/models/invoke.model";
 import type {
@@ -13,8 +15,7 @@ import type {
   ToolDefinitionResponse,
   ToolDefinition,
 } from "@/models/manifest.model";
-import { parseServiceManifest } from "@/modules/adapter.module";
-import { computeContentHash } from "@/utils/hash.util";
+import { AdapterModule } from "@/modules/adapter.module";
 
 type ServiceMetadataLoader = (
   serviceName: string,
@@ -28,6 +29,7 @@ export class ManifestService {
   constructor(
     private readonly loadServiceMetadata: ServiceMetadataLoader = loadServiceMetadataByServiceName,
     private readonly loadToolByName: ToolLoader = loadToolByServiceAndToolName,
+    private readonly adapter: AdapterModule = new AdapterModule(),
   ) {}
 
   async listServices(): Promise<ServiceManifestResponse[]> {
@@ -150,20 +152,65 @@ export class ManifestService {
 
   async createService(
     serviceName: string,
-    manifestSource: string,
+    definitionId: string,
   ): Promise<void> {
     const normalizedServiceName = normalizeServiceName(serviceName);
-    const parsedManifest = parseManifestSource(
-      manifestSource,
+    const normalizedDefinitionId = normalizeDefinitionId(definitionId);
+
+    let definitionRow: {
+      id: string;
+      path: string;
+      hash: string;
+    } | null = null;
+
+    try {
+      const rows = await db
+        .select({
+          id: definitions.id,
+          path: definitions.path,
+          hash: definitions.hash,
+        })
+        .from(definitions)
+        .where(eq(definitions.id, normalizedDefinitionId))
+        .limit(1);
+
+      definitionRow = rows[0] ?? null;
+    } catch {
+      throw new HttpError(
+        500,
+        `Failed to load definition '${normalizedDefinitionId}'.`,
+      );
+    }
+
+    if (!definitionRow) {
+      throw new HttpError(
+        404,
+        `Definition '${normalizedDefinitionId}' not found.`,
+      );
+    }
+
+    let definitionContent: string;
+    try {
+      definitionContent = await readFile(definitionRow.path, "utf8");
+    } catch {
+      throw new HttpError(
+        500,
+        `Failed to load definition content for '${normalizedDefinitionId}'.`,
+      );
+    }
+
+    const parsedManifest = await parseRegisteredManifest(
+      this.adapter,
+      definitionContent,
       normalizedServiceName,
     );
-    const hash = computeContentHash(manifestSource.trim());
 
     try {
       await db.transaction(async (tx) => {
         await tx.insert(manifests).values({
           id: normalizedServiceName,
-          hash,
+          definitionId: normalizedDefinitionId,
+          hash: definitionRow.hash,
           metadata: parsedManifest.metadata,
         });
 
@@ -308,16 +355,13 @@ export class ManifestService {
   }
 }
 
-function parseManifestSource(
-  manifestSource: string,
+async function parseRegisteredManifest(
+  adapter: AdapterModule,
+  definitionContent: string,
   expectedServiceName: string,
-): ServiceManifest {
-  if (typeof manifestSource !== "string") {
-    throw new HttpError(400, "Field 'manifest' must be a JSON string.");
-  }
-
+): Promise<ServiceManifest> {
   try {
-    const parsedManifest = parseServiceManifest(manifestSource);
+    const parsedManifest = await adapter.register(definitionContent);
 
     if (parsedManifest.name !== expectedServiceName) {
       throw new HttpError(
@@ -334,7 +378,7 @@ function parseManifestSource(
 
     throw new HttpError(
       400,
-      error instanceof Error ? error.message : "Invalid manifest JSON.",
+      error instanceof Error ? error.message : "Invalid definition content.",
     );
   }
 }
@@ -369,6 +413,16 @@ function normalizeToolName(toolName: string): string {
 
   if (!normalized) {
     throw new HttpError(400, "Tool name must not be empty.");
+  }
+
+  return normalized;
+}
+
+function normalizeDefinitionId(definitionId: string): string {
+  const normalized = definitionId.trim();
+
+  if (!normalized) {
+    throw new HttpError(400, "Field 'definitionId' must not be empty.");
   }
 
   return normalized;

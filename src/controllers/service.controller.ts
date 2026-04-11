@@ -24,9 +24,9 @@ export async function createService(
 ): Promise<void> {
   const manifestService = getManifestService(req);
   const serviceName = parseServiceName(req.params.serviceName);
-  const manifest = parseManifest(req.body);
+  const definitionId = parseDefinitionId(req.body);
 
-  await manifestService.createService(serviceName, manifest);
+  await manifestService.createService(serviceName, definitionId);
   res.status(201).json({ name: serviceName });
 }
 
@@ -49,18 +49,18 @@ function parseServiceName(raw: unknown): string {
   return raw;
 }
 
-function parseManifest(rawBody: unknown): string {
+function parseDefinitionId(rawBody: unknown): string {
   if (!rawBody || typeof rawBody !== "object") {
     throw new HttpError(400, "Request body must be an object.");
   }
 
-  const manifest = (rawBody as { manifest?: unknown }).manifest;
+  const definitionId = (rawBody as { definitionId?: unknown }).definitionId;
 
-  if (typeof manifest !== "string") {
-    throw new HttpError(400, "Field 'manifest' must be a JSON string.");
+  if (typeof definitionId !== "string") {
+    throw new HttpError(400, "Field 'definitionId' must be a string.");
   }
 
-  return manifest;
+  return definitionId;
 }
 
 function getManifestService(req: Request): ManifestService {

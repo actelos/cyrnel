@@ -102,7 +102,7 @@ describe("service.controller", () => {
 		const req = makeReq({
 			params: { serviceName: "svc-1" },
 			body: {
-				manifest: JSON.stringify({ name: "svc-1", metadata: {}, tools: [] }),
+				definitionId: "def-123",
 			},
 		});
 
@@ -110,7 +110,7 @@ describe("service.controller", () => {
 
 		expect(manifestService.createService).toHaveBeenCalledWith(
 			"svc-1",
-			JSON.stringify({ name: "svc-1", metadata: {}, tools: [] }),
+			"def-123",
 		);
 		expect(res.status).toHaveBeenCalledWith(201);
 		expect(res.json).toHaveBeenCalledWith({ name: "svc-1" });
