@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { db } from "@/db/client";
 import { manifests, tools } from "@/db/schema";
-import type { InvokeMessageResponse } from "@/models/invoke.model";
+import type { InvokeResponse } from "@/models/invoke.model";
 import { AdapterModule } from "@/modules/adapter.module";
 import {
   createProcessMessageSystem,
@@ -20,9 +20,9 @@ import {
 import { ManifestService } from "@/services/manifest.service";
 
 class TestProcessChannel extends EventEmitter implements ProcessMessageChannel {
-  readonly sent: InvokeMessageResponse[] = [];
+  readonly sent: InvokeResponse[] = [];
 
-  send(message: InvokeMessageResponse): boolean {
+  send(message: InvokeResponse): boolean {
     this.sent.push(message);
     return true;
   }
