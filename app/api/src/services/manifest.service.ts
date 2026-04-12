@@ -403,9 +403,10 @@ export class ManifestService {
 
     const loweredQuery = normalizedQuery.toLowerCase();
 
-    return rows.filter((row) =>
-      row.name.toLowerCase().includes(loweredQuery) ||
-      row.serviceName.toLowerCase().includes(loweredQuery),
+    return rows.filter(
+      (row) =>
+        row.name.toLowerCase().includes(loweredQuery) ||
+        row.serviceName.toLowerCase().includes(loweredQuery),
     );
   }
 

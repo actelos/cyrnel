@@ -8,7 +8,10 @@ import {
   type DiscoverMessageChannel,
 } from "@/services/discover.service";
 
-class TestDiscoverChannel extends EventEmitter implements DiscoverMessageChannel {
+class TestDiscoverChannel
+  extends EventEmitter
+  implements DiscoverMessageChannel
+{
   readonly sent: DiscoverResponse[] = [];
 
   send(message: DiscoverResponse): boolean {

@@ -59,7 +59,8 @@ async function handleDiscoverMessage(
     });
   } catch (error) {
     channel.send?.({
-      type: message.type === "tools.discover" ? "tools.error" : "services.error",
+      type:
+        message.type === "tools.discover" ? "tools.error" : "services.error",
       requestId: message.requestId,
       message:
         error instanceof Error

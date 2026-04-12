@@ -481,9 +481,9 @@ describe("manifest.service", () => {
 
     await service.createService("svc-update", "def-old");
 
-    await expect(
-      service.updateService("svc-update", "def-new"),
-    ).resolves.toBe(true);
+    await expect(service.updateService("svc-update", "def-new")).resolves.toBe(
+      true,
+    );
 
     await expect(service.getService("svc-update")).resolves.toEqual({
       name: "svc-update",
