@@ -21,9 +21,9 @@
           "notNull": true,
           "autoincrement": false
         },
-        "path": {
-          "name": "path",
-          "type": "text",
+        "content": {
+          "name": "content",
+          "type": "blob",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false

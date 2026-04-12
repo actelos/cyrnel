@@ -1,6 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, unlink, writeFile } from "node:fs/promises";
-import path from "node:path";
 
 import { asc, eq } from "drizzle-orm";
 
@@ -67,28 +65,18 @@ export class DefinitionService {
   ): Promise<DefinitionResponse> {
     const normalizedType = normalizeDefinitionType(type);
     const normalizedContent = normalizeDefinitionContent(content);
+    const encodedContent = Buffer.from(normalizedContent, "utf8");
     const hash = computeContentHash(normalizedContent);
     const definitionId = randomUUID();
-    const filePath = buildDefinitionPath(normalizedType);
-
-    await ensureDefinitionDirectory();
-
-    try {
-      await writeFile(filePath, normalizedContent, "utf8");
-    } catch {
-      throw new HttpError(500, "Failed to persist definition file.");
-    }
 
     try {
       await db.insert(definitions).values({
         id: definitionId,
         type: normalizedType,
-        path: filePath,
+        content: encodedContent,
         hash,
       });
     } catch (error) {
-      await deleteFileIfPresent(filePath);
-
       if (error instanceof HttpError) {
         throw error;
       }
@@ -113,12 +101,12 @@ export class DefinitionService {
   async deleteDefinition(definitionId: string): Promise<void> {
     const normalizedDefinitionId = normalizeDefinitionId(definitionId);
 
-    let deletedRows: Array<{ id: string; path: string }>;
+    let deletedRows: Array<{ id: string }>;
     try {
       deletedRows = await db
         .delete(definitions)
         .where(eq(definitions.id, normalizedDefinitionId))
-        .returning({ id: definitions.id, path: definitions.path });
+        .returning({ id: definitions.id });
     } catch {
       throw new HttpError(
         500,
@@ -132,8 +120,6 @@ export class DefinitionService {
         `Definition '${normalizedDefinitionId}' not found.`,
       );
     }
-
-    await deleteFileIfPresent(deletedRows[0].path);
   }
 }
 
@@ -176,34 +162,6 @@ function normalizeDefinitionId(definitionId: string): string {
   }
 
   return normalized;
-}
-
-function resolveDataDirectory(): string {
-  const configured = process.env.MCI_DATA_DIR?.trim();
-
-  if (configured) {
-    return path.resolve(configured);
-  }
-
-  return path.resolve(".");
-}
-
-function resolveDefinitionsDirectory(): string {
-  return path.join(resolveDataDirectory(), "definitions");
-}
-
-async function ensureDefinitionDirectory(): Promise<void> {
-  await mkdir(resolveDefinitionsDirectory(), { recursive: true });
-}
-
-function buildDefinitionPath(type: DefinitionType): string {
-  return path.join(resolveDefinitionsDirectory(), `${randomUUID()}.${type}`);
-}
-
-async function deleteFileIfPresent(filePath: string): Promise<void> {
-  try {
-    await unlink(filePath);
-  } catch {}
 }
 
 function isUniqueConstraintViolation(error: unknown): boolean {

@@ -155,7 +155,7 @@ async function resetManifestsTable(): Promise<void> {
     CREATE TABLE definitions (
       id text PRIMARY KEY NOT NULL,
       type text NOT NULL,
-      path text NOT NULL,
+      content blob NOT NULL,
       hash text NOT NULL
     )
   `);

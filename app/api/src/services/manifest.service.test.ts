@@ -1,7 +1,3 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
-
 import { sql } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 
@@ -20,7 +16,7 @@ async function resetManifestTables(): Promise<void> {
     CREATE TABLE definitions (
       id text PRIMARY KEY NOT NULL,
       type text NOT NULL,
-      path text NOT NULL,
+      content blob NOT NULL,
       hash text NOT NULL
     )
   `);
@@ -164,8 +160,6 @@ describe("manifest.service", () => {
 
   it("creates a service manifest and persists tools", async () => {
     const service = new ManifestService();
-    const directory = await mkdtemp(path.join(tmpdir(), "mci-manifest-def-"));
-    const definitionPath = path.join(directory, "svc-create.foo");
     const definitionContent = JSON.stringify({
       name: "svc-create",
       metadata: {
@@ -190,44 +184,39 @@ describe("manifest.service", () => {
       ],
     });
 
-    await writeFile(definitionPath, definitionContent, "utf8");
     await db.insert(definitions).values({
       id: "def-create",
       type: "foo",
-      path: definitionPath,
+      content: Buffer.from(definitionContent, "utf8"),
       hash: computeContentHash(definitionContent),
     });
 
-    try {
-      await service.createService("svc-create", "def-create");
+    await service.createService("svc-create", "def-create");
 
-      await expect(service.getService("svc-create")).resolves.toEqual({
-        name: "svc-create",
-        hash: computeContentHash(definitionContent),
-        metadata: {
-          serverUrl: "http://127.0.0.1:9001",
-        },
-        tools: [
-          {
-            name: "echo",
-            metadata: {
-              route: "invoke/echo",
-            },
-            inputSchema: {
-              type: "object",
-              properties: {
-                input: { type: "string" },
-              },
-            },
-            outputSchema: {
-              type: "string",
+    await expect(service.getService("svc-create")).resolves.toEqual({
+      name: "svc-create",
+      hash: computeContentHash(definitionContent),
+      metadata: {
+        serverUrl: "http://127.0.0.1:9001",
+      },
+      tools: [
+        {
+          name: "echo",
+          metadata: {
+            route: "invoke/echo",
+          },
+          inputSchema: {
+            type: "object",
+            properties: {
+              input: { type: "string" },
             },
           },
-        ],
-      });
-    } finally {
-      await rm(directory, { recursive: true, force: true });
-    }
+          outputSchema: {
+            type: "string",
+          },
+        },
+      ],
+    });
   });
 
   it("lists tools with and without name filter", async () => {

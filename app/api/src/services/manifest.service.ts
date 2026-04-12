@@ -1,5 +1,3 @@
-import { readFile } from "node:fs/promises";
-
 import { and, asc, eq } from "drizzle-orm";
 
 import { db } from "@/db/client";
@@ -159,7 +157,7 @@ export class ManifestService {
 
     let definitionRow: {
       id: string;
-      path: string;
+      content: Buffer;
       hash: string;
     } | null = null;
 
@@ -167,7 +165,7 @@ export class ManifestService {
       const rows = await db
         .select({
           id: definitions.id,
-          path: definitions.path,
+          content: definitions.content,
           hash: definitions.hash,
         })
         .from(definitions)
@@ -189,15 +187,7 @@ export class ManifestService {
       );
     }
 
-    let definitionContent: string;
-    try {
-      definitionContent = await readFile(definitionRow.path, "utf8");
-    } catch {
-      throw new HttpError(
-        500,
-        `Failed to load definition content for '${normalizedDefinitionId}'.`,
-      );
-    }
+    const definitionContent = decodeDefinitionContent(definitionRow.content);
 
     const parsedManifest = await parseRegisteredManifest(
       this.adapter,
@@ -353,6 +343,14 @@ export class ManifestService {
       serviceMetadata,
     };
   }
+}
+
+function decodeDefinitionContent(content: Buffer | Uint8Array): string {
+  if (Buffer.isBuffer(content)) {
+    return content.toString("utf8");
+  }
+
+  return Buffer.from(content).toString("utf8");
 }
 
 async function parseRegisteredManifest(

@@ -1,4 +1,10 @@
-import { index, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import {
+  blob,
+  index,
+  primaryKey,
+  sqliteTable,
+  text,
+} from "drizzle-orm/sqlite-core";
 
 import type { DefinitionType } from "@/models/definition.model";
 import type { ManifestMetadata, ToolDefinition } from "@/models/manifest.model";
@@ -6,7 +12,7 @@ import type { ManifestMetadata, ToolDefinition } from "@/models/manifest.model";
 export const definitions = sqliteTable("definitions", {
   id: text("id").primaryKey(),
   type: text("type").$type<DefinitionType>().notNull(),
-  path: text("path").notNull(),
+  content: blob("content", { mode: "buffer" }).notNull(),
   hash: text("hash").notNull(),
 });
 

@@ -1,7 +1,3 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
-
 import { sql } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 
@@ -19,7 +15,7 @@ async function resetTables(): Promise<void> {
     CREATE TABLE definitions (
       id text PRIMARY KEY NOT NULL,
       type text NOT NULL,
-      path text NOT NULL,
+      content blob NOT NULL,
       hash text NOT NULL
     )
   `);
@@ -52,11 +48,8 @@ describe("definition.service", () => {
     await resetTables();
   });
 
-  it("creates definition file and definition record", async () => {
+  it("creates definition record with content blob", async () => {
     const service = new DefinitionService();
-    const directory = await mkdtemp(path.join(tmpdir(), "mci-def-"));
-    const previousDataDir = process.env.MCI_DATA_DIR;
-    process.env.MCI_DATA_DIR = directory;
 
     const content = JSON.stringify({
       name: "svc-def-1",
@@ -77,51 +70,37 @@ describe("definition.service", () => {
       ],
     });
 
-    try {
-      const created = await service.createDefinition("foo", content);
+    const created = await service.createDefinition("foo", content);
 
-      expect(created).toMatchObject({
-        id: expect.any(String),
-        type: "foo",
-        hash: computeContentHash(content),
-      });
+    expect(created).toMatchObject({
+      id: expect.any(String),
+      type: "foo",
+      hash: computeContentHash(content),
+    });
 
-      const definitionRows = await db
-        .select({
-          id: definitions.id,
-          type: definitions.type,
-          path: definitions.path,
-          hash: definitions.hash,
-        })
-        .from(definitions);
+    const definitionRows = await db
+      .select({
+        id: definitions.id,
+        type: definitions.type,
+        content: definitions.content,
+        hash: definitions.hash,
+      })
+      .from(definitions);
 
-      expect(definitionRows).toHaveLength(1);
-      expect(definitionRows[0]).toMatchObject({
-        id: created.id,
-        type: "foo",
-        hash: created.hash,
-      });
+    expect(definitionRows).toHaveLength(1);
+    expect(definitionRows[0]).toMatchObject({
+      id: created.id,
+      type: "foo",
+      hash: created.hash,
+    });
+    expect(definitionRows[0].content.toString("utf8")).toBe(content);
 
-      const persistedFile = await readFile(definitionRows[0].path, "utf8");
-      expect(persistedFile).toBe(content);
-
-      await expect(service.listDefinitions()).resolves.toEqual([created]);
-      await expect(service.getDefinition(created.id)).resolves.toEqual(created);
-    } finally {
-      await rm(directory, { recursive: true, force: true });
-      if (previousDataDir === undefined) {
-        delete process.env.MCI_DATA_DIR;
-      } else {
-        process.env.MCI_DATA_DIR = previousDataDir;
-      }
-    }
+    await expect(service.listDefinitions()).resolves.toEqual([created]);
+    await expect(service.getDefinition(created.id)).resolves.toEqual(created);
   });
 
-  it("deletes definition and its file", async () => {
+  it("deletes definition", async () => {
     const service = new DefinitionService();
-    const directory = await mkdtemp(path.join(tmpdir(), "mci-def-"));
-    const previousDataDir = process.env.MCI_DATA_DIR;
-    process.env.MCI_DATA_DIR = directory;
 
     const content = JSON.stringify({
       name: "svc-def-delete",
@@ -142,28 +121,11 @@ describe("definition.service", () => {
       ],
     });
 
-    try {
-      const created = await service.createDefinition("foo", content);
-      const existing = await db
-        .select({ path: definitions.path })
-        .from(definitions)
-        .limit(1);
+    const created = await service.createDefinition("foo", content);
 
-      expect(existing).toHaveLength(1);
+    await service.deleteDefinition(created.id);
 
-      await service.deleteDefinition(created.id);
-
-      await expect(service.listDefinitions()).resolves.toEqual([]);
-
-      await expect(readFile(existing[0].path, "utf8")).rejects.toBeTruthy();
-    } finally {
-      await rm(directory, { recursive: true, force: true });
-      if (previousDataDir === undefined) {
-        delete process.env.MCI_DATA_DIR;
-      } else {
-        process.env.MCI_DATA_DIR = previousDataDir;
-      }
-    }
+    await expect(service.listDefinitions()).resolves.toEqual([]);
   });
 
   it("throws 400 for unsupported definition type", async () => {
