@@ -1,14 +1,12 @@
 import type { ManifestMetadata, ToolDefinition } from "@/models/manifest.model";
 
-export interface InvokeRequestMessage {
+export interface InvokeRequest {
   type: "tool.invoke";
   requestId: string;
   serviceName: string;
   toolName: string;
   parameters: Record<string, unknown>;
 }
-
-export type InvokeMessage = InvokeRequestMessage;
 
 export interface InvokeResponseMessage {
   type: "tool.response";
@@ -24,7 +22,7 @@ export interface InvokeErrorResponseMessage {
   };
 }
 
-export type InvokeMessageResponse =
+export type InvokeResponse =
   | InvokeResponseMessage
   | InvokeErrorResponseMessage;
 

@@ -1,7 +1,7 @@
 import Ajv, { type ValidateFunction } from "ajv";
 import type {
-  InvokeMessage,
-  InvokeMessageResponse,
+  InvokeRequest,
+  InvokeResponse,
 } from "@/models/invoke.model";
 import type { JSONSchema } from "@/models/manifest.model";
 import type { AdapterModule } from "@/modules/adapter.module";
@@ -10,7 +10,7 @@ import { ManifestService } from "@/services/manifest.service";
 export interface ProcessMessageChannel {
   on(event: "message", listener: (message: unknown) => void): this;
   off(event: "message", listener: (message: unknown) => void): this;
-  send?: (message: InvokeMessageResponse) => boolean;
+  send?: (message: InvokeResponse) => boolean;
 }
 
 interface ProcessMessageSystemOptions {
@@ -98,12 +98,12 @@ async function handleInvokeMessage(
   }
 }
 
-function isInvokeMessage(message: unknown): message is InvokeMessage {
+function isInvokeMessage(message: unknown): message is InvokeRequest {
   if (!message || typeof message !== "object") {
     return false;
   }
 
-  const candidate = message as Partial<InvokeMessage>;
+  const candidate = message as Partial<InvokeRequest>;
 
   return (
     candidate.type === "tool.invoke" &&

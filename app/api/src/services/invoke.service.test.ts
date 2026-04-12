@@ -3,7 +3,7 @@ import { EventEmitter } from "node:events";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type {
-  InvokeMessageResponse,
+  InvokeResponse,
   ResolvedToolInvocation,
 } from "@/models/invoke.model";
 import { AdapterModule } from "@/modules/adapter.module";
@@ -13,9 +13,9 @@ import {
 } from "@/services/invoke.service";
 
 class TestProcessChannel extends EventEmitter implements ProcessMessageChannel {
-  readonly sent: InvokeMessageResponse[] = [];
+  readonly sent: InvokeResponse[] = [];
 
-  send(message: InvokeMessageResponse): boolean {
+  send(message: InvokeResponse): boolean {
     this.sent.push(message);
     return true;
   }
