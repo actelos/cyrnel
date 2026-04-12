@@ -30,6 +30,21 @@ export async function createService(
   res.status(201).json({ name: serviceName });
 }
 
+export async function updateService(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const manifestService = getManifestService(req);
+  const serviceName = parseServiceName(req.params.serviceName);
+  const definitionId = parseDefinitionId(req.body);
+
+  const updated = await manifestService.updateService(
+    serviceName,
+    definitionId,
+  );
+  res.status(200).json({ name: serviceName, updated });
+}
+
 export async function deleteService(
   req: Request,
   res: Response,

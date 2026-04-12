@@ -6,12 +6,14 @@ import {
   deleteService,
   getService,
   listServices,
+  updateService,
 } from "@/controllers/service.controller";
 
 const manifestService = {
   listServices: vi.fn(),
   getService: vi.fn(),
   createService: vi.fn(),
+  updateService: vi.fn(),
   deleteService: vi.fn(),
 };
 
@@ -126,5 +128,25 @@ describe("service.controller", () => {
     expect(manifestService.deleteService).toHaveBeenCalledWith("svc-1");
     expect(res.status).toHaveBeenCalledWith(204);
     expect(res.send).toHaveBeenCalledWith();
+  });
+
+  it("updates a service when definition hash changed", async () => {
+    const res = makeRes();
+    const req = makeReq({
+      params: { serviceName: "svc-1" },
+      body: {
+        definitionId: "def-123",
+      },
+    });
+    manifestService.updateService.mockResolvedValue(true);
+
+    await updateService(req, res as unknown as Response);
+
+    expect(manifestService.updateService).toHaveBeenCalledWith(
+      "svc-1",
+      "def-123",
+    );
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith({ name: "svc-1", updated: true });
   });
 });

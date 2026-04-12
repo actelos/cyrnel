@@ -338,4 +338,128 @@ describe("manifest.service", () => {
       },
     ]);
   });
+
+  it("does not update service when hashes already match", async () => {
+    const service = new ManifestService();
+    const definitionContent = JSON.stringify({
+      name: "svc-same",
+      metadata: {
+        serverUrl: "http://127.0.0.1:9011",
+      },
+      tools: [],
+    });
+    const hash = computeContentHash(definitionContent);
+
+    await db.insert(definitions).values({
+      id: "def-same",
+      type: "foo",
+      content: Buffer.from(definitionContent, "utf8"),
+      hash,
+    });
+    await db.insert(manifests).values({
+      id: "svc-same",
+      definitionId: "def-same",
+      hash,
+      metadata: {
+        serverUrl: "http://127.0.0.1:9011",
+      },
+    });
+
+    await expect(service.updateService("svc-same", "def-same")).resolves.toBe(
+      false,
+    );
+    await expect(service.getService("svc-same")).resolves.toMatchObject({
+      name: "svc-same",
+      hash,
+      metadata: {
+        serverUrl: "http://127.0.0.1:9011",
+      },
+      tools: [],
+    });
+  });
+
+  it("updates service manifest and tools when hashes differ", async () => {
+    const service = new ManifestService();
+    const oldDefinitionContent = JSON.stringify({
+      name: "svc-update",
+      metadata: {
+        serverUrl: "http://127.0.0.1:9012",
+      },
+      tools: [
+        {
+          name: "old-tool",
+          metadata: {
+            route: "invoke/old-tool",
+          },
+          inputSchema: { type: "object" },
+          outputSchema: { type: "string" },
+        },
+      ],
+    });
+    const newDefinitionContent = JSON.stringify({
+      name: "svc-update",
+      metadata: {
+        serverUrl: "http://127.0.0.1:9013",
+      },
+      tools: [
+        {
+          name: "new-tool",
+          metadata: {
+            route: "invoke/new-tool",
+          },
+          inputSchema: {
+            type: "object",
+            properties: {
+              value: { type: "number" },
+            },
+          },
+          outputSchema: { type: "number" },
+        },
+      ],
+    });
+
+    await db.insert(definitions).values([
+      {
+        id: "def-old",
+        type: "foo",
+        content: Buffer.from(oldDefinitionContent, "utf8"),
+        hash: computeContentHash(oldDefinitionContent),
+      },
+      {
+        id: "def-new",
+        type: "foo",
+        content: Buffer.from(newDefinitionContent, "utf8"),
+        hash: computeContentHash(newDefinitionContent),
+      },
+    ]);
+
+    await service.createService("svc-update", "def-old");
+
+    await expect(
+      service.updateService("svc-update", "def-new"),
+    ).resolves.toBe(true);
+
+    await expect(service.getService("svc-update")).resolves.toEqual({
+      name: "svc-update",
+      hash: computeContentHash(newDefinitionContent),
+      metadata: {
+        serverUrl: "http://127.0.0.1:9013",
+      },
+      tools: [
+        {
+          name: "new-tool",
+          metadata: {
+            route: "invoke/new-tool",
+          },
+          inputSchema: {
+            type: "object",
+            properties: {
+              value: { type: "number" },
+            },
+          },
+          outputSchema: { type: "number" },
+        },
+      ],
+    });
+  });
 });

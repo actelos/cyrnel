@@ -255,6 +255,130 @@ export class ManifestService {
     }
   }
 
+  async updateService(
+    serviceName: string,
+    definitionId: string,
+  ): Promise<boolean> {
+    const normalizedServiceName = normalizeServiceName(serviceName);
+    const normalizedDefinitionId = normalizeDefinitionId(definitionId);
+
+    let manifestRow: {
+      id: string;
+      hash: string;
+    } | null = null;
+
+    try {
+      const rows = await db
+        .select({
+          id: manifests.id,
+          hash: manifests.hash,
+        })
+        .from(manifests)
+        .where(eq(manifests.id, normalizedServiceName))
+        .limit(1);
+
+      manifestRow = rows[0] ?? null;
+    } catch {
+      throw new HttpError(
+        500,
+        `Failed to load manifest for service '${normalizedServiceName}'.`,
+      );
+    }
+
+    if (!manifestRow) {
+      throw new HttpError(
+        404,
+        `Manifest not found for service '${normalizedServiceName}'.`,
+      );
+    }
+
+    let definitionRow: {
+      id: string;
+      content: Buffer;
+      hash: string;
+    } | null = null;
+
+    try {
+      const rows = await db
+        .select({
+          id: definitions.id,
+          content: definitions.content,
+          hash: definitions.hash,
+        })
+        .from(definitions)
+        .where(eq(definitions.id, normalizedDefinitionId))
+        .limit(1);
+
+      definitionRow = rows[0] ?? null;
+    } catch {
+      throw new HttpError(
+        500,
+        `Failed to load definition '${normalizedDefinitionId}'.`,
+      );
+    }
+
+    if (!definitionRow) {
+      throw new HttpError(
+        404,
+        `Definition '${normalizedDefinitionId}' not found.`,
+      );
+    }
+
+    if (manifestRow.hash === definitionRow.hash) {
+      return false;
+    }
+
+    const definitionContent = decodeDefinitionContent(definitionRow.content);
+    const parsedManifest = await parseRegisteredManifest(
+      this.adapter,
+      definitionContent,
+      normalizedServiceName,
+    );
+
+    try {
+      await db.transaction(async (tx) => {
+        await tx
+          .update(manifests)
+          .set({
+            definitionId: normalizedDefinitionId,
+            hash: definitionRow.hash,
+            metadata: parsedManifest.metadata,
+          })
+          .where(eq(manifests.id, normalizedServiceName));
+
+        await tx
+          .delete(tools)
+          .where(eq(tools.serviceName, normalizedServiceName));
+
+        if (parsedManifest.tools.length > 0) {
+          await tx.insert(tools).values(
+            parsedManifest.tools.map((tool) => ({
+              serviceName: normalizedServiceName,
+              name: tool.name,
+              metadata: tool.metadata,
+              inputSchema: tool.inputSchema,
+              outputSchema: tool.outputSchema,
+            })),
+          );
+        }
+      });
+    } catch (error) {
+      if (isUniqueConstraintViolation(error)) {
+        throw new HttpError(
+          409,
+          `Definition '${normalizedDefinitionId}' is already linked to another service.`,
+        );
+      }
+
+      throw new HttpError(
+        500,
+        `Failed to update manifest for service '${normalizedServiceName}'.`,
+      );
+    }
+
+    return true;
+  }
+
   async listTools(toolName?: string): Promise<ToolDefinitionResponse[]> {
     const normalizedToolName =
       typeof toolName === "string" ? normalizeToolName(toolName) : undefined;
