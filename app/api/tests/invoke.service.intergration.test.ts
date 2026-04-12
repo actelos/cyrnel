@@ -24,6 +24,7 @@ class TestProcessChannel extends EventEmitter implements ProcessMessageChannel {
 
   send(message: InvokeResponse): boolean {
     this.sent.push(message);
+    this.emit("sent", message);
     return true;
   }
 }
@@ -32,12 +33,19 @@ async function waitForMessageCount(
   channel: TestProcessChannel,
   count: number,
 ): Promise<void> {
-  const timeoutMs = 1_000;
-  const start = Date.now();
+  const maxTurns = 5_000;
 
-  while (channel.sent.length < count && Date.now() - start < timeoutMs) {
-    await new Promise((resolve) => setTimeout(resolve, 0));
+  for (let turn = 0; turn < maxTurns; turn += 1) {
+    if (channel.sent.length >= count) {
+      return;
+    }
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
   }
+
+  throw new Error(
+    `Timed out waiting for ${count} message(s); received ${channel.sent.length}.`,
+  );
 }
 
 interface StartedTestServer {
