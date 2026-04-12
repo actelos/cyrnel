@@ -17,9 +17,7 @@ export interface InvokeResponseMessage {
 export interface InvokeErrorResponseMessage {
   type: "tool.error";
   requestId: string;
-  error: {
-    message: string;
-  };
+  message: string;
 }
 
 export type InvokeResponse = InvokeResponseMessage | InvokeErrorResponseMessage;

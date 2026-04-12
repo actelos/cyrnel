@@ -300,10 +300,8 @@ describe("invoke echo integration", () => {
       {
         type: "tool.error",
         requestId: "req-missing-tool",
-        error: {
-          message:
-            "Tool 'does-not-exist' not found in manifest for service 'test-service'.",
-        },
+        message:
+          "Tool 'does-not-exist' not found in manifest for service 'test-service'.",
       },
     ]);
 

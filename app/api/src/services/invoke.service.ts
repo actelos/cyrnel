@@ -85,12 +85,10 @@ async function handleInvokeMessage(
     channel.send?.({
       type: "tool.error",
       requestId: message.requestId,
-      error: {
-        message:
-          error instanceof Error
-            ? error.message
-            : String(error ?? "Unknown error"),
-      },
+      message:
+        error instanceof Error
+          ? error.message
+          : String(error ?? "Unknown error"),
     });
   }
 }

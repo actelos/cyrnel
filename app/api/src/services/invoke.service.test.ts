@@ -158,9 +158,7 @@ describe("invoke.service", () => {
       {
         type: "tool.error",
         requestId: "req-2",
-        error: {
-          message: "boom",
-        },
+        message: "boom",
       },
     ]);
   });
