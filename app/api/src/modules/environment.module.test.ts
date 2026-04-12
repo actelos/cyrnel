@@ -147,6 +147,43 @@ describe("EnvironmentModule", () => {
 
       expect(outputs).toEqual([{ key: "greeting", value: "hello" }]);
     });
+
+    it("injects tools.discover and services.discover builtins", async () => {
+      const outputs = collect<EnvironmentOutputPatch>(mod, "output");
+
+      const status = await mod.execute(
+        `
+        const foundTools = await tools.discover({ query: "github issues", limit: 5 });
+        const foundServices = await services.discover({ query: "github", limit: 1 });
+        emitOutput("tools", foundTools);
+        return foundServices;
+      `,
+        {
+          builtins: {
+            tools: {
+              discover: async ({ query, limit }) => [
+                { query, limit, kind: "tool" },
+              ],
+            },
+            services: {
+              discover: async ({ query, limit }) => [
+                { query, limit, kind: "service" },
+              ],
+            },
+          },
+        },
+      );
+
+      expect(status).toBe("success");
+      expect(outputs).toContainEqual({
+        key: "tools",
+        value: [{ query: "github issues", limit: 5, kind: "tool" }],
+      });
+      expect(outputs).toContainEqual({
+        key: "result",
+        value: [{ query: "github", limit: 1, kind: "service" }],
+      });
+    });
   });
 
   describe("stdout stream", () => {

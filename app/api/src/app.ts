@@ -22,7 +22,9 @@ export function createApp() {
   app.locals.environmentPoolService = environmentPoolService;
   app.locals.manifestService = manifestService;
   app.locals.definitionService = definitionService;
-  app.locals.processService = new ProcessService(environmentPoolService);
+  app.locals.processService = new ProcessService(environmentPoolService, {
+    manifestService,
+  });
 
   app.use(pinoHttp({ logger }));
   app.use(cors());

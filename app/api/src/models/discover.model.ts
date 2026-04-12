@@ -7,12 +7,14 @@ export interface DiscoverToolsRequest {
   type: "tools.discover";
   requestId: string;
   query: string;
+  limit?: number;
 }
 
 export interface DiscoverServicesRequest {
   type: "services.discover";
   requestId: string;
   query: string;
+  limit?: number;
 }
 
 export type DiscoverRequest = DiscoverToolsRequest | DiscoverServicesRequest;

@@ -7,6 +7,25 @@ import type { ProcessStatus } from "@/models/process.model";
 
 export type ExecutionStatus = Extract<ProcessStatus, "success" | "failed">;
 
+export interface EnvironmentDiscoverInput {
+  query: string;
+  limit?: number;
+}
+
+export interface EnvironmentBuiltins {
+  tools?: {
+    discover?: (input: EnvironmentDiscoverInput) => Promise<unknown>;
+  };
+  services?: {
+    discover?: (input: EnvironmentDiscoverInput) => Promise<unknown>;
+  };
+}
+
+interface ExecuteOptions {
+  timeoutMs?: number | null;
+  builtins?: EnvironmentBuiltins;
+}
+
 export interface EnvironmentOutputPatch {
   key: string;
   value: unknown;
@@ -27,10 +46,20 @@ interface WorkerFailureMessage {
   error: { message: string; stack?: string };
 }
 
+interface WorkerBuiltinRequestMessage {
+  type: "builtin.request";
+  request: {
+    requestId: string;
+    builtin: "tools.discover" | "services.discover";
+    payload: unknown;
+  };
+}
+
 type WorkerMessage =
   | WorkerOutputMessage
   | WorkerResultMessage
-  | WorkerFailureMessage;
+  | WorkerFailureMessage
+  | WorkerBuiltinRequestMessage;
 
 const MAX_OUTPUT_BYTES = 5 * 1024 * 1024;
 
@@ -41,7 +70,7 @@ export class EnvironmentModule extends EventEmitter {
 
   async execute(
     code: string,
-    { timeoutMs }: { timeoutMs?: number | null } = {},
+    { timeoutMs, builtins }: ExecuteOptions = {},
   ): Promise<ExecutionStatus> {
     if (this.worker) {
       throw new Error("Execution already in progress");
@@ -50,7 +79,7 @@ export class EnvironmentModule extends EventEmitter {
     this.killed = false;
 
     const transpiled = transpileTypeScript(code);
-    const worker = this.createWorker(transpiled);
+    const worker = this.createWorker(transpiled, builtins !== undefined);
 
     this.worker = worker;
 
@@ -130,6 +159,26 @@ export class EnvironmentModule extends EventEmitter {
             this.emit("stderr", Buffer.from(message.error.message));
           }
           pendingStatus = "failed";
+          return;
+        }
+
+        if (message.type === "builtin.request") {
+          void this.handleBuiltinRequest(
+            worker,
+            message.request,
+            builtins,
+          ).catch((error: unknown) => {
+            worker.postMessage({
+              type: "builtin.error",
+              requestId: message.request.requestId,
+              error: {
+                message:
+                  error instanceof Error
+                    ? error.message
+                    : String(error ?? "Unknown builtin error"),
+              },
+            });
+          });
         }
       });
 
@@ -246,10 +295,46 @@ export class EnvironmentModule extends EventEmitter {
     refCounted?.unref?.();
   }
 
-  private createWorker(transpiledCode: string): Worker {
+  private createWorker(transpiledCode: string, hasBuiltins: boolean): Worker {
     return new Worker(
       `
         const { parentPort, workerData } = require("node:worker_threads");
+        const pendingBuiltinRequests = new Map();
+        let nextBuiltinRequestId = 1;
+        const hasBuiltins = workerData.hasBuiltins === true;
+
+        const onBuiltinMessage = (message) => {
+          if (!message || typeof message !== "object") {
+            return;
+          }
+
+          if (message.type !== "builtin.response" && message.type !== "builtin.error") {
+            return;
+          }
+
+          const pending = pendingBuiltinRequests.get(message.requestId);
+          if (!pending) {
+            return;
+          }
+
+          pendingBuiltinRequests.delete(message.requestId);
+
+          if (message.type === "builtin.response") {
+            pending.resolve(message.data);
+            return;
+          }
+
+          const errorMessage =
+            message.error && typeof message.error.message === "string"
+              ? message.error.message
+              : "Unknown builtin error";
+          pending.reject(new Error(errorMessage));
+        };
+
+        if (hasBuiltins) {
+          parentPort.on("message", onBuiltinMessage);
+        }
+
         function emitOutput(keyOrValue, value) {
           if (arguments.length === 1) {
             parentPort.postMessage({ type: "output", data: { key: "result", value: keyOrValue } });
@@ -262,13 +347,51 @@ export class EnvironmentModule extends EventEmitter {
 
           parentPort.postMessage({ type: "output", data: { key, value } });
         }
+
+        function callBuiltin(builtin, payload) {
+          if (!hasBuiltins) {
+            return Promise.reject(new Error("Builtin channel is not enabled."));
+          }
+
+          return new Promise((resolve, reject) => {
+            const requestId = String(nextBuiltinRequestId++);
+            pendingBuiltinRequests.set(requestId, { resolve, reject });
+            parentPort.postMessage({
+              type: "builtin.request",
+              request: {
+                requestId,
+                builtin,
+                payload,
+              },
+            });
+          });
+        }
+
+        const tools = Object.freeze({
+          discover: async (input) => callBuiltin("tools.discover", input),
+        });
+
+        const services = Object.freeze({
+          discover: async (input) => callBuiltin("services.discover", input),
+        });
+
         const runUserCode = async () => {
-          const runner = new Function("emitOutput", '"use strict"; return (async () => {\\n' + workerData.code + '\\n})();');
-          return runner(emitOutput);
+          const runner = new Function("emitOutput", "tools", "services", '"use strict"; return (async () => {\\n' + workerData.code + '\\n})();');
+          return runner(emitOutput, tools, services);
         };
         runUserCode()
-          .then((result) => parentPort.postMessage({ type: "result", data: result }))
+          .then((result) => {
+            if (hasBuiltins) {
+              parentPort.off("message", onBuiltinMessage);
+            }
+
+            parentPort.postMessage({ type: "result", data: result });
+          })
           .catch((error) => {
+            if (hasBuiltins) {
+              parentPort.off("message", onBuiltinMessage);
+            }
+
             parentPort.postMessage({
               type: "failure",
               error: error instanceof Error
@@ -281,9 +404,42 @@ export class EnvironmentModule extends EventEmitter {
         eval: true,
         stdout: true,
         stderr: true,
-        workerData: { code: transpiledCode },
+        workerData: { code: transpiledCode, hasBuiltins },
       },
     );
+  }
+
+  private async handleBuiltinRequest(
+    worker: Worker,
+    request: WorkerBuiltinRequestMessage["request"],
+    builtins: EnvironmentBuiltins | undefined,
+  ): Promise<void> {
+    const payload = normalizeDiscoverInput(request.payload);
+
+    if (request.builtin === "tools.discover") {
+      if (!builtins?.tools?.discover) {
+        throw new Error("Builtin 'tools.discover' is not configured.");
+      }
+
+      const data = await builtins.tools.discover(payload);
+      worker.postMessage({
+        type: "builtin.response",
+        requestId: request.requestId,
+        data,
+      });
+      return;
+    }
+
+    if (!builtins?.services?.discover) {
+      throw new Error("Builtin 'services.discover' is not configured.");
+    }
+
+    const data = await builtins.services.discover(payload);
+    worker.postMessage({
+      type: "builtin.response",
+      requestId: request.requestId,
+      data,
+    });
   }
 }
 
@@ -304,4 +460,36 @@ function transpileTypeScript(code: string): string {
   }
 
   return result.outputText;
+}
+
+function normalizeDiscoverInput(payload: unknown): EnvironmentDiscoverInput {
+  if (!payload || typeof payload !== "object") {
+    throw new Error("Discover input must be an object.");
+  }
+
+  const candidate = payload as { query?: unknown; limit?: unknown };
+
+  if (typeof candidate.query !== "string") {
+    throw new Error("Field 'query' must be a string.");
+  }
+
+  const normalizedQuery = candidate.query.trim();
+  if (normalizedQuery.length === 0) {
+    throw new Error("Field 'query' must not be empty.");
+  }
+
+  if (candidate.limit === undefined) {
+    return { query: normalizedQuery };
+  }
+
+  const limit = candidate.limit;
+
+  if (typeof limit !== "number" || !Number.isInteger(limit) || limit <= 0) {
+    throw new Error("Field 'limit' must be a positive integer.");
+  }
+
+  return {
+    query: normalizedQuery,
+    limit,
+  };
 }

@@ -10,10 +10,12 @@ import type {
   StoredProcess,
 } from "@/models/process.model";
 import type {
+  EnvironmentBuiltins,
   EnvironmentModule,
   EnvironmentOutputPatch,
   ExecutionStatus,
 } from "@/modules/environment.module";
+import type { ManifestService } from "@/services/manifest.service";
 import type { EnvironmentPoolService } from "@/services/pool.service";
 
 class ProcessExecutionTimeoutError extends Error {
@@ -37,6 +39,10 @@ export class ProcessService {
     private readonly environmentPoolService: EnvironmentPoolService,
     private readonly options: {
       executeTimeoutMs?: number;
+      manifestService?: Pick<
+        ManifestService,
+        "discoverServices" | "discoverTools"
+      >;
     } = {},
   ) {}
 
@@ -380,7 +386,12 @@ export class ProcessService {
       const timeoutMs =
         stored.timeoutMs === undefined ? defaultTimeoutMs : stored.timeoutMs;
 
-      const execution = environmentModule.execute(stored.code, { timeoutMs });
+      const builtins = this.createEnvironmentBuiltins();
+
+      const execution = environmentModule.execute(stored.code, {
+        timeoutMs,
+        ...(builtins ? { builtins } : {}),
+      });
       const status =
         timeoutMs === null
           ? await execution
@@ -473,5 +484,24 @@ export class ProcessService {
         clearTimeout(timeoutHandle);
       }
     }
+  }
+
+  private createEnvironmentBuiltins(): EnvironmentBuiltins | undefined {
+    if (!this.options.manifestService) {
+      return undefined;
+    }
+
+    const { manifestService } = this.options;
+
+    return {
+      tools: {
+        discover: ({ query, limit }) =>
+          manifestService.discoverTools(query, limit),
+      },
+      services: {
+        discover: ({ query, limit }) =>
+          manifestService.discoverServices(query, limit),
+      },
+    };
   }
 }

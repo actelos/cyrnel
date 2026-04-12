@@ -379,8 +379,12 @@ export class ManifestService {
     return true;
   }
 
-  async discoverTools(query: string): Promise<ToolDefinitionResponse[]> {
+  async discoverTools(
+    query: string,
+    limit?: number,
+  ): Promise<ToolDefinitionResponse[]> {
     const normalizedQuery = normalizeDiscoverQuery(query);
+    const normalizedLimit = normalizeDiscoverLimit(limit);
 
     let rows: ToolDefinitionResponse[];
     try {
@@ -398,31 +402,39 @@ export class ManifestService {
     }
 
     if (normalizedQuery.length === 0) {
-      return rows;
+      return applyDiscoverLimit(rows, normalizedLimit);
     }
 
     const loweredQuery = normalizedQuery.toLowerCase();
 
-    return rows.filter(
+    const filtered = rows.filter(
       (row) =>
         row.name.toLowerCase().includes(loweredQuery) ||
         row.serviceName.toLowerCase().includes(loweredQuery),
     );
+
+    return applyDiscoverLimit(filtered, normalizedLimit);
   }
 
-  async discoverServices(query: string): Promise<ServiceManifestResponse[]> {
+  async discoverServices(
+    query: string,
+    limit?: number,
+  ): Promise<ServiceManifestResponse[]> {
     const normalizedQuery = normalizeDiscoverQuery(query);
+    const normalizedLimit = normalizeDiscoverLimit(limit);
     const services = await this.listServices();
 
     if (normalizedQuery.length === 0) {
-      return services;
+      return applyDiscoverLimit(services, normalizedLimit);
     }
 
     const loweredQuery = normalizedQuery.toLowerCase();
 
-    return services.filter((service) =>
+    const filtered = services.filter((service) =>
       service.name.toLowerCase().includes(loweredQuery),
     );
+
+    return applyDiscoverLimit(filtered, normalizedLimit);
   }
 
   async getTool(
@@ -553,6 +565,26 @@ function normalizeDiscoverQuery(query: string): string {
   }
 
   return query.trim();
+}
+
+function normalizeDiscoverLimit(limit: unknown): number | undefined {
+  if (limit === undefined) {
+    return undefined;
+  }
+
+  if (typeof limit !== "number" || !Number.isInteger(limit) || limit <= 0) {
+    throw new HttpError(400, "Field 'limit' must be a positive integer.");
+  }
+
+  return limit;
+}
+
+function applyDiscoverLimit<T>(items: T[], limit: number | undefined): T[] {
+  if (limit === undefined) {
+    return items;
+  }
+
+  return items.slice(0, limit);
 }
 
 function normalizeDefinitionId(definitionId: string): string {

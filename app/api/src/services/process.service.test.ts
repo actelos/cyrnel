@@ -331,6 +331,63 @@ describe("ProcessService", () => {
     expect(execute).toHaveBeenCalledWith("code", { timeoutMs: null });
   });
 
+  it("injects discover builtins when manifestService is configured", async () => {
+    const execute = vi.fn(
+      async (
+        _code: string,
+        options?: { timeoutMs?: number | null; builtins?: unknown },
+      ): Promise<ExecutionStatus> => {
+        const builtins = options?.builtins as
+          | {
+              tools?: {
+                discover?: (input: {
+                  query: string;
+                  limit?: number;
+                }) => Promise<unknown>;
+              };
+              services?: {
+                discover?: (input: {
+                  query: string;
+                  limit?: number;
+                }) => Promise<unknown>;
+              };
+            }
+          | undefined;
+
+        await builtins?.tools?.discover?.({ query: "github issues", limit: 5 });
+        await builtins?.services?.discover?.({ query: "github", limit: 1 });
+
+        return "success";
+      },
+    );
+
+    const module = new TestEnvironmentModule((code, options) =>
+      execute(
+        code,
+        options as { timeoutMs?: number | null; builtins?: unknown },
+      ),
+    );
+    const pool = new TestEnvironmentPoolService(
+      () => module as unknown as EnvironmentModule,
+    );
+
+    const manifestService = {
+      discoverTools: vi.fn(async () => []),
+      discoverServices: vi.fn(async () => []),
+    };
+
+    const service = new ProcessService(pool, { manifestService });
+
+    const pid = service.create("code");
+    await waitForState(service, pid, "idle");
+
+    expect(manifestService.discoverTools).toHaveBeenCalledWith(
+      "github issues",
+      5,
+    );
+    expect(manifestService.discoverServices).toHaveBeenCalledWith("github", 1);
+  });
+
   it("marks timeout during termination as canceled", async () => {
     vi.useFakeTimers();
 

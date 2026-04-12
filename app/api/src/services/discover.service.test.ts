@@ -56,7 +56,10 @@ describe("discover.service", () => {
 
     await flushMessageHandling();
 
-    expect(manifestService.discoverTools).toHaveBeenCalledWith("echo");
+    expect(manifestService.discoverTools).toHaveBeenCalledWith(
+      "echo",
+      undefined,
+    );
     expect(channel.sent).toEqual([
       {
         type: "tools.response",
@@ -93,7 +96,10 @@ describe("discover.service", () => {
 
     await flushMessageHandling();
 
-    expect(manifestService.discoverServices).toHaveBeenCalledWith("svc");
+    expect(manifestService.discoverServices).toHaveBeenCalledWith(
+      "svc",
+      undefined,
+    );
     expect(channel.sent).toEqual([
       {
         type: "services.response",
@@ -132,6 +138,24 @@ describe("discover.service", () => {
     ]);
   });
 
+  it("passes the discover limit through to manifestService", async () => {
+    const channel = new TestDiscoverChannel();
+    manifestService.discoverTools.mockResolvedValueOnce([]);
+
+    createDiscoverMessageSystem(channel, { manifestService });
+
+    channel.emit("message", {
+      type: "tools.discover",
+      requestId: "req-tools-limit",
+      query: "github",
+      limit: 5,
+    });
+
+    await flushMessageHandling();
+
+    expect(manifestService.discoverTools).toHaveBeenCalledWith("github", 5);
+  });
+
   it("ignores invalid process messages", async () => {
     const channel = new TestDiscoverChannel();
 
@@ -147,6 +171,12 @@ describe("discover.service", () => {
       type: "tools.discover",
       requestId: "req-tools-3",
       query: 42,
+    });
+    channel.emit("message", {
+      type: "tools.discover",
+      requestId: "req-tools-4",
+      query: "ok",
+      limit: 0,
     });
 
     await flushMessageHandling();
