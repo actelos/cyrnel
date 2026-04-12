@@ -219,7 +219,7 @@ describe("manifest.service", () => {
     });
   });
 
-  it("lists tools with and without name filter", async () => {
+  it("discovers tools with and without name filter", async () => {
     const service = new ManifestService();
     await db.insert(manifests).values({
       id: "svc-tools",
@@ -252,7 +252,7 @@ describe("manifest.service", () => {
       },
     ]);
 
-    await expect(service.listTools("echo")).resolves.toEqual([
+    await expect(service.discoverTools("echo")).resolves.toEqual([
       {
         serviceName: "svc-tools",
         name: "echo",
@@ -267,13 +267,22 @@ describe("manifest.service", () => {
       },
     ]);
 
-    await expect(service.listTools()).resolves.toEqual([
+    await expect(service.discoverTools("")).resolves.toEqual([
       {
         serviceName: "svc-tools",
         name: "echo",
         inputSchema: { type: "object" },
         outputSchema: { type: "string" },
       },
+      {
+        serviceName: "svc-tools-2",
+        name: "echo",
+        inputSchema: { type: "object" },
+        outputSchema: { type: "number" },
+      },
+    ]);
+
+    await expect(service.discoverTools("tools-2")).resolves.toEqual([
       {
         serviceName: "svc-tools-2",
         name: "echo",
@@ -334,6 +343,43 @@ describe("manifest.service", () => {
       {
         name: "svc-2",
         hash: "hash-svc-2",
+        tools: [],
+      },
+    ]);
+  });
+
+  it("discovers services by query in service name", async () => {
+    const service = new ManifestService();
+    await db.insert(manifests).values([
+      {
+        id: "svc-alpha",
+        hash: "hash-svc-alpha",
+        metadata: { serverUrl: "http://127.0.0.1:8101" },
+      },
+      {
+        id: "svc-beta",
+        hash: "hash-svc-beta",
+        metadata: { serverUrl: "http://127.0.0.1:8102" },
+      },
+    ]);
+
+    await expect(service.discoverServices("alp")).resolves.toEqual([
+      {
+        name: "svc-alpha",
+        hash: "hash-svc-alpha",
+        tools: [],
+      },
+    ]);
+
+    await expect(service.discoverServices("")).resolves.toEqual([
+      {
+        name: "svc-alpha",
+        hash: "hash-svc-alpha",
+        tools: [],
+      },
+      {
+        name: "svc-beta",
+        hash: "hash-svc-beta",
         tools: [],
       },
     ]);
@@ -435,9 +481,9 @@ describe("manifest.service", () => {
 
     await service.createService("svc-update", "def-old");
 
-    await expect(service.updateService("svc-update", "def-new")).resolves.toBe(
-      true,
-    );
+    await expect(
+      service.updateService("svc-update", "def-new"),
+    ).resolves.toBe(true);
 
     await expect(service.getService("svc-update")).resolves.toEqual({
       name: "svc-update",

@@ -379,25 +379,12 @@ export class ManifestService {
     return true;
   }
 
-  async listTools(toolName?: string): Promise<ToolDefinitionResponse[]> {
-    const normalizedToolName =
-      typeof toolName === "string" ? normalizeToolName(toolName) : undefined;
+  async discoverTools(query: string): Promise<ToolDefinitionResponse[]> {
+    const normalizedQuery = normalizeDiscoverQuery(query);
 
+    let rows: ToolDefinitionResponse[];
     try {
-      if (normalizedToolName) {
-        return await db
-          .select({
-            serviceName: tools.serviceName,
-            name: tools.name,
-            inputSchema: tools.inputSchema,
-            outputSchema: tools.outputSchema,
-          })
-          .from(tools)
-          .where(eq(tools.name, normalizedToolName))
-          .orderBy(asc(tools.serviceName), asc(tools.name));
-      }
-
-      return await db
+      rows = await db
         .select({
           serviceName: tools.serviceName,
           name: tools.name,
@@ -407,15 +394,34 @@ export class ManifestService {
         .from(tools)
         .orderBy(asc(tools.serviceName), asc(tools.name));
     } catch {
-      if (normalizedToolName) {
-        throw new HttpError(
-          500,
-          `Failed to list tools named '${normalizedToolName}'.`,
-        );
-      }
-
-      throw new HttpError(500, "Failed to list tools.");
+      throw new HttpError(500, "Failed to discover tools.");
     }
+
+    if (normalizedQuery.length === 0) {
+      return rows;
+    }
+
+    const loweredQuery = normalizedQuery.toLowerCase();
+
+    return rows.filter((row) =>
+      row.name.toLowerCase().includes(loweredQuery) ||
+      row.serviceName.toLowerCase().includes(loweredQuery),
+    );
+  }
+
+  async discoverServices(query: string): Promise<ServiceManifestResponse[]> {
+    const normalizedQuery = normalizeDiscoverQuery(query);
+    const services = await this.listServices();
+
+    if (normalizedQuery.length === 0) {
+      return services;
+    }
+
+    const loweredQuery = normalizedQuery.toLowerCase();
+
+    return services.filter((service) =>
+      service.name.toLowerCase().includes(loweredQuery),
+    );
   }
 
   async getTool(
@@ -538,6 +544,14 @@ function normalizeToolName(toolName: string): string {
   }
 
   return normalized;
+}
+
+function normalizeDiscoverQuery(query: string): string {
+  if (typeof query !== "string") {
+    throw new HttpError(400, "Field 'query' must be a string.");
+  }
+
+  return query.trim();
 }
 
 function normalizeDefinitionId(definitionId: string): string {
