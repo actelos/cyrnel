@@ -4,6 +4,7 @@ import {
   createDefinition,
   deleteDefinition,
   getDefinition,
+  installDefinition,
   listDefinitions,
 } from "@/controllers/definition.controller";
 
@@ -19,4 +20,5 @@ definitionRouter.post(
   }),
   createDefinition,
 );
+definitionRouter.post("/install", installDefinition);
 definitionRouter.delete("/:definitionId", deleteDefinition);

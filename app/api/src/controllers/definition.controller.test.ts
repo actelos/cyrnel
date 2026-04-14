@@ -5,6 +5,7 @@ import {
   createDefinition,
   deleteDefinition,
   getDefinition,
+  installDefinition,
   listDefinitions,
 } from "@/controllers/definition.controller";
 
@@ -12,6 +13,7 @@ const definitionService = {
   listDefinitions: vi.fn(),
   getDefinition: vi.fn(),
   createDefinition: vi.fn(),
+  installDefinitionFromRegistry: vi.fn(),
   deleteDefinition: vi.fn(),
 };
 
@@ -118,5 +120,35 @@ describe("definition.controller", () => {
     expect(definitionService.deleteDefinition).toHaveBeenCalledWith("def-1");
     expect(res.status).toHaveBeenCalledWith(204);
     expect(res.send).toHaveBeenCalledWith();
+  });
+
+  it("installs a definition from registry source", async () => {
+    const res = makeRes();
+    const req = makeReq({
+      body: {
+        type: "foo",
+        metadata: {
+          file_url: "https://registry.example.com/definition.json",
+        },
+      },
+    });
+    definitionService.installDefinitionFromRegistry.mockResolvedValue({
+      id: "def-3",
+      type: "foo",
+      hash: "hash-3",
+    });
+
+    await installDefinition(req, res as unknown as Response);
+
+    expect(definitionService.installDefinitionFromRegistry).toHaveBeenCalledWith(
+      "foo",
+      "https://registry.example.com/definition.json",
+    );
+    expect(res.status).toHaveBeenCalledWith(201);
+    expect(res.json).toHaveBeenCalledWith({
+      id: "def-3",
+      type: "foo",
+      hash: "hash-3",
+    });
   });
 });

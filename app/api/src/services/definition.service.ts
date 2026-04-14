@@ -12,7 +12,17 @@ import {
 import { HttpError } from "@/models/error.model";
 import { computeContentHash } from "@/utils/hash.util";
 
+interface DefinitionServiceOptions {
+  fetchImpl?: typeof fetch;
+}
+
 export class DefinitionService {
+  private readonly fetchImpl: typeof fetch;
+
+  constructor(options: DefinitionServiceOptions = {}) {
+    this.fetchImpl = options.fetchImpl ?? fetch;
+  }
+
   async listDefinitions(): Promise<DefinitionResponse[]> {
     try {
       return await db
@@ -98,6 +108,47 @@ export class DefinitionService {
     };
   }
 
+  async installDefinitionFromRegistry(
+    type: string,
+    fileUrl: string,
+  ): Promise<DefinitionResponse> {
+    const normalizedFileUrl = normalizeDefinitionFileUrl(fileUrl);
+
+    let response: Response;
+    try {
+      response = await this.fetchImpl(normalizedFileUrl, {
+        method: "GET",
+        headers: {
+          accept: "application/json, text/plain, application/octet-stream",
+        },
+      });
+    } catch {
+      throw new HttpError(
+        502,
+        `Failed to download definition file from '${normalizedFileUrl}'.`,
+      );
+    }
+
+    if (!response.ok) {
+      throw new HttpError(
+        502,
+        `Failed to download definition file from '${normalizedFileUrl}' with status ${response.status}.`,
+      );
+    }
+
+    let content: string;
+    try {
+      content = await response.text();
+    } catch {
+      throw new HttpError(
+        502,
+        `Failed to read definition file downloaded from '${normalizedFileUrl}'.`,
+      );
+    }
+
+    return this.createDefinition(type, content);
+  }
+
   async deleteDefinition(definitionId: string): Promise<void> {
     const normalizedDefinitionId = normalizeDefinitionId(definitionId);
 
@@ -162,6 +213,34 @@ function normalizeDefinitionId(definitionId: string): string {
   }
 
   return normalized;
+}
+
+function normalizeDefinitionFileUrl(fileUrl: string): string {
+  if (typeof fileUrl !== "string") {
+    throw new HttpError(400, "Field 'file_url' must be a string.");
+  }
+
+  const normalized = fileUrl.trim();
+
+  if (!normalized) {
+    throw new HttpError(400, "Field 'file_url' must not be empty.");
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(normalized);
+  } catch {
+    throw new HttpError(400, "Field 'file_url' must be a valid URL.");
+  }
+
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new HttpError(
+      400,
+      "Field 'file_url' must use the http or https protocol.",
+    );
+  }
+
+  return parsed.toString();
 }
 
 function isUniqueConstraintViolation(error: unknown): boolean {
