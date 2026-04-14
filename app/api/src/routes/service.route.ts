@@ -13,5 +13,5 @@ export const serviceRouter = Router();
 serviceRouter.get("/", listServices);
 serviceRouter.get("/:serviceName", getService);
 serviceRouter.post("/:serviceName", createService);
-serviceRouter.put("/:serviceName", updateService);
+serviceRouter.post("/:serviceName/upgrade", updateService);
 serviceRouter.delete("/:serviceName", deleteService);
