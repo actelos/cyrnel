@@ -180,7 +180,7 @@ describe("discover.service integration", () => {
     disposers.push(dispose);
 
     channel.emit("message", {
-      type: "tools.discover",
+      type: "discover.tools",
       requestId: "req-tools-all",
       query: "   ",
     });
@@ -255,7 +255,7 @@ describe("discover.service integration", () => {
     disposers.push(dispose);
 
     channel.emit("message", {
-      type: "tools.discover",
+      type: "discover.tools",
       requestId: "req-tools-name-filter",
       query: " EcHo ",
     });
@@ -301,7 +301,7 @@ describe("discover.service integration", () => {
     disposers.push(dispose);
 
     channel.emit("message", {
-      type: "tools.discover",
+      type: "discover.tools",
       requestId: "req-tools-service-filter",
       query: "BETA",
     });
@@ -352,7 +352,7 @@ describe("discover.service integration", () => {
     disposers.push(dispose);
 
     channel.emit("message", {
-      type: "tools.discover",
+      type: "discover.tools",
       requestId: "req-tools-empty",
       query: "does-not-exist",
     });
@@ -376,7 +376,7 @@ describe("discover.service integration", () => {
     disposers.push(dispose);
 
     channel.emit("message", {
-      type: "services.discover",
+      type: "discover.services",
       requestId: "req-services-all",
       query: "",
     });
@@ -464,7 +464,7 @@ describe("discover.service integration", () => {
     disposers.push(dispose);
 
     channel.emit("message", {
-      type: "services.discover",
+      type: "discover.services",
       requestId: "req-services-filter",
       query: "  BeTa ",
     });
@@ -519,7 +519,7 @@ describe("discover.service integration", () => {
     disposers.push(dispose);
 
     channel.emit("message", {
-      type: "services.discover",
+      type: "discover.services",
       requestId: "req-services-empty",
       query: "nope",
     });
@@ -545,7 +545,7 @@ describe("discover.service integration", () => {
     await db.run(sql`DROP TABLE tools`);
 
     channel.emit("message", {
-      type: "tools.discover",
+      type: "discover.tools",
       requestId: "req-tools-db-error",
       query: "echo",
     });
@@ -571,7 +571,7 @@ describe("discover.service integration", () => {
     await db.run(sql`DROP TABLE manifests`);
 
     channel.emit("message", {
-      type: "services.discover",
+      type: "discover.services",
       requestId: "req-services-db-error",
       query: "svc",
     });

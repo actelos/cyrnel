@@ -148,7 +148,7 @@ describe("EnvironmentModule", () => {
       expect(outputs).toEqual([{ key: "greeting", value: "hello" }]);
     });
 
-    it("injects tools.discover and services.discover builtins", async () => {
+    it("injects discover.tools and discover.services builtins", async () => {
       const outputs = collect<EnvironmentOutputPatch>(mod, "output");
 
       const status = await mod.execute(

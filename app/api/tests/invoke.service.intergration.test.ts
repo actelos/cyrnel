@@ -248,7 +248,7 @@ describe("invoke echo integration", () => {
     await server.close();
   });
 
-  it("sends tool.invoke to echo tool and receives echoed output", async () => {
+  it("sends invoke.tool to echo tool and receives echoed output", async () => {
     const adapter = new AdapterModule({ baseUrl: server.baseUrl });
     const channel = new TestProcessChannel();
     const manifestService = new ManifestService();
@@ -256,7 +256,7 @@ describe("invoke echo integration", () => {
     createProcessMessageSystem(adapter, channel, { manifestService });
 
     channel.emit("message", {
-      type: "tool.invoke",
+      type: "invoke.tool",
       requestId: "req-echo",
       serviceName: "test-service",
       toolName: "echo",
@@ -269,7 +269,7 @@ describe("invoke echo integration", () => {
 
     expect(channel.sent).toEqual([
       {
-        type: "tool.response",
+        type: "invoke.response",
         requestId: "req-echo",
         output: "hello echo",
       },
@@ -285,7 +285,7 @@ describe("invoke echo integration", () => {
     ]);
   });
 
-  it("returns tool.error when the requested tool is not in the manifest", async () => {
+  it("returns invoke.error when the requested tool is not in the manifest", async () => {
     const adapter = new AdapterModule({ baseUrl: server.baseUrl });
     const channel = new TestProcessChannel();
     const manifestService = new ManifestService();
@@ -293,7 +293,7 @@ describe("invoke echo integration", () => {
     createProcessMessageSystem(adapter, channel, { manifestService });
 
     channel.emit("message", {
-      type: "tool.invoke",
+      type: "invoke.tool",
       requestId: "req-missing-tool",
       serviceName: "test-service",
       toolName: "does-not-exist",
@@ -306,7 +306,7 @@ describe("invoke echo integration", () => {
 
     expect(channel.sent).toEqual([
       {
-        type: "tool.error",
+        type: "invoke.error",
         requestId: "req-missing-tool",
         message:
           "Tool 'does-not-exist' not found in manifest for service 'test-service'.",
@@ -316,7 +316,7 @@ describe("invoke echo integration", () => {
     expect(server.calls).toEqual([]);
   });
 
-  it("returns tool.error when invoke parameters do not match schema", async () => {
+  it("returns invoke.error when invoke parameters do not match schema", async () => {
     const adapter = new AdapterModule({ baseUrl: server.baseUrl });
     const channel = new TestProcessChannel();
     const manifestService = new ManifestService();
@@ -324,7 +324,7 @@ describe("invoke echo integration", () => {
     createProcessMessageSystem(adapter, channel, { manifestService });
 
     channel.emit("message", {
-      type: "tool.invoke",
+      type: "invoke.tool",
       requestId: "req-invalid-input",
       serviceName: "test-service",
       toolName: "echo",
@@ -337,13 +337,13 @@ describe("invoke echo integration", () => {
 
     expect(channel.sent).toHaveLength(1);
     expect(channel.sent[0]).toMatchObject({
-      type: "tool.error",
+      type: "invoke.error",
       requestId: "req-invalid-input",
     });
     expect(server.calls).toEqual([]);
   });
 
-  it("returns tool.error when tool output does not match schema", async () => {
+  it("returns invoke.error when tool output does not match schema", async () => {
     const adapter = new AdapterModule({ baseUrl: server.baseUrl });
     const channel = new TestProcessChannel();
     const manifestService = new ManifestService();
@@ -351,7 +351,7 @@ describe("invoke echo integration", () => {
     createProcessMessageSystem(adapter, channel, { manifestService });
 
     channel.emit("message", {
-      type: "tool.invoke",
+      type: "invoke.tool",
       requestId: "req-broken-output",
       serviceName: "test-service",
       toolName: "broken-output",
@@ -362,7 +362,7 @@ describe("invoke echo integration", () => {
 
     expect(channel.sent).toHaveLength(1);
     expect(channel.sent[0]).toMatchObject({
-      type: "tool.error",
+      type: "invoke.error",
       requestId: "req-broken-output",
     });
     expect(server.calls).toEqual([

@@ -4,14 +4,14 @@ import type {
 } from "@/models/manifest.model";
 
 export interface DiscoverToolsRequest {
-  type: "tools.discover";
+  type: "discover.tools";
   requestId: string;
   query: string;
   limit?: number;
 }
 
 export interface DiscoverServicesRequest {
-  type: "services.discover";
+  type: "discover.services";
   requestId: string;
   query: string;
   limit?: number;

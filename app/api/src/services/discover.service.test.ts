@@ -35,7 +35,7 @@ describe("discover.service", () => {
     vi.clearAllMocks();
   });
 
-  it("handles tools.discover and sends tools.response", async () => {
+  it("handles discover.tools and sends tools.response", async () => {
     const channel = new TestDiscoverChannel();
     manifestService.discoverTools.mockResolvedValueOnce([
       {
@@ -49,7 +49,7 @@ describe("discover.service", () => {
     createDiscoverMessageSystem(channel, { manifestService });
 
     channel.emit("message", {
-      type: "tools.discover",
+      type: "discover.tools",
       requestId: "req-tools-1",
       query: "echo",
     });
@@ -76,7 +76,7 @@ describe("discover.service", () => {
     ]);
   });
 
-  it("handles services.discover and sends services.response", async () => {
+  it("handles discover.services and sends services.response", async () => {
     const channel = new TestDiscoverChannel();
     manifestService.discoverServices.mockResolvedValueOnce([
       {
@@ -89,7 +89,7 @@ describe("discover.service", () => {
     createDiscoverMessageSystem(channel, { manifestService });
 
     channel.emit("message", {
-      type: "services.discover",
+      type: "discover.services",
       requestId: "req-services-1",
       query: "svc",
     });
@@ -122,7 +122,7 @@ describe("discover.service", () => {
     createDiscoverMessageSystem(channel, { manifestService });
 
     channel.emit("message", {
-      type: "tools.discover",
+      type: "discover.tools",
       requestId: "req-tools-2",
       query: "echo",
     });
@@ -145,7 +145,7 @@ describe("discover.service", () => {
     createDiscoverMessageSystem(channel, { manifestService });
 
     channel.emit("message", {
-      type: "tools.discover",
+      type: "discover.tools",
       requestId: "req-tools-limit",
       query: "github",
       limit: 5,
@@ -163,17 +163,17 @@ describe("discover.service", () => {
 
     channel.emit("message", { type: "unknown" });
     channel.emit("message", {
-      type: "services.discover",
+      type: "discover.services",
       requestId: "",
       query: "svc",
     });
     channel.emit("message", {
-      type: "tools.discover",
+      type: "discover.tools",
       requestId: "req-tools-3",
       query: 42,
     });
     channel.emit("message", {
-      type: "tools.discover",
+      type: "discover.tools",
       requestId: "req-tools-4",
       query: "ok",
       limit: 0,

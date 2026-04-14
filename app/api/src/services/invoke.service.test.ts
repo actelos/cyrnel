@@ -66,7 +66,7 @@ describe("invoke.service", () => {
     vi.clearAllMocks();
   });
 
-  it("handles tool.invoke and sends tool.response", async () => {
+  it("handles invoke.tool and sends invoke.response", async () => {
     const adapter = new AdapterModule({
       baseUrl: "http://127.0.0.1:9999",
       fetchImpl: vi.fn<typeof fetch>(),
@@ -79,7 +79,7 @@ describe("invoke.service", () => {
     createProcessMessageSystem(adapter, channel, { manifestService });
 
     channel.emit("message", {
-      type: "tool.invoke",
+      type: "invoke.tool",
       requestId: "req-1",
       serviceName: "service-1",
       toolName: "tool-1",
@@ -98,7 +98,7 @@ describe("invoke.service", () => {
     );
     expect(channel.sent).toEqual([
       {
-        type: "tool.response",
+        type: "invoke.response",
         requestId: "req-1",
         output: "hello world",
       },
@@ -119,7 +119,7 @@ describe("invoke.service", () => {
     channel.emit("message", { type: "unknown" });
     channel.emit("message", null);
     channel.emit("message", {
-      type: "tool.invoke",
+      type: "invoke.tool",
       requestId: "",
       serviceName: "service-1",
       toolName: "tool-1",
@@ -132,7 +132,7 @@ describe("invoke.service", () => {
     expect(channel.sent).toEqual([]);
   });
 
-  it("sends tool.error when invoke throws", async () => {
+  it("sends invoke.error when invoke throws", async () => {
     const adapter = new AdapterModule({
       baseUrl: "http://127.0.0.1:9999",
       fetchImpl: vi.fn<typeof fetch>(),
@@ -145,7 +145,7 @@ describe("invoke.service", () => {
     createProcessMessageSystem(adapter, channel, { manifestService });
 
     channel.emit("message", {
-      type: "tool.invoke",
+      type: "invoke.tool",
       requestId: "req-2",
       serviceName: "service-1",
       toolName: "tool-1",
@@ -156,14 +156,14 @@ describe("invoke.service", () => {
 
     expect(channel.sent).toEqual([
       {
-        type: "tool.error",
+        type: "invoke.error",
         requestId: "req-2",
         message: "boom",
       },
     ]);
   });
 
-  it("sends tool.error when input parameters do not match schema", async () => {
+  it("sends invoke.error when input parameters do not match schema", async () => {
     const adapter = new AdapterModule({
       baseUrl: "http://127.0.0.1:9999",
       fetchImpl: vi.fn<typeof fetch>(),
@@ -197,7 +197,7 @@ describe("invoke.service", () => {
     createProcessMessageSystem(adapter, channel, { manifestService });
 
     channel.emit("message", {
-      type: "tool.invoke",
+      type: "invoke.tool",
       requestId: "req-3",
       serviceName: "service-1",
       toolName: "tool-1",
@@ -209,12 +209,12 @@ describe("invoke.service", () => {
     expect(invokeSpy).not.toHaveBeenCalled();
     expect(channel.sent).toHaveLength(1);
     expect(channel.sent[0]).toMatchObject({
-      type: "tool.error",
+      type: "invoke.error",
       requestId: "req-3",
     });
   });
 
-  it("sends tool.error when adapter output does not match schema", async () => {
+  it("sends invoke.error when adapter output does not match schema", async () => {
     const adapter = new AdapterModule({
       baseUrl: "http://127.0.0.1:9999",
       fetchImpl: vi.fn<typeof fetch>(),
@@ -244,7 +244,7 @@ describe("invoke.service", () => {
     createProcessMessageSystem(adapter, channel, { manifestService });
 
     channel.emit("message", {
-      type: "tool.invoke",
+      type: "invoke.tool",
       requestId: "req-4",
       serviceName: "service-1",
       toolName: "tool-1",
@@ -255,7 +255,7 @@ describe("invoke.service", () => {
 
     expect(channel.sent).toHaveLength(1);
     expect(channel.sent[0]).toMatchObject({
-      type: "tool.error",
+      type: "invoke.error",
       requestId: "req-4",
     });
   });

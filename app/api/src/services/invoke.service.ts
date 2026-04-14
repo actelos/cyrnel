@@ -77,13 +77,13 @@ async function handleInvokeMessage(
     );
 
     channel.send?.({
-      type: "tool.response",
+      type: "invoke.response",
       requestId: message.requestId,
       output,
     });
   } catch (error) {
     channel.send?.({
-      type: "tool.error",
+      type: "invoke.error",
       requestId: message.requestId,
       message:
         error instanceof Error
@@ -101,7 +101,7 @@ function isInvokeMessage(message: unknown): message is InvokeRequest {
   const candidate = message as Partial<InvokeRequest>;
 
   return (
-    candidate.type === "tool.invoke" &&
+    candidate.type === "invoke.tool" &&
     typeof candidate.requestId === "string" &&
     candidate.requestId.length > 0 &&
     typeof candidate.serviceName === "string" &&

@@ -50,7 +50,7 @@ interface WorkerBuiltinRequestMessage {
   type: "builtin.request";
   request: {
     requestId: string;
-    builtin: "tools.discover" | "services.discover";
+    builtin: "discover.tools" | "discover.services";
     payload: unknown;
   };
 }
@@ -368,11 +368,11 @@ export class EnvironmentModule extends EventEmitter {
         }
 
         const tools = Object.freeze({
-          discover: async (input) => callBuiltin("tools.discover", input),
+          discover: async (input) => callBuiltin("discover.tools", input),
         });
 
         const services = Object.freeze({
-          discover: async (input) => callBuiltin("services.discover", input),
+          discover: async (input) => callBuiltin("discover.services", input),
         });
 
         const runUserCode = async () => {
@@ -416,9 +416,9 @@ export class EnvironmentModule extends EventEmitter {
   ): Promise<void> {
     const payload = normalizeDiscoverInput(request.payload);
 
-    if (request.builtin === "tools.discover") {
+    if (request.builtin === "discover.tools") {
       if (!builtins?.tools?.discover) {
-        throw new Error("Builtin 'tools.discover' is not configured.");
+        throw new Error("Builtin 'discover.tools' is not configured.");
       }
 
       const data = await builtins.tools.discover(payload);
@@ -431,7 +431,7 @@ export class EnvironmentModule extends EventEmitter {
     }
 
     if (!builtins?.services?.discover) {
-      throw new Error("Builtin 'services.discover' is not configured.");
+      throw new Error("Builtin 'discover.services' is not configured.");
     }
 
     const data = await builtins.services.discover(payload);

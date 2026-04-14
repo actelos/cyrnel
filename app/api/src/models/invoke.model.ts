@@ -1,7 +1,7 @@
 import type { ManifestMetadata, ToolDefinition } from "@/models/manifest.model";
 
 export interface InvokeRequest {
-  type: "tool.invoke";
+  type: "invoke.tool";
   requestId: string;
   serviceName: string;
   toolName: string;
@@ -9,13 +9,13 @@ export interface InvokeRequest {
 }
 
 export interface InvokeResponseMessage {
-  type: "tool.response";
+  type: "invoke.response";
   requestId: string;
   output: unknown;
 }
 
 export interface InvokeErrorResponseMessage {
-  type: "tool.error";
+  type: "invoke.error";
   requestId: string;
   message: string;
 }

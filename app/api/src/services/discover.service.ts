@@ -41,7 +41,7 @@ async function handleDiscoverMessage(
   }
 
   try {
-    if (message.type === "tools.discover") {
+    if (message.type === "discover.tools") {
       const tools = await manifestService.discoverTools(
         message.query,
         message.limit,
@@ -66,7 +66,7 @@ async function handleDiscoverMessage(
   } catch (error) {
     channel.send?.({
       type:
-        message.type === "tools.discover" ? "tools.error" : "services.error",
+        message.type === "discover.tools" ? "tools.error" : "services.error",
       requestId: message.requestId,
       message:
         error instanceof Error
@@ -84,8 +84,8 @@ function isDiscoverMessage(message: unknown): message is DiscoverRequest {
   const candidate = message as Partial<DiscoverRequest>;
 
   return (
-    (candidate.type === "tools.discover" ||
-      candidate.type === "services.discover") &&
+    (candidate.type === "discover.tools" ||
+      candidate.type === "discover.services") &&
     typeof candidate.requestId === "string" &&
     candidate.requestId.length > 0 &&
     typeof candidate.query === "string" &&
