@@ -151,4 +151,37 @@ describe("definition.service integration", () => {
     });
     await expect(db.select().from(definitions)).resolves.toHaveLength(1);
   });
+
+  it("lists definitions sorted by type", async () => {
+    const service = new DefinitionService();
+
+    await db.run(sql`
+      INSERT INTO definitions (id, type, content, hash)
+      VALUES
+        ('def-c', 'foo', x'63', 'hash-c'),
+        ('def-b', 'bar', x'62', 'hash-b'),
+        ('def-a', 'bar', x'61', 'hash-a')
+    `);
+
+    await expect(service.listDefinitions({ sortBy: "type" })).resolves.toEqual([
+      { id: "def-a", type: "bar", hash: "hash-a" },
+      { id: "def-b", type: "bar", hash: "hash-b" },
+      { id: "def-c", type: "foo", hash: "hash-c" },
+    ]);
+  });
+
+  it("lists definitions filtered by id", async () => {
+    const service = new DefinitionService();
+
+    await db.run(sql`
+      INSERT INTO definitions (id, type, content, hash)
+      VALUES
+        ('def-a', 'foo', x'61', 'hash-a'),
+        ('def-b', 'foo', x'62', 'hash-b')
+    `);
+
+    await expect(
+      service.listDefinitions({ definitionId: "def-b" }),
+    ).resolves.toEqual([{ id: "def-b", type: "foo", hash: "hash-b" }]);
+  });
 });

@@ -144,7 +144,7 @@ export class ManifestService {
       );
     }
 
-    const loweredQuery = query?.toLowerCase();
+    const loweredQuery = normalizeOptionalQuery(query);
 
     const filtered =
       loweredQuery === undefined
@@ -554,6 +554,16 @@ function normalizeServiceName(serviceName: string): string {
       400,
       "Service name may only contain letters, numbers, dot, underscore, and hyphen.",
     );
+  }
+
+  return normalized;
+}
+
+function normalizeOptionalQuery(query: string | undefined): string | undefined {
+  const normalized = query?.trim().toLowerCase();
+
+  if (!normalized) {
+    return undefined;
   }
 
   return normalized;

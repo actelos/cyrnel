@@ -3,12 +3,19 @@ import type { Request, Response } from "express";
 import { HttpError } from "@/models/error.model";
 import type { DefinitionService } from "@/services/definition.service";
 
+type DefinitionSortField = "type";
+
 export async function listDefinitions(
   req: Request,
   res: Response,
 ): Promise<void> {
   const definitionService = getDefinitionService(req);
-  const definitions = await definitionService.listDefinitions();
+  const sort = parseDefinitionSort(req.query.sort);
+  const definitionId = parseDefinitionIdFilter(req.query.id);
+  const definitions = await definitionService.listDefinitions({
+    sortBy: sort,
+    definitionId,
+  });
 
   res.status(200).json({ definitions });
 }
@@ -161,6 +168,49 @@ function parseDefinitionType(req: Request): string {
     400,
     "Definition type is required as query param 'type' or header 'x-definition-type'.",
   );
+}
+
+function parseDefinitionSort(raw: unknown): DefinitionSortField | undefined {
+  if (raw === undefined) {
+    return undefined;
+  }
+
+  if (typeof raw !== "string") {
+    throw new HttpError(400, "Field 'sort' must be a string.");
+  }
+
+  const normalized = raw.trim();
+
+  if (normalized.length === 0) {
+    return undefined;
+  }
+
+  if (normalized !== "type") {
+    throw new HttpError(
+      400,
+      "Field 'sort' must be one of: type.",
+    );
+  }
+
+  return normalized as DefinitionSortField;
+}
+
+function parseDefinitionIdFilter(raw: unknown): string | undefined {
+  if (raw === undefined) {
+    return undefined;
+  }
+
+  if (typeof raw !== "string") {
+    throw new HttpError(400, "Field 'id' must be a string.");
+  }
+
+  const normalized = raw.trim();
+
+  if (!normalized) {
+    throw new HttpError(400, "Field 'id' must not be empty.");
+  }
+
+  return normalized;
 }
 
 function parseDefinitionId(raw: unknown): string {

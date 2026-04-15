@@ -12,8 +12,15 @@ import {
 import { HttpError } from "@/models/error.model";
 import { computeContentHash } from "@/utils/hash.util";
 
+type DefinitionSortField = "type";
+
 interface DefinitionServiceOptions {
   fetchImpl?: typeof fetch;
+}
+
+interface ListDefinitionsOptions {
+  sortBy?: DefinitionSortField;
+  definitionId?: string;
 }
 
 export class DefinitionService {
@@ -23,8 +30,34 @@ export class DefinitionService {
     this.fetchImpl = options.fetchImpl ?? fetch;
   }
 
-  async listDefinitions(): Promise<DefinitionResponse[]> {
+  async listDefinitions(
+    options: ListDefinitionsOptions = {},
+  ): Promise<DefinitionResponse[]> {
+    const { sortBy, definitionId } = options;
+    const normalizedDefinitionId = definitionId?.trim();
+
+    if (definitionId !== undefined && !normalizedDefinitionId) {
+      throw new HttpError(400, "Field 'id' must not be empty.");
+    }
+
+    const sortOrder =
+      sortBy === "type"
+        ? [asc(definitions.type), asc(definitions.id)]
+        : [asc(definitions.id)];
+
     try {
+      if (normalizedDefinitionId) {
+        return await db
+          .select({
+            id: definitions.id,
+            type: definitions.type,
+            hash: definitions.hash,
+          })
+          .from(definitions)
+          .where(eq(definitions.id, normalizedDefinitionId))
+          .orderBy(...sortOrder);
+      }
+
       return await db
         .select({
           id: definitions.id,
@@ -32,7 +65,7 @@ export class DefinitionService {
           hash: definitions.hash,
         })
         .from(definitions)
-        .orderBy(asc(definitions.id));
+        .orderBy(...sortOrder);
     } catch {
       throw new HttpError(500, "Failed to list definitions.");
     }

@@ -55,13 +55,54 @@ describe("definition.controller", () => {
 
     await listDefinitions(req, res as unknown as Response);
 
-    expect(definitionService.listDefinitions).toHaveBeenCalledOnce();
+    expect(definitionService.listDefinitions).toHaveBeenCalledWith({
+      sortBy: undefined,
+      definitionId: undefined,
+    });
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith({
       definitions: [
         { id: "def-1", type: "foo", hash: "hash-1" },
         { id: "def-2", type: "foo", hash: "hash-2" },
       ],
+    });
+  });
+
+  it("lists definitions sorted by type", async () => {
+    const res = makeRes();
+    const req = makeReq({ query: { sort: "type" } });
+    definitionService.listDefinitions.mockResolvedValue([
+      { id: "def-1", type: "foo", hash: "hash-1" },
+    ]);
+
+    await listDefinitions(req, res as unknown as Response);
+
+    expect(definitionService.listDefinitions).toHaveBeenCalledWith({
+      sortBy: "type",
+      definitionId: undefined,
+    });
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith({
+      definitions: [{ id: "def-1", type: "foo", hash: "hash-1" }],
+    });
+  });
+
+  it("lists definitions filtered by id", async () => {
+    const res = makeRes();
+    const req = makeReq({ query: { id: "def-1" } });
+    definitionService.listDefinitions.mockResolvedValue([
+      { id: "def-1", type: "foo", hash: "hash-1" },
+    ]);
+
+    await listDefinitions(req, res as unknown as Response);
+
+    expect(definitionService.listDefinitions).toHaveBeenCalledWith({
+      sortBy: undefined,
+      definitionId: "def-1",
+    });
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith({
+      definitions: [{ id: "def-1", type: "foo", hash: "hash-1" }],
     });
   });
 

@@ -5,7 +5,7 @@ import type { ManifestService } from "@/services/manifest.service";
 
 export async function listServices(req: Request, res: Response): Promise<void> {
   const manifestService = getManifestService(req);
-  const query = parseQueryParam(req.query.query);
+  const query = parseQueryParam(req.query?.query);
   const services = await manifestService.listServices(query);
 
   res.status(200).json({ services });
@@ -26,7 +26,7 @@ export async function getService(req: Request, res: Response): Promise<void> {
 export async function listTools(req: Request, res: Response): Promise<void> {
   const manifestService = getManifestService(req);
   const serviceName = parseServiceName(req.params.serviceName);
-  const query = parseQueryParam(req.query.query);
+  const query = parseQueryParam(req.query?.query);
   const tools = await manifestService.listTools(serviceName, query);
 
   res.status(200).json({ tools });
