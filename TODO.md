@@ -2,7 +2,7 @@
 - [x] add /install route to install definition from registry
 - [x] use POST /services/:serviceName/upgrade instead of put /services/:serviceName
 - [x] work on services router to make it leaner and cleaner
-- [ ] set up query-able service and tool descriptions
+- [x] set up query-able service and tool descriptions
 - [ ] set up enabling and disabling services / tools
 - [ ] have the environment module use manifests to generate code
 - [ ] set ups system to notify environments about changes to service manifests for recompilation

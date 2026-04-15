@@ -12,6 +12,7 @@ import type { ManifestMetadata, ToolDefinition } from "@/models/manifest.model";
 export const definitions = sqliteTable("definitions", {
   id: text("id").primaryKey(),
   type: text("type").$type<DefinitionType>().notNull(),
+  description: text("description").notNull().default(""),
   content: blob("content", { mode: "buffer" }).notNull(),
   hash: text("hash").notNull(),
 });
@@ -25,6 +26,7 @@ export const manifests = sqliteTable(
       .references(() => definitions.id, {
         onDelete: "cascade",
       }),
+    description: text("description").notNull().default(""),
     hash: text("hash").notNull(),
     metadata: text("metadata", { mode: "json" })
       .$type<ManifestMetadata>()
@@ -42,6 +44,7 @@ export const tools = sqliteTable(
         onDelete: "cascade",
       }),
     name: text("name").notNull(),
+    description: text("description").notNull().default(""),
     inputSchema: text("input_schema", { mode: "json" })
       .$type<ToolDefinition["inputSchema"]>()
       .notNull(),

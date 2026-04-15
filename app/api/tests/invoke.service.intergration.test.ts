@@ -163,6 +163,7 @@ async function resetManifestsTable(): Promise<void> {
     CREATE TABLE definitions (
       id text PRIMARY KEY NOT NULL,
       type text NOT NULL,
+      description text NOT NULL DEFAULT '',
       content blob NOT NULL,
       hash text NOT NULL
     )
@@ -171,6 +172,7 @@ async function resetManifestsTable(): Promise<void> {
     CREATE TABLE manifests (
       id text PRIMARY KEY NOT NULL,
       definition_id text,
+      description text NOT NULL DEFAULT '',
       hash text NOT NULL,
       metadata text NOT NULL
       ,FOREIGN KEY (definition_id) REFERENCES definitions(id) ON UPDATE no action ON DELETE cascade
@@ -183,6 +185,7 @@ async function resetManifestsTable(): Promise<void> {
     CREATE TABLE tools (
       service_id text NOT NULL,
       name text NOT NULL,
+      description text NOT NULL DEFAULT '',
       input_schema text NOT NULL,
       output_schema text NOT NULL,
       metadata text NOT NULL,
@@ -203,6 +206,7 @@ describe("invoke echo integration", () => {
 
     await db.insert(manifests).values({
       id: "test-service",
+      description: "",
       hash: "test-manifest-hash",
       metadata: {
         serverUrl: server.baseUrl,
@@ -213,6 +217,7 @@ describe("invoke echo integration", () => {
       {
         serviceName: "test-service",
         name: "echo",
+        description: "",
         metadata: {},
         inputSchema: {
           type: "object",
@@ -231,6 +236,7 @@ describe("invoke echo integration", () => {
       {
         serviceName: "test-service",
         name: "broken-output",
+        description: "",
         metadata: {},
         inputSchema: {
           type: "object",

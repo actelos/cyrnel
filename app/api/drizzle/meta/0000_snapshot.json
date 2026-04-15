@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "3dede415-3e45-4bbd-b5c2-db18858087f9",
+  "id": "e7c8434c-c185-4d2d-9b53-916bd4fb0649",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "definitions": {
@@ -20,6 +20,14 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
         },
         "content": {
           "name": "content",
@@ -58,6 +66,14 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
         },
         "hash": {
           "name": "hash",
@@ -117,6 +133,14 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
         },
         "input_schema": {
           "name": "input_schema",

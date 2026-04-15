@@ -18,6 +18,7 @@ export async function getService(req: Request, res: Response): Promise<void> {
 
   res.status(200).json({
     name: service.name,
+    description: service.description,
     hash: service.hash,
     metadata: service.metadata,
   });
@@ -43,6 +44,7 @@ export async function getToolByName(
 
   res.status(200).json({
     name: tool.name,
+    description: tool.description,
     inputSchema: tool.inputSchema,
     outputSchema: tool.outputSchema,
     metadata: tool.metadata,

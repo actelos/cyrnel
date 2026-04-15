@@ -15,6 +15,7 @@ async function resetTables(): Promise<void> {
     CREATE TABLE definitions (
       id text PRIMARY KEY NOT NULL,
       type text NOT NULL,
+      description text NOT NULL DEFAULT '',
       content blob NOT NULL,
       hash text NOT NULL
     )
@@ -23,6 +24,7 @@ async function resetTables(): Promise<void> {
     CREATE TABLE manifests (
       id text PRIMARY KEY NOT NULL,
       definition_id text UNIQUE,
+      description text NOT NULL DEFAULT '',
       hash text NOT NULL,
       metadata text NOT NULL,
       FOREIGN KEY (definition_id) REFERENCES definitions(id) ON UPDATE no action ON DELETE cascade
@@ -32,6 +34,7 @@ async function resetTables(): Promise<void> {
     CREATE TABLE tools (
       service_id text NOT NULL,
       name text NOT NULL,
+      description text NOT NULL DEFAULT '',
       input_schema text NOT NULL,
       output_schema text NOT NULL,
       metadata text NOT NULL,
@@ -70,11 +73,12 @@ describe("definition.service integration", () => {
       ],
     });
 
-    const created = await service.createDefinition("foo", content);
+    const created = await service.createDefinition("foo", "", content);
 
     expect(created).toMatchObject({
       id: expect.any(String),
       type: "foo",
+      description: "",
       hash: computeContentHash(content),
     });
 
@@ -82,6 +86,7 @@ describe("definition.service integration", () => {
       .select({
         id: definitions.id,
         type: definitions.type,
+        description: definitions.description,
         content: definitions.content,
         hash: definitions.hash,
       })
@@ -91,6 +96,7 @@ describe("definition.service integration", () => {
     expect(definitionRows[0]).toMatchObject({
       id: created.id,
       type: "foo",
+      description: "",
       hash: created.hash,
     });
     expect(definitionRows[0].content.toString("utf8")).toBe(content);
@@ -121,7 +127,7 @@ describe("definition.service integration", () => {
       ],
     });
 
-    const created = await service.createDefinition("foo", content);
+    const created = await service.createDefinition("foo", "", content);
 
     await service.deleteDefinition(created.id);
 
@@ -134,6 +140,7 @@ describe("definition.service integration", () => {
     await expect(
       service.createDefinition(
         "bar",
+        "",
         '{"name":"svc","metadata":{},"tools":[]}',
       ),
     ).rejects.toMatchObject({ statusCode: 400 });
@@ -143,10 +150,11 @@ describe("definition.service integration", () => {
     const service = new DefinitionService();
 
     await expect(
-      service.createDefinition("foo", "not-json"),
+      service.createDefinition("foo", "", "not-json"),
     ).resolves.toMatchObject({
       id: expect.any(String),
       type: "foo",
+      description: "",
       hash: computeContentHash("not-json"),
     });
     await expect(db.select().from(definitions)).resolves.toHaveLength(1);
@@ -156,17 +164,17 @@ describe("definition.service integration", () => {
     const service = new DefinitionService();
 
     await db.run(sql`
-      INSERT INTO definitions (id, type, content, hash)
+      INSERT INTO definitions (id, type, description, content, hash)
       VALUES
-        ('def-c', 'foo', x'63', 'hash-c'),
-        ('def-b', 'bar', x'62', 'hash-b'),
-        ('def-a', 'bar', x'61', 'hash-a')
+        ('def-c', 'foo', '', x'63', 'hash-c'),
+        ('def-b', 'bar', '', x'62', 'hash-b'),
+        ('def-a', 'bar', '', x'61', 'hash-a')
     `);
 
     await expect(service.listDefinitions({ sortBy: "type" })).resolves.toEqual([
-      { id: "def-a", type: "bar", hash: "hash-a" },
-      { id: "def-b", type: "bar", hash: "hash-b" },
-      { id: "def-c", type: "foo", hash: "hash-c" },
+      { id: "def-a", type: "bar", description: "", hash: "hash-a" },
+      { id: "def-b", type: "bar", description: "", hash: "hash-b" },
+      { id: "def-c", type: "foo", description: "", hash: "hash-c" },
     ]);
   });
 
@@ -174,14 +182,16 @@ describe("definition.service integration", () => {
     const service = new DefinitionService();
 
     await db.run(sql`
-      INSERT INTO definitions (id, type, content, hash)
+      INSERT INTO definitions (id, type, description, content, hash)
       VALUES
-        ('def-a', 'foo', x'61', 'hash-a'),
-        ('def-b', 'foo', x'62', 'hash-b')
+        ('def-a', 'foo', '', x'61', 'hash-a'),
+        ('def-b', 'foo', '', x'62', 'hash-b')
     `);
 
     await expect(
       service.listDefinitions({ definitionId: "def-b" }),
-    ).resolves.toEqual([{ id: "def-b", type: "foo", hash: "hash-b" }]);
+    ).resolves.toEqual([
+      { id: "def-b", type: "foo", description: "", hash: "hash-b" },
+    ]);
   });
 });

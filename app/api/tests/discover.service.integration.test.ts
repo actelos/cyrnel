@@ -52,6 +52,7 @@ async function resetDiscoverTables(): Promise<void> {
     CREATE TABLE definitions (
       id text PRIMARY KEY NOT NULL,
       type text NOT NULL,
+      description text NOT NULL DEFAULT '',
       content blob NOT NULL,
       hash text NOT NULL
     )
@@ -60,6 +61,7 @@ async function resetDiscoverTables(): Promise<void> {
     CREATE TABLE manifests (
       id text PRIMARY KEY NOT NULL,
       definition_id text,
+      description text NOT NULL DEFAULT '',
       hash text NOT NULL,
       metadata text NOT NULL
       ,FOREIGN KEY (definition_id) REFERENCES definitions(id) ON UPDATE no action ON DELETE cascade
@@ -72,6 +74,7 @@ async function resetDiscoverTables(): Promise<void> {
     CREATE TABLE tools (
       service_id text NOT NULL,
       name text NOT NULL,
+      description text NOT NULL DEFAULT '',
       input_schema text NOT NULL,
       output_schema text NOT NULL,
       metadata text NOT NULL,
@@ -87,16 +90,19 @@ async function seedDiscoverFixtures(): Promise<void> {
   await db.insert(manifests).values([
     {
       id: "svc-alpha",
+      description: "",
       hash: "hash-alpha",
       metadata: { serverUrl: "http://127.0.0.1:8301" },
     },
     {
       id: "svc-beta",
+      description: "",
       hash: "hash-beta",
       metadata: { serverUrl: "http://127.0.0.1:8302" },
     },
     {
       id: "svc-gamma",
+      description: "",
       hash: "hash-gamma",
       metadata: { serverUrl: "http://127.0.0.1:8303" },
     },
@@ -106,6 +112,7 @@ async function seedDiscoverFixtures(): Promise<void> {
     {
       serviceName: "svc-alpha",
       name: "echo",
+      description: "",
       metadata: { route: "invoke/echo" },
       inputSchema: {
         type: "object",
@@ -116,6 +123,7 @@ async function seedDiscoverFixtures(): Promise<void> {
     {
       serviceName: "svc-alpha",
       name: "list-users",
+      description: "",
       metadata: { route: "invoke/list-users" },
       inputSchema: { type: "object" },
       outputSchema: {
@@ -126,6 +134,7 @@ async function seedDiscoverFixtures(): Promise<void> {
     {
       serviceName: "svc-beta",
       name: "echo-plus",
+      description: "",
       metadata: { route: "invoke/echo-plus" },
       inputSchema: {
         type: "object",
@@ -136,6 +145,7 @@ async function seedDiscoverFixtures(): Promise<void> {
     {
       serviceName: "svc-beta",
       name: "sum",
+      description: "",
       metadata: { route: "invoke/sum" },
       inputSchema: {
         type: "object",
@@ -151,6 +161,7 @@ async function seedDiscoverFixtures(): Promise<void> {
     {
       serviceName: "svc-gamma",
       name: "ping",
+      description: "",
       metadata: { route: "invoke/ping" },
       inputSchema: { type: "object" },
       outputSchema: { type: "null" },
@@ -195,6 +206,8 @@ describe("discover.service integration", () => {
           {
             serviceName: "svc-alpha",
             name: "echo",
+            description: "",
+            serviceDescription: "",
             inputSchema: {
               type: "object",
               properties: { input: { type: "string" } },
@@ -204,6 +217,8 @@ describe("discover.service integration", () => {
           {
             serviceName: "svc-alpha",
             name: "list-users",
+            description: "",
+            serviceDescription: "",
             inputSchema: { type: "object" },
             outputSchema: {
               type: "array",
@@ -213,6 +228,8 @@ describe("discover.service integration", () => {
           {
             serviceName: "svc-beta",
             name: "echo-plus",
+            description: "",
+            serviceDescription: "",
             inputSchema: {
               type: "object",
               properties: {
@@ -225,6 +242,8 @@ describe("discover.service integration", () => {
           {
             serviceName: "svc-beta",
             name: "sum",
+            description: "",
+            serviceDescription: "",
             inputSchema: {
               type: "object",
               properties: {
@@ -239,6 +258,8 @@ describe("discover.service integration", () => {
           {
             serviceName: "svc-gamma",
             name: "ping",
+            description: "",
+            serviceDescription: "",
             inputSchema: { type: "object" },
             outputSchema: { type: "null" },
           },
@@ -270,6 +291,8 @@ describe("discover.service integration", () => {
           {
             serviceName: "svc-alpha",
             name: "echo",
+            description: "",
+            serviceDescription: "",
             inputSchema: {
               type: "object",
               properties: { input: { type: "string" } },
@@ -279,6 +302,8 @@ describe("discover.service integration", () => {
           {
             serviceName: "svc-beta",
             name: "echo-plus",
+            description: "",
+            serviceDescription: "",
             inputSchema: {
               type: "object",
               properties: {
@@ -316,6 +341,8 @@ describe("discover.service integration", () => {
           {
             serviceName: "svc-beta",
             name: "echo-plus",
+            description: "",
+            serviceDescription: "",
             inputSchema: {
               type: "object",
               properties: {
@@ -328,6 +355,8 @@ describe("discover.service integration", () => {
           {
             serviceName: "svc-beta",
             name: "sum",
+            description: "",
+            serviceDescription: "",
             inputSchema: {
               type: "object",
               properties: {
@@ -390,14 +419,17 @@ describe("discover.service integration", () => {
         services: [
           {
             name: "svc-alpha",
+            description: "",
             hash: "hash-alpha",
           },
           {
             name: "svc-beta",
+            description: "",
             hash: "hash-beta",
           },
           {
             name: "svc-gamma",
+            description: "",
             hash: "hash-gamma",
           },
         ],
@@ -427,6 +459,7 @@ describe("discover.service integration", () => {
         services: [
           {
             name: "svc-beta",
+            description: "",
             hash: "hash-beta",
           },
         ],

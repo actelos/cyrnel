@@ -9,6 +9,7 @@ describe("definition.service unit", () => {
     await expect(
       service.createDefinition(
         "bar",
+        "",
         '{"name":"svc","metadata":{},"tools":[]}',
       ),
     ).rejects.toMatchObject({ statusCode: 400 });
@@ -29,7 +30,9 @@ describe("definition.service unit", () => {
   it("rejects empty content", async () => {
     const service = new DefinitionService();
 
-    await expect(service.createDefinition("foo", "   ")).rejects.toMatchObject({
+    await expect(
+      service.createDefinition("foo", "", "   "),
+    ).rejects.toMatchObject({
       statusCode: 400,
     });
   });
@@ -44,11 +47,13 @@ describe("definition.service unit", () => {
     const createSpy = vi.spyOn(service, "createDefinition").mockResolvedValue({
       id: "def-1",
       type: "foo",
+      description: "",
       hash: "hash-1",
     });
 
     const installed = await service.installDefinitionFromRegistry(
       "foo",
+      "",
       "https://registry.example.com/my-definition.json",
     );
 
@@ -61,10 +66,11 @@ describe("definition.service unit", () => {
         },
       },
     );
-    expect(createSpy).toHaveBeenCalledWith("foo", sourceContent);
+    expect(createSpy).toHaveBeenCalledWith("foo", "", sourceContent);
     expect(installed).toEqual({
       id: "def-1",
       type: "foo",
+      description: "",
       hash: "hash-1",
     });
   });
@@ -74,7 +80,7 @@ describe("definition.service unit", () => {
     const service = new DefinitionService({ fetchImpl });
 
     await expect(
-      service.installDefinitionFromRegistry("foo", "not-a-url"),
+      service.installDefinitionFromRegistry("foo", "", "not-a-url"),
     ).rejects.toMatchObject({ statusCode: 400 });
     expect(fetchImpl).not.toHaveBeenCalled();
   });

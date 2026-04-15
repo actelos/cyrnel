@@ -263,6 +263,7 @@ function isManifestTool(value: unknown): value is ToolDefinition {
   return (
     typeof value.name === "string" &&
     value.name.trim().length > 0 &&
+    typeof value.description === "string" &&
     isRecord(value.inputSchema) &&
     isRecord(value.outputSchema) &&
     isRecord(value.metadata)
@@ -275,6 +276,10 @@ function isServiceManifest(value: unknown): value is ServiceManifest {
   }
 
   if (typeof value.name !== "string" || value.name.trim().length === 0) {
+    return false;
+  }
+
+  if (typeof value.description !== "string") {
     return false;
   }
 

@@ -21,6 +21,7 @@ interface DefinitionServiceOptions {
 interface ListDefinitionsOptions {
   sortBy?: DefinitionSortField;
   definitionId?: string;
+  query?: string;
 }
 
 export class DefinitionService {
@@ -33,8 +34,9 @@ export class DefinitionService {
   async listDefinitions(
     options: ListDefinitionsOptions = {},
   ): Promise<DefinitionResponse[]> {
-    const { sortBy, definitionId } = options;
+    const { sortBy, definitionId, query } = options;
     const normalizedDefinitionId = definitionId?.trim();
+    const normalizedQuery = normalizeOptionalQuery(query);
 
     if (definitionId !== undefined && !normalizedDefinitionId) {
       throw new HttpError(400, "Field 'id' must not be empty.");
@@ -51,6 +53,7 @@ export class DefinitionService {
           .select({
             id: definitions.id,
             type: definitions.type,
+            description: definitions.description,
             hash: definitions.hash,
           })
           .from(definitions)
@@ -58,14 +61,26 @@ export class DefinitionService {
           .orderBy(...sortOrder);
       }
 
-      return await db
+      const rows = await db
         .select({
           id: definitions.id,
           type: definitions.type,
+          description: definitions.description,
           hash: definitions.hash,
         })
         .from(definitions)
         .orderBy(...sortOrder);
+
+      if (!normalizedQuery) {
+        return rows;
+      }
+
+      return rows.filter(
+        (row) =>
+          row.id.toLowerCase().includes(normalizedQuery) ||
+          row.type.toLowerCase().includes(normalizedQuery) ||
+          row.description.toLowerCase().includes(normalizedQuery),
+      );
     } catch {
       throw new HttpError(500, "Failed to list definitions.");
     }
@@ -80,6 +95,7 @@ export class DefinitionService {
         .select({
           id: definitions.id,
           type: definitions.type,
+          description: definitions.description,
           hash: definitions.hash,
         })
         .from(definitions)
@@ -104,9 +120,11 @@ export class DefinitionService {
 
   async createDefinition(
     type: string,
+    description: string | undefined,
     content: string,
   ): Promise<DefinitionResponse> {
     const normalizedType = normalizeDefinitionType(type);
+    const normalizedDescription = normalizeDefinitionDescription(description);
     const normalizedContent = normalizeDefinitionContent(content);
     const encodedContent = Buffer.from(normalizedContent, "utf8");
     const hash = computeContentHash(normalizedContent);
@@ -116,6 +134,7 @@ export class DefinitionService {
       await db.insert(definitions).values({
         id: definitionId,
         type: normalizedType,
+        description: normalizedDescription,
         content: encodedContent,
         hash,
       });
@@ -137,12 +156,14 @@ export class DefinitionService {
     return {
       id: definitionId,
       type: normalizedType,
+      description: normalizedDescription,
       hash,
     };
   }
 
   async installDefinitionFromRegistry(
     type: string,
+    description: string | undefined,
     fileUrl: string,
   ): Promise<DefinitionResponse> {
     const normalizedFileUrl = normalizeDefinitionFileUrl(fileUrl);
@@ -179,7 +200,7 @@ export class DefinitionService {
       );
     }
 
-    return this.createDefinition(type, content);
+    return this.createDefinition(type, description, content);
   }
 
   async deleteDefinition(definitionId: string): Promise<void> {
@@ -238,6 +259,20 @@ function normalizeDefinitionContent(content: string): string {
   return normalized;
 }
 
+function normalizeDefinitionDescription(
+  description: string | undefined,
+): string {
+  if (description === undefined) {
+    return "";
+  }
+
+  if (typeof description !== "string") {
+    throw new HttpError(400, "Field 'description' must be a string.");
+  }
+
+  return description;
+}
+
 function normalizeDefinitionId(definitionId: string): string {
   const normalized = definitionId.trim();
 
@@ -274,6 +309,24 @@ function normalizeDefinitionFileUrl(fileUrl: string): string {
   }
 
   return parsed.toString();
+}
+
+function normalizeOptionalQuery(query: string | undefined): string | undefined {
+  if (query === undefined) {
+    return undefined;
+  }
+
+  if (typeof query !== "string") {
+    throw new HttpError(400, "Field 'query' must be a string.");
+  }
+
+  const normalized = query.trim().toLowerCase();
+
+  if (!normalized) {
+    return undefined;
+  }
+
+  return normalized;
 }
 
 function isUniqueConstraintViolation(error: unknown): boolean {

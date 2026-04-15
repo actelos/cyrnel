@@ -16,6 +16,7 @@ async function resetManifestTables(): Promise<void> {
     CREATE TABLE definitions (
       id text PRIMARY KEY NOT NULL,
       type text NOT NULL,
+      description text NOT NULL DEFAULT '',
       content blob NOT NULL,
       hash text NOT NULL
     )
@@ -24,6 +25,7 @@ async function resetManifestTables(): Promise<void> {
     CREATE TABLE manifests (
       id text PRIMARY KEY NOT NULL,
       definition_id text,
+      description text NOT NULL DEFAULT '',
       hash text NOT NULL,
       metadata text NOT NULL
       ,FOREIGN KEY (definition_id) REFERENCES definitions(id) ON UPDATE no action ON DELETE cascade
@@ -36,6 +38,7 @@ async function resetManifestTables(): Promise<void> {
     CREATE TABLE tools (
       service_id text NOT NULL,
       name text NOT NULL,
+      description text NOT NULL DEFAULT '',
       input_schema text NOT NULL,
       output_schema text NOT NULL,
       metadata text NOT NULL,
@@ -58,6 +61,7 @@ describe("manifest.service integration", () => {
     };
     const toolDefinition: ToolDefinition = {
       name: "tool-1",
+      description: "",
       metadata: {
         requestKind: "rpc.invoke",
         route: "echo",
@@ -162,12 +166,14 @@ describe("manifest.service integration", () => {
     const service = new ManifestService();
     const definitionContent = JSON.stringify({
       name: "svc-create",
+      description: "",
       metadata: {
         serverUrl: "http://127.0.0.1:9001",
       },
       tools: [
         {
           name: "echo",
+          description: "",
           metadata: {
             route: "invoke/echo",
           },
@@ -187,6 +193,7 @@ describe("manifest.service integration", () => {
     await db.insert(definitions).values({
       id: "def-create",
       type: "foo",
+      description: "",
       content: Buffer.from(definitionContent, "utf8"),
       hash: computeContentHash(definitionContent),
     });
@@ -195,6 +202,7 @@ describe("manifest.service integration", () => {
 
     await expect(service.getService("svc-create")).resolves.toEqual({
       name: "svc-create",
+      description: "",
       hash: computeContentHash(definitionContent),
       metadata: {
         serverUrl: "http://127.0.0.1:9001",
@@ -204,6 +212,7 @@ describe("manifest.service integration", () => {
     await expect(service.listTools("svc-create")).resolves.toEqual([
       {
         name: "echo",
+        description: "",
         inputSchema: {
           type: "object",
           properties: {
@@ -221,6 +230,7 @@ describe("manifest.service integration", () => {
     const service = new ManifestService();
     await db.insert(manifests).values({
       id: "svc-tools-list",
+      description: "",
       hash: "hash-tools-list",
       metadata: {
         serverUrl: "http://127.0.0.1:9002",
@@ -230,6 +240,7 @@ describe("manifest.service integration", () => {
       {
         serviceName: "svc-tools-list",
         name: "echo",
+        description: "",
         metadata: { route: "invoke/echo" },
         inputSchema: { type: "object" },
         outputSchema: { type: "string" },
@@ -237,6 +248,7 @@ describe("manifest.service integration", () => {
       {
         serviceName: "svc-tools-list",
         name: "sum",
+        description: "",
         metadata: { route: "invoke/sum" },
         inputSchema: { type: "object" },
         outputSchema: { type: "number" },
@@ -246,29 +258,30 @@ describe("manifest.service integration", () => {
     await expect(service.listTools("svc-tools-list")).resolves.toEqual([
       {
         name: "echo",
+        description: "",
         inputSchema: { type: "object" },
         outputSchema: { type: "string" },
       },
       {
         name: "sum",
+        description: "",
         inputSchema: { type: "object" },
         outputSchema: { type: "number" },
       },
     ]);
 
-    await expect(service.listTools("svc-tools-list", " eC ")).resolves.toEqual(
-      [
-        {
-          name: "echo",
-          inputSchema: { type: "object" },
-          outputSchema: { type: "string" },
-        },
-      ],
-    );
+    await expect(service.listTools("svc-tools-list", " eC ")).resolves.toEqual([
+      {
+        name: "echo",
+        description: "",
+        inputSchema: { type: "object" },
+        outputSchema: { type: "string" },
+      },
+    ]);
 
-    await expect(service.listTools("svc-tools-list", "missing")).resolves.toEqual(
-      [],
-    );
+    await expect(
+      service.listTools("svc-tools-list", "missing"),
+    ).resolves.toEqual([]);
 
     await expect(service.listTools("svc-missing")).rejects.toMatchObject({
       statusCode: 404,
@@ -279,6 +292,7 @@ describe("manifest.service integration", () => {
     const service = new ManifestService();
     await db.insert(manifests).values({
       id: "svc-tools",
+      description: "",
       hash: "hash-tools-1",
       metadata: {
         serverUrl: "http://127.0.0.1:9000",
@@ -286,6 +300,7 @@ describe("manifest.service integration", () => {
     });
     await db.insert(manifests).values({
       id: "svc-tools-2",
+      description: "",
       hash: "hash-tools-2",
       metadata: {
         serverUrl: "http://127.0.0.1:9001",
@@ -295,6 +310,7 @@ describe("manifest.service integration", () => {
       {
         serviceName: "svc-tools",
         name: "echo",
+        description: "",
         metadata: {},
         inputSchema: { type: "object" },
         outputSchema: { type: "string" },
@@ -302,6 +318,7 @@ describe("manifest.service integration", () => {
       {
         serviceName: "svc-tools-2",
         name: "echo",
+        description: "",
         metadata: {},
         inputSchema: { type: "object" },
         outputSchema: { type: "number" },
@@ -312,12 +329,16 @@ describe("manifest.service integration", () => {
       {
         serviceName: "svc-tools",
         name: "echo",
+        description: "",
+        serviceDescription: "",
         inputSchema: { type: "object" },
         outputSchema: { type: "string" },
       },
       {
         serviceName: "svc-tools-2",
         name: "echo",
+        description: "",
+        serviceDescription: "",
         inputSchema: { type: "object" },
         outputSchema: { type: "number" },
       },
@@ -327,12 +348,16 @@ describe("manifest.service integration", () => {
       {
         serviceName: "svc-tools",
         name: "echo",
+        description: "",
+        serviceDescription: "",
         inputSchema: { type: "object" },
         outputSchema: { type: "string" },
       },
       {
         serviceName: "svc-tools-2",
         name: "echo",
+        description: "",
+        serviceDescription: "",
         inputSchema: { type: "object" },
         outputSchema: { type: "number" },
       },
@@ -342,6 +367,8 @@ describe("manifest.service integration", () => {
       {
         serviceName: "svc-tools-2",
         name: "echo",
+        description: "",
+        serviceDescription: "",
         inputSchema: { type: "object" },
         outputSchema: { type: "number" },
       },
@@ -353,11 +380,13 @@ describe("manifest.service integration", () => {
     await db.insert(manifests).values([
       {
         id: "svc-1",
+        description: "",
         hash: "hash-svc-1",
         metadata: { serverUrl: "http://127.0.0.1:8001" },
       },
       {
         id: "svc-2",
+        description: "",
         hash: "hash-svc-2",
         metadata: { serverUrl: "http://127.0.0.1:8002" },
       },
@@ -366,6 +395,7 @@ describe("manifest.service integration", () => {
       {
         serviceName: "svc-1",
         name: "echo",
+        description: "",
         metadata: { route: "invoke/echo" },
         inputSchema: { type: "object" },
         outputSchema: { type: "string" },
@@ -373,6 +403,7 @@ describe("manifest.service integration", () => {
       {
         serviceName: "svc-1",
         name: "ping",
+        description: "",
         metadata: { route: "invoke/ping" },
         inputSchema: { type: "object" },
         outputSchema: { type: "null" },
@@ -382,10 +413,12 @@ describe("manifest.service integration", () => {
     await expect(service.listServices()).resolves.toEqual([
       {
         name: "svc-1",
+        description: "",
         hash: "hash-svc-1",
       },
       {
         name: "svc-2",
+        description: "",
         hash: "hash-svc-2",
       },
     ]);
@@ -393,6 +426,7 @@ describe("manifest.service integration", () => {
     await expect(service.listServices("vc-2")).resolves.toEqual([
       {
         name: "svc-2",
+        description: "",
         hash: "hash-svc-2",
       },
     ]);
@@ -403,11 +437,13 @@ describe("manifest.service integration", () => {
     await db.insert(manifests).values([
       {
         id: "svc-alpha",
+        description: "",
         hash: "hash-svc-alpha",
         metadata: { serverUrl: "http://127.0.0.1:8101" },
       },
       {
         id: "svc-beta",
+        description: "",
         hash: "hash-svc-beta",
         metadata: { serverUrl: "http://127.0.0.1:8102" },
       },
@@ -416,6 +452,7 @@ describe("manifest.service integration", () => {
     await expect(service.discoverServices("alp")).resolves.toEqual([
       {
         name: "svc-alpha",
+        description: "",
         hash: "hash-svc-alpha",
       },
     ]);
@@ -423,10 +460,12 @@ describe("manifest.service integration", () => {
     await expect(service.discoverServices("")).resolves.toEqual([
       {
         name: "svc-alpha",
+        description: "",
         hash: "hash-svc-alpha",
       },
       {
         name: "svc-beta",
+        description: "",
         hash: "hash-svc-beta",
       },
     ]);
@@ -436,6 +475,7 @@ describe("manifest.service integration", () => {
     const service = new ManifestService();
     const definitionContent = JSON.stringify({
       name: "svc-same",
+      description: "",
       metadata: {
         serverUrl: "http://127.0.0.1:9011",
       },
@@ -446,12 +486,14 @@ describe("manifest.service integration", () => {
     await db.insert(definitions).values({
       id: "def-same",
       type: "foo",
+      description: "",
       content: Buffer.from(definitionContent, "utf8"),
       hash,
     });
     await db.insert(manifests).values({
       id: "svc-same",
       definitionId: "def-same",
+      description: "",
       hash,
       metadata: {
         serverUrl: "http://127.0.0.1:9011",
@@ -463,6 +505,7 @@ describe("manifest.service integration", () => {
     );
     await expect(service.getService("svc-same")).resolves.toMatchObject({
       name: "svc-same",
+      description: "",
       hash,
       metadata: {
         serverUrl: "http://127.0.0.1:9011",
@@ -476,12 +519,14 @@ describe("manifest.service integration", () => {
     const service = new ManifestService();
     const oldDefinitionContent = JSON.stringify({
       name: "svc-update",
+      description: "",
       metadata: {
         serverUrl: "http://127.0.0.1:9012",
       },
       tools: [
         {
           name: "old-tool",
+          description: "",
           metadata: {
             route: "invoke/old-tool",
           },
@@ -492,12 +537,14 @@ describe("manifest.service integration", () => {
     });
     const newDefinitionContent = JSON.stringify({
       name: "svc-update",
+      description: "",
       metadata: {
         serverUrl: "http://127.0.0.1:9013",
       },
       tools: [
         {
           name: "new-tool",
+          description: "",
           metadata: {
             route: "invoke/new-tool",
           },
@@ -516,12 +563,14 @@ describe("manifest.service integration", () => {
       {
         id: "def-old",
         type: "foo",
+        description: "",
         content: Buffer.from(oldDefinitionContent, "utf8"),
         hash: computeContentHash(oldDefinitionContent),
       },
       {
         id: "def-new",
         type: "foo",
+        description: "",
         content: Buffer.from(newDefinitionContent, "utf8"),
         hash: computeContentHash(newDefinitionContent),
       },
@@ -535,6 +584,7 @@ describe("manifest.service integration", () => {
 
     await expect(service.getService("svc-update")).resolves.toEqual({
       name: "svc-update",
+      description: "",
       hash: computeContentHash(newDefinitionContent),
       metadata: {
         serverUrl: "http://127.0.0.1:9013",
@@ -544,6 +594,7 @@ describe("manifest.service integration", () => {
     await expect(service.listTools("svc-update")).resolves.toEqual([
       {
         name: "new-tool",
+        description: "",
         inputSchema: {
           type: "object",
           properties: {
@@ -554,22 +605,23 @@ describe("manifest.service integration", () => {
       },
     ]);
 
-    await expect(service.getTool("svc-update", "new-tool")).resolves.toMatchObject(
-      {
-        tool: {
-          name: "new-tool",
-          metadata: {
-            route: "invoke/new-tool",
-          },
-          inputSchema: {
-            type: "object",
-            properties: {
-              value: { type: "number" },
-            },
-          },
-          outputSchema: { type: "number" },
+    await expect(
+      service.getTool("svc-update", "new-tool"),
+    ).resolves.toMatchObject({
+      tool: {
+        name: "new-tool",
+        description: "",
+        metadata: {
+          route: "invoke/new-tool",
         },
+        inputSchema: {
+          type: "object",
+          properties: {
+            value: { type: "number" },
+          },
+        },
+        outputSchema: { type: "number" },
       },
-    );
+    });
   });
 });

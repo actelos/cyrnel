@@ -1,4 +1,5 @@
-import express, { Router } from "express";
+import { Router } from "express";
+import multer from "multer";
 
 import {
   createDefinition,
@@ -9,16 +10,10 @@ import {
 } from "@/controllers/definition.controller";
 
 export const definitionRouter = Router();
+const upload = multer({ storage: multer.memoryStorage() });
 
 definitionRouter.get("/", listDefinitions);
 definitionRouter.get("/:definitionId", getDefinition);
-definitionRouter.post(
-  "/",
-  express.raw({
-    type: ["application/octet-stream", "text/plain"],
-    limit: "10mb",
-  }),
-  createDefinition,
-);
+definitionRouter.post("/", upload.single("file"), createDefinition);
 definitionRouter.post("/install", installDefinition);
 definitionRouter.delete("/:definitionId", deleteDefinition);

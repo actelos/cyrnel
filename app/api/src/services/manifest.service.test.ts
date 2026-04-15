@@ -8,6 +8,7 @@ describe("manifest.service unit", () => {
     const metadata: ManifestMetadata = { serverUrl: "http://127.0.0.1:8787" };
     const toolDefinition: ToolDefinition = {
       name: "tool-1",
+      description: "",
       metadata: { requestKind: "rpc.invoke", route: "echo" },
       inputSchema: { type: "object" },
       outputSchema: { type: "string" },

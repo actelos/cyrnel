@@ -49,8 +49,8 @@ describe("definition.controller", () => {
     const res = makeRes();
     const req = makeReq();
     definitionService.listDefinitions.mockResolvedValue([
-      { id: "def-1", type: "foo", hash: "hash-1" },
-      { id: "def-2", type: "foo", hash: "hash-2" },
+      { id: "def-1", type: "foo", description: "", hash: "hash-1" },
+      { id: "def-2", type: "foo", description: "", hash: "hash-2" },
     ]);
 
     await listDefinitions(req, res as unknown as Response);
@@ -58,12 +58,13 @@ describe("definition.controller", () => {
     expect(definitionService.listDefinitions).toHaveBeenCalledWith({
       sortBy: undefined,
       definitionId: undefined,
+      query: undefined,
     });
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith({
       definitions: [
-        { id: "def-1", type: "foo", hash: "hash-1" },
-        { id: "def-2", type: "foo", hash: "hash-2" },
+        { id: "def-1", type: "foo", description: "", hash: "hash-1" },
+        { id: "def-2", type: "foo", description: "", hash: "hash-2" },
       ],
     });
   });
@@ -72,7 +73,7 @@ describe("definition.controller", () => {
     const res = makeRes();
     const req = makeReq({ query: { sort: "type" } });
     definitionService.listDefinitions.mockResolvedValue([
-      { id: "def-1", type: "foo", hash: "hash-1" },
+      { id: "def-1", type: "foo", description: "", hash: "hash-1" },
     ]);
 
     await listDefinitions(req, res as unknown as Response);
@@ -80,10 +81,13 @@ describe("definition.controller", () => {
     expect(definitionService.listDefinitions).toHaveBeenCalledWith({
       sortBy: "type",
       definitionId: undefined,
+      query: undefined,
     });
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith({
-      definitions: [{ id: "def-1", type: "foo", hash: "hash-1" }],
+      definitions: [
+        { id: "def-1", type: "foo", description: "", hash: "hash-1" },
+      ],
     });
   });
 
@@ -91,7 +95,7 @@ describe("definition.controller", () => {
     const res = makeRes();
     const req = makeReq({ query: { id: "def-1" } });
     definitionService.listDefinitions.mockResolvedValue([
-      { id: "def-1", type: "foo", hash: "hash-1" },
+      { id: "def-1", type: "foo", description: "", hash: "hash-1" },
     ]);
 
     await listDefinitions(req, res as unknown as Response);
@@ -99,10 +103,13 @@ describe("definition.controller", () => {
     expect(definitionService.listDefinitions).toHaveBeenCalledWith({
       sortBy: undefined,
       definitionId: "def-1",
+      query: undefined,
     });
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith({
-      definitions: [{ id: "def-1", type: "foo", hash: "hash-1" }],
+      definitions: [
+        { id: "def-1", type: "foo", description: "", hash: "hash-1" },
+      ],
     });
   });
 
@@ -112,6 +119,7 @@ describe("definition.controller", () => {
     definitionService.getDefinition.mockResolvedValue({
       id: "def-1",
       type: "foo",
+      description: "",
       hash: "hash-1",
     });
 
@@ -122,6 +130,7 @@ describe("definition.controller", () => {
     expect(res.json).toHaveBeenCalledWith({
       id: "def-1",
       type: "foo",
+      description: "",
       hash: "hash-1",
     });
   });
@@ -129,12 +138,15 @@ describe("definition.controller", () => {
   it("creates a definition", async () => {
     const res = makeRes();
     const req = makeReq({
-      query: { type: "foo" },
-      body: Buffer.from('{"name":"svc-def","metadata":{},"tools":[]}'),
+      body: { type: "foo", description: "a definition" },
+      file: {
+        buffer: Buffer.from('{"name":"svc-def","metadata":{},"tools":[]}'),
+      },
     });
     definitionService.createDefinition.mockResolvedValue({
       id: "def-1",
       type: "foo",
+      description: "a definition",
       hash: "hash-1",
     });
 
@@ -142,12 +154,14 @@ describe("definition.controller", () => {
 
     expect(definitionService.createDefinition).toHaveBeenCalledWith(
       "foo",
+      "a definition",
       '{"name":"svc-def","metadata":{},"tools":[]}',
     );
     expect(res.status).toHaveBeenCalledWith(201);
     expect(res.json).toHaveBeenCalledWith({
       id: "def-1",
       type: "foo",
+      description: "a definition",
       hash: "hash-1",
     });
   });
@@ -176,19 +190,24 @@ describe("definition.controller", () => {
     definitionService.installDefinitionFromRegistry.mockResolvedValue({
       id: "def-3",
       type: "foo",
+      description: "",
       hash: "hash-3",
     });
 
     await installDefinition(req, res as unknown as Response);
 
-    expect(definitionService.installDefinitionFromRegistry).toHaveBeenCalledWith(
+    expect(
+      definitionService.installDefinitionFromRegistry,
+    ).toHaveBeenCalledWith(
       "foo",
+      "",
       "https://registry.example.com/definition.json",
     );
     expect(res.status).toHaveBeenCalledWith(201);
     expect(res.json).toHaveBeenCalledWith({
       id: "def-3",
       type: "foo",
+      description: "",
       hash: "hash-3",
     });
   });

@@ -41,6 +41,7 @@ class TestManifestService {
 const permissiveTool: ResolvedToolInvocation = {
   tool: {
     name: "tool-1",
+    description: "",
     inputSchema: {
       type: "object",
       additionalProperties: true,
@@ -174,6 +175,7 @@ describe("invoke.service", () => {
       {
         tool: {
           name: "tool-1",
+          description: "",
           inputSchema: {
             type: "object",
             required: ["count"],
@@ -224,6 +226,7 @@ describe("invoke.service", () => {
       {
         tool: {
           name: "tool-1",
+          description: "",
           inputSchema: {},
           outputSchema: {
             type: "string",

@@ -31,11 +31,15 @@ export class ManifestService {
   ) {}
 
   async listServices(query?: string): Promise<ServiceManifestResponse[]> {
-    let rows: Array<{ id: string; hash: string }>;
+    let rows: Array<{ id: string; description: string; hash: string }>;
 
     try {
       rows = await db
-        .select({ id: manifests.id, hash: manifests.hash })
+        .select({
+          id: manifests.id,
+          description: manifests.description,
+          hash: manifests.hash,
+        })
         .from(manifests)
         .orderBy(asc(manifests.id));
     } catch {
@@ -47,10 +51,15 @@ export class ManifestService {
     const filtered =
       loweredQuery === undefined
         ? rows
-        : rows.filter((row) => row.id.toLowerCase().includes(loweredQuery));
+        : rows.filter(
+            (row) =>
+              row.id.toLowerCase().includes(loweredQuery) ||
+              row.description.toLowerCase().includes(loweredQuery),
+          );
 
     return filtered.map((row) => ({
       name: row.id,
+      description: row.description,
       hash: row.hash,
     }));
   }
@@ -58,11 +67,17 @@ export class ManifestService {
   async getService(serviceName: string): Promise<ServiceManifestDetails> {
     const normalizedServiceName = normalizeServiceName(serviceName);
 
-    let rows: Array<{ id: string; metadata: ManifestMetadata; hash: string }>;
+    let rows: Array<{
+      id: string;
+      description: string;
+      metadata: ManifestMetadata;
+      hash: string;
+    }>;
     try {
       rows = await db
         .select({
           id: manifests.id,
+          description: manifests.description,
           metadata: manifests.metadata,
           hash: manifests.hash,
         })
@@ -93,6 +108,7 @@ export class ManifestService {
 
     return {
       name: rows[0].id,
+      description: rows[0].description,
       hash: rows[0].hash,
       metadata,
     };
@@ -125,12 +141,19 @@ export class ManifestService {
       );
     }
 
-    let rows: ToolDefinitionResponse[];
+    let rows: Array<{
+      serviceName: string;
+      name: string;
+      description: string;
+      inputSchema: ToolDefinitionResponse["inputSchema"];
+      outputSchema: ToolDefinitionResponse["outputSchema"];
+    }>;
     try {
       rows = await db
         .select({
           serviceName: tools.serviceName,
           name: tools.name,
+          description: tools.description,
           inputSchema: tools.inputSchema,
           outputSchema: tools.outputSchema,
         })
@@ -149,10 +172,15 @@ export class ManifestService {
     const filtered =
       loweredQuery === undefined
         ? rows
-        : rows.filter((row) => row.name.toLowerCase().includes(loweredQuery));
+        : rows.filter(
+            (row) =>
+              row.name.toLowerCase().includes(loweredQuery) ||
+              row.description.toLowerCase().includes(loweredQuery),
+          );
 
     return filtered.map((row) => ({
       name: row.name,
+      description: row.description,
       inputSchema: row.inputSchema,
       outputSchema: row.outputSchema,
     }));
@@ -210,6 +238,7 @@ export class ManifestService {
         await tx.insert(manifests).values({
           id: normalizedServiceName,
           definitionId: normalizedDefinitionId,
+          description: parsedManifest.description,
           hash: definitionRow.hash,
           metadata: parsedManifest.metadata,
         });
@@ -219,6 +248,7 @@ export class ManifestService {
             parsedManifest.tools.map((tool) => ({
               serviceName: normalizedServiceName,
               name: tool.name,
+              description: tool.description,
               metadata: tool.metadata,
               inputSchema: tool.inputSchema,
               outputSchema: tool.outputSchema,
@@ -351,6 +381,7 @@ export class ManifestService {
           .update(manifests)
           .set({
             definitionId: normalizedDefinitionId,
+            description: parsedManifest.description,
             hash: definitionRow.hash,
             metadata: parsedManifest.metadata,
           })
@@ -365,6 +396,7 @@ export class ManifestService {
             parsedManifest.tools.map((tool) => ({
               serviceName: normalizedServiceName,
               name: tool.name,
+              description: tool.description,
               metadata: tool.metadata,
               inputSchema: tool.inputSchema,
               outputSchema: tool.outputSchema,
@@ -402,10 +434,13 @@ export class ManifestService {
         .select({
           serviceName: tools.serviceName,
           name: tools.name,
+          description: tools.description,
+          serviceDescription: manifests.description,
           inputSchema: tools.inputSchema,
           outputSchema: tools.outputSchema,
         })
         .from(tools)
+        .innerJoin(manifests, eq(tools.serviceName, manifests.id))
         .orderBy(asc(tools.serviceName), asc(tools.name));
     } catch {
       throw new HttpError(500, "Failed to discover tools.");
@@ -420,7 +455,9 @@ export class ManifestService {
     const filtered = rows.filter(
       (row) =>
         row.name.toLowerCase().includes(loweredQuery) ||
-        row.serviceName.toLowerCase().includes(loweredQuery),
+        row.description.toLowerCase().includes(loweredQuery) ||
+        row.serviceName.toLowerCase().includes(loweredQuery) ||
+        row.serviceDescription.toLowerCase().includes(loweredQuery),
     );
 
     return applyDiscoverLimit(filtered, normalizedLimit);
@@ -648,6 +685,7 @@ async function loadToolByServiceAndToolName(
   const rows = await db
     .select({
       name: tools.name,
+      description: tools.description,
       inputSchema: tools.inputSchema,
       outputSchema: tools.outputSchema,
       metadata: tools.metadata,
@@ -683,6 +721,7 @@ function isToolDefinition(value: unknown): value is ToolDefinition {
   return (
     typeof value.name === "string" &&
     value.name.trim().length > 0 &&
+    typeof value.description === "string" &&
     isRecord(value.inputSchema) &&
     isRecord(value.outputSchema) &&
     isRecord(value.metadata)

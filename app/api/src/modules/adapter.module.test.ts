@@ -156,12 +156,14 @@ describe("parseServiceManifest", () => {
     const parsed = parseServiceManifest(`
       {
         "name": "svc-echo",
+        "description": "",
         "metadata": {
           "serverUrl": "http://127.0.0.1:8787"
         },
         "tools": [
           {
             "name": "echo",
+            "description": "",
             "metadata": {
               "route": "invoke/echo"
             },
@@ -181,12 +183,14 @@ describe("parseServiceManifest", () => {
 
     expect(parsed).toEqual({
       name: "svc-echo",
+      description: "",
       metadata: {
         serverUrl: "http://127.0.0.1:8787",
       },
       tools: [
         {
           name: "echo",
+          description: "",
           metadata: {
             route: "invoke/echo",
           },

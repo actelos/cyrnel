@@ -12,9 +12,11 @@ export async function listDefinitions(
   const definitionService = getDefinitionService(req);
   const sort = parseDefinitionSort(req.query.sort);
   const definitionId = parseDefinitionIdFilter(req.query.id);
+  const query = parseQueryParam(req.query.query);
   const definitions = await definitionService.listDefinitions({
     sortBy: sort,
     definitionId,
+    query,
   });
 
   res.status(200).json({ definitions });
@@ -40,6 +42,7 @@ export async function createDefinition(
 
   const definition = await definitionService.createDefinition(
     payload.type,
+    payload.description,
     payload.content,
   );
 
@@ -55,6 +58,7 @@ export async function installDefinition(
 
   const definition = await definitionService.installDefinitionFromRegistry(
     payload.type,
+    payload.description,
     payload.fileUrl,
   );
 
@@ -74,33 +78,34 @@ export async function deleteDefinition(
 
 function parseCreateDefinitionPayload(req: Request): {
   type: string;
+  description: string;
   content: string;
 } {
-  const type = parseDefinitionType(req);
-  const rawBody = req.body;
+  const body = parseDefinitionBody(req.body);
+  const type = parseDefinitionType(body);
+  const description = parseDefinitionDescription(body);
+  const file = req.file;
 
-  if (!Buffer.isBuffer(rawBody)) {
+  if (!file || !Buffer.isBuffer(file.buffer)) {
     throw new HttpError(
       400,
-      "Request body must be a definition file uploaded as binary data.",
+      "Field 'file' is required and must be uploaded as binary data.",
     );
   }
 
   return {
     type,
-    content: rawBody.toString("utf8"),
+    description,
+    content: file.buffer.toString("utf8"),
   };
 }
 
 function parseInstallDefinitionPayload(req: Request): {
   type: string;
+  description: string;
   fileUrl: string;
 } {
-  if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
-    throw new HttpError(400, "Request body must be a source JSON object.");
-  }
-
-  const source = req.body as Record<string, unknown>;
+  const source = parseDefinitionBody(req.body);
 
   if (
     !source.metadata ||
@@ -123,10 +128,11 @@ function parseInstallDefinitionPayload(req: Request): {
     );
   }
 
-  const type = parseSourceDefinitionType(source, metadata, req);
+  const type = parseSourceDefinitionType(source, metadata);
 
   return {
     type,
+    description: parseDefinitionDescription(source),
     fileUrl,
   };
 }
@@ -134,7 +140,6 @@ function parseInstallDefinitionPayload(req: Request): {
 function parseSourceDefinitionType(
   source: Record<string, unknown>,
   metadata: Record<string, unknown>,
-  req: Request,
 ): string {
   const sourceType = source.type;
 
@@ -148,26 +153,27 @@ function parseSourceDefinitionType(
     return metadataType;
   }
 
-  return parseDefinitionType(req);
+  throw new HttpError(400, "Field 'type' is required and must be a string.");
 }
 
-function parseDefinitionType(req: Request): string {
-  const queryType = req.query.type;
-
-  if (typeof queryType === "string") {
-    return queryType;
+function parseDefinitionType(body: Record<string, unknown>): string {
+  if (typeof body.type !== "string") {
+    throw new HttpError(400, "Field 'type' is required and must be a string.");
   }
 
-  const headerType = req.header("x-definition-type");
+  return body.type;
+}
 
-  if (typeof headerType === "string") {
-    return headerType;
+function parseDefinitionDescription(body: Record<string, unknown>): string {
+  if (body.description === undefined) {
+    return "";
   }
 
-  throw new HttpError(
-    400,
-    "Definition type is required as query param 'type' or header 'x-definition-type'.",
-  );
+  if (typeof body.description !== "string") {
+    throw new HttpError(400, "Field 'description' must be a string.");
+  }
+
+  return body.description;
 }
 
 function parseDefinitionSort(raw: unknown): DefinitionSortField | undefined {
@@ -186,10 +192,7 @@ function parseDefinitionSort(raw: unknown): DefinitionSortField | undefined {
   }
 
   if (normalized !== "type") {
-    throw new HttpError(
-      400,
-      "Field 'sort' must be one of: type.",
-    );
+    throw new HttpError(400, "Field 'sort' must be one of: type.");
   }
 
   return normalized as DefinitionSortField;
@@ -219,6 +222,28 @@ function parseDefinitionId(raw: unknown): string {
   }
 
   return raw;
+}
+
+function parseDefinitionBody(rawBody: unknown): Record<string, unknown> {
+  if (!rawBody || typeof rawBody !== "object" || Array.isArray(rawBody)) {
+    throw new HttpError(400, "Request body must be an object.");
+  }
+
+  return rawBody as Record<string, unknown>;
+}
+
+function parseQueryParam(raw: unknown): string | undefined {
+  if (raw === undefined) {
+    return undefined;
+  }
+
+  if (typeof raw !== "string") {
+    throw new HttpError(400, "Field 'query' must be a string.");
+  }
+
+  const normalized = raw.trim();
+
+  return normalized.length > 0 ? normalized : undefined;
 }
 
 function getDefinitionService(req: Request): DefinitionService {
