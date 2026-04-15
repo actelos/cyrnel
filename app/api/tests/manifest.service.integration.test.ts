@@ -199,23 +199,79 @@ describe("manifest.service integration", () => {
       metadata: {
         serverUrl: "http://127.0.0.1:9001",
       },
-      tools: [
-        {
-          name: "echo",
-          metadata: {
-            route: "invoke/echo",
-          },
-          inputSchema: {
-            type: "object",
-            properties: {
-              input: { type: "string" },
-            },
-          },
-          outputSchema: {
-            type: "string",
+    });
+
+    await expect(service.listTools("svc-create")).resolves.toEqual([
+      {
+        name: "echo",
+        inputSchema: {
+          type: "object",
+          properties: {
+            input: { type: "string" },
           },
         },
+        outputSchema: {
+          type: "string",
+        },
+      },
+    ]);
+  });
+
+  it("lists tools with and without name filter", async () => {
+    const service = new ManifestService();
+    await db.insert(manifests).values({
+      id: "svc-tools-list",
+      hash: "hash-tools-list",
+      metadata: {
+        serverUrl: "http://127.0.0.1:9002",
+      },
+    });
+    await db.insert(tools).values([
+      {
+        serviceName: "svc-tools-list",
+        name: "echo",
+        metadata: { route: "invoke/echo" },
+        inputSchema: { type: "object" },
+        outputSchema: { type: "string" },
+      },
+      {
+        serviceName: "svc-tools-list",
+        name: "sum",
+        metadata: { route: "invoke/sum" },
+        inputSchema: { type: "object" },
+        outputSchema: { type: "number" },
+      },
+    ]);
+
+    await expect(service.listTools("svc-tools-list")).resolves.toEqual([
+      {
+        name: "echo",
+        inputSchema: { type: "object" },
+        outputSchema: { type: "string" },
+      },
+      {
+        name: "sum",
+        inputSchema: { type: "object" },
+        outputSchema: { type: "number" },
+      },
+    ]);
+
+    await expect(service.listTools("svc-tools-list", " eC ")).resolves.toEqual(
+      [
+        {
+          name: "echo",
+          inputSchema: { type: "object" },
+          outputSchema: { type: "string" },
+        },
       ],
+    );
+
+    await expect(service.listTools("svc-tools-list", "missing")).resolves.toEqual(
+      [],
+    );
+
+    await expect(service.listTools("svc-missing")).rejects.toMatchObject({
+      statusCode: 404,
     });
   });
 
@@ -292,7 +348,7 @@ describe("manifest.service integration", () => {
     ]);
   });
 
-  it("lists services with tools and without metadata", async () => {
+  it("lists services without tools and supports query filtering", async () => {
     const service = new ManifestService();
     await db.insert(manifests).values([
       {
@@ -327,23 +383,17 @@ describe("manifest.service integration", () => {
       {
         name: "svc-1",
         hash: "hash-svc-1",
-        tools: [
-          {
-            name: "echo",
-            inputSchema: { type: "object" },
-            outputSchema: { type: "string" },
-          },
-          {
-            name: "ping",
-            inputSchema: { type: "object" },
-            outputSchema: { type: "null" },
-          },
-        ],
       },
       {
         name: "svc-2",
         hash: "hash-svc-2",
-        tools: [],
+      },
+    ]);
+
+    await expect(service.listServices("vc-2")).resolves.toEqual([
+      {
+        name: "svc-2",
+        hash: "hash-svc-2",
       },
     ]);
   });
@@ -367,7 +417,6 @@ describe("manifest.service integration", () => {
       {
         name: "svc-alpha",
         hash: "hash-svc-alpha",
-        tools: [],
       },
     ]);
 
@@ -375,12 +424,10 @@ describe("manifest.service integration", () => {
       {
         name: "svc-alpha",
         hash: "hash-svc-alpha",
-        tools: [],
       },
       {
         name: "svc-beta",
         hash: "hash-svc-beta",
-        tools: [],
       },
     ]);
   });
@@ -420,8 +467,9 @@ describe("manifest.service integration", () => {
       metadata: {
         serverUrl: "http://127.0.0.1:9011",
       },
-      tools: [],
     });
+
+    await expect(service.listTools("svc-same")).resolves.toEqual([]);
   });
 
   it("updates service manifest and tools when hashes differ", async () => {
@@ -491,8 +539,24 @@ describe("manifest.service integration", () => {
       metadata: {
         serverUrl: "http://127.0.0.1:9013",
       },
-      tools: [
-        {
+    });
+
+    await expect(service.listTools("svc-update")).resolves.toEqual([
+      {
+        name: "new-tool",
+        inputSchema: {
+          type: "object",
+          properties: {
+            value: { type: "number" },
+          },
+        },
+        outputSchema: { type: "number" },
+      },
+    ]);
+
+    await expect(service.getTool("svc-update", "new-tool")).resolves.toMatchObject(
+      {
+        tool: {
           name: "new-tool",
           metadata: {
             route: "invoke/new-tool",
@@ -505,7 +569,7 @@ describe("manifest.service integration", () => {
           },
           outputSchema: { type: "number" },
         },
-      ],
-    });
+      },
+    );
   });
 });

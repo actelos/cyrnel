@@ -368,7 +368,7 @@ describe("discover.service integration", () => {
     ]);
   });
 
-  it("discovers all services and includes each service tool list", async () => {
+  it("discovers all services", async () => {
     await seedDiscoverFixtures();
 
     const channel = new TestDiscoverChannel();
@@ -391,65 +391,14 @@ describe("discover.service integration", () => {
           {
             name: "svc-alpha",
             hash: "hash-alpha",
-            tools: [
-              {
-                name: "echo",
-                inputSchema: {
-                  type: "object",
-                  properties: { input: { type: "string" } },
-                },
-                outputSchema: { type: "string" },
-              },
-              {
-                name: "list-users",
-                inputSchema: { type: "object" },
-                outputSchema: {
-                  type: "array",
-                  items: { type: "string" },
-                },
-              },
-            ],
           },
           {
             name: "svc-beta",
             hash: "hash-beta",
-            tools: [
-              {
-                name: "echo-plus",
-                inputSchema: {
-                  type: "object",
-                  properties: {
-                    input: { type: "string" },
-                    times: { type: "number" },
-                  },
-                },
-                outputSchema: { type: "string" },
-              },
-              {
-                name: "sum",
-                inputSchema: {
-                  type: "object",
-                  properties: {
-                    values: {
-                      type: "array",
-                      items: { type: "number" },
-                    },
-                  },
-                },
-                outputSchema: { type: "number" },
-              },
-            ],
           },
           {
             name: "svc-gamma",
             hash: "hash-gamma",
-            tools: [
-              {
-                name: "ping",
-                inputSchema: { type: "object" },
-                outputSchema: { type: "null" },
-              },
-            ],
           },
         ],
       },
@@ -479,32 +428,6 @@ describe("discover.service integration", () => {
           {
             name: "svc-beta",
             hash: "hash-beta",
-            tools: [
-              {
-                name: "echo-plus",
-                inputSchema: {
-                  type: "object",
-                  properties: {
-                    input: { type: "string" },
-                    times: { type: "number" },
-                  },
-                },
-                outputSchema: { type: "string" },
-              },
-              {
-                name: "sum",
-                inputSchema: {
-                  type: "object",
-                  properties: {
-                    values: {
-                      type: "array",
-                      items: { type: "number" },
-                    },
-                  },
-                },
-                outputSchema: { type: "number" },
-              },
-            ],
           },
         ],
       },

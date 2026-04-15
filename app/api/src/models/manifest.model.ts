@@ -27,9 +27,10 @@ export interface ToolDefinitionResponse extends PublicToolDefinition {
 export interface ServiceManifestResponse {
   name: string;
   hash: string;
-  tools: PublicToolDefinition[];
 }
 
-export interface ServiceManifestDetails extends ServiceManifest {
+export interface ServiceManifestDetails {
+  name: string;
   hash: string;
+  metadata: ManifestMetadata;
 }

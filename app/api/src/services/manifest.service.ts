@@ -30,43 +30,28 @@ export class ManifestService {
     private readonly adapter: AdapterModule = new AdapterModule(),
   ) {}
 
-  async listServices(): Promise<ServiceManifestResponse[]> {
-    let serviceRows: Array<{ id: string; hash: string }>;
-    let toolRows: ToolDefinitionResponse[];
+  async listServices(query?: string): Promise<ServiceManifestResponse[]> {
+    let rows: Array<{ id: string; hash: string }>;
 
     try {
-      serviceRows = await db
+      rows = await db
         .select({ id: manifests.id, hash: manifests.hash })
-        .from(manifests);
-      toolRows = await db
-        .select({
-          serviceName: tools.serviceName,
-          name: tools.name,
-          inputSchema: tools.inputSchema,
-          outputSchema: tools.outputSchema,
-        })
-        .from(tools)
-        .orderBy(asc(tools.serviceName), asc(tools.name));
+        .from(manifests)
+        .orderBy(asc(manifests.id));
     } catch {
       throw new HttpError(500, "Failed to list service manifests.");
     }
 
-    const toolMap = new Map<string, PublicToolDefinition[]>();
+    const loweredQuery = query?.toLowerCase();
 
-    for (const tool of toolRows) {
-      const existing = toolMap.get(tool.serviceName) ?? [];
-      existing.push({
-        name: tool.name,
-        inputSchema: tool.inputSchema,
-        outputSchema: tool.outputSchema,
-      });
-      toolMap.set(tool.serviceName, existing);
-    }
+    const filtered =
+      loweredQuery === undefined
+        ? rows
+        : rows.filter((row) => row.id.toLowerCase().includes(loweredQuery));
 
-    return serviceRows.map((row) => ({
+    return filtered.map((row) => ({
       name: row.id,
       hash: row.hash,
-      tools: toolMap.get(row.id) ?? [],
     }));
   }
 
@@ -106,14 +91,48 @@ export class ManifestService {
       );
     }
 
-    let toolRows: unknown[];
+    return {
+      name: rows[0].id,
+      hash: rows[0].hash,
+      metadata,
+    };
+  }
+
+  async listTools(
+    serviceName: string,
+    query?: string,
+  ): Promise<PublicToolDefinition[]> {
+    const normalizedServiceName = normalizeServiceName(serviceName);
+
+    let serviceRows: Array<{ id: string }>;
     try {
-      toolRows = await db
+      serviceRows = await db
+        .select({ id: manifests.id })
+        .from(manifests)
+        .where(eq(manifests.id, normalizedServiceName))
+        .limit(1);
+    } catch {
+      throw new HttpError(
+        500,
+        `Failed to load manifest for service '${normalizedServiceName}'.`,
+      );
+    }
+
+    if (serviceRows.length === 0) {
+      throw new HttpError(
+        404,
+        `Manifest not found for service '${normalizedServiceName}'.`,
+      );
+    }
+
+    let rows: ToolDefinitionResponse[];
+    try {
+      rows = await db
         .select({
+          serviceName: tools.serviceName,
           name: tools.name,
           inputSchema: tools.inputSchema,
           outputSchema: tools.outputSchema,
-          metadata: tools.metadata,
         })
         .from(tools)
         .where(eq(tools.serviceName, normalizedServiceName))
@@ -125,27 +144,18 @@ export class ManifestService {
       );
     }
 
-    for (const tool of toolRows) {
-      if (!isToolDefinition(tool)) {
-        const invalidToolName =
-          isRecord(tool) && typeof tool.name === "string"
-            ? tool.name
-            : "unknown";
-        throw new HttpError(
-          500,
-          `Stored tool '${invalidToolName}' for service '${normalizedServiceName}' is invalid.`,
-        );
-      }
-    }
+    const loweredQuery = query?.toLowerCase();
 
-    const validatedTools = toolRows as ToolDefinition[];
+    const filtered =
+      loweredQuery === undefined
+        ? rows
+        : rows.filter((row) => row.name.toLowerCase().includes(loweredQuery));
 
-    return {
-      name: rows[0].id,
-      hash: rows[0].hash,
-      metadata,
-      tools: validatedTools,
-    };
+    return filtered.map((row) => ({
+      name: row.name,
+      inputSchema: row.inputSchema,
+      outputSchema: row.outputSchema,
+    }));
   }
 
   async createService(

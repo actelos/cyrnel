@@ -5,7 +5,8 @@ import type { ManifestService } from "@/services/manifest.service";
 
 export async function listServices(req: Request, res: Response): Promise<void> {
   const manifestService = getManifestService(req);
-  const services = await manifestService.listServices();
+  const query = parseQueryParam(req.query.query);
+  const services = await manifestService.listServices(query);
 
   res.status(200).json({ services });
 }
@@ -15,7 +16,37 @@ export async function getService(req: Request, res: Response): Promise<void> {
   const serviceName = parseServiceName(req.params.serviceName);
   const service = await manifestService.getService(serviceName);
 
-  res.status(200).json(service);
+  res.status(200).json({
+    name: service.name,
+    hash: service.hash,
+    metadata: service.metadata,
+  });
+}
+
+export async function listTools(req: Request, res: Response): Promise<void> {
+  const manifestService = getManifestService(req);
+  const serviceName = parseServiceName(req.params.serviceName);
+  const query = parseQueryParam(req.query.query);
+  const tools = await manifestService.listTools(serviceName, query);
+
+  res.status(200).json({ tools });
+}
+
+export async function getToolByName(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const manifestService = getManifestService(req);
+  const serviceName = parseServiceName(req.params.serviceName);
+  const toolName = parseToolName(req.params.toolName);
+  const { tool } = await manifestService.getTool(serviceName, toolName);
+
+  res.status(200).json({
+    name: tool.name,
+    inputSchema: tool.inputSchema,
+    outputSchema: tool.outputSchema,
+    metadata: tool.metadata,
+  });
 }
 
 export async function createService(
@@ -62,6 +93,28 @@ function parseServiceName(raw: unknown): string {
   }
 
   return raw;
+}
+
+function parseToolName(raw: unknown): string {
+  if (typeof raw !== "string") {
+    throw new HttpError(400, "Field 'toolName' must be a string.");
+  }
+
+  return raw;
+}
+
+function parseQueryParam(raw: unknown): string | undefined {
+  if (raw === undefined) {
+    return undefined;
+  }
+
+  if (typeof raw !== "string") {
+    throw new HttpError(400, "Field 'query' must be a string.");
+  }
+
+  const normalized = raw.trim();
+
+  return normalized.length > 0 ? normalized : undefined;
 }
 
 function parseDefinitionId(rawBody: unknown): string {

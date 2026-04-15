@@ -82,7 +82,6 @@ describe("discover.service", () => {
       {
         name: "svc-1",
         hash: "hash-1",
-        tools: [],
       },
     ]);
 
@@ -108,7 +107,6 @@ describe("discover.service", () => {
           {
             name: "svc-1",
             hash: "hash-1",
-            tools: [],
           },
         ],
       },
