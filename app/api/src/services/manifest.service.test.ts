@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import type { ManifestMetadata, ToolDefinition } from "@/models/manifest.model";
 import {
-  ManifestService,
   isUniqueConstraintViolation,
+  ManifestService,
 } from "@/services/manifest.service";
 
 describe("manifest.service unit", () => {
