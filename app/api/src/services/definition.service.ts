@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isIP } from "node:net";
 
 import { asc, eq } from "drizzle-orm";
 
@@ -13,6 +14,9 @@ import { HttpError } from "@/models/error.model";
 import { computeContentHash } from "@/utils/hash.util";
 
 type DefinitionSortField = "type";
+
+const DEFINITION_DOWNLOAD_TIMEOUT_MS = 10_000;
+const MAX_DEFINITION_DOWNLOAD_BYTES = 1_048_576;
 
 interface DefinitionServiceOptions {
   fetchImpl?: typeof fetch;
@@ -167,6 +171,12 @@ export class DefinitionService {
     fileUrl: string,
   ): Promise<DefinitionResponse> {
     const normalizedFileUrl = normalizeDefinitionFileUrl(fileUrl);
+    assertRegistryAddressAllowed(normalizedFileUrl);
+
+    const abortController = new AbortController();
+    const timeoutHandle = setTimeout(() => {
+      abortController.abort();
+    }, DEFINITION_DOWNLOAD_TIMEOUT_MS);
 
     let response: Response;
     try {
@@ -175,13 +185,26 @@ export class DefinitionService {
         headers: {
           accept: "application/json, text/plain, application/octet-stream",
         },
+        signal: abortController.signal,
       });
     } catch {
+      clearTimeout(timeoutHandle);
       throw new HttpError(
         502,
         `Failed to download definition file from '${normalizedFileUrl}'.`,
       );
     }
+
+    clearTimeout(timeoutHandle);
+
+    if (abortController.signal.aborted) {
+      throw new HttpError(
+        502,
+        `Timed out downloading definition file from '${normalizedFileUrl}'.`,
+      );
+    }
+
+    assertRegistryAddressAllowed(response.url || normalizedFileUrl);
 
     if (!response.ok) {
       throw new HttpError(
@@ -192,12 +215,30 @@ export class DefinitionService {
 
     let content: string;
     try {
-      content = await response.text();
-    } catch {
+      content = await readBodyAsUtf8WithLimit(
+        response,
+        MAX_DEFINITION_DOWNLOAD_BYTES,
+      );
+    } catch (error) {
+      if (error instanceof HttpError) {
+        throw error;
+      }
+
+      if (abortController.signal.aborted) {
+        throw new HttpError(
+          502,
+          `Timed out reading definition file downloaded from '${normalizedFileUrl}'.`,
+        );
+      }
+
       throw new HttpError(
         502,
         `Failed to read definition file downloaded from '${normalizedFileUrl}'.`,
       );
+    }
+
+    if (!content.trim()) {
+      throw new HttpError(400, "Field 'content' must not be empty.");
     }
 
     return this.createDefinition(type, description, content);
@@ -309,6 +350,144 @@ function normalizeDefinitionFileUrl(fileUrl: string): string {
   }
 
   return parsed.toString();
+}
+
+function assertRegistryAddressAllowed(url: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new HttpError(502, "Registry download redirected to an invalid URL.");
+  }
+
+  const hostname = parsed.hostname.trim().toLowerCase();
+  const normalizedHost =
+    hostname.startsWith("[") && hostname.endsWith("]")
+      ? hostname.slice(1, -1)
+      : hostname;
+
+  if (normalizedHost === "localhost" || normalizedHost.endsWith(".localhost")) {
+    throw new HttpError(
+      502,
+      "Registry URL resolves to a disallowed local address.",
+    );
+  }
+
+  if (!isIP(normalizedHost)) {
+    return;
+  }
+
+  if (isPrivateOrLocalIp(normalizedHost)) {
+    throw new HttpError(
+      502,
+      "Registry URL resolves to a disallowed local address.",
+    );
+  }
+}
+
+function isPrivateOrLocalIp(address: string): boolean {
+  const version = isIP(address);
+
+  if (version === 4) {
+    const octets = address
+      .split(".")
+      .map((segment) => Number.parseInt(segment, 10));
+    if (
+      octets.length !== 4 ||
+      octets.some((octet) => !Number.isInteger(octet))
+    ) {
+      return true;
+    }
+
+    const [a, b] = octets;
+    return (
+      a === 0 ||
+      a === 10 ||
+      a === 127 ||
+      (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      (a === 100 && b >= 64 && b <= 127)
+    );
+  }
+
+  if (version === 6) {
+    const normalized = address.toLowerCase();
+    return (
+      normalized === "::1" ||
+      normalized === "::" ||
+      normalized.startsWith("fe8") ||
+      normalized.startsWith("fe9") ||
+      normalized.startsWith("fea") ||
+      normalized.startsWith("feb") ||
+      normalized.startsWith("fc") ||
+      normalized.startsWith("fd") ||
+      normalized.startsWith("::ffff:127.") ||
+      normalized.startsWith("::ffff:10.") ||
+      normalized.startsWith("::ffff:192.168.") ||
+      /^::ffff:172\.(1[6-9]|2\d|3[0-1])\./.test(normalized)
+    );
+  }
+
+  return true;
+}
+
+async function readBodyAsUtf8WithLimit(
+  response: Response,
+  maxBytes: number,
+): Promise<string> {
+  const contentLengthHeader = response.headers.get("content-length");
+  if (contentLengthHeader) {
+    const declaredContentLength = Number.parseInt(contentLengthHeader, 10);
+    if (
+      Number.isFinite(declaredContentLength) &&
+      declaredContentLength > maxBytes
+    ) {
+      throw new HttpError(
+        413,
+        `Definition file exceeds maximum allowed size of ${maxBytes} bytes.`,
+      );
+    }
+  }
+
+  if (!response.body) {
+    throw new HttpError(
+      502,
+      "Downloaded definition file did not include a response body.",
+    );
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  const chunks: string[] = [];
+  let totalBytes = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+
+      if (value) {
+        totalBytes += value.byteLength;
+        if (totalBytes > maxBytes) {
+          await reader.cancel();
+          throw new HttpError(
+            413,
+            `Definition file exceeds maximum allowed size of ${maxBytes} bytes.`,
+          );
+        }
+
+        chunks.push(decoder.decode(value, { stream: true }));
+      }
+    }
+
+    chunks.push(decoder.decode());
+    return chunks.join("");
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 function normalizeOptionalQuery(query: string | undefined): string | undefined {

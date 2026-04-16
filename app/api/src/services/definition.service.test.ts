@@ -67,6 +67,7 @@ describe("definition.service unit", () => {
         headers: {
           accept: "application/json, text/plain, application/octet-stream",
         },
+        signal: expect.any(AbortSignal),
       },
     );
     expect(createSpy).toHaveBeenCalledWith("foo", "", sourceContent);
@@ -86,6 +87,41 @@ describe("definition.service unit", () => {
       service.installDefinitionFromRegistry("foo", "", "not-a-url"),
     ).rejects.toMatchObject({ statusCode: 400 });
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("rejects localhost registry URLs before download", async () => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    const service = new DefinitionService({ fetchImpl });
+
+    await expect(
+      service.installDefinitionFromRegistry(
+        "foo",
+        "",
+        "https://localhost/definition.json",
+      ),
+    ).rejects.toMatchObject({ statusCode: 502 });
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("rejects oversized registry downloads", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      new Response("x", {
+        status: 200,
+        headers: {
+          "content-length": "1048577",
+        },
+      }),
+    );
+    const service = new DefinitionService({ fetchImpl });
+
+    await expect(
+      service.installDefinitionFromRegistry(
+        "foo",
+        "",
+        "https://registry.example.com/large-definition.json",
+      ),
+    ).rejects.toMatchObject({ statusCode: 413 });
   });
 
   it("detects SQLite and Postgres unique-constraint errors", () => {
