@@ -2,6 +2,7 @@ import Ajv, { type ValidateFunction } from "ajv";
 import type { InvokeRequest, InvokeResponse } from "@/models/invoke.model";
 import type { JSONSchema } from "@/models/manifest.model";
 import type { AdapterModule } from "@/modules/adapter.module";
+import { logger } from "@/logger";
 import { ManifestService } from "@/services/manifest.service";
 
 export interface ProcessMessageChannel {
@@ -14,6 +15,8 @@ interface ProcessMessageSystemOptions {
   manifestService?: Pick<ManifestService, "getTool">;
 }
 
+let hasWarnedMissingChannelSend = false;
+
 export function createProcessMessageSystem(
   adapterModule: AdapterModule,
   channel: ProcessMessageChannel = process,
@@ -21,6 +24,13 @@ export function createProcessMessageSystem(
 ): () => void {
   const manifestService = options.manifestService ?? new ManifestService();
   const validator = new SchemaValidator();
+
+  if (typeof channel.send !== "function" && !hasWarnedMissingChannelSend) {
+    hasWarnedMissingChannelSend = true;
+    logger.warn(
+      "createProcessMessageSystem configured with a channel that has no send(). onMessage will still call handleInvokeMessage, but invoke responses cannot be delivered.",
+    );
+  }
 
   const onMessage = (message: unknown) => {
     void handleInvokeMessage(

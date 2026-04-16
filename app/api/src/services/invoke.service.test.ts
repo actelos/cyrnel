@@ -6,6 +6,7 @@ import type {
   InvokeResponse,
   ResolvedToolInvocation,
 } from "@/models/invoke.model";
+import { logger } from "@/logger";
 import { AdapterModule } from "@/modules/adapter.module";
 import {
   createProcessMessageSystem,
@@ -20,6 +21,10 @@ class TestProcessChannel extends EventEmitter implements ProcessMessageChannel {
     return true;
   }
 }
+
+class TestInboundOnlyChannel
+  extends EventEmitter
+  implements Omit<ProcessMessageChannel, "send"> {}
 
 class TestManifestService {
   constructor(private readonly tools: ResolvedToolInvocation[]) {}
@@ -343,5 +348,38 @@ describe("invoke.service", () => {
         message: "Service 'service-1' is disabled and cannot be invoked.",
       },
     ]);
+  });
+
+  it("warns once when channel.send is missing", () => {
+    const adapter = new AdapterModule({
+      baseUrl: "http://127.0.0.1:9999",
+      fetchImpl: vi.fn<typeof fetch>(),
+    });
+    const warnSpy = vi.spyOn(logger, "warn");
+    const firstChannel = new TestInboundOnlyChannel();
+    const secondChannel = new TestInboundOnlyChannel();
+
+    createProcessMessageSystem(adapter, firstChannel);
+    createProcessMessageSystem(adapter, secondChannel);
+
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledWith(
+      "createProcessMessageSystem configured with a channel that has no send(). onMessage will still call handleInvokeMessage, but invoke responses cannot be delivered.",
+    );
+  });
+
+  it("keeps teardown behavior unchanged", () => {
+    const adapter = new AdapterModule({
+      baseUrl: "http://127.0.0.1:9999",
+      fetchImpl: vi.fn<typeof fetch>(),
+    });
+    const channel = new TestProcessChannel();
+    const offSpy = vi.spyOn(channel, "off");
+
+    const teardown = createProcessMessageSystem(adapter, channel);
+    teardown();
+
+    expect(offSpy).toHaveBeenCalledTimes(1);
+    expect(offSpy).toHaveBeenCalledWith("message", expect.any(Function));
   });
 });
