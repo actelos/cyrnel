@@ -29,29 +29,18 @@ extension for it.
 There are no releases yet. To use MCI, clone this repository and run it from
 source with npm or pnpm.
 
-### Configuration
+Install dependencies:
 
-The server requires a valid configuration before it can start. The
-configuration directory must be located at `~/mci/` or provided through the
-`MCI_CONFIG_DIR` environment variable.
-
-The required configuration file is `modules.toml`:
-
-```toml
-[environment]
-localjs = { enabled = true, path = "./modules/localjs.mjs" }
-
-[adapter]
-openapi = { enabled = true, path = "./modules/openapi.mjs" }
+```bash
+cd app/api
+pnpm install
 ```
-
-The module files referenced by this configuration can be found in the
-[mci-module](https://github.com/actelos/mci-modules) repository.
 
 ### Run the server
 
 Start the server with:
 
 ```bash
+cd app/api
 pnpm run start
 ```

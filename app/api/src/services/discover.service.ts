@@ -1,0 +1,108 @@
+import type {
+  DiscoverRequest,
+  DiscoverResponse,
+} from "@/models/discover.model";
+import { ManifestService } from "@/services/manifest.service";
+
+export interface DiscoverMessageChannel {
+  on(event: "message", listener: (message: unknown) => void): this;
+  off(event: "message", listener: (message: unknown) => void): this;
+  send?: (message: DiscoverResponse) => boolean;
+}
+
+interface DiscoverMessageSystemOptions {
+  manifestService?: Pick<ManifestService, "discoverServices" | "discoverTools">;
+}
+
+export function createDiscoverMessageSystem(
+  channel: DiscoverMessageChannel = process,
+  options: DiscoverMessageSystemOptions = {},
+): () => void {
+  const manifestService = options.manifestService ?? new ManifestService();
+
+  const onMessage = (message: unknown) => {
+    void handleDiscoverMessage(channel, manifestService, message);
+  };
+
+  channel.on("message", onMessage);
+
+  return () => {
+    channel.off("message", onMessage);
+  };
+}
+
+async function handleDiscoverMessage(
+  channel: DiscoverMessageChannel,
+  manifestService: Pick<ManifestService, "discoverServices" | "discoverTools">,
+  message: unknown,
+): Promise<void> {
+  if (!isDiscoverMessage(message)) {
+    return;
+  }
+
+  try {
+    if (message.type === "discover.tools") {
+      const tools =
+        message.enabled === undefined
+          ? await manifestService.discoverTools(message.query, message.limit)
+          : await manifestService.discoverTools(
+              message.query,
+              message.limit,
+              message.enabled,
+            );
+      channel.send?.({
+        type: "tools.response",
+        requestId: message.requestId,
+        tools,
+      });
+      return;
+    }
+
+    const services =
+      message.enabled === undefined
+        ? await manifestService.discoverServices(message.query, message.limit)
+        : await manifestService.discoverServices(
+            message.query,
+            message.limit,
+            message.enabled,
+          );
+    channel.send?.({
+      type: "services.response",
+      requestId: message.requestId,
+      services,
+    });
+  } catch (error) {
+    channel.send?.({
+      type:
+        message.type === "discover.tools" ? "tools.error" : "services.error",
+      requestId: message.requestId,
+      message:
+        error instanceof Error
+          ? error.message
+          : String(error ?? "Unknown error"),
+    });
+  }
+}
+
+function isDiscoverMessage(message: unknown): message is DiscoverRequest {
+  if (!message || typeof message !== "object") {
+    return false;
+  }
+
+  const candidate = message as Partial<DiscoverRequest>;
+
+  return (
+    (candidate.type === "discover.tools" ||
+      candidate.type === "discover.services") &&
+    typeof candidate.requestId === "string" &&
+    candidate.requestId.length > 0 &&
+    typeof candidate.query === "string" &&
+    (candidate.limit === undefined ||
+      (typeof candidate.limit === "number" &&
+        Number.isInteger(candidate.limit) &&
+        candidate.limit > 0)) &&
+    (candidate.enabled === undefined ||
+      candidate.enabled === null ||
+      typeof candidate.enabled === "boolean")
+  );
+}

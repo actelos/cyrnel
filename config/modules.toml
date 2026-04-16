@@ -1,5 +1,0 @@
-[environment]
-localjs = { path="./modules/localjs.mjs" }
-
-[adapter]
-echo = { path="./modules/echo.mjs" }
