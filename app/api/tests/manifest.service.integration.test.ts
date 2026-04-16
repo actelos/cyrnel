@@ -27,6 +27,7 @@ async function resetManifestTables(): Promise<void> {
       definition_id text,
       description text NOT NULL DEFAULT '',
       hash text NOT NULL,
+      enabled integer NOT NULL DEFAULT 1,
       metadata text NOT NULL
       ,FOREIGN KEY (definition_id) REFERENCES definitions(id) ON UPDATE no action ON DELETE cascade
     )
@@ -39,6 +40,7 @@ async function resetManifestTables(): Promise<void> {
       service_id text NOT NULL,
       name text NOT NULL,
       description text NOT NULL DEFAULT '',
+      enabled integer NOT NULL DEFAULT 1,
       input_schema text NOT NULL,
       output_schema text NOT NULL,
       metadata text NOT NULL,
@@ -62,6 +64,7 @@ describe("manifest.service integration", () => {
     const toolDefinition: ToolDefinition = {
       name: "tool-1",
       description: "",
+      enabled: true,
       metadata: {
         requestKind: "rpc.invoke",
         route: "echo",
@@ -77,7 +80,8 @@ describe("manifest.service integration", () => {
       },
     };
     const service = new ManifestService(
-      async (serviceName) => (serviceName === "svc-1" ? metadata : null),
+      async (serviceName) =>
+        serviceName === "svc-1" ? { metadata, enabled: true } : null,
       async (serviceName, toolName) =>
         serviceName === "svc-1" && toolName === "tool-1"
           ? toolDefinition
@@ -104,6 +108,7 @@ describe("manifest.service integration", () => {
         },
       },
       serviceMetadata: { serverUrl: "http://127.0.0.1:8787" },
+      serviceEnabled: true,
     });
   });
 
@@ -125,7 +130,7 @@ describe("manifest.service integration", () => {
       serverUrl: "http://127.0.0.1:8788",
     };
     const service = new ManifestService(
-      async () => metadata,
+      async () => ({ metadata, enabled: true }),
       async () => null,
     );
 
@@ -151,7 +156,10 @@ describe("manifest.service integration", () => {
 
   it("throws 500 when tool read fails", async () => {
     const service = new ManifestService(
-      async () => ({ serverUrl: "http://localhost" }),
+      async () => ({
+        metadata: { serverUrl: "http://localhost" },
+        enabled: true,
+      }),
       async () => {
         throw new Error("boom");
       },
@@ -167,6 +175,7 @@ describe("manifest.service integration", () => {
     const definitionContent = JSON.stringify({
       name: "svc-create",
       description: "",
+      enabled: true,
       metadata: {
         serverUrl: "http://127.0.0.1:9001",
       },
@@ -174,6 +183,7 @@ describe("manifest.service integration", () => {
         {
           name: "echo",
           description: "",
+          enabled: true,
           metadata: {
             route: "invoke/echo",
           },
@@ -204,6 +214,7 @@ describe("manifest.service integration", () => {
       name: "svc-create",
       description: "",
       hash: computeContentHash(definitionContent),
+      enabled: true,
       metadata: {
         serverUrl: "http://127.0.0.1:9001",
       },
@@ -213,6 +224,7 @@ describe("manifest.service integration", () => {
       {
         name: "echo",
         description: "",
+        enabled: true,
         inputSchema: {
           type: "object",
           properties: {
@@ -259,12 +271,14 @@ describe("manifest.service integration", () => {
       {
         name: "echo",
         description: "",
+        enabled: true,
         inputSchema: { type: "object" },
         outputSchema: { type: "string" },
       },
       {
         name: "sum",
         description: "",
+        enabled: true,
         inputSchema: { type: "object" },
         outputSchema: { type: "number" },
       },
@@ -274,6 +288,7 @@ describe("manifest.service integration", () => {
       {
         name: "echo",
         description: "",
+        enabled: true,
         inputSchema: { type: "object" },
         outputSchema: { type: "string" },
       },
@@ -330,6 +345,7 @@ describe("manifest.service integration", () => {
         serviceName: "svc-tools",
         name: "echo",
         description: "",
+        enabled: true,
         serviceDescription: "",
         inputSchema: { type: "object" },
         outputSchema: { type: "string" },
@@ -338,6 +354,7 @@ describe("manifest.service integration", () => {
         serviceName: "svc-tools-2",
         name: "echo",
         description: "",
+        enabled: true,
         serviceDescription: "",
         inputSchema: { type: "object" },
         outputSchema: { type: "number" },
@@ -349,6 +366,7 @@ describe("manifest.service integration", () => {
         serviceName: "svc-tools",
         name: "echo",
         description: "",
+        enabled: true,
         serviceDescription: "",
         inputSchema: { type: "object" },
         outputSchema: { type: "string" },
@@ -357,6 +375,7 @@ describe("manifest.service integration", () => {
         serviceName: "svc-tools-2",
         name: "echo",
         description: "",
+        enabled: true,
         serviceDescription: "",
         inputSchema: { type: "object" },
         outputSchema: { type: "number" },
@@ -368,6 +387,7 @@ describe("manifest.service integration", () => {
         serviceName: "svc-tools-2",
         name: "echo",
         description: "",
+        enabled: true,
         serviceDescription: "",
         inputSchema: { type: "object" },
         outputSchema: { type: "number" },
@@ -415,11 +435,13 @@ describe("manifest.service integration", () => {
         name: "svc-1",
         description: "",
         hash: "hash-svc-1",
+        enabled: true,
       },
       {
         name: "svc-2",
         description: "",
         hash: "hash-svc-2",
+        enabled: true,
       },
     ]);
 
@@ -428,6 +450,7 @@ describe("manifest.service integration", () => {
         name: "svc-2",
         description: "",
         hash: "hash-svc-2",
+        enabled: true,
       },
     ]);
   });
@@ -454,6 +477,7 @@ describe("manifest.service integration", () => {
         name: "svc-alpha",
         description: "",
         hash: "hash-svc-alpha",
+        enabled: true,
       },
     ]);
 
@@ -462,11 +486,13 @@ describe("manifest.service integration", () => {
         name: "svc-alpha",
         description: "",
         hash: "hash-svc-alpha",
+        enabled: true,
       },
       {
         name: "svc-beta",
         description: "",
         hash: "hash-svc-beta",
+        enabled: true,
       },
     ]);
   });
@@ -476,6 +502,7 @@ describe("manifest.service integration", () => {
     const definitionContent = JSON.stringify({
       name: "svc-same",
       description: "",
+      enabled: true,
       metadata: {
         serverUrl: "http://127.0.0.1:9011",
       },
@@ -507,6 +534,7 @@ describe("manifest.service integration", () => {
       name: "svc-same",
       description: "",
       hash,
+      enabled: true,
       metadata: {
         serverUrl: "http://127.0.0.1:9011",
       },
@@ -520,6 +548,7 @@ describe("manifest.service integration", () => {
     const oldDefinitionContent = JSON.stringify({
       name: "svc-update",
       description: "",
+      enabled: true,
       metadata: {
         serverUrl: "http://127.0.0.1:9012",
       },
@@ -527,6 +556,7 @@ describe("manifest.service integration", () => {
         {
           name: "old-tool",
           description: "",
+          enabled: true,
           metadata: {
             route: "invoke/old-tool",
           },
@@ -538,6 +568,7 @@ describe("manifest.service integration", () => {
     const newDefinitionContent = JSON.stringify({
       name: "svc-update",
       description: "",
+      enabled: true,
       metadata: {
         serverUrl: "http://127.0.0.1:9013",
       },
@@ -545,6 +576,7 @@ describe("manifest.service integration", () => {
         {
           name: "new-tool",
           description: "",
+          enabled: true,
           metadata: {
             route: "invoke/new-tool",
           },
@@ -586,6 +618,7 @@ describe("manifest.service integration", () => {
       name: "svc-update",
       description: "",
       hash: computeContentHash(newDefinitionContent),
+      enabled: true,
       metadata: {
         serverUrl: "http://127.0.0.1:9013",
       },
@@ -595,6 +628,7 @@ describe("manifest.service integration", () => {
       {
         name: "new-tool",
         description: "",
+        enabled: true,
         inputSchema: {
           type: "object",
           properties: {
@@ -611,6 +645,7 @@ describe("manifest.service integration", () => {
       tool: {
         name: "new-tool",
         description: "",
+        enabled: true,
         metadata: {
           route: "invoke/new-tool",
         },
@@ -622,6 +657,97 @@ describe("manifest.service integration", () => {
         },
         outputSchema: { type: "number" },
       },
+      serviceEnabled: true,
+    });
+  });
+
+  it("toggles service and tool enabled flags and reports effective tool status", async () => {
+    const service = new ManifestService();
+
+    await db.insert(manifests).values({
+      id: "svc-enabled-toggle",
+      description: "",
+      hash: "hash-enabled-toggle",
+      metadata: { serverUrl: "http://127.0.0.1:9101" },
+    });
+    await db.insert(tools).values({
+      serviceName: "svc-enabled-toggle",
+      name: "echo",
+      description: "",
+      metadata: {},
+      inputSchema: { type: "object" },
+      outputSchema: { type: "string" },
+    });
+
+    await expect(service.listTools("svc-enabled-toggle")).resolves.toEqual([
+      {
+        name: "echo",
+        description: "",
+        enabled: true,
+        inputSchema: { type: "object" },
+        outputSchema: { type: "string" },
+      },
+    ]);
+
+    await service.setToolEnabled("svc-enabled-toggle", "echo", false);
+
+    await expect(service.listTools("svc-enabled-toggle")).resolves.toEqual([
+      {
+        name: "echo",
+        description: "",
+        enabled: false,
+        inputSchema: { type: "object" },
+        outputSchema: { type: "string" },
+      },
+    ]);
+
+    await service.setToolEnabled("svc-enabled-toggle", "echo", true);
+    await service.setServiceEnabled("svc-enabled-toggle", false);
+
+    await expect(service.getService("svc-enabled-toggle")).resolves.toEqual({
+      name: "svc-enabled-toggle",
+      description: "",
+      hash: "hash-enabled-toggle",
+      enabled: false,
+      metadata: { serverUrl: "http://127.0.0.1:9101" },
+    });
+
+    await expect(service.listTools("svc-enabled-toggle")).resolves.toEqual([
+      {
+        name: "echo",
+        description: "",
+        enabled: false,
+        inputSchema: { type: "object" },
+        outputSchema: { type: "string" },
+      },
+    ]);
+
+    await expect(service.discoverTools("svc-enabled-toggle")).resolves.toEqual(
+      [],
+    );
+
+    await expect(
+      service.discoverTools("svc-enabled-toggle", undefined, null),
+    ).resolves.toEqual([
+      {
+        serviceName: "svc-enabled-toggle",
+        name: "echo",
+        description: "",
+        enabled: false,
+        serviceDescription: "",
+        inputSchema: { type: "object" },
+        outputSchema: { type: "string" },
+      },
+    ]);
+
+    await expect(
+      service.getTool("svc-enabled-toggle", "echo"),
+    ).resolves.toMatchObject({
+      tool: {
+        name: "echo",
+        enabled: true,
+      },
+      serviceEnabled: false,
     });
   });
 });

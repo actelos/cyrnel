@@ -55,6 +55,19 @@ async function handleInvokeMessage(
       message.serviceName,
       message.toolName,
     );
+
+    if (!tool.serviceEnabled) {
+      throw new Error(
+        `Service '${message.serviceName}' is disabled and cannot be invoked.`,
+      );
+    }
+
+    if (!tool.tool.enabled) {
+      throw new Error(
+        `Tool '${message.toolName}' in service '${message.serviceName}' is disabled and cannot be invoked.`,
+      );
+    }
+
     validator.validate(
       tool.tool.inputSchema,
       message.parameters,

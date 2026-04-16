@@ -174,6 +174,7 @@ async function resetManifestsTable(): Promise<void> {
       definition_id text,
       description text NOT NULL DEFAULT '',
       hash text NOT NULL,
+      enabled integer NOT NULL DEFAULT 1,
       metadata text NOT NULL
       ,FOREIGN KEY (definition_id) REFERENCES definitions(id) ON UPDATE no action ON DELETE cascade
     )
@@ -186,6 +187,7 @@ async function resetManifestsTable(): Promise<void> {
       service_id text NOT NULL,
       name text NOT NULL,
       description text NOT NULL DEFAULT '',
+      enabled integer NOT NULL DEFAULT 1,
       input_schema text NOT NULL,
       output_schema text NOT NULL,
       metadata text NOT NULL,
@@ -316,6 +318,79 @@ describe("invoke echo integration", () => {
         requestId: "req-missing-tool",
         message:
           "Tool 'does-not-exist' not found in manifest for service 'test-service'.",
+      },
+    ]);
+
+    expect(server.calls).toEqual([]);
+  });
+
+  it("returns invoke.error when the service is disabled", async () => {
+    const adapter = new AdapterModule({ baseUrl: server.baseUrl });
+    const channel = new TestProcessChannel();
+    const manifestService = new ManifestService();
+
+    await db
+      .update(manifests)
+      .set({ enabled: false })
+      .where(sql`${manifests.id} = 'test-service'`);
+
+    createProcessMessageSystem(adapter, channel, { manifestService });
+
+    channel.emit("message", {
+      type: "invoke.tool",
+      requestId: "req-disabled-service",
+      serviceName: "test-service",
+      toolName: "echo",
+      parameters: {
+        input: "hello",
+      },
+    });
+
+    await waitForMessageCount(channel, 1);
+
+    expect(channel.sent).toEqual([
+      {
+        type: "invoke.error",
+        requestId: "req-disabled-service",
+        message: "Service 'test-service' is disabled and cannot be invoked.",
+      },
+    ]);
+
+    expect(server.calls).toEqual([]);
+  });
+
+  it("returns invoke.error when the tool is disabled", async () => {
+    const adapter = new AdapterModule({ baseUrl: server.baseUrl });
+    const channel = new TestProcessChannel();
+    const manifestService = new ManifestService();
+
+    await db
+      .update(tools)
+      .set({ enabled: false })
+      .where(
+        sql`${tools.serviceName} = 'test-service' AND ${tools.name} = 'echo'`,
+      );
+
+    createProcessMessageSystem(adapter, channel, { manifestService });
+
+    channel.emit("message", {
+      type: "invoke.tool",
+      requestId: "req-disabled-tool",
+      serviceName: "test-service",
+      toolName: "echo",
+      parameters: {
+        input: "hello",
+      },
+    });
+
+    await waitForMessageCount(channel, 1);
+
+    expect(channel.sent).toEqual([
+      {
+        type: "invoke.error",
+        requestId: "req-disabled-tool",
+        message:
+          "Tool 'echo' in service 'test-service' is disabled and cannot be invoked.",
       },
     ]);
 

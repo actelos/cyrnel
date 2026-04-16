@@ -264,6 +264,7 @@ function isManifestTool(value: unknown): value is ToolDefinition {
     typeof value.name === "string" &&
     value.name.trim().length > 0 &&
     typeof value.description === "string" &&
+    typeof value.enabled === "boolean" &&
     isRecord(value.inputSchema) &&
     isRecord(value.outputSchema) &&
     isRecord(value.metadata)
@@ -280,6 +281,10 @@ function isServiceManifest(value: unknown): value is ServiceManifest {
   }
 
   if (typeof value.description !== "string") {
+    return false;
+  }
+
+  if (typeof value.enabled !== "boolean") {
     return false;
   }
 

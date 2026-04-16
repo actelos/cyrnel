@@ -9,13 +9,15 @@ describe("manifest.service unit", () => {
     const toolDefinition: ToolDefinition = {
       name: "tool-1",
       description: "",
+      enabled: true,
       metadata: { requestKind: "rpc.invoke", route: "echo" },
       inputSchema: { type: "object" },
       outputSchema: { type: "string" },
     };
 
     const service = new ManifestService(
-      async (serviceName) => (serviceName === "svc-1" ? metadata : null),
+      async (serviceName) =>
+        serviceName === "svc-1" ? { metadata, enabled: true } : null,
       async (serviceName, toolName) =>
         serviceName === "svc-1" && toolName === "tool-1"
           ? toolDefinition
@@ -25,6 +27,7 @@ describe("manifest.service unit", () => {
     await expect(service.getTool("svc-1", "tool-1")).resolves.toEqual({
       tool: toolDefinition,
       serviceMetadata: metadata,
+      serviceEnabled: true,
     });
   });
 
@@ -43,7 +46,10 @@ describe("manifest.service unit", () => {
 
   it("returns 404 when tool is missing", async () => {
     const service = new ManifestService(
-      async () => ({ serverUrl: "http://127.0.0.1:8788" }),
+      async () => ({
+        metadata: { serverUrl: "http://127.0.0.1:8788" },
+        enabled: true,
+      }),
       async () => null,
     );
 

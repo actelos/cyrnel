@@ -26,6 +26,7 @@ async function resetTables(): Promise<void> {
       definition_id text UNIQUE,
       description text NOT NULL DEFAULT '',
       hash text NOT NULL,
+      enabled integer NOT NULL DEFAULT 1,
       metadata text NOT NULL,
       FOREIGN KEY (definition_id) REFERENCES definitions(id) ON UPDATE no action ON DELETE cascade
     )
@@ -35,6 +36,7 @@ async function resetTables(): Promise<void> {
       service_id text NOT NULL,
       name text NOT NULL,
       description text NOT NULL DEFAULT '',
+      enabled integer NOT NULL DEFAULT 1,
       input_schema text NOT NULL,
       output_schema text NOT NULL,
       metadata text NOT NULL,

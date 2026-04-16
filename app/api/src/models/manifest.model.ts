@@ -4,6 +4,7 @@ export type ManifestMetadata = Record<string, unknown>;
 export interface ToolDefinition {
   name: string;
   description: string;
+  enabled: boolean;
   inputSchema: JSONSchema;
   outputSchema: JSONSchema;
   metadata: ManifestMetadata;
@@ -12,6 +13,7 @@ export interface ToolDefinition {
 export interface ServiceManifest {
   name: string;
   description: string;
+  enabled: boolean;
   metadata: ManifestMetadata;
   tools: ToolDefinition[];
 }
@@ -19,6 +21,7 @@ export interface ServiceManifest {
 export interface PublicToolDefinition {
   name: string;
   description: string;
+  enabled: boolean;
   inputSchema: JSONSchema;
   outputSchema: JSONSchema;
 }
@@ -32,11 +35,13 @@ export interface ServiceManifestResponse {
   name: string;
   description: string;
   hash: string;
+  enabled: boolean;
 }
 
 export interface ServiceManifestDetails {
   name: string;
   description: string;
   hash: string;
+  enabled: boolean;
   metadata: ManifestMetadata;
 }

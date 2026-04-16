@@ -7,7 +7,8 @@ import {
   getToolByName,
   listServices,
   listTools,
-  updateService,
+  setServiceEnabled,
+  setToolEnabled,
 } from "@/controllers/service.controller";
 
 export const serviceRouter = Router();
@@ -15,7 +16,8 @@ export const serviceRouter = Router();
 serviceRouter.get("/", listServices);
 serviceRouter.get("/:serviceName/tools", listTools);
 serviceRouter.get("/:serviceName/tools/:toolName", getToolByName);
+serviceRouter.post("/:serviceName/tools/:toolName/enabled", setToolEnabled);
 serviceRouter.get("/:serviceName", getService);
 serviceRouter.post("/:serviceName", createService);
-serviceRouter.post("/:serviceName/upgrade", updateService);
+serviceRouter.post("/:serviceName/enabled", setServiceEnabled);
 serviceRouter.delete("/:serviceName", deleteService);

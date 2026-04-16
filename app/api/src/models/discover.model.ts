@@ -8,6 +8,7 @@ export interface DiscoverToolsRequest {
   requestId: string;
   query: string;
   limit?: number;
+  enabled?: boolean | null;
 }
 
 export interface DiscoverServicesRequest {
@@ -15,6 +16,7 @@ export interface DiscoverServicesRequest {
   requestId: string;
   query: string;
   limit?: number;
+  enabled?: boolean | null;
 }
 
 export type DiscoverRequest = DiscoverToolsRequest | DiscoverServicesRequest;

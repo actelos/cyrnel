@@ -42,10 +42,14 @@ async function handleDiscoverMessage(
 
   try {
     if (message.type === "discover.tools") {
-      const tools = await manifestService.discoverTools(
-        message.query,
-        message.limit,
-      );
+      const tools =
+        message.enabled === undefined
+          ? await manifestService.discoverTools(message.query, message.limit)
+          : await manifestService.discoverTools(
+              message.query,
+              message.limit,
+              message.enabled,
+            );
       channel.send?.({
         type: "tools.response",
         requestId: message.requestId,
@@ -54,10 +58,14 @@ async function handleDiscoverMessage(
       return;
     }
 
-    const services = await manifestService.discoverServices(
-      message.query,
-      message.limit,
-    );
+    const services =
+      message.enabled === undefined
+        ? await manifestService.discoverServices(message.query, message.limit)
+        : await manifestService.discoverServices(
+            message.query,
+            message.limit,
+            message.enabled,
+          );
     channel.send?.({
       type: "services.response",
       requestId: message.requestId,
@@ -92,6 +100,9 @@ function isDiscoverMessage(message: unknown): message is DiscoverRequest {
     (candidate.limit === undefined ||
       (typeof candidate.limit === "number" &&
         Number.isInteger(candidate.limit) &&
-        candidate.limit > 0))
+        candidate.limit > 0)) &&
+    (candidate.enabled === undefined ||
+      candidate.enabled === null ||
+      typeof candidate.enabled === "boolean")
   );
 }

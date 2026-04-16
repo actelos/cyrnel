@@ -20,6 +20,7 @@ export async function getService(req: Request, res: Response): Promise<void> {
     name: service.name,
     description: service.description,
     hash: service.hash,
+    enabled: service.enabled,
     metadata: service.metadata,
   });
 }
@@ -40,11 +41,15 @@ export async function getToolByName(
   const manifestService = getManifestService(req);
   const serviceName = parseServiceName(req.params.serviceName);
   const toolName = parseToolName(req.params.toolName);
-  const { tool } = await manifestService.getTool(serviceName, toolName);
+  const { tool, serviceEnabled } = await manifestService.getTool(
+    serviceName,
+    toolName,
+  );
 
   res.status(200).json({
     name: tool.name,
     description: tool.description,
+    enabled: serviceEnabled && tool.enabled,
     inputSchema: tool.inputSchema,
     outputSchema: tool.outputSchema,
     metadata: tool.metadata,
@@ -63,19 +68,29 @@ export async function createService(
   res.status(201).json({ name: serviceName });
 }
 
-export async function updateService(
+export async function setServiceEnabled(
   req: Request,
   res: Response,
 ): Promise<void> {
   const manifestService = getManifestService(req);
   const serviceName = parseServiceName(req.params.serviceName);
-  const definitionId = parseDefinitionId(req.body);
+  const enabled = parseEnabled(req.body);
 
-  const updated = await manifestService.updateService(
-    serviceName,
-    definitionId,
-  );
-  res.status(200).json({ name: serviceName, updated });
+  await manifestService.setServiceEnabled(serviceName, enabled);
+  res.status(200).json({ name: serviceName, enabled });
+}
+
+export async function setToolEnabled(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const manifestService = getManifestService(req);
+  const serviceName = parseServiceName(req.params.serviceName);
+  const toolName = parseToolName(req.params.toolName);
+  const enabled = parseEnabled(req.body);
+
+  await manifestService.setToolEnabled(serviceName, toolName, enabled);
+  res.status(200).json({ name: toolName, serviceName, enabled });
 }
 
 export async function deleteService(
@@ -131,6 +146,20 @@ function parseDefinitionId(rawBody: unknown): string {
   }
 
   return definitionId;
+}
+
+function parseEnabled(rawBody: unknown): boolean {
+  if (!rawBody || typeof rawBody !== "object") {
+    throw new HttpError(400, "Request body must be an object.");
+  }
+
+  const enabled = (rawBody as { enabled?: unknown }).enabled;
+
+  if (typeof enabled !== "boolean") {
+    throw new HttpError(400, "Field 'enabled' must be a boolean.");
+  }
+
+  return enabled;
 }
 
 function getManifestService(req: Request): ManifestService {

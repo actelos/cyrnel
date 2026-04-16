@@ -25,4 +25,5 @@ export type InvokeResponse = InvokeResponseMessage | InvokeErrorResponseMessage;
 export interface ResolvedToolInvocation {
   tool: ToolDefinition;
   serviceMetadata: ManifestMetadata;
+  serviceEnabled: boolean;
 }

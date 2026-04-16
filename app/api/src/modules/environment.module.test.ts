@@ -153,21 +153,21 @@ describe("EnvironmentModule", () => {
 
       const status = await mod.execute(
         `
-        const foundTools = await tools.discover({ query: "github issues", limit: 5 });
-        const foundServices = await services.discover({ query: "github", limit: 1 });
+        const foundTools = await tools.discover({ query: "github issues", limit: 5, enabled: null });
+        const foundServices = await services.discover({ query: "github", limit: 1, enabled: false });
         emitOutput("tools", foundTools);
         return foundServices;
       `,
         {
           builtins: {
             tools: {
-              discover: async ({ query, limit }) => [
-                { query, limit, kind: "tool" },
+              discover: async ({ query, limit, enabled }) => [
+                { query, limit, enabled, kind: "tool" },
               ],
             },
             services: {
-              discover: async ({ query, limit }) => [
-                { query, limit, kind: "service" },
+              discover: async ({ query, limit, enabled }) => [
+                { query, limit, enabled, kind: "service" },
               ],
             },
           },
@@ -177,11 +177,13 @@ describe("EnvironmentModule", () => {
       expect(status).toBe("success");
       expect(outputs).toContainEqual({
         key: "tools",
-        value: [{ query: "github issues", limit: 5, kind: "tool" }],
+        value: [
+          { query: "github issues", limit: 5, enabled: null, kind: "tool" },
+        ],
       });
       expect(outputs).toContainEqual({
         key: "result",
-        value: [{ query: "github", limit: 1, kind: "service" }],
+        value: [{ query: "github", limit: 1, enabled: false, kind: "service" }],
       });
     });
   });

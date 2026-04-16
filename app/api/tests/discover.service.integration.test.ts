@@ -63,6 +63,7 @@ async function resetDiscoverTables(): Promise<void> {
       definition_id text,
       description text NOT NULL DEFAULT '',
       hash text NOT NULL,
+      enabled integer NOT NULL DEFAULT 1,
       metadata text NOT NULL
       ,FOREIGN KEY (definition_id) REFERENCES definitions(id) ON UPDATE no action ON DELETE cascade
     )
@@ -75,6 +76,7 @@ async function resetDiscoverTables(): Promise<void> {
       service_id text NOT NULL,
       name text NOT NULL,
       description text NOT NULL DEFAULT '',
+      enabled integer NOT NULL DEFAULT 1,
       input_schema text NOT NULL,
       output_schema text NOT NULL,
       metadata text NOT NULL,
@@ -207,6 +209,7 @@ describe("discover.service integration", () => {
             serviceName: "svc-alpha",
             name: "echo",
             description: "",
+            enabled: true,
             serviceDescription: "",
             inputSchema: {
               type: "object",
@@ -218,6 +221,7 @@ describe("discover.service integration", () => {
             serviceName: "svc-alpha",
             name: "list-users",
             description: "",
+            enabled: true,
             serviceDescription: "",
             inputSchema: { type: "object" },
             outputSchema: {
@@ -229,6 +233,7 @@ describe("discover.service integration", () => {
             serviceName: "svc-beta",
             name: "echo-plus",
             description: "",
+            enabled: true,
             serviceDescription: "",
             inputSchema: {
               type: "object",
@@ -243,6 +248,7 @@ describe("discover.service integration", () => {
             serviceName: "svc-beta",
             name: "sum",
             description: "",
+            enabled: true,
             serviceDescription: "",
             inputSchema: {
               type: "object",
@@ -259,6 +265,7 @@ describe("discover.service integration", () => {
             serviceName: "svc-gamma",
             name: "ping",
             description: "",
+            enabled: true,
             serviceDescription: "",
             inputSchema: { type: "object" },
             outputSchema: { type: "null" },
@@ -292,6 +299,7 @@ describe("discover.service integration", () => {
             serviceName: "svc-alpha",
             name: "echo",
             description: "",
+            enabled: true,
             serviceDescription: "",
             inputSchema: {
               type: "object",
@@ -303,6 +311,7 @@ describe("discover.service integration", () => {
             serviceName: "svc-beta",
             name: "echo-plus",
             description: "",
+            enabled: true,
             serviceDescription: "",
             inputSchema: {
               type: "object",
@@ -342,6 +351,7 @@ describe("discover.service integration", () => {
             serviceName: "svc-beta",
             name: "echo-plus",
             description: "",
+            enabled: true,
             serviceDescription: "",
             inputSchema: {
               type: "object",
@@ -356,6 +366,7 @@ describe("discover.service integration", () => {
             serviceName: "svc-beta",
             name: "sum",
             description: "",
+            enabled: true,
             serviceDescription: "",
             inputSchema: {
               type: "object",
@@ -421,16 +432,19 @@ describe("discover.service integration", () => {
             name: "svc-alpha",
             description: "",
             hash: "hash-alpha",
+            enabled: true,
           },
           {
             name: "svc-beta",
             description: "",
             hash: "hash-beta",
+            enabled: true,
           },
           {
             name: "svc-gamma",
             description: "",
             hash: "hash-gamma",
+            enabled: true,
           },
         ],
       },
@@ -461,6 +475,7 @@ describe("discover.service integration", () => {
             name: "svc-beta",
             description: "",
             hash: "hash-beta",
+            enabled: true,
           },
         ],
       },
@@ -488,6 +503,126 @@ describe("discover.service integration", () => {
         requestId: "req-services-empty",
         services: [],
       },
+    ]);
+  });
+
+  it("defaults discover.tools enabled filter to true", async () => {
+    await seedDiscoverFixtures();
+
+    await db
+      .update(manifests)
+      .set({ enabled: false })
+      .where(sql`${manifests.id} = 'svc-beta'`);
+    await db
+      .update(tools)
+      .set({ enabled: false })
+      .where(
+        sql`${tools.serviceName} = 'svc-alpha' AND ${tools.name} = 'list-users'`,
+      );
+
+    const channel = new TestDiscoverChannel();
+    const dispose = createDiscoverMessageSystem(channel);
+    disposers.push(dispose);
+
+    channel.emit("message", {
+      type: "discover.tools",
+      requestId: "req-tools-enabled-default",
+      query: "",
+    });
+
+    await waitForMessageCount(channel, 1);
+
+    expect(channel.sent).toHaveLength(1);
+    expect(channel.sent[0]).toMatchObject({
+      type: "tools.response",
+      requestId: "req-tools-enabled-default",
+    });
+
+    const response = channel.sent[0];
+    if (response.type !== "tools.response") {
+      throw new Error("Unexpected response type");
+    }
+
+    expect(
+      response.tools.map((item) => `${item.serviceName}/${item.name}`),
+    ).toEqual(["svc-alpha/echo", "svc-gamma/ping"]);
+    expect(response.tools.every((item) => item.enabled)).toBe(true);
+  });
+
+  it("returns enabled and disabled items when enabled is null", async () => {
+    await seedDiscoverFixtures();
+
+    await db
+      .update(manifests)
+      .set({ enabled: false })
+      .where(sql`${manifests.id} = 'svc-beta'`);
+    await db
+      .update(tools)
+      .set({ enabled: false })
+      .where(
+        sql`${tools.serviceName} = 'svc-alpha' AND ${tools.name} = 'list-users'`,
+      );
+
+    const channel = new TestDiscoverChannel();
+    const dispose = createDiscoverMessageSystem(channel);
+    disposers.push(dispose);
+
+    channel.emit("message", {
+      type: "discover.tools",
+      requestId: "req-tools-enabled-null",
+      query: "",
+      enabled: null,
+    });
+
+    channel.emit("message", {
+      type: "discover.services",
+      requestId: "req-services-enabled-null",
+      query: "",
+      enabled: null,
+    });
+
+    await waitForMessageCount(channel, 2);
+
+    const toolsResponse = channel.sent.find(
+      (message) => message.type === "tools.response",
+    );
+    const servicesResponse = channel.sent.find(
+      (message) => message.type === "services.response",
+    );
+
+    expect(toolsResponse).toBeDefined();
+    expect(servicesResponse).toBeDefined();
+
+    if (!toolsResponse || toolsResponse.type !== "tools.response") {
+      throw new Error("tools.response not found");
+    }
+
+    if (!servicesResponse || servicesResponse.type !== "services.response") {
+      throw new Error("services.response not found");
+    }
+
+    expect(
+      toolsResponse.tools.map((item) => ({
+        key: `${item.serviceName}/${item.name}`,
+        enabled: item.enabled,
+      })),
+    ).toEqual([
+      { key: "svc-alpha/echo", enabled: true },
+      { key: "svc-alpha/list-users", enabled: false },
+      { key: "svc-beta/echo-plus", enabled: false },
+      { key: "svc-beta/sum", enabled: false },
+      { key: "svc-gamma/ping", enabled: true },
+    ]);
+
+    expect(
+      servicesResponse.services.map((item) => ({
+        name: item.name,
+        enabled: item.enabled,
+      })),
+    ).toEqual([
+      { name: "svc-alpha", enabled: true },
+      { name: "svc-beta", enabled: false },
+      { name: "svc-gamma", enabled: true },
     ]);
   });
 

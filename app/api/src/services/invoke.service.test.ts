@@ -42,6 +42,7 @@ const permissiveTool: ResolvedToolInvocation = {
   tool: {
     name: "tool-1",
     description: "",
+    enabled: true,
     inputSchema: {
       type: "object",
       additionalProperties: true,
@@ -55,6 +56,7 @@ const permissiveTool: ResolvedToolInvocation = {
   serviceMetadata: {
     serverUrl: "http://127.0.0.1:9999",
   },
+  serviceEnabled: true,
 };
 
 async function flushMessageHandling(): Promise<void> {
@@ -176,6 +178,7 @@ describe("invoke.service", () => {
         tool: {
           name: "tool-1",
           description: "",
+          enabled: true,
           inputSchema: {
             type: "object",
             required: ["count"],
@@ -193,6 +196,7 @@ describe("invoke.service", () => {
         serviceMetadata: {
           serverUrl: "http://127.0.0.1:9999",
         },
+        serviceEnabled: true,
       },
     ]);
 
@@ -227,6 +231,7 @@ describe("invoke.service", () => {
         tool: {
           name: "tool-1",
           description: "",
+          enabled: true,
           inputSchema: {},
           outputSchema: {
             type: "string",
@@ -239,6 +244,7 @@ describe("invoke.service", () => {
         serviceMetadata: {
           serverUrl: "http://127.0.0.1:9999",
         },
+        serviceEnabled: true,
       },
     ]);
 
@@ -261,5 +267,81 @@ describe("invoke.service", () => {
       type: "invoke.error",
       requestId: "req-4",
     });
+  });
+
+  it("sends invoke.error when tool is disabled", async () => {
+    const adapter = new AdapterModule({
+      baseUrl: "http://127.0.0.1:9999",
+      fetchImpl: vi.fn<typeof fetch>(),
+    });
+    const invokeSpy = vi.spyOn(adapter, "invoke");
+    const channel = new TestProcessChannel();
+    const manifestService = new TestManifestService([
+      {
+        ...permissiveTool,
+        tool: {
+          ...permissiveTool.tool,
+          enabled: false,
+        },
+      },
+    ]);
+
+    createProcessMessageSystem(adapter, channel, { manifestService });
+
+    channel.emit("message", {
+      type: "invoke.tool",
+      requestId: "req-disabled-tool",
+      serviceName: "service-1",
+      toolName: "tool-1",
+      parameters: {},
+    });
+
+    await flushMessageHandling();
+
+    expect(invokeSpy).not.toHaveBeenCalled();
+    expect(channel.sent).toEqual([
+      {
+        type: "invoke.error",
+        requestId: "req-disabled-tool",
+        message:
+          "Tool 'tool-1' in service 'service-1' is disabled and cannot be invoked.",
+      },
+    ]);
+  });
+
+  it("sends invoke.error when service is disabled", async () => {
+    const adapter = new AdapterModule({
+      baseUrl: "http://127.0.0.1:9999",
+      fetchImpl: vi.fn<typeof fetch>(),
+    });
+    const invokeSpy = vi.spyOn(adapter, "invoke");
+    const channel = new TestProcessChannel();
+    const manifestService = new TestManifestService([
+      {
+        ...permissiveTool,
+        serviceEnabled: false,
+      },
+    ]);
+
+    createProcessMessageSystem(adapter, channel, { manifestService });
+
+    channel.emit("message", {
+      type: "invoke.tool",
+      requestId: "req-disabled-service",
+      serviceName: "service-1",
+      toolName: "tool-1",
+      parameters: {},
+    });
+
+    await flushMessageHandling();
+
+    expect(invokeSpy).not.toHaveBeenCalled();
+    expect(channel.sent).toEqual([
+      {
+        type: "invoke.error",
+        requestId: "req-disabled-service",
+        message: "Service 'service-1' is disabled and cannot be invoked.",
+      },
+    ]);
   });
 });

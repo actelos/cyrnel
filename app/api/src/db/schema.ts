@@ -1,6 +1,7 @@
 import {
   blob,
   index,
+  integer,
   primaryKey,
   sqliteTable,
   text,
@@ -28,6 +29,7 @@ export const manifests = sqliteTable(
       }),
     description: text("description").notNull().default(""),
     hash: text("hash").notNull(),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
     metadata: text("metadata", { mode: "json" })
       .$type<ManifestMetadata>()
       .notNull(),
@@ -45,6 +47,7 @@ export const tools = sqliteTable(
       }),
     name: text("name").notNull(),
     description: text("description").notNull().default(""),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
     inputSchema: text("input_schema", { mode: "json" })
       .$type<ToolDefinition["inputSchema"]>()
       .notNull(),

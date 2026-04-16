@@ -495,12 +495,16 @@ export class ProcessService {
 
     return {
       tools: {
-        discover: ({ query, limit }) =>
-          manifestService.discoverTools(query, limit),
+        discover: ({ query, limit, enabled }) =>
+          enabled === undefined
+            ? manifestService.discoverTools(query, limit)
+            : manifestService.discoverTools(query, limit, enabled),
       },
       services: {
-        discover: ({ query, limit }) =>
-          manifestService.discoverServices(query, limit),
+        discover: ({ query, limit, enabled }) =>
+          enabled === undefined
+            ? manifestService.discoverServices(query, limit)
+            : manifestService.discoverServices(query, limit, enabled),
       },
     };
   }

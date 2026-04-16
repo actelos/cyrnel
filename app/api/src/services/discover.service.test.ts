@@ -41,6 +41,7 @@ describe("discover.service", () => {
       {
         serviceName: "svc-1",
         name: "echo",
+        enabled: true,
         inputSchema: {},
         outputSchema: {},
       },
@@ -68,6 +69,7 @@ describe("discover.service", () => {
           {
             serviceName: "svc-1",
             name: "echo",
+            enabled: true,
             inputSchema: {},
             outputSchema: {},
           },
@@ -82,6 +84,7 @@ describe("discover.service", () => {
       {
         name: "svc-1",
         hash: "hash-1",
+        enabled: true,
       },
     ]);
 
@@ -107,6 +110,7 @@ describe("discover.service", () => {
           {
             name: "svc-1",
             hash: "hash-1",
+            enabled: true,
           },
         ],
       },
@@ -154,6 +158,50 @@ describe("discover.service", () => {
     expect(manifestService.discoverTools).toHaveBeenCalledWith("github", 5);
   });
 
+  it("passes enabled filter through to discover.tools", async () => {
+    const channel = new TestDiscoverChannel();
+    manifestService.discoverTools.mockResolvedValueOnce([]);
+
+    createDiscoverMessageSystem(channel, { manifestService });
+
+    channel.emit("message", {
+      type: "discover.tools",
+      requestId: "req-tools-enabled",
+      query: "github",
+      enabled: null,
+    });
+
+    await flushMessageHandling();
+
+    expect(manifestService.discoverTools).toHaveBeenCalledWith(
+      "github",
+      undefined,
+      null,
+    );
+  });
+
+  it("passes enabled filter through to discover.services", async () => {
+    const channel = new TestDiscoverChannel();
+    manifestService.discoverServices.mockResolvedValueOnce([]);
+
+    createDiscoverMessageSystem(channel, { manifestService });
+
+    channel.emit("message", {
+      type: "discover.services",
+      requestId: "req-services-enabled",
+      query: "github",
+      enabled: false,
+    });
+
+    await flushMessageHandling();
+
+    expect(manifestService.discoverServices).toHaveBeenCalledWith(
+      "github",
+      undefined,
+      false,
+    );
+  });
+
   it("ignores invalid process messages", async () => {
     const channel = new TestDiscoverChannel();
 
@@ -175,6 +223,12 @@ describe("discover.service", () => {
       requestId: "req-tools-4",
       query: "ok",
       limit: 0,
+    });
+    channel.emit("message", {
+      type: "discover.services",
+      requestId: "req-services-2",
+      query: "ok",
+      enabled: "yes",
     });
 
     await flushMessageHandling();

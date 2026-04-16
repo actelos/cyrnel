@@ -157,6 +157,7 @@ describe("parseServiceManifest", () => {
       {
         "name": "svc-echo",
         "description": "",
+        "enabled": true,
         "metadata": {
           "serverUrl": "http://127.0.0.1:8787"
         },
@@ -164,6 +165,7 @@ describe("parseServiceManifest", () => {
           {
             "name": "echo",
             "description": "",
+            "enabled": true,
             "metadata": {
               "route": "invoke/echo"
             },
@@ -184,6 +186,7 @@ describe("parseServiceManifest", () => {
     expect(parsed).toEqual({
       name: "svc-echo",
       description: "",
+      enabled: true,
       metadata: {
         serverUrl: "http://127.0.0.1:8787",
       },
@@ -191,6 +194,7 @@ describe("parseServiceManifest", () => {
         {
           name: "echo",
           description: "",
+          enabled: true,
           metadata: {
             route: "invoke/echo",
           },

@@ -3,9 +3,9 @@
 - [x] use POST /services/:serviceName/upgrade instead of put /services/:serviceName
 - [x] work on services router to make it leaner and cleaner
 - [x] set up query-able service and tool descriptions
-- [ ] set up enabling and disabling services / tools
-- [ ] have the environment module use manifests to generate code
+- [x] set up enabling and disabling services / tools
 - [ ] set ups system to notify environments about changes to service manifests for recompilation
+- [ ] have the environment module use manifests to generate code
 - [ ] set up service configuration
 - [ ] set up service secrets
 - [ ] make modules actually modules

@@ -17,7 +17,7 @@ import { AdapterModule } from "@/modules/adapter.module";
 
 type ServiceMetadataLoader = (
   serviceName: string,
-) => Promise<ManifestMetadata | null>;
+) => Promise<{ metadata: ManifestMetadata; enabled: boolean } | null>;
 type ToolLoader = (
   serviceName: string,
   toolName: string,
@@ -31,7 +31,12 @@ export class ManifestService {
   ) {}
 
   async listServices(query?: string): Promise<ServiceManifestResponse[]> {
-    let rows: Array<{ id: string; description: string; hash: string }>;
+    let rows: Array<{
+      id: string;
+      description: string;
+      hash: string;
+      enabled: boolean;
+    }>;
 
     try {
       rows = await db
@@ -39,6 +44,7 @@ export class ManifestService {
           id: manifests.id,
           description: manifests.description,
           hash: manifests.hash,
+          enabled: manifests.enabled,
         })
         .from(manifests)
         .orderBy(asc(manifests.id));
@@ -61,6 +67,7 @@ export class ManifestService {
       name: row.id,
       description: row.description,
       hash: row.hash,
+      enabled: row.enabled,
     }));
   }
 
@@ -72,6 +79,7 @@ export class ManifestService {
       description: string;
       metadata: ManifestMetadata;
       hash: string;
+      enabled: boolean;
     }>;
     try {
       rows = await db
@@ -80,6 +88,7 @@ export class ManifestService {
           description: manifests.description,
           metadata: manifests.metadata,
           hash: manifests.hash,
+          enabled: manifests.enabled,
         })
         .from(manifests)
         .where(eq(manifests.id, normalizedServiceName))
@@ -110,6 +119,7 @@ export class ManifestService {
       name: rows[0].id,
       description: rows[0].description,
       hash: rows[0].hash,
+      enabled: rows[0].enabled,
       metadata,
     };
   }
@@ -120,10 +130,10 @@ export class ManifestService {
   ): Promise<PublicToolDefinition[]> {
     const normalizedServiceName = normalizeServiceName(serviceName);
 
-    let serviceRows: Array<{ id: string }>;
+    let serviceRows: Array<{ id: string; enabled: boolean }>;
     try {
       serviceRows = await db
-        .select({ id: manifests.id })
+        .select({ id: manifests.id, enabled: manifests.enabled })
         .from(manifests)
         .where(eq(manifests.id, normalizedServiceName))
         .limit(1);
@@ -145,6 +155,7 @@ export class ManifestService {
       serviceName: string;
       name: string;
       description: string;
+      enabled: boolean;
       inputSchema: ToolDefinitionResponse["inputSchema"];
       outputSchema: ToolDefinitionResponse["outputSchema"];
     }>;
@@ -154,6 +165,7 @@ export class ManifestService {
           serviceName: tools.serviceName,
           name: tools.name,
           description: tools.description,
+          enabled: tools.enabled,
           inputSchema: tools.inputSchema,
           outputSchema: tools.outputSchema,
         })
@@ -166,6 +178,8 @@ export class ManifestService {
         `Failed to load tools for service '${normalizedServiceName}'.`,
       );
     }
+
+    const serviceEnabled = serviceRows[0].enabled;
 
     const loweredQuery = normalizeOptionalQuery(query);
 
@@ -181,6 +195,7 @@ export class ManifestService {
     return filtered.map((row) => ({
       name: row.name,
       description: row.description,
+      enabled: serviceEnabled && row.enabled,
       inputSchema: row.inputSchema,
       outputSchema: row.outputSchema,
     }));
@@ -240,6 +255,7 @@ export class ManifestService {
           definitionId: normalizedDefinitionId,
           description: parsedManifest.description,
           hash: definitionRow.hash,
+          enabled: parsedManifest.enabled,
           metadata: parsedManifest.metadata,
         });
 
@@ -249,6 +265,7 @@ export class ManifestService {
               serviceName: normalizedServiceName,
               name: tool.name,
               description: tool.description,
+              enabled: tool.enabled,
               metadata: tool.metadata,
               inputSchema: tool.inputSchema,
               outputSchema: tool.outputSchema,
@@ -383,6 +400,7 @@ export class ManifestService {
             definitionId: normalizedDefinitionId,
             description: parsedManifest.description,
             hash: definitionRow.hash,
+            enabled: parsedManifest.enabled,
             metadata: parsedManifest.metadata,
           })
           .where(eq(manifests.id, normalizedServiceName));
@@ -397,6 +415,7 @@ export class ManifestService {
               serviceName: normalizedServiceName,
               name: tool.name,
               description: tool.description,
+              enabled: tool.enabled,
               metadata: tool.metadata,
               inputSchema: tool.inputSchema,
               outputSchema: tool.outputSchema,
@@ -424,17 +443,26 @@ export class ManifestService {
   async discoverTools(
     query: string,
     limit?: number,
+    enabled: boolean | null = true,
   ): Promise<ToolDefinitionResponse[]> {
     const normalizedQuery = normalizeDiscoverQuery(query);
     const normalizedLimit = normalizeDiscoverLimit(limit);
+    const normalizedEnabled = normalizeDiscoverEnabled(enabled);
 
-    let rows: ToolDefinitionResponse[];
+    let rows: Array<
+      Omit<ToolDefinitionResponse, "enabled"> & {
+        toolEnabled: boolean;
+        serviceEnabled: boolean;
+      }
+    >;
     try {
       rows = await db
         .select({
           serviceName: tools.serviceName,
           name: tools.name,
           description: tools.description,
+          toolEnabled: tools.enabled,
+          serviceEnabled: manifests.enabled,
           serviceDescription: manifests.description,
           inputSchema: tools.inputSchema,
           outputSchema: tools.outputSchema,
@@ -446,13 +474,28 @@ export class ManifestService {
       throw new HttpError(500, "Failed to discover tools.");
     }
 
+    const mappedRows: ToolDefinitionResponse[] = rows.map((row) => ({
+      serviceName: row.serviceName,
+      name: row.name,
+      description: row.description,
+      enabled: row.serviceEnabled && row.toolEnabled,
+      serviceDescription: row.serviceDescription,
+      inputSchema: row.inputSchema,
+      outputSchema: row.outputSchema,
+    }));
+
+    const enabledFiltered =
+      normalizedEnabled === null
+        ? mappedRows
+        : mappedRows.filter((row) => row.enabled === normalizedEnabled);
+
     if (normalizedQuery.length === 0) {
-      return applyDiscoverLimit(rows, normalizedLimit);
+      return applyDiscoverLimit(enabledFiltered, normalizedLimit);
     }
 
     const loweredQuery = normalizedQuery.toLowerCase();
 
-    const filtered = rows.filter(
+    const filtered = enabledFiltered.filter(
       (row) =>
         row.name.toLowerCase().includes(loweredQuery) ||
         row.description.toLowerCase().includes(loweredQuery) ||
@@ -466,18 +509,24 @@ export class ManifestService {
   async discoverServices(
     query: string,
     limit?: number,
+    enabled: boolean | null = true,
   ): Promise<ServiceManifestResponse[]> {
     const normalizedQuery = normalizeDiscoverQuery(query);
     const normalizedLimit = normalizeDiscoverLimit(limit);
+    const normalizedEnabled = normalizeDiscoverEnabled(enabled);
     const services = await this.listServices();
+    const enabledFiltered =
+      normalizedEnabled === null
+        ? services
+        : services.filter((service) => service.enabled === normalizedEnabled);
 
     if (normalizedQuery.length === 0) {
-      return applyDiscoverLimit(services, normalizedLimit);
+      return applyDiscoverLimit(enabledFiltered, normalizedLimit);
     }
 
     const loweredQuery = normalizedQuery.toLowerCase();
 
-    const filtered = services.filter((service) =>
+    const filtered = enabledFiltered.filter((service) =>
       service.name.toLowerCase().includes(loweredQuery),
     );
 
@@ -491,9 +540,12 @@ export class ManifestService {
     const normalizedServiceName = normalizeServiceName(serviceName);
     const normalizedToolName = normalizeToolName(toolName);
 
-    let serviceMetadata: ManifestMetadata | null;
+    let serviceManifest: {
+      metadata: ManifestMetadata;
+      enabled: boolean;
+    } | null;
     try {
-      serviceMetadata = await this.loadServiceMetadata(normalizedServiceName);
+      serviceManifest = await this.loadServiceMetadata(normalizedServiceName);
     } catch {
       throw new HttpError(
         500,
@@ -501,7 +553,7 @@ export class ManifestService {
       );
     }
 
-    if (!serviceMetadata) {
+    if (!serviceManifest) {
       throw new HttpError(
         404,
         `Manifest not found for service '${normalizedServiceName}'.`,
@@ -530,8 +582,74 @@ export class ManifestService {
 
     return {
       tool,
-      serviceMetadata,
+      serviceMetadata: serviceManifest.metadata,
+      serviceEnabled: serviceManifest.enabled,
     };
+  }
+
+  async setServiceEnabled(
+    serviceName: string,
+    enabled: boolean,
+  ): Promise<void> {
+    const normalizedServiceName = normalizeServiceName(serviceName);
+    const normalizedEnabled = normalizeEnabled(enabled);
+
+    let updatedRows: Array<{ id: string }>;
+    try {
+      updatedRows = await db
+        .update(manifests)
+        .set({ enabled: normalizedEnabled })
+        .where(eq(manifests.id, normalizedServiceName))
+        .returning({ id: manifests.id });
+    } catch {
+      throw new HttpError(
+        500,
+        `Failed to update enabled status for service '${normalizedServiceName}'.`,
+      );
+    }
+
+    if (updatedRows.length === 0) {
+      throw new HttpError(
+        404,
+        `Manifest not found for service '${normalizedServiceName}'.`,
+      );
+    }
+  }
+
+  async setToolEnabled(
+    serviceName: string,
+    toolName: string,
+    enabled: boolean,
+  ): Promise<void> {
+    const normalizedServiceName = normalizeServiceName(serviceName);
+    const normalizedToolName = normalizeToolName(toolName);
+    const normalizedEnabled = normalizeEnabled(enabled);
+
+    let updatedRows: Array<{ serviceName: string; name: string }>;
+    try {
+      updatedRows = await db
+        .update(tools)
+        .set({ enabled: normalizedEnabled })
+        .where(
+          and(
+            eq(tools.serviceName, normalizedServiceName),
+            eq(tools.name, normalizedToolName),
+          ),
+        )
+        .returning({ serviceName: tools.serviceName, name: tools.name });
+    } catch {
+      throw new HttpError(
+        500,
+        `Failed to update enabled status for tool '${normalizedToolName}' in service '${normalizedServiceName}'.`,
+      );
+    }
+
+    if (updatedRows.length === 0) {
+      throw new HttpError(
+        404,
+        `Tool '${normalizedToolName}' not found in manifest for service '${normalizedServiceName}'.`,
+      );
+    }
   }
 }
 
@@ -636,6 +754,18 @@ function normalizeDiscoverLimit(limit: unknown): number | undefined {
   return limit;
 }
 
+function normalizeDiscoverEnabled(enabled: unknown): boolean | null {
+  if (enabled === undefined) {
+    return true;
+  }
+
+  if (enabled === null || typeof enabled === "boolean") {
+    return enabled;
+  }
+
+  throw new HttpError(400, "Field 'enabled' must be a boolean or null.");
+}
+
 function applyDiscoverLimit<T>(items: T[], limit: number | undefined): T[] {
   if (limit === undefined) {
     return items;
@@ -656,9 +786,9 @@ function normalizeDefinitionId(definitionId: string): string {
 
 async function loadServiceMetadataByServiceName(
   serviceName: string,
-): Promise<ManifestMetadata | null> {
+): Promise<{ metadata: ManifestMetadata; enabled: boolean } | null> {
   const rows = await db
-    .select({ metadata: manifests.metadata })
+    .select({ metadata: manifests.metadata, enabled: manifests.enabled })
     .from(manifests)
     .where(eq(manifests.id, serviceName))
     .limit(1);
@@ -675,7 +805,10 @@ async function loadServiceMetadataByServiceName(
     );
   }
 
-  return metadata;
+  return {
+    metadata,
+    enabled: rows[0].enabled,
+  };
 }
 
 async function loadToolByServiceAndToolName(
@@ -686,6 +819,7 @@ async function loadToolByServiceAndToolName(
     .select({
       name: tools.name,
       description: tools.description,
+      enabled: tools.enabled,
       inputSchema: tools.inputSchema,
       outputSchema: tools.outputSchema,
       metadata: tools.metadata,
@@ -722,8 +856,17 @@ function isToolDefinition(value: unknown): value is ToolDefinition {
     typeof value.name === "string" &&
     value.name.trim().length > 0 &&
     typeof value.description === "string" &&
+    typeof value.enabled === "boolean" &&
     isRecord(value.inputSchema) &&
     isRecord(value.outputSchema) &&
     isRecord(value.metadata)
   );
+}
+
+function normalizeEnabled(enabled: unknown): boolean {
+  if (typeof enabled !== "boolean") {
+    throw new HttpError(400, "Field 'enabled' must be a boolean.");
+  }
+
+  return enabled;
 }

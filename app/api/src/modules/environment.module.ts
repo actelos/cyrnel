@@ -10,6 +10,7 @@ export type ExecutionStatus = Extract<ProcessStatus, "success" | "failed">;
 export interface EnvironmentDiscoverInput {
   query: string;
   limit?: number;
+  enabled?: boolean | null;
 }
 
 export interface EnvironmentBuiltins {
@@ -467,7 +468,11 @@ function normalizeDiscoverInput(payload: unknown): EnvironmentDiscoverInput {
     throw new Error("Discover input must be an object.");
   }
 
-  const candidate = payload as { query?: unknown; limit?: unknown };
+  const candidate = payload as {
+    query?: unknown;
+    limit?: unknown;
+    enabled?: unknown;
+  };
 
   if (typeof candidate.query !== "string") {
     throw new Error("Field 'query' must be a string.");
@@ -479,13 +484,36 @@ function normalizeDiscoverInput(payload: unknown): EnvironmentDiscoverInput {
   }
 
   if (candidate.limit === undefined) {
-    return { query: normalizedQuery };
+    if (candidate.enabled === undefined) {
+      return { query: normalizedQuery };
+    }
+
+    if (candidate.enabled !== null && typeof candidate.enabled !== "boolean") {
+      throw new Error("Field 'enabled' must be a boolean or null.");
+    }
+
+    return {
+      query: normalizedQuery,
+      enabled: candidate.enabled,
+    };
   }
 
   const limit = candidate.limit;
 
   if (typeof limit !== "number" || !Number.isInteger(limit) || limit <= 0) {
     throw new Error("Field 'limit' must be a positive integer.");
+  }
+
+  if (candidate.enabled !== undefined) {
+    if (candidate.enabled !== null && typeof candidate.enabled !== "boolean") {
+      throw new Error("Field 'enabled' must be a boolean or null.");
+    }
+
+    return {
+      query: normalizedQuery,
+      limit,
+      enabled: candidate.enabled,
+    };
   }
 
   return {

@@ -343,19 +343,29 @@ describe("ProcessService", () => {
                 discover?: (input: {
                   query: string;
                   limit?: number;
+                  enabled?: boolean | null;
                 }) => Promise<unknown>;
               };
               services?: {
                 discover?: (input: {
                   query: string;
                   limit?: number;
+                  enabled?: boolean | null;
                 }) => Promise<unknown>;
               };
             }
           | undefined;
 
-        await builtins?.tools?.discover?.({ query: "github issues", limit: 5 });
-        await builtins?.services?.discover?.({ query: "github", limit: 1 });
+        await builtins?.tools?.discover?.({
+          query: "github issues",
+          limit: 5,
+          enabled: null,
+        });
+        await builtins?.services?.discover?.({
+          query: "github",
+          limit: 1,
+          enabled: false,
+        });
 
         return "success";
       },
@@ -384,8 +394,13 @@ describe("ProcessService", () => {
     expect(manifestService.discoverTools).toHaveBeenCalledWith(
       "github issues",
       5,
+      null,
     );
-    expect(manifestService.discoverServices).toHaveBeenCalledWith("github", 1);
+    expect(manifestService.discoverServices).toHaveBeenCalledWith(
+      "github",
+      1,
+      false,
+    );
   });
 
   it("marks timeout during termination as canceled", async () => {
