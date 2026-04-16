@@ -1,12 +1,11 @@
 import { EventEmitter } from "node:events";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
+import { logger } from "@/logger";
 import type {
   InvokeResponse,
   ResolvedToolInvocation,
 } from "@/models/invoke.model";
-import { logger } from "@/logger";
 import { AdapterModule } from "@/modules/adapter.module";
 import {
   createProcessMessageSystem,

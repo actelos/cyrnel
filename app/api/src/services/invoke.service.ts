@@ -1,8 +1,8 @@
 import Ajv, { type ValidateFunction } from "ajv";
+import { logger } from "@/logger";
 import type { InvokeRequest, InvokeResponse } from "@/models/invoke.model";
 import type { JSONSchema } from "@/models/manifest.model";
 import type { AdapterModule } from "@/modules/adapter.module";
-import { logger } from "@/logger";
 import { ManifestService } from "@/services/manifest.service";
 
 export interface ProcessMessageChannel {
