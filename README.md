@@ -3,7 +3,7 @@
 <img src="assets/banner.png" alt="Banner" style="width:100%; height:auto; display:block;">
 
 <div>
-  <a href="https://github.com/actelos/mci/actions/workflows/ci.yml?branch=main"><img src="https://img.shields.io/github/actions/workflow/status/actelos/mci/ci.yml?branch=main&style=for-the-badge" alt="CI status"></a>
+  <a href="https://github.com/actelos/mci/actions/workflows/ci.yml?branch=main"><img src="https://img.shields.io/github/actions/workflow/status/actelos/mci/api-ci.yml?branch=main&style=for-the-badge" alt="CI status"></a>
   <a href="https://github.com/actelos/mci/releases"><img src="https://img.shields.io/github/v/release/actelos/mci?include_prereleases&style=for-the-badge" alt="GitHub release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" alt="MIT License"></a>
 </div>
