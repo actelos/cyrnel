@@ -64,6 +64,27 @@ type WorkerMessage =
 
 const MAX_OUTPUT_BYTES = 5 * 1024 * 1024;
 
+/**
+ * SECURITY NOTICE
+ *
+ * `EnvironmentModule` uses a Node.js `Worker` as an isolation boundary for
+ * execution lifecycle and output handling, but this is NOT a security sandbox.
+ * User-supplied code is executed via `new Function(...)` inside the worker and
+ * still runs with Node.js capabilities. In practice, executed code can access
+ * `require("node:worker_threads")` and other Node built-ins, perform filesystem
+ * and network I/O, spawn processes, and otherwise act with the worker process
+ * privileges.
+ *
+ * Trust boundary: `EnvironmentModule.execute()` and its callers MUST treat input
+ * code as trusted unless runtime isolation is provided externally. Do not run
+ * untrusted code with this module in-process.
+ *
+ * For true sandboxing, prefer either:
+ * 1) `vm.Context` with a tightly limited global object/capability surface; or
+ * 2) execution in a separate restricted process/container with defense-in-depth
+ *    controls (least privilege, filesystem/network restrictions, syscall limits,
+ *    etc.).
+ */
 export class EnvironmentModule extends EventEmitter {
   private killed = false;
   private worker: Worker | null = null;
@@ -296,6 +317,10 @@ export class EnvironmentModule extends EventEmitter {
     refCounted?.unref?.();
   }
 
+  /**
+   * Creates an execution worker used for isolation of runtime state and I/O.
+   * This worker is not a security sandbox; see module SECURITY NOTICE above.
+   */
   private createWorker(transpiledCode: string, hasBuiltins: boolean): Worker {
     return new Worker(
       `
