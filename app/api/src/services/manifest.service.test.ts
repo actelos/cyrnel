@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import type { ManifestMetadata, ToolDefinition } from "@/models/manifest.model";
-import { ManifestService } from "@/services/manifest.service";
+import {
+  ManifestService,
+  isUniqueConstraintViolation,
+} from "@/services/manifest.service";
 
 describe("manifest.service unit", () => {
   it("loads tool and metadata through injected loaders", async () => {
@@ -77,5 +80,44 @@ describe("manifest.service unit", () => {
     await expect(service.getTool("svc", "   ")).rejects.toMatchObject({
       statusCode: 400,
     });
+  });
+
+  it("detects SQLite and Postgres unique-constraint errors", () => {
+    expect(
+      isUniqueConstraintViolation(
+        new Error("UNIQUE constraint failed: manifests.definition_id"),
+      ),
+    ).toBe(true);
+
+    expect(
+      isUniqueConstraintViolation(
+        new Error(
+          'duplicate key value violates unique constraint "manifests_definition_id_unique"',
+        ),
+      ),
+    ).toBe(true);
+
+    expect(
+      isUniqueConstraintViolation({
+        code: "SQLITE_CONSTRAINT_UNIQUE",
+        message: "driver unique violation",
+      }),
+    ).toBe(true);
+  });
+
+  it("does not mislabel non-unique constraint errors", () => {
+    expect(
+      isUniqueConstraintViolation(
+        new Error("NOT NULL constraint failed: manifests.hash"),
+      ),
+    ).toBe(false);
+
+    expect(
+      isUniqueConstraintViolation(new Error("FOREIGN KEY constraint failed")),
+    ).toBe(false);
+
+    expect(
+      isUniqueConstraintViolation(new Error("CHECK constraint failed")),
+    ).toBe(false);
   });
 });

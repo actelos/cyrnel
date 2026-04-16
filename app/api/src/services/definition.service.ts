@@ -329,10 +329,35 @@ function normalizeOptionalQuery(query: string | undefined): string | undefined {
   return normalized;
 }
 
-function isUniqueConstraintViolation(error: unknown): boolean {
-  if (!(error instanceof Error)) {
+export function isUniqueConstraintViolation(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
     return false;
   }
 
-  return /unique|constraint/i.test(error.message);
+  const maybeDatabaseError = error as {
+    message?: unknown;
+    code?: unknown;
+  };
+
+  const code =
+    typeof maybeDatabaseError.code === "string" ? maybeDatabaseError.code : "";
+  if (
+    code === "23505" ||
+    /^SQLITE_CONSTRAINT_(UNIQUE|PRIMARYKEY)$/i.test(code)
+  ) {
+    return true;
+  }
+
+  const message =
+    typeof maybeDatabaseError.message === "string"
+      ? maybeDatabaseError.message
+      : "";
+
+  return [
+    /UNIQUE constraint failed:/i,
+    /unique constraint failed/i,
+    /duplicate key value/i,
+    /\bduplicate key\b/i,
+    /violates unique constraint/i,
+  ].some((pattern) => pattern.test(message));
 }
