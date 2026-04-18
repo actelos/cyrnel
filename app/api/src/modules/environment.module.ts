@@ -164,7 +164,9 @@ export class EnvironmentModule extends EventEmitter {
       .filter((manifest) => manifest.enabled)
       .map((manifest) => ({
         serviceName: manifest.name,
-        tools: manifest.tools.filter((tool) => tool.enabled).map((tool) => tool.name),
+        tools: manifest.tools
+          .filter((tool) => tool.enabled)
+          .map((tool) => tool.name),
       }))
       .filter((manifest) => manifest.tools.length > 0);
 
@@ -612,7 +614,9 @@ export class EnvironmentModule extends EventEmitter {
   }
 }
 
-function normalizeServiceManifest(serviceManifest: ServiceManifest): ServiceManifest {
+function normalizeServiceManifest(
+  serviceManifest: ServiceManifest,
+): ServiceManifest {
   const normalizedServiceName = normalizeNonEmptyString(
     serviceManifest.name,
     "Service name must not be empty.",

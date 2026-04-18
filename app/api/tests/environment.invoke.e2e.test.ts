@@ -252,7 +252,9 @@ async function waitForProcessIdle(
     const response = await request(app).get(`/processes/${pid}`);
 
     if (response.status !== 200) {
-      throw new Error(`Unexpected status while polling process: ${response.status}`);
+      throw new Error(
+        `Unexpected status while polling process: ${response.status}`,
+      );
     }
 
     const process = response.body as Process;

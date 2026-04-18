@@ -9,14 +9,14 @@ import type {
   ProcessState,
   StoredProcess,
 } from "@/models/process.model";
+import { AdapterModule } from "@/modules/adapter.module";
 import type {
-  EnvironmentInvokeInput,
   EnvironmentBuiltins,
+  EnvironmentInvokeInput,
   EnvironmentModule,
   EnvironmentOutputPatch,
   ExecutionStatus,
 } from "@/modules/environment.module";
-import { AdapterModule } from "@/modules/adapter.module";
 import type { ManifestService } from "@/services/manifest.service";
 import type { EnvironmentPoolService } from "@/services/pool.service";
 
@@ -526,7 +526,10 @@ export class ProcessService {
       throw new Error("Manifest service is not configured.");
     }
 
-    const tool = await manifestService.getTool(input.serviceName, input.toolName);
+    const tool = await manifestService.getTool(
+      input.serviceName,
+      input.toolName,
+    );
 
     if (!tool.serviceEnabled) {
       throw new Error(
