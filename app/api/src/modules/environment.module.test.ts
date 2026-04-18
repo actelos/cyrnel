@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import type { ServiceManifest } from "@/models/manifest.model";
 import {
   EnvironmentModule,
   type EnvironmentOutputPatch,
+  generateServiceToolBindings,
 } from "@/modules/environment.module";
 
 function collect<T>(mod: EnvironmentModule, event: string): T[] {
@@ -186,6 +188,150 @@ describe("EnvironmentModule", () => {
         value: [{ query: "github", limit: 1, enabled: false, kind: "service" }],
       });
     });
+
+    it("injects manifest-generated invoke functions", async () => {
+      const outputs = collect<EnvironmentOutputPatch>(mod, "output");
+      const invoke = async (input: {
+        serviceName: string;
+        toolName: string;
+        parameters: Record<string, unknown>;
+      }) => ({
+        called: input,
+      });
+
+      mod.setServiceManifestBindings({
+        name: "github",
+        description: "",
+        enabled: true,
+        metadata: {},
+        tools: [
+          {
+            name: "listIssues",
+            description: "",
+            enabled: true,
+            metadata: {},
+            inputSchema: { type: "object" },
+            outputSchema: { type: "object" },
+          },
+        ],
+      });
+
+      const status = await mod.execute(
+        `
+        const result = await invoke.github.listIssues({ owner: "acme", repo: "mci" });
+        emitOutput("toolResult", result);
+      `,
+        {
+          builtins: {
+            tools: {
+              invoke,
+            },
+          },
+        },
+      );
+
+      expect(status).toBe("success");
+      expect(outputs).toContainEqual({
+        key: "toolResult",
+        value: {
+          called: {
+            serviceName: "github",
+            toolName: "listIssues",
+            parameters: {
+              owner: "acme",
+              repo: "mci",
+            },
+          },
+        },
+      });
+    });
+
+    it("updates service manifest bindings", async () => {
+      const outputs = collect<EnvironmentOutputPatch>(mod, "output");
+
+      mod.setServiceManifestBindings({
+        name: "github",
+        description: "",
+        enabled: true,
+        metadata: {},
+        tools: [
+          {
+            name: "oldTool",
+            description: "",
+            enabled: true,
+            metadata: {},
+            inputSchema: { type: "object" },
+            outputSchema: { type: "object" },
+          },
+        ],
+      });
+
+      mod.updateServiceManifestBindings({
+        name: "github",
+        description: "",
+        enabled: true,
+        metadata: {},
+        tools: [
+          {
+            name: "newTool",
+            description: "",
+            enabled: true,
+            metadata: {},
+            inputSchema: { type: "object" },
+            outputSchema: { type: "object" },
+          },
+        ],
+      });
+
+      await mod.execute(
+        `
+        const result = await invoke.github.newTool({ ok: true });
+        emitOutput("result", result);
+      `,
+        {
+          builtins: {
+            tools: {
+              invoke: async (input) => input,
+            },
+          },
+        },
+      );
+
+      expect(outputs).toContainEqual({
+        key: "result",
+        value: {
+          serviceName: "github",
+          toolName: "newTool",
+          parameters: { ok: true },
+        },
+      });
+    });
+
+    it("deletes service manifest bindings", async () => {
+      const outputs = collect<EnvironmentOutputPatch>(mod, "output");
+
+      mod.setServiceManifestBindings({
+        name: "github",
+        description: "",
+        enabled: true,
+        metadata: {},
+        tools: [
+          {
+            name: "listIssues",
+            description: "",
+            enabled: true,
+            metadata: {},
+            inputSchema: { type: "object" },
+            outputSchema: { type: "object" },
+          },
+        ],
+      });
+      mod.deleteServiceManifestBindings("github");
+
+      await mod.execute(`emitOutput("hasGithub", "github" in invoke);`);
+
+      expect(outputs).toContainEqual({ key: "hasGithub", value: false });
+    });
   });
 
   describe("stdout stream", () => {
@@ -294,6 +440,39 @@ describe("EnvironmentModule", () => {
       `);
 
       expect(stderrMessages.join("")).toContain("exceeded");
+    });
+  });
+
+  describe("generateServiceToolBindings()", () => {
+    it("builds callable tool functions from a service manifest", async () => {
+      const manifest: ServiceManifest = {
+        name: "math",
+        description: "",
+        enabled: true,
+        metadata: {},
+        tools: [
+          {
+            name: "sum",
+            description: "",
+            enabled: true,
+            metadata: {},
+            inputSchema: { type: "object" },
+            outputSchema: { type: "number" },
+          },
+        ],
+      };
+
+      const bindings = generateServiceToolBindings(manifest, async (input) => ({
+        ...input,
+        output: 3,
+      }));
+
+      await expect(bindings.sum({ a: 1, b: 2 })).resolves.toEqual({
+        serviceName: "math",
+        toolName: "sum",
+        parameters: { a: 1, b: 2 },
+        output: 3,
+      });
     });
   });
 });

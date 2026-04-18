@@ -4,8 +4,8 @@
 - [x] work on services router to make it leaner and cleaner
 - [x] set up query-able service and tool descriptions
 - [x] set up enabling and disabling services / tools
+- [x] have the environment module use manifests to generate code
 - [ ] set ups system to notify environments about changes to service manifests for recompilation
-- [ ] have the environment module use manifests to generate code
 - [ ] set up service configuration
 - [ ] set up service secrets
 - [ ] make modules actually modules

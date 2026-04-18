@@ -3,6 +3,7 @@ import type { Readable } from "node:stream";
 import { Worker } from "node:worker_threads";
 import ts from "typescript";
 
+import type { ServiceManifest } from "@/models/manifest.model";
 import type { ProcessStatus } from "@/models/process.model";
 
 export type ExecutionStatus = Extract<ProcessStatus, "success" | "failed">;
@@ -16,10 +17,49 @@ export interface EnvironmentDiscoverInput {
 export interface EnvironmentBuiltins {
   tools?: {
     discover?: (input: EnvironmentDiscoverInput) => Promise<unknown>;
+    invoke?: (input: EnvironmentInvokeInput) => Promise<unknown>;
   };
   services?: {
     discover?: (input: EnvironmentDiscoverInput) => Promise<unknown>;
   };
+}
+
+export interface EnvironmentInvokeInput {
+  serviceName: string;
+  toolName: string;
+  parameters: Record<string, unknown>;
+}
+
+export type EnvironmentToolBinding = (
+  parameters: Record<string, unknown>,
+) => Promise<unknown>;
+
+export type EnvironmentServiceBindings = Record<string, EnvironmentToolBinding>;
+
+export function generateServiceToolBindings(
+  serviceManifest: ServiceManifest,
+  invoke: (input: EnvironmentInvokeInput) => Promise<unknown>,
+): EnvironmentServiceBindings {
+  if (!serviceManifest.enabled) {
+    return {};
+  }
+
+  const bindings: EnvironmentServiceBindings = {};
+
+  for (const tool of serviceManifest.tools) {
+    if (!tool.enabled) {
+      continue;
+    }
+
+    bindings[tool.name] = async (parameters: Record<string, unknown>) =>
+      invoke({
+        serviceName: serviceManifest.name,
+        toolName: tool.name,
+        parameters,
+      });
+  }
+
+  return bindings;
 }
 
 interface ExecuteOptions {
@@ -51,7 +91,7 @@ interface WorkerBuiltinRequestMessage {
   type: "builtin.request";
   request: {
     requestId: string;
-    builtin: "discover.tools" | "discover.services";
+    builtin: "discover.tools" | "discover.services" | "invoke.tool";
     payload: unknown;
   };
 }
@@ -89,6 +129,25 @@ export class EnvironmentModule extends EventEmitter {
   private killed = false;
   private worker: Worker | null = null;
   private timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+  private readonly serviceManifestBindings = new Map<string, ServiceManifest>();
+
+  setServiceManifestBindings(serviceManifest: ServiceManifest): void {
+    const normalized = normalizeServiceManifest(serviceManifest);
+    this.serviceManifestBindings.set(normalized.name, normalized);
+  }
+
+  updateServiceManifestBindings(serviceManifest: ServiceManifest): void {
+    this.setServiceManifestBindings(serviceManifest);
+  }
+
+  deleteServiceManifestBindings(serviceName: string): void {
+    const normalizedServiceName = normalizeNonEmptyString(
+      serviceName,
+      "Service name must not be empty.",
+    );
+
+    this.serviceManifestBindings.delete(normalizedServiceName);
+  }
 
   async execute(
     code: string,
@@ -101,7 +160,22 @@ export class EnvironmentModule extends EventEmitter {
     this.killed = false;
 
     const transpiled = transpileTypeScript(code);
-    const worker = this.createWorker(transpiled, builtins !== undefined);
+    const manifestBindings = Array.from(this.serviceManifestBindings.values())
+      .filter((manifest) => manifest.enabled)
+      .map((manifest) => ({
+        serviceName: manifest.name,
+        tools: manifest.tools.filter((tool) => tool.enabled).map((tool) => tool.name),
+      }))
+      .filter((manifest) => manifest.tools.length > 0);
+
+    const hasBuiltinChannel =
+      builtins !== undefined || manifestBindings.length > 0;
+
+    const worker = this.createWorker(
+      transpiled,
+      hasBuiltinChannel,
+      manifestBindings,
+    );
 
     this.worker = worker;
 
@@ -321,13 +395,20 @@ export class EnvironmentModule extends EventEmitter {
    * Creates an execution worker used for isolation of runtime state and I/O.
    * This worker is not a security sandbox; see module SECURITY NOTICE above.
    */
-  private createWorker(transpiledCode: string, hasBuiltins: boolean): Worker {
+  private createWorker(
+    transpiledCode: string,
+    hasBuiltins: boolean,
+    manifestBindings: Array<{ serviceName: string; tools: string[] }>,
+  ): Worker {
     return new Worker(
       `
         const { parentPort, workerData } = require("node:worker_threads");
         const pendingBuiltinRequests = new Map();
         let nextBuiltinRequestId = 1;
         const hasBuiltins = workerData.hasBuiltins === true;
+        const serviceManifestBindings = Array.isArray(workerData.manifestBindings)
+          ? workerData.manifestBindings
+          : [];
 
         const onBuiltinMessage = (message) => {
           if (!message || typeof message !== "object") {
@@ -401,9 +482,52 @@ export class EnvironmentModule extends EventEmitter {
           discover: async (input) => callBuiltin("discover.services", input),
         });
 
+        function createInvokeBindings() {
+          const serviceBindings = Object.create(null);
+
+          for (const serviceEntry of serviceManifestBindings) {
+            if (!serviceEntry || typeof serviceEntry !== "object") {
+              continue;
+            }
+
+            const serviceName =
+              typeof serviceEntry.serviceName === "string"
+                ? serviceEntry.serviceName
+                : "";
+            const toolNames = Array.isArray(serviceEntry.tools)
+              ? serviceEntry.tools
+              : [];
+
+            if (!serviceName) {
+              continue;
+            }
+
+            const toolBindings = Object.create(null);
+
+            for (const toolName of toolNames) {
+              if (typeof toolName !== "string" || toolName.length === 0) {
+                continue;
+              }
+
+              toolBindings[toolName] = async (parameters = {}) =>
+                callBuiltin("invoke.tool", {
+                  serviceName,
+                  toolName,
+                  parameters,
+                });
+            }
+
+            serviceBindings[serviceName] = Object.freeze(toolBindings);
+          }
+
+          return Object.freeze(serviceBindings);
+        }
+
+        const invoke = createInvokeBindings();
+
         const runUserCode = async () => {
-          const runner = new Function("emitOutput", "tools", "services", '"use strict"; return (async () => {\\n' + workerData.code + '\\n})();');
-          return runner(emitOutput, tools, services);
+          const runner = new Function("emitOutput", "tools", "services", "invoke", '"use strict"; return (async () => {\\n' + workerData.code + '\\n})();');
+          return runner(emitOutput, tools, services, invoke);
         };
         runUserCode()
           .then((result) => {
@@ -430,7 +554,11 @@ export class EnvironmentModule extends EventEmitter {
         eval: true,
         stdout: true,
         stderr: true,
-        workerData: { code: transpiledCode, hasBuiltins },
+        workerData: {
+          code: transpiledCode,
+          hasBuiltins,
+          manifestBindings,
+        },
       },
     );
   }
@@ -440,6 +568,21 @@ export class EnvironmentModule extends EventEmitter {
     request: WorkerBuiltinRequestMessage["request"],
     builtins: EnvironmentBuiltins | undefined,
   ): Promise<void> {
+    if (request.builtin === "invoke.tool") {
+      if (!builtins?.tools?.invoke) {
+        throw new Error("Builtin 'invoke.tool' is not configured.");
+      }
+
+      const payload = normalizeInvokeInput(request.payload);
+      const data = await builtins.tools.invoke(payload);
+      worker.postMessage({
+        type: "builtin.response",
+        requestId: request.requestId,
+        data,
+      });
+      return;
+    }
+
     const payload = normalizeDiscoverInput(request.payload);
 
     if (request.builtin === "discover.tools") {
@@ -467,6 +610,32 @@ export class EnvironmentModule extends EventEmitter {
       data,
     });
   }
+}
+
+function normalizeServiceManifest(serviceManifest: ServiceManifest): ServiceManifest {
+  const normalizedServiceName = normalizeNonEmptyString(
+    serviceManifest.name,
+    "Service name must not be empty.",
+  );
+
+  return {
+    ...serviceManifest,
+    name: normalizedServiceName,
+    tools: serviceManifest.tools.map((tool) => ({
+      ...tool,
+      name: normalizeNonEmptyString(tool.name, "Tool name must not be empty."),
+    })),
+  };
+}
+
+function normalizeNonEmptyString(value: string, errorMessage: string): string {
+  const normalized = value.trim();
+
+  if (normalized.length === 0) {
+    throw new Error(errorMessage);
+  }
+
+  return normalized;
 }
 
 function transpileTypeScript(code: string): string {
@@ -544,5 +713,39 @@ function normalizeDiscoverInput(payload: unknown): EnvironmentDiscoverInput {
   return {
     query: normalizedQuery,
     limit,
+  };
+}
+
+function normalizeInvokeInput(payload: unknown): EnvironmentInvokeInput {
+  if (!payload || typeof payload !== "object") {
+    throw new Error("Invoke input must be an object.");
+  }
+
+  const candidate = payload as {
+    serviceName?: unknown;
+    toolName?: unknown;
+    parameters?: unknown;
+  };
+
+  if (typeof candidate.serviceName !== "string") {
+    throw new Error("Field 'serviceName' must be a string.");
+  }
+
+  if (typeof candidate.toolName !== "string") {
+    throw new Error("Field 'toolName' must be a string.");
+  }
+
+  if (
+    !candidate.parameters ||
+    typeof candidate.parameters !== "object" ||
+    Array.isArray(candidate.parameters)
+  ) {
+    throw new Error("Field 'parameters' must be an object.");
+  }
+
+  return {
+    serviceName: candidate.serviceName,
+    toolName: candidate.toolName,
+    parameters: candidate.parameters as Record<string, unknown>,
   };
 }

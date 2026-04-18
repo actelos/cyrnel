@@ -384,6 +384,18 @@ describe("ProcessService", () => {
     const manifestService = {
       discoverTools: vi.fn(async () => []),
       discoverServices: vi.fn(async () => []),
+      getTool: vi.fn(async () => ({
+        tool: {
+          name: "echo",
+          description: "",
+          enabled: true,
+          metadata: {},
+          inputSchema: { type: "object" },
+          outputSchema: { type: "object" },
+        },
+        serviceMetadata: { serverUrl: "http://127.0.0.1:9999" },
+        serviceEnabled: true,
+      })),
     };
 
     const service = new ProcessService(pool, { manifestService });
@@ -400,6 +412,89 @@ describe("ProcessService", () => {
       "github",
       1,
       false,
+    );
+  });
+
+  it("injects invoke builtins that resolve from service manifests", async () => {
+    const invokeAdapter = vi.fn(async () => ({ ok: true }));
+
+    const execute = vi.fn(
+      async (
+        _code: string,
+        options?: { timeoutMs?: number | null; builtins?: unknown },
+      ): Promise<ExecutionStatus> => {
+        const builtins = options?.builtins as
+          | {
+              tools?: {
+                invoke?: (input: {
+                  serviceName: string;
+                  toolName: string;
+                  parameters: Record<string, unknown>;
+                }) => Promise<unknown>;
+              };
+            }
+          | undefined;
+
+        const output = await builtins?.tools?.invoke?.({
+          serviceName: "github",
+          toolName: "listIssues",
+          parameters: { owner: "acme" },
+        });
+
+        expect(output).toEqual({ ok: true });
+
+        return "success";
+      },
+    );
+
+    const module = new TestEnvironmentModule((code, options) =>
+      execute(
+        code,
+        options as { timeoutMs?: number | null; builtins?: unknown },
+      ),
+    );
+    const pool = new TestEnvironmentPoolService(
+      () => module as unknown as EnvironmentModule,
+    );
+
+    const manifestService = {
+      discoverTools: vi.fn(async () => []),
+      discoverServices: vi.fn(async () => []),
+      getTool: vi.fn(async () => ({
+        tool: {
+          name: "listIssues",
+          description: "",
+          enabled: true,
+          metadata: { route: "issues/list" },
+          inputSchema: { type: "object" },
+          outputSchema: { type: "object" },
+        },
+        serviceMetadata: { serverUrl: "http://127.0.0.1:9999" },
+        serviceEnabled: true,
+      })),
+    };
+
+    const service = new ProcessService(pool, {
+      manifestService,
+      adapterModule: {
+        invoke: invokeAdapter,
+      },
+    });
+
+    const pid = service.create("code");
+    await waitForState(service, pid, "idle");
+
+    expect(manifestService.getTool).toHaveBeenCalledWith(
+      "github",
+      "listIssues",
+    );
+    expect(invokeAdapter).toHaveBeenCalledWith(
+      "listIssues",
+      { owner: "acme" },
+      {
+        serviceMetadata: { serverUrl: "http://127.0.0.1:9999" },
+        toolMetadata: { route: "issues/list" },
+      },
     );
   });
 

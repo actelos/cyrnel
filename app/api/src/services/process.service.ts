@@ -10,11 +10,13 @@ import type {
   StoredProcess,
 } from "@/models/process.model";
 import type {
+  EnvironmentInvokeInput,
   EnvironmentBuiltins,
   EnvironmentModule,
   EnvironmentOutputPatch,
   ExecutionStatus,
 } from "@/modules/environment.module";
+import { AdapterModule } from "@/modules/adapter.module";
 import type { ManifestService } from "@/services/manifest.service";
 import type { EnvironmentPoolService } from "@/services/pool.service";
 
@@ -41,10 +43,15 @@ export class ProcessService {
       executeTimeoutMs?: number;
       manifestService?: Pick<
         ManifestService,
-        "discoverServices" | "discoverTools"
+        "discoverServices" | "discoverTools" | "getTool"
       >;
+      adapterModule?: Pick<AdapterModule, "invoke">;
     } = {},
-  ) {}
+  ) {
+    this.adapterModule = options.adapterModule ?? new AdapterModule();
+  }
+
+  private readonly adapterModule: Pick<AdapterModule, "invoke">;
 
   list(filters: ProcessQueryFilters): Process[] {
     const all = Array.from(this.processes.values(), ({ process }) => process);
@@ -499,6 +506,7 @@ export class ProcessService {
           enabled === undefined
             ? manifestService.discoverTools(query, limit)
             : manifestService.discoverTools(query, limit, enabled),
+        invoke: (input) => this.invokeToolFromManifest(input),
       },
       services: {
         discover: ({ query, limit, enabled }) =>
@@ -507,5 +515,34 @@ export class ProcessService {
             : manifestService.discoverServices(query, limit, enabled),
       },
     };
+  }
+
+  private async invokeToolFromManifest(
+    input: EnvironmentInvokeInput,
+  ): Promise<unknown> {
+    const manifestService = this.options.manifestService;
+
+    if (!manifestService) {
+      throw new Error("Manifest service is not configured.");
+    }
+
+    const tool = await manifestService.getTool(input.serviceName, input.toolName);
+
+    if (!tool.serviceEnabled) {
+      throw new Error(
+        `Service '${input.serviceName}' is disabled and cannot be invoked.`,
+      );
+    }
+
+    if (!tool.tool.enabled) {
+      throw new Error(
+        `Tool '${input.toolName}' in service '${input.serviceName}' is disabled and cannot be invoked.`,
+      );
+    }
+
+    return this.adapterModule.invoke(input.toolName, input.parameters, {
+      serviceMetadata: tool.serviceMetadata,
+      toolMetadata: tool.tool.metadata,
+    });
   }
 }
