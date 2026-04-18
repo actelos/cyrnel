@@ -4,3 +4,7 @@ updates:
     directory: "/app/api"
     schedule:
       interval: "daily"
+  - package-ecosystem: "npm"
+    directory: "/app/web"
+    schedule:
+      interval: "daily"

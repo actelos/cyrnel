@@ -13,9 +13,8 @@
       {
         devShell = pkgs.mkShell {
           buildInputs = [
+            pkgs.pnpm
             pkgs.nodejs_25
-            pkgs.nodePackages.pnpm
-            pkgs.nodePackages.typescript
           ];
         };
       }
