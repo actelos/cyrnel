@@ -5,7 +5,6 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  envPrefix: "WEB_",
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
