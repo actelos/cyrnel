@@ -19,29 +19,30 @@ function App() {
   const [password, setPassword] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
 
-  function handleSubmit(event: SyntheticEvent<HTMLFormElement>) {
+  async function handleSubmit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    const expectedUsername = import.meta.env.VITE_AUTH_USERNAME;
-    const expectedPassword = import.meta.env.VITE_AUTH_PASSWORD;
+    try {
+      const response = await fetch("/api/auth/login", {
+        body: JSON.stringify({ username, password }),
+        headers: {
+          "Content-Type": "application/json",
+        },
+        method: "POST",
+      });
 
-    if (!(expectedUsername && expectedPassword)) {
+      if (response.ok) {
+        setErrorMessage("");
+        setIsAuthenticated(true);
+        return;
+      }
+
       setIsAuthenticated(false);
-      setErrorMessage("Missing authentication configuration.");
-      return;
+      setErrorMessage("Invalid credentials. Please try again.");
+    } catch {
+      setIsAuthenticated(false);
+      setErrorMessage("Authentication service unavailable. Please try again.");
     }
-
-    const matchesUsername = username === expectedUsername;
-    const matchesPassword = password === expectedPassword;
-
-    if (matchesUsername && matchesPassword) {
-      setErrorMessage("");
-      setIsAuthenticated(true);
-      return;
-    }
-
-    setIsAuthenticated(false);
-    setErrorMessage("Invalid credentials. Please try again.");
   }
 
   if (!isAuthenticated) {
@@ -90,7 +91,7 @@ function App() {
           </CardContent>
           <CardFooter>
             <p className="text-muted-foreground text-xs">
-              This dashboard MUST be used in local environments use only
+              This dashboard MUST be used in local environments only
             </p>
           </CardFooter>
         </Card>

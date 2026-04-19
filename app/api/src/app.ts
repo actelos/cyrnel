@@ -5,6 +5,7 @@ import pinoHttp from "pino-http";
 import { logger } from "@/logger";
 import { apiKeyMiddleware } from "@/middleware/auth.middleware";
 import { errorMiddleware } from "@/middleware/error.middleware";
+import { authRouter } from "@/routes/auth.route";
 import { definitionRouter } from "@/routes/definition.route";
 import { processRouter } from "@/routes/process.route";
 import { serviceRouter } from "@/routes/service.route";
@@ -30,6 +31,7 @@ export function createApp() {
   app.use(pinoHttp({ logger }));
   app.use(cors());
   app.use(express.json());
+  app.use("/auth", authRouter);
   app.use(apiKeyMiddleware);
   app.use("/definitions", definitionRouter);
   app.use("/processes", processRouter);
