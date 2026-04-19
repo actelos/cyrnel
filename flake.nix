@@ -14,7 +14,7 @@
         devShell = pkgs.mkShell {
           buildInputs = [
             pkgs.pnpm
-            pkgs.nodejs_25
+            pkgs.nodejs_24
           ];
         };
       }
