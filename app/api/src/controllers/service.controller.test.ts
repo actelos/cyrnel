@@ -10,6 +10,7 @@ import {
   listTools,
   setServiceEnabled,
   setToolEnabled,
+  updateService,
 } from "@/controllers/service.controller";
 
 const manifestService = {
@@ -18,6 +19,7 @@ const manifestService = {
   listTools: vi.fn(),
   getTool: vi.fn(),
   createService: vi.fn(),
+  updateService: vi.fn(),
   setServiceEnabled: vi.fn(),
   setToolEnabled: vi.fn(),
   deleteService: vi.fn(),
@@ -53,8 +55,20 @@ describe("service.controller", () => {
     const res = makeRes();
     const req = makeReq();
     manifestService.listServices.mockResolvedValue([
-      { name: "service-a", hash: "hash-a", enabled: true },
-      { name: "service-b", hash: "hash-b", enabled: false },
+      {
+        name: "service-a",
+        type: "foo",
+        source: "https://registry.example.com/service-a.json",
+        hash: "hash-a",
+        enabled: true,
+      },
+      {
+        name: "service-b",
+        type: "foo",
+        source: "https://registry.example.com/service-b.json",
+        hash: "hash-b",
+        enabled: false,
+      },
     ]);
 
     await listServices(req, res as unknown as Response);
@@ -63,8 +77,20 @@ describe("service.controller", () => {
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith({
       services: [
-        { name: "service-a", hash: "hash-a", enabled: true },
-        { name: "service-b", hash: "hash-b", enabled: false },
+        {
+          name: "service-a",
+          type: "foo",
+          source: "https://registry.example.com/service-a.json",
+          hash: "hash-a",
+          enabled: true,
+        },
+        {
+          name: "service-b",
+          type: "foo",
+          source: "https://registry.example.com/service-b.json",
+          hash: "hash-b",
+          enabled: false,
+        },
       ],
     });
   });
@@ -73,7 +99,13 @@ describe("service.controller", () => {
     const res = makeRes();
     const req = makeReq({ query: { query: "  svc " } });
     manifestService.listServices.mockResolvedValue([
-      { name: "svc-1", hash: "hash-1", enabled: true },
+      {
+        name: "svc-1",
+        type: "foo",
+        source: "https://registry.example.com/svc-1.json",
+        hash: "hash-1",
+        enabled: true,
+      },
     ]);
 
     await listServices(req, res as unknown as Response);
@@ -81,7 +113,15 @@ describe("service.controller", () => {
     expect(manifestService.listServices).toHaveBeenCalledWith("svc");
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith({
-      services: [{ name: "svc-1", hash: "hash-1", enabled: true }],
+      services: [
+        {
+          name: "svc-1",
+          type: "foo",
+          source: "https://registry.example.com/svc-1.json",
+          hash: "hash-1",
+          enabled: true,
+        },
+      ],
     });
   });
 
@@ -90,6 +130,8 @@ describe("service.controller", () => {
     const req = makeReq({ params: { serviceName: "svc-1" } });
     manifestService.getService.mockResolvedValue({
       name: "svc-1",
+      type: "foo",
+      source: "https://registry.example.com/svc-1.json",
       hash: "hash-1",
       enabled: true,
       metadata: { serverUrl: "http://127.0.0.1:9999" },
@@ -109,6 +151,8 @@ describe("service.controller", () => {
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith({
       name: "svc-1",
+      type: "foo",
+      source: "https://registry.example.com/svc-1.json",
       hash: "hash-1",
       enabled: true,
       metadata: { serverUrl: "http://127.0.0.1:9999" },
@@ -181,20 +225,40 @@ describe("service.controller", () => {
   it("creates a service", async () => {
     const res = makeRes();
     const req = makeReq({
-      params: { serviceName: "svc-1" },
       body: {
-        definitionId: "def-123",
+        type: "foo",
+        source: {
+          metadata: {
+            file_url: "https://registry.example.com/definition.json",
+          },
+        },
       },
+    });
+    manifestService.createService.mockResolvedValue({
+      name: "svc-1",
+      type: "foo",
     });
 
     await createService(req, res as unknown as Response);
 
-    expect(manifestService.createService).toHaveBeenCalledWith(
-      "svc-1",
-      "def-123",
-    );
+    expect(manifestService.createService).toHaveBeenCalledWith({
+      type: "foo",
+      source: "https://registry.example.com/definition.json",
+    });
     expect(res.status).toHaveBeenCalledWith(201);
-    expect(res.json).toHaveBeenCalledWith({ name: "svc-1" });
+    expect(res.json).toHaveBeenCalledWith({ name: "svc-1", type: "foo" });
+  });
+
+  it("updates a service without request body params", async () => {
+    const res = makeRes();
+    const req = makeReq({ params: { serviceName: "svc-1" } });
+    manifestService.updateService.mockResolvedValue(true);
+
+    await updateService(req, res as unknown as Response);
+
+    expect(manifestService.updateService).toHaveBeenCalledWith("svc-1");
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith({ name: "svc-1", updated: true });
   });
 
   it("deletes a service", async () => {

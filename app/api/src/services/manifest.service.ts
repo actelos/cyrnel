@@ -1,19 +1,27 @@
+import { isIP } from "node:net";
+
 import { and, asc, eq } from "drizzle-orm";
 
 import { db } from "@/db/client";
-import { definitions, manifests, tools } from "@/db/schema";
+import { manifests, tools } from "@/db/schema";
 import { HttpError } from "@/models/error.model";
 import type { ResolvedToolInvocation } from "@/models/invoke.model";
 import type {
   ManifestMetadata,
   PublicToolDefinition,
+  ServiceInstallRequest,
   ServiceManifest,
   ServiceManifestDetails,
   ServiceManifestResponse,
+  ServiceType,
   ToolDefinition,
   ToolDefinitionResponse,
 } from "@/models/manifest.model";
 import { AdapterModule } from "@/modules/adapter.module";
+import { computeContentHash } from "@/utils/hash.util";
+
+const DEFINITION_DOWNLOAD_TIMEOUT_MS = 10_000;
+const MAX_DEFINITION_DOWNLOAD_BYTES = 2_048_576;
 
 type ServiceMetadataLoader = (
   serviceName: string,
@@ -24,15 +32,22 @@ type ToolLoader = (
 ) => Promise<ToolDefinition | null>;
 
 export class ManifestService {
+  private readonly fetchImpl: typeof fetch;
+
   constructor(
     private readonly loadServiceMetadata: ServiceMetadataLoader = loadServiceMetadataByServiceName,
     private readonly loadToolByName: ToolLoader = loadToolByServiceAndToolName,
     private readonly adapter: AdapterModule = new AdapterModule(),
-  ) {}
+    fetchImpl: typeof fetch = fetch,
+  ) {
+    this.fetchImpl = fetchImpl;
+  }
 
   async listServices(query?: string): Promise<ServiceManifestResponse[]> {
     let rows: Array<{
       id: string;
+      type: ServiceType;
+      source: string;
       description: string;
       hash: string;
       enabled: boolean;
@@ -42,6 +57,8 @@ export class ManifestService {
       rows = await db
         .select({
           id: manifests.id,
+          type: manifests.type,
+          source: manifests.source,
           description: manifests.description,
           hash: manifests.hash,
           enabled: manifests.enabled,
@@ -65,6 +82,8 @@ export class ManifestService {
 
     return filtered.map((row) => ({
       name: row.id,
+      type: row.type,
+      source: row.source,
       description: row.description,
       hash: row.hash,
       enabled: row.enabled,
@@ -76,6 +95,8 @@ export class ManifestService {
 
     let rows: Array<{
       id: string;
+      type: ServiceType;
+      source: string;
       description: string;
       metadata: ManifestMetadata;
       hash: string;
@@ -85,6 +106,8 @@ export class ManifestService {
       rows = await db
         .select({
           id: manifests.id,
+          type: manifests.type,
+          source: manifests.source,
           description: manifests.description,
           metadata: manifests.metadata,
           hash: manifests.hash,
@@ -117,6 +140,8 @@ export class ManifestService {
 
     return {
       name: rows[0].id,
+      type: rows[0].type,
+      source: rows[0].source,
       description: rows[0].description,
       hash: rows[0].hash,
       enabled: rows[0].enabled,
@@ -202,59 +227,27 @@ export class ManifestService {
   }
 
   async createService(
-    serviceName: string,
-    definitionId: string,
-  ): Promise<void> {
-    const normalizedServiceName = normalizeServiceName(serviceName);
-    const normalizedDefinitionId = normalizeDefinitionId(definitionId);
-
-    let definitionRow: {
-      id: string;
-      content: Buffer;
-      hash: string;
-    } | null = null;
-
-    try {
-      const rows = await db
-        .select({
-          id: definitions.id,
-          content: definitions.content,
-          hash: definitions.hash,
-        })
-        .from(definitions)
-        .where(eq(definitions.id, normalizedDefinitionId))
-        .limit(1);
-
-      definitionRow = rows[0] ?? null;
-    } catch {
-      throw new HttpError(
-        500,
-        `Failed to load definition '${normalizedDefinitionId}'.`,
-      );
-    }
-
-    if (!definitionRow) {
-      throw new HttpError(
-        404,
-        `Definition '${normalizedDefinitionId}' not found.`,
-      );
-    }
-
-    const definitionContent = decodeDefinitionContent(definitionRow.content);
-
+    source: ServiceInstallRequest,
+  ): Promise<{ name: string; type: ServiceType }> {
+    const normalizedType = normalizeServiceType(source.type);
+    const normalizedSource = normalizeDefinitionFileUrl(source.source);
+    const definitionContent =
+      await this.downloadRegistryDefinition(normalizedSource);
+    const hash = computeContentHash(definitionContent);
     const parsedManifest = await parseRegisteredManifest(
       this.adapter,
       definitionContent,
-      normalizedServiceName,
     );
+    const normalizedServiceName = normalizeServiceName(parsedManifest.name);
 
     try {
       await db.transaction(async (tx) => {
         await tx.insert(manifests).values({
           id: normalizedServiceName,
-          definitionId: normalizedDefinitionId,
+          type: normalizedType,
+          source: normalizedSource,
           description: parsedManifest.description,
-          hash: definitionRow.hash,
+          hash,
           enabled: parsedManifest.enabled,
           metadata: parsedManifest.metadata,
         });
@@ -286,41 +279,20 @@ export class ManifestService {
         `Failed to create manifest for service '${normalizedServiceName}'.`,
       );
     }
+
+    return {
+      name: normalizedServiceName,
+      type: normalizedType,
+    };
   }
 
-  async deleteService(serviceName: string): Promise<void> {
+  async updateService(serviceName: string): Promise<boolean> {
     const normalizedServiceName = normalizeServiceName(serviceName);
 
-    let deletedRows: Array<{ id: string }>;
-    try {
-      deletedRows = await db
-        .delete(manifests)
-        .where(eq(manifests.id, normalizedServiceName))
-        .returning({ id: manifests.id });
-    } catch {
-      throw new HttpError(
-        500,
-        `Failed to delete manifest for service '${normalizedServiceName}'.`,
-      );
-    }
-
-    if (deletedRows.length === 0) {
-      throw new HttpError(
-        404,
-        `Manifest not found for service '${normalizedServiceName}'.`,
-      );
-    }
-  }
-
-  async updateService(
-    serviceName: string,
-    definitionId: string,
-  ): Promise<boolean> {
-    const normalizedServiceName = normalizeServiceName(serviceName);
-    const normalizedDefinitionId = normalizeDefinitionId(definitionId);
-
-    let manifestRow: {
+    let existingManifestRow: {
       id: string;
+      type: ServiceType;
+      source: string;
       hash: string;
     } | null = null;
 
@@ -328,13 +300,15 @@ export class ManifestService {
       const rows = await db
         .select({
           id: manifests.id,
+          type: manifests.type,
+          source: manifests.source,
           hash: manifests.hash,
         })
         .from(manifests)
         .where(eq(manifests.id, normalizedServiceName))
         .limit(1);
 
-      manifestRow = rows[0] ?? null;
+      existingManifestRow = rows[0] ?? null;
     } catch {
       throw new HttpError(
         500,
@@ -342,50 +316,29 @@ export class ManifestService {
       );
     }
 
-    if (!manifestRow) {
+    if (!existingManifestRow) {
       throw new HttpError(
         404,
         `Manifest not found for service '${normalizedServiceName}'.`,
       );
     }
 
-    let definitionRow: {
-      id: string;
-      content: Buffer;
-      hash: string;
-    } | null = null;
-
-    try {
-      const rows = await db
-        .select({
-          id: definitions.id,
-          content: definitions.content,
-          hash: definitions.hash,
-        })
-        .from(definitions)
-        .where(eq(definitions.id, normalizedDefinitionId))
-        .limit(1);
-
-      definitionRow = rows[0] ?? null;
-    } catch {
+    const storedSource = normalizeOptionalSource(existingManifestRow.source);
+    if (!storedSource) {
       throw new HttpError(
-        500,
-        `Failed to load definition '${normalizedDefinitionId}'.`,
+        409,
+        `Service '${normalizedServiceName}' has no stored install source and cannot be updated automatically.`,
       );
     }
 
-    if (!definitionRow) {
-      throw new HttpError(
-        404,
-        `Definition '${normalizedDefinitionId}' not found.`,
-      );
-    }
+    const definitionContent =
+      await this.downloadRegistryDefinition(storedSource);
+    const hash = computeContentHash(definitionContent);
 
-    if (manifestRow.hash === definitionRow.hash) {
+    if (existingManifestRow.hash === hash) {
       return false;
     }
 
-    const definitionContent = decodeDefinitionContent(definitionRow.content);
     const parsedManifest = await parseRegisteredManifest(
       this.adapter,
       definitionContent,
@@ -397,10 +350,11 @@ export class ManifestService {
         await tx
           .update(manifests)
           .set({
-            definitionId: normalizedDefinitionId,
+            type: normalizeServiceType(existingManifestRow.type),
             description: parsedManifest.description,
-            hash: definitionRow.hash,
+            hash,
             enabled: parsedManifest.enabled,
+            source: storedSource,
             metadata: parsedManifest.metadata,
           })
           .where(eq(manifests.id, normalizedServiceName));
@@ -423,14 +377,7 @@ export class ManifestService {
           );
         }
       });
-    } catch (error) {
-      if (isUniqueConstraintViolation(error)) {
-        throw new HttpError(
-          409,
-          `Definition '${normalizedDefinitionId}' is already linked to another service.`,
-        );
-      }
-
+    } catch {
       throw new HttpError(
         500,
         `Failed to update manifest for service '${normalizedServiceName}'.`,
@@ -438,6 +385,104 @@ export class ManifestService {
     }
 
     return true;
+  }
+
+  private async downloadRegistryDefinition(fileUrl: string): Promise<string> {
+    const normalizedFileUrl = normalizeDefinitionFileUrl(fileUrl);
+    assertRegistryAddressAllowed(normalizedFileUrl);
+
+    const abortController = new AbortController();
+    const timeoutHandle = setTimeout(() => {
+      abortController.abort();
+    }, DEFINITION_DOWNLOAD_TIMEOUT_MS);
+
+    let response: Response;
+    try {
+      response = await this.fetchImpl(normalizedFileUrl, {
+        method: "GET",
+        headers: {
+          accept: "application/json, text/plain, application/octet-stream",
+        },
+        signal: abortController.signal,
+      });
+    } catch {
+      clearTimeout(timeoutHandle);
+      throw new HttpError(
+        502,
+        `Failed to download definition file from '${normalizedFileUrl}'.`,
+      );
+    }
+
+    clearTimeout(timeoutHandle);
+
+    if (abortController.signal.aborted) {
+      throw new HttpError(
+        502,
+        `Timed out downloading definition file from '${normalizedFileUrl}'.`,
+      );
+    }
+
+    assertRegistryAddressAllowed(response.url || normalizedFileUrl);
+
+    if (!response.ok) {
+      throw new HttpError(
+        502,
+        `Failed to download definition file from '${normalizedFileUrl}' with status ${response.status}.`,
+      );
+    }
+
+    let content: string;
+    try {
+      content = await readBodyAsUtf8WithLimit(
+        response,
+        MAX_DEFINITION_DOWNLOAD_BYTES,
+      );
+    } catch (error) {
+      if (error instanceof HttpError) {
+        throw error;
+      }
+
+      if (abortController.signal.aborted) {
+        throw new HttpError(
+          502,
+          `Timed out reading definition file downloaded from '${normalizedFileUrl}'.`,
+        );
+      }
+
+      throw new HttpError(
+        502,
+        `Failed to read definition file downloaded from '${normalizedFileUrl}'.`,
+      );
+    }
+
+    if (!content.trim()) {
+      throw new HttpError(400, "Field 'content' must not be empty.");
+    }
+
+    return content;
+  }
+  async deleteService(serviceName: string): Promise<void> {
+    const normalizedServiceName = normalizeServiceName(serviceName);
+
+    let deletedRows: Array<{ id: string }>;
+    try {
+      deletedRows = await db
+        .delete(manifests)
+        .where(eq(manifests.id, normalizedServiceName))
+        .returning({ id: manifests.id });
+    } catch {
+      throw new HttpError(
+        500,
+        `Failed to delete manifest for service '${normalizedServiceName}'.`,
+      );
+    }
+
+    if (deletedRows.length === 0) {
+      throw new HttpError(
+        404,
+        `Manifest not found for service '${normalizedServiceName}'.`,
+      );
+    }
   }
 
   async discoverTools(
@@ -653,23 +698,18 @@ export class ManifestService {
   }
 }
 
-function decodeDefinitionContent(content: Buffer | Uint8Array): string {
-  if (Buffer.isBuffer(content)) {
-    return content.toString("utf8");
-  }
-
-  return Buffer.from(content).toString("utf8");
-}
-
 async function parseRegisteredManifest(
   adapter: AdapterModule,
   definitionContent: string,
-  expectedServiceName: string,
+  expectedServiceName?: string,
 ): Promise<ServiceManifest> {
   try {
     const parsedManifest = await adapter.register(definitionContent);
 
-    if (parsedManifest.name !== expectedServiceName) {
+    if (
+      expectedServiceName !== undefined &&
+      parsedManifest.name !== expectedServiceName
+    ) {
       throw new HttpError(
         400,
         `Manifest name '${parsedManifest.name}' must match service name '${expectedServiceName}'.`,
@@ -799,14 +839,189 @@ function applyDiscoverLimit<T>(items: T[], limit: number | undefined): T[] {
   return items.slice(0, limit);
 }
 
-function normalizeDefinitionId(definitionId: string): string {
-  const normalized = definitionId.trim();
+function normalizeServiceType(type: string): ServiceType {
+  const normalized = type.trim();
 
   if (!normalized) {
-    throw new HttpError(400, "Field 'definitionId' must not be empty.");
+    throw new HttpError(400, "Field 'type' must not be empty.");
   }
 
   return normalized;
+}
+
+function normalizeOptionalSource(source: string): string | null {
+  if (typeof source !== "string") {
+    return null;
+  }
+
+  const normalized = source.trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function normalizeDefinitionFileUrl(fileUrl: string): string {
+  if (typeof fileUrl !== "string") {
+    throw new HttpError(400, "Field 'metadata.file_url' must be a string.");
+  }
+
+  const normalized = fileUrl.trim();
+
+  if (!normalized) {
+    throw new HttpError(400, "Field 'metadata.file_url' must not be empty.");
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(normalized);
+  } catch {
+    throw new HttpError(400, "Field 'metadata.file_url' must be a valid URL.");
+  }
+
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new HttpError(
+      400,
+      "Field 'metadata.file_url' must use the http or https protocol.",
+    );
+  }
+
+  return parsed.toString();
+}
+
+function assertRegistryAddressAllowed(url: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new HttpError(502, "Registry download redirected to an invalid URL.");
+  }
+
+  const hostname = parsed.hostname.trim().toLowerCase();
+  const normalizedHost =
+    hostname.startsWith("[") && hostname.endsWith("]")
+      ? hostname.slice(1, -1)
+      : hostname;
+
+  if (normalizedHost === "localhost" || normalizedHost.endsWith(".localhost")) {
+    throw new HttpError(
+      502,
+      "Registry URL resolves to a disallowed local address.",
+    );
+  }
+
+  if (!isIP(normalizedHost)) {
+    return;
+  }
+
+  if (isPrivateOrLocalIp(normalizedHost)) {
+    throw new HttpError(
+      502,
+      "Registry URL resolves to a disallowed local address.",
+    );
+  }
+}
+
+function isPrivateOrLocalIp(address: string): boolean {
+  const version = isIP(address);
+
+  if (version === 4) {
+    const octets = address
+      .split(".")
+      .map((segment) => Number.parseInt(segment, 10));
+    if (
+      octets.length !== 4 ||
+      octets.some((octet) => !Number.isInteger(octet))
+    ) {
+      return true;
+    }
+
+    const [a, b] = octets;
+    return (
+      a === 0 ||
+      a === 10 ||
+      a === 127 ||
+      (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      (a === 100 && b >= 64 && b <= 127)
+    );
+  }
+
+  if (version === 6) {
+    const normalized = address.toLowerCase();
+    return (
+      normalized === "::1" ||
+      normalized === "::" ||
+      normalized.startsWith("fe8") ||
+      normalized.startsWith("fe9") ||
+      normalized.startsWith("fea") ||
+      normalized.startsWith("feb") ||
+      normalized.startsWith("fc") ||
+      normalized.startsWith("fd") ||
+      normalized.startsWith("::ffff:127.") ||
+      normalized.startsWith("::ffff:10.") ||
+      normalized.startsWith("::ffff:192.168.") ||
+      /^::ffff:172\.(1[6-9]|2\d|3[0-1])\./.test(normalized)
+    );
+  }
+
+  return true;
+}
+
+async function readBodyAsUtf8WithLimit(
+  response: Response,
+  maxBytes: number,
+): Promise<string> {
+  const contentLengthHeader = response.headers.get("content-length");
+  if (contentLengthHeader) {
+    const declaredContentLength = Number.parseInt(contentLengthHeader, 10);
+    if (
+      Number.isFinite(declaredContentLength) &&
+      declaredContentLength > maxBytes
+    ) {
+      throw new HttpError(
+        413,
+        `Definition file exceeds maximum allowed size of ${maxBytes} bytes.`,
+      );
+    }
+  }
+
+  if (!response.body) {
+    throw new HttpError(
+      502,
+      "Downloaded definition file did not include a response body.",
+    );
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  const chunks: string[] = [];
+  let totalBytes = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+
+      if (value) {
+        totalBytes += value.byteLength;
+        if (totalBytes > maxBytes) {
+          await reader.cancel();
+          throw new HttpError(
+            413,
+            `Definition file exceeds maximum allowed size of ${maxBytes} bytes.`,
+          );
+        }
+
+        chunks.push(decoder.decode(value, { stream: true }));
+      }
+    }
+
+    chunks.push(decoder.decode());
+    return chunks.join("");
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 async function loadServiceMetadataByServiceName(

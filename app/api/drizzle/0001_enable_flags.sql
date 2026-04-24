@@ -1,2 +1,0 @@
-ALTER TABLE manifests ADD COLUMN enabled integer NOT NULL DEFAULT 1;
-ALTER TABLE tools ADD COLUMN enabled integer NOT NULL DEFAULT 1;

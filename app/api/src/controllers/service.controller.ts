@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 
 import { HttpError } from "@/models/error.model";
+import type { ServiceInstallRequest } from "@/models/manifest.model";
 import type { ManifestService } from "@/services/manifest.service";
 
 export async function listServices(req: Request, res: Response): Promise<void> {
@@ -18,6 +19,8 @@ export async function getService(req: Request, res: Response): Promise<void> {
 
   res.status(200).json({
     name: service.name,
+    type: service.type,
+    source: service.source,
     description: service.description,
     hash: service.hash,
     enabled: service.enabled,
@@ -61,11 +64,21 @@ export async function createService(
   res: Response,
 ): Promise<void> {
   const manifestService = getManifestService(req);
-  const serviceName = parseServiceName(req.params.serviceName);
-  const definitionId = parseDefinitionId(req.body);
+  const payload = parseInstallServicePayload(req.body);
+  const service = await manifestService.createService(payload);
 
-  await manifestService.createService(serviceName, definitionId);
-  res.status(201).json({ name: serviceName });
+  res.status(201).json(service);
+}
+
+export async function updateService(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const manifestService = getManifestService(req);
+  const serviceName = parseServiceName(req.params.serviceName);
+
+  const updated = await manifestService.updateService(serviceName);
+  res.status(200).json({ name: serviceName, updated });
 }
 
 export async function setServiceEnabled(
@@ -134,18 +147,84 @@ function parseQueryParam(raw: unknown): string | undefined {
   return normalized.length > 0 ? normalized : undefined;
 }
 
-function parseDefinitionId(rawBody: unknown): string {
+function parseInstallServicePayload(rawBody: unknown): ServiceInstallRequest {
   if (!rawBody || typeof rawBody !== "object") {
     throw new HttpError(400, "Request body must be an object.");
   }
 
-  const definitionId = (rawBody as { definitionId?: unknown }).definitionId;
+  const source = rawBody as {
+    type?: unknown;
+    source?: unknown;
+  };
 
-  if (typeof definitionId !== "string") {
-    throw new HttpError(400, "Field 'definitionId' must be a string.");
+  if (typeof source.type !== "string") {
+    throw new HttpError(400, "Field 'type' is required and must be a string.");
   }
 
-  return definitionId;
+  const normalizedType = source.type.trim();
+
+  if (!normalizedType) {
+    throw new HttpError(400, "Field 'type' must not be empty.");
+  }
+
+  const sourceUrl = parseInstallSource(source.source);
+
+  return {
+    type: normalizedType,
+    source: sourceUrl,
+  };
+}
+
+function parseInstallSource(rawSource: unknown): string {
+  if (typeof rawSource === "string") {
+    const normalized = rawSource.trim();
+
+    if (!normalized) {
+      throw new HttpError(400, "Field 'source' must not be empty.");
+    }
+
+    return normalized;
+  }
+
+  if (!rawSource || typeof rawSource !== "object" || Array.isArray(rawSource)) {
+    throw new HttpError(
+      400,
+      "Field 'source' is required and must be a string or object.",
+    );
+  }
+
+  const sourceObject = rawSource as {
+    file_url?: unknown;
+    metadata?: unknown;
+  };
+
+  if (typeof sourceObject.file_url === "string") {
+    const normalized = sourceObject.file_url.trim();
+
+    if (!normalized) {
+      throw new HttpError(400, "Field 'source.file_url' must not be empty.");
+    }
+
+    return normalized;
+  }
+
+  const metadata = sourceObject.metadata;
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    throw new HttpError(
+      400,
+      "Field 'source.file_url' or 'source.metadata.file_url' is required.",
+    );
+  }
+
+  const metadataFileUrl = (metadata as { file_url?: unknown }).file_url;
+  if (typeof metadataFileUrl !== "string" || metadataFileUrl.trim() === "") {
+    throw new HttpError(
+      400,
+      "Field 'source.file_url' or 'source.metadata.file_url' is required.",
+    );
+  }
+
+  return metadataFileUrl.trim();
 }
 
 function parseEnabled(rawBody: unknown): boolean {

@@ -1,5 +1,4 @@
 import {
-  blob,
   index,
   integer,
   primaryKey,
@@ -7,26 +6,18 @@ import {
   text,
 } from "drizzle-orm/sqlite-core";
 
-import type { DefinitionType } from "@/models/definition.model";
-import type { ManifestMetadata, ToolDefinition } from "@/models/manifest.model";
-
-export const definitions = sqliteTable("definitions", {
-  id: text("id").primaryKey(),
-  type: text("type").$type<DefinitionType>().notNull(),
-  description: text("description").notNull().default(""),
-  content: blob("content", { mode: "buffer" }).notNull(),
-  hash: text("hash").notNull(),
-});
+import type {
+  ManifestMetadata,
+  ServiceType,
+  ToolDefinition,
+} from "@/models/manifest.model";
 
 export const manifests = sqliteTable(
   "manifests",
   {
     id: text("id").primaryKey(),
-    definitionId: text("definition_id")
-      .unique()
-      .references(() => definitions.id, {
-        onDelete: "cascade",
-      }),
+    type: text("type").$type<ServiceType>().notNull(),
+    source: text("source").notNull().default(""),
     description: text("description").notNull().default(""),
     hash: text("hash").notNull(),
     enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
@@ -34,7 +25,7 @@ export const manifests = sqliteTable(
       .$type<ManifestMetadata>()
       .notNull(),
   },
-  (table) => [index("manifests_definition_id_idx").on(table.definitionId)],
+  (table) => [index("manifests_type_idx").on(table.type)],
 );
 
 export const tools = sqliteTable(
@@ -66,7 +57,5 @@ export const tools = sqliteTable(
 
 export type ManifestRecord = typeof manifests.$inferSelect;
 export type NewManifestRecord = typeof manifests.$inferInsert;
-export type DefinitionRecord = typeof definitions.$inferSelect;
-export type NewDefinitionRecord = typeof definitions.$inferInsert;
 export type ToolRecord = typeof tools.$inferSelect;
 export type NewToolRecord = typeof tools.$inferInsert;

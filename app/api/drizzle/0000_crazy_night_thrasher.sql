@@ -1,26 +1,19 @@
-CREATE TABLE `definitions` (
-	`id` text PRIMARY KEY NOT NULL,
-	`type` text NOT NULL,
-	`description` text DEFAULT '' NOT NULL,
-	`content` blob NOT NULL,
-	`hash` text NOT NULL
-);
---> statement-breakpoint
 CREATE TABLE `manifests` (
 	`id` text PRIMARY KEY NOT NULL,
-	`definition_id` text,
+	`type` text NOT NULL,
+	`source` text DEFAULT '' NOT NULL,
 	`description` text DEFAULT '' NOT NULL,
 	`hash` text NOT NULL,
-	`metadata` text NOT NULL,
-	FOREIGN KEY (`definition_id`) REFERENCES `definitions`(`id`) ON UPDATE no action ON DELETE cascade
+	`enabled` integer DEFAULT true NOT NULL,
+	`metadata` text NOT NULL
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `manifests_definition_id_unique` ON `manifests` (`definition_id`);--> statement-breakpoint
-CREATE INDEX `manifests_definition_id_idx` ON `manifests` (`definition_id`);--> statement-breakpoint
+CREATE INDEX `manifests_type_idx` ON `manifests` (`type`);--> statement-breakpoint
 CREATE TABLE `tools` (
 	`service_id` text NOT NULL,
 	`name` text NOT NULL,
 	`description` text DEFAULT '' NOT NULL,
+	`enabled` integer DEFAULT true NOT NULL,
 	`input_schema` text NOT NULL,
 	`output_schema` text NOT NULL,
 	`metadata` text NOT NULL,

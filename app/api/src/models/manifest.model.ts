@@ -1,6 +1,13 @@
 export type JSONSchema = Record<string, unknown>;
 export type ManifestMetadata = Record<string, unknown>;
 
+export type ServiceType = string;
+
+export interface ServiceInstallRequest {
+  type: ServiceType;
+  source: string;
+}
+
 export interface ToolDefinition {
   name: string;
   description: string;
@@ -33,6 +40,8 @@ export interface ToolDefinitionResponse extends PublicToolDefinition {
 
 export interface ServiceManifestResponse {
   name: string;
+  type: ServiceType;
+  source: string;
   description: string;
   hash: string;
   enabled: boolean;
@@ -40,6 +49,8 @@ export interface ServiceManifestResponse {
 
 export interface ServiceManifestDetails {
   name: string;
+  type: ServiceType;
+  source: string;
   description: string;
   hash: string;
   enabled: boolean;

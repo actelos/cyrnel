@@ -1,11 +1,11 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "e7c8434c-c185-4d2d-9b53-916bd4fb0649",
+  "id": "9deb12b1-6950-4d55-83eb-4c5c036a66d9",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
-    "definitions": {
-      "name": "definitions",
+    "manifests": {
+      "name": "manifests",
       "columns": {
         "id": {
           "name": "id",
@@ -21,51 +21,13 @@
           "notNull": true,
           "autoincrement": false
         },
-        "description": {
-          "name": "description",
+        "source": {
+          "name": "source",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
           "default": "''"
-        },
-        "content": {
-          "name": "content",
-          "type": "blob",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "hash": {
-          "name": "hash",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "manifests": {
-      "name": "manifests",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "definition_id": {
-          "name": "definition_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
         },
         "description": {
           "name": "description",
@@ -81,6 +43,14 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "enabled": {
+          "name": "enabled",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": true
         },
         "metadata": {
           "name": "metadata",
@@ -91,28 +61,13 @@
         }
       },
       "indexes": {
-        "manifests_definition_id_unique": {
-          "name": "manifests_definition_id_unique",
-          "columns": ["definition_id"],
-          "isUnique": true
-        },
-        "manifests_definition_id_idx": {
-          "name": "manifests_definition_id_idx",
-          "columns": ["definition_id"],
+        "manifests_type_idx": {
+          "name": "manifests_type_idx",
+          "columns": ["type"],
           "isUnique": false
         }
       },
-      "foreignKeys": {
-        "manifests_definition_id_definitions_id_fk": {
-          "name": "manifests_definition_id_definitions_id_fk",
-          "tableFrom": "manifests",
-          "tableTo": "definitions",
-          "columnsFrom": ["definition_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
@@ -141,6 +96,14 @@
           "notNull": true,
           "autoincrement": false,
           "default": "''"
+        },
+        "enabled": {
+          "name": "enabled",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": true
         },
         "input_schema": {
           "name": "input_schema",

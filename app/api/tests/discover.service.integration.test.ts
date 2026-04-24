@@ -47,30 +47,18 @@ async function resetDiscoverTables(): Promise<void> {
   await db.run(sql`PRAGMA foreign_keys = OFF`);
   await db.run(sql`DROP TABLE IF EXISTS tools`);
   await db.run(sql`DROP TABLE IF EXISTS manifests`);
-  await db.run(sql`DROP TABLE IF EXISTS definitions`);
-  await db.run(sql`
-    CREATE TABLE definitions (
-      id text PRIMARY KEY NOT NULL,
-      type text NOT NULL,
-      description text NOT NULL DEFAULT '',
-      content blob NOT NULL,
-      hash text NOT NULL
-    )
-  `);
   await db.run(sql`
     CREATE TABLE manifests (
       id text PRIMARY KEY NOT NULL,
-      definition_id text,
+      type text NOT NULL,
+      source text NOT NULL DEFAULT '',
       description text NOT NULL DEFAULT '',
       hash text NOT NULL,
       enabled integer NOT NULL DEFAULT 1,
       metadata text NOT NULL
-      ,FOREIGN KEY (definition_id) REFERENCES definitions(id) ON UPDATE no action ON DELETE cascade
     )
   `);
-  await db.run(
-    sql`CREATE UNIQUE INDEX manifests_definition_id_unique ON manifests (definition_id)`,
-  );
+  await db.run(sql`CREATE INDEX manifests_type_idx ON manifests (type)`);
   await db.run(sql`
     CREATE TABLE tools (
       service_id text NOT NULL,
@@ -92,18 +80,24 @@ async function seedDiscoverFixtures(): Promise<void> {
   await db.insert(manifests).values([
     {
       id: "svc-alpha",
+      type: "foo",
+      source: "http://127.0.0.1:8301/definition",
       description: "",
       hash: "hash-alpha",
       metadata: { serverUrl: "http://127.0.0.1:8301" },
     },
     {
       id: "svc-beta",
+      type: "foo",
+      source: "http://127.0.0.1:8302/definition",
       description: "",
       hash: "hash-beta",
       metadata: { serverUrl: "http://127.0.0.1:8302" },
     },
     {
       id: "svc-gamma",
+      type: "foo",
+      source: "http://127.0.0.1:8303/definition",
       description: "",
       hash: "hash-gamma",
       metadata: { serverUrl: "http://127.0.0.1:8303" },
@@ -430,18 +424,24 @@ describe("discover.service integration", () => {
         services: [
           {
             name: "svc-alpha",
+            type: "foo",
+            source: "http://127.0.0.1:8301/definition",
             description: "",
             hash: "hash-alpha",
             enabled: true,
           },
           {
             name: "svc-beta",
+            type: "foo",
+            source: "http://127.0.0.1:8302/definition",
             description: "",
             hash: "hash-beta",
             enabled: true,
           },
           {
             name: "svc-gamma",
+            type: "foo",
+            source: "http://127.0.0.1:8303/definition",
             description: "",
             hash: "hash-gamma",
             enabled: true,
@@ -473,6 +473,8 @@ describe("discover.service integration", () => {
         services: [
           {
             name: "svc-beta",
+            type: "foo",
+            source: "http://127.0.0.1:8302/definition",
             description: "",
             hash: "hash-beta",
             enabled: true,
