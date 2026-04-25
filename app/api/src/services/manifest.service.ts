@@ -269,7 +269,7 @@ export class ManifestService {
               serviceName: normalizedServiceName,
               name: tool.name,
               description: tool.description,
-              enabled: tool.enabled,
+              enabled: true,
               metadata: tool.metadata,
               inputSchema: tool.inputSchema,
               outputSchema: tool.outputSchema,
@@ -358,6 +358,15 @@ export class ManifestService {
 
     try {
       await db.transaction(async (tx) => {
+        const existingTools = await tx
+          .select({ name: tools.name, enabled: tools.enabled })
+          .from(tools)
+          .where(eq(tools.serviceName, normalizedServiceName));
+
+        const existingEnabledByName = new Map(
+          existingTools.map((tool) => [tool.name, tool.enabled] as const),
+        );
+
         await tx
           .update(manifests)
           .set({
@@ -380,7 +389,7 @@ export class ManifestService {
               serviceName: normalizedServiceName,
               name: tool.name,
               description: tool.description,
-              enabled: tool.enabled,
+              enabled: existingEnabledByName.get(tool.name) ?? true,
               metadata: tool.metadata,
               inputSchema: tool.inputSchema,
               outputSchema: tool.outputSchema,
