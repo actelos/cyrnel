@@ -1,6 +1,7 @@
 import { isIP } from "node:net";
 
 import { and, asc, eq } from "drizzle-orm";
+import { z } from "zod";
 
 import { db } from "@/db/client";
 import { manifests, tools } from "@/db/schema";
@@ -22,6 +23,17 @@ import { computeContentHash } from "@/utils/hash.util";
 
 const DEFINITION_DOWNLOAD_TIMEOUT_MS = 10_000;
 const MAX_DEFINITION_DOWNLOAD_BYTES = 2_048_576;
+
+const metadataSchema = z.record(z.string(), z.unknown());
+
+const persistedToolSchema = z.object({
+  name: z.string().trim().min(1),
+  description: z.string(),
+  enabled: z.boolean(),
+  inputSchema: metadataSchema,
+  outputSchema: metadataSchema,
+  metadata: metadataSchema,
+});
 
 type ServiceMetadataLoader = (
   serviceName: string,
@@ -763,20 +775,26 @@ export function isUniqueConstraintViolation(error: unknown): boolean {
 }
 
 function normalizeServiceName(serviceName: string): string {
-  const normalized = serviceName.trim();
+  const parsed = z
+    .string({ error: "Service name must not be empty." })
+    .transform((value) => value.trim())
+    .refine((value) => value.length > 0, {
+      error: "Service name must not be empty.",
+    })
+    .refine((value) => /^[a-zA-Z0-9._-]+$/.test(value), {
+      error:
+        "Service name may only contain letters, numbers, dot, underscore, and hyphen.",
+    })
+    .safeParse(serviceName);
 
-  if (!normalized) {
-    throw new HttpError(400, "Service name must not be empty.");
-  }
-
-  if (!/^[a-zA-Z0-9._-]+$/.test(normalized)) {
+  if (!parsed.success) {
     throw new HttpError(
       400,
-      "Service name may only contain letters, numbers, dot, underscore, and hyphen.",
+      parsed.error.issues[0]?.message ?? "Service name must not be empty.",
     );
   }
 
-  return normalized;
+  return parsed.data;
 }
 
 function normalizeOptionalQuery(query: string | undefined): string | undefined {
@@ -790,21 +808,38 @@ function normalizeOptionalQuery(query: string | undefined): string | undefined {
 }
 
 function normalizeToolName(toolName: string): string {
-  const normalized = toolName.trim();
+  const parsed = z
+    .string({ error: "Tool name must not be empty." })
+    .transform((value) => value.trim())
+    .refine((value) => value.length > 0, {
+      error: "Tool name must not be empty.",
+    })
+    .safeParse(toolName);
 
-  if (!normalized) {
-    throw new HttpError(400, "Tool name must not be empty.");
+  if (!parsed.success) {
+    throw new HttpError(
+      400,
+      parsed.error.issues[0]?.message ?? "Tool name must not be empty.",
+    );
   }
 
-  return normalized;
+  return parsed.data;
 }
 
 function normalizeDiscoverQuery(query: string): string {
-  if (typeof query !== "string") {
-    throw new HttpError(400, "Field 'query' must be a string.");
+  const parsed = z
+    .string({ error: "Field 'query' must be a string." })
+    .transform((value) => value.trim())
+    .safeParse(query);
+
+  if (!parsed.success) {
+    throw new HttpError(
+      400,
+      parsed.error.issues[0]?.message ?? "Field 'query' must be a string.",
+    );
   }
 
-  return query.trim();
+  return parsed.data;
 }
 
 function normalizeDiscoverLimit(limit: unknown): number | undefined {
@@ -812,11 +847,21 @@ function normalizeDiscoverLimit(limit: unknown): number | undefined {
     return undefined;
   }
 
-  if (typeof limit !== "number" || !Number.isInteger(limit) || limit <= 0) {
-    throw new HttpError(400, "Field 'limit' must be a positive integer.");
+  const parsed = z
+    .number({ error: "Field 'limit' must be a positive integer." })
+    .int({ error: "Field 'limit' must be a positive integer." })
+    .positive({ error: "Field 'limit' must be a positive integer." })
+    .safeParse(limit);
+
+  if (!parsed.success) {
+    throw new HttpError(
+      400,
+      parsed.error.issues[0]?.message ??
+        "Field 'limit' must be a positive integer.",
+    );
   }
 
-  return limit;
+  return parsed.data;
 }
 
 function normalizeDiscoverEnabled(enabled: unknown): boolean | null {
@@ -824,11 +869,20 @@ function normalizeDiscoverEnabled(enabled: unknown): boolean | null {
     return true;
   }
 
-  if (enabled === null || typeof enabled === "boolean") {
-    return enabled;
+  const parsed = z
+    .boolean({ error: "Field 'enabled' must be a boolean or null." })
+    .nullable()
+    .safeParse(enabled);
+
+  if (!parsed.success) {
+    throw new HttpError(
+      400,
+      parsed.error.issues[0]?.message ??
+        "Field 'enabled' must be a boolean or null.",
+    );
   }
 
-  throw new HttpError(400, "Field 'enabled' must be a boolean or null.");
+  return parsed.data;
 }
 
 function applyDiscoverLimit<T>(items: T[], limit: number | undefined): T[] {
@@ -840,34 +894,53 @@ function applyDiscoverLimit<T>(items: T[], limit: number | undefined): T[] {
 }
 
 function normalizeServiceType(type: string): ServiceType {
-  const normalized = type.trim();
+  const parsed = z
+    .string({ error: "Field 'type' must not be empty." })
+    .transform((value) => value.trim())
+    .refine((value) => value.length > 0, {
+      error: "Field 'type' must not be empty.",
+    })
+    .safeParse(type);
 
-  if (!normalized) {
-    throw new HttpError(400, "Field 'type' must not be empty.");
+  if (!parsed.success) {
+    throw new HttpError(
+      400,
+      parsed.error.issues[0]?.message ?? "Field 'type' must not be empty.",
+    );
   }
 
-  return normalized;
+  return parsed.data;
 }
 
 function normalizeOptionalSource(source: string): string | null {
-  if (typeof source !== "string") {
+  const parsed = z.string().safeParse(source);
+
+  if (!parsed.success) {
     return null;
   }
 
-  const normalized = source.trim();
+  const normalized = parsed.data.trim();
   return normalized.length > 0 ? normalized : null;
 }
 
 function normalizeDefinitionFileUrl(fileUrl: string): string {
-  if (typeof fileUrl !== "string") {
-    throw new HttpError(400, "Field 'metadata.file_url' must be a string.");
+  const normalizedParse = z
+    .string({ error: "Field 'metadata.file_url' must be a string." })
+    .transform((value) => value.trim())
+    .refine((value) => value.length > 0, {
+      error: "Field 'metadata.file_url' must not be empty.",
+    })
+    .safeParse(fileUrl);
+
+  if (!normalizedParse.success) {
+    throw new HttpError(
+      400,
+      normalizedParse.error.issues[0]?.message ??
+        "Field 'metadata.file_url' must be a string.",
+    );
   }
 
-  const normalized = fileUrl.trim();
-
-  if (!normalized) {
-    throw new HttpError(400, "Field 'metadata.file_url' must not be empty.");
-  }
+  const normalized = normalizedParse.data;
 
   let parsed: URL;
   try {
@@ -1084,29 +1157,24 @@ async function loadToolByServiceAndToolName(
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
+  return metadataSchema.safeParse(value).success;
 }
 
 function isToolDefinition(value: unknown): value is ToolDefinition {
-  if (!isRecord(value)) {
-    return false;
-  }
-
-  return (
-    typeof value.name === "string" &&
-    value.name.trim().length > 0 &&
-    typeof value.description === "string" &&
-    typeof value.enabled === "boolean" &&
-    isRecord(value.inputSchema) &&
-    isRecord(value.outputSchema) &&
-    isRecord(value.metadata)
-  );
+  return persistedToolSchema.safeParse(value).success;
 }
 
 function normalizeEnabled(enabled: unknown): boolean {
-  if (typeof enabled !== "boolean") {
-    throw new HttpError(400, "Field 'enabled' must be a boolean.");
+  const parsed = z
+    .boolean({ error: "Field 'enabled' must be a boolean." })
+    .safeParse(enabled);
+
+  if (!parsed.success) {
+    throw new HttpError(
+      400,
+      parsed.error.issues[0]?.message ?? "Field 'enabled' must be a boolean.",
+    );
   }
 
-  return enabled;
+  return parsed.data;
 }

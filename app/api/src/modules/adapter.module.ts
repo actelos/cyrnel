@@ -1,8 +1,36 @@
+import { z } from "zod";
 import type {
   ManifestMetadata,
   ServiceManifest,
-  ToolDefinition,
 } from "@/models/manifest.model";
+
+const recordSchema = z.record(z.string(), z.unknown());
+
+const manifestToolSchema = z.object({
+  name: z.string().trim().min(1),
+  description: z.string(),
+  enabled: z.boolean(),
+  inputSchema: recordSchema,
+  outputSchema: recordSchema,
+  metadata: recordSchema,
+});
+
+const serviceManifestSchema = z.object({
+  name: z.string().trim().min(1),
+  description: z.string(),
+  enabled: z.boolean(),
+  metadata: recordSchema,
+  tools: z.array(manifestToolSchema),
+});
+
+const adapterErrorPayloadSchema = z.object({
+  message: z.unknown().optional(),
+  error: z
+    .object({
+      message: z.unknown().optional(),
+    })
+    .optional(),
+});
 
 interface AdapterModuleOptions {
   baseUrl?: string;
@@ -12,13 +40,6 @@ interface AdapterModuleOptions {
 interface AdapterInvokeMetadata {
   serviceMetadata: ManifestMetadata;
   toolMetadata: ManifestMetadata;
-}
-
-interface AdapterErrorPayload {
-  message?: unknown;
-  error?: {
-    message?: unknown;
-  };
 }
 
 export class AdapterModule {
@@ -98,11 +119,12 @@ export function parseServiceManifest(manifestSource: string): ServiceManifest {
     throw new Error("Manifest JSON is invalid.");
   }
 
-  if (!isServiceManifest(parsed)) {
+  const validation = serviceManifestSchema.safeParse(parsed);
+  if (!validation.success) {
     throw new Error("Manifest JSON is not a valid service manifest.");
   }
 
-  return parsed;
+  return validation.data;
 }
 
 function resolveInvocationBaseUrl(
@@ -193,13 +215,19 @@ function resolveAdapterBaseUrl(rawValue: string | undefined): string {
 }
 
 function normalizeToolName(toolName: string): string {
-  const normalized = toolName.trim();
+  const parsed = z
+    .string()
+    .trim()
+    .min(1, { error: "Tool name must not be empty." })
+    .safeParse(toolName);
 
-  if (!normalized) {
-    throw new Error("Tool name must not be empty.");
+  if (!parsed.success) {
+    throw new Error(
+      parsed.error.issues[0]?.message ?? "Tool name must not be empty.",
+    );
   }
 
-  return normalized;
+  return parsed.data;
 }
 
 function buildToolEndpoint(baseUrl: string, toolName: string): string {
@@ -223,15 +251,19 @@ async function parseJsonSafely(response: Response): Promise<unknown> {
 }
 
 function isWrappedOutput(payload: unknown): payload is { output: unknown } {
-  return !!payload && typeof payload === "object" && "output" in payload;
+  return (
+    !!payload && typeof payload === "object" && Object.hasOwn(payload, "output")
+  );
 }
 
 function extractErrorMessage(payload: unknown): string {
-  if (!payload || typeof payload !== "object") {
+  const parsed = adapterErrorPayloadSchema.safeParse(payload);
+
+  if (!parsed.success) {
     return "Unknown adapter error.";
   }
 
-  const candidate = payload as AdapterErrorPayload;
+  const candidate = parsed.data;
 
   if (typeof candidate.message === "string" && candidate.message.trim()) {
     return candidate.message;
@@ -251,50 +283,6 @@ function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
-}
-
-function isManifestTool(value: unknown): value is ToolDefinition {
-  if (!isRecord(value)) {
-    return false;
-  }
-
-  return (
-    typeof value.name === "string" &&
-    value.name.trim().length > 0 &&
-    typeof value.description === "string" &&
-    typeof value.enabled === "boolean" &&
-    isRecord(value.inputSchema) &&
-    isRecord(value.outputSchema) &&
-    isRecord(value.metadata)
-  );
-}
-
-function isServiceManifest(value: unknown): value is ServiceManifest {
-  if (!isRecord(value)) {
-    return false;
-  }
-
-  if (typeof value.name !== "string" || value.name.trim().length === 0) {
-    return false;
-  }
-
-  if (typeof value.description !== "string") {
-    return false;
-  }
-
-  if (typeof value.enabled !== "boolean") {
-    return false;
-  }
-
-  if (!isRecord(value.metadata)) {
-    return false;
-  }
-
-  if (!Array.isArray(value.tools)) {
-    return false;
-  }
-
-  return value.tools.every(isManifestTool);
+function _isRecord(value: unknown): value is Record<string, unknown> {
+  return recordSchema.safeParse(value).success;
 }

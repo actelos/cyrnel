@@ -1,8 +1,17 @@
+import { z } from "zod";
 import type {
   DiscoverRequest,
   DiscoverResponse,
 } from "@/models/discover.model";
 import { ManifestService } from "@/services/manifest.service";
+
+const discoverMessageSchema = z.object({
+  type: z.union([z.literal("discover.tools"), z.literal("discover.services")]),
+  requestId: z.string().min(1),
+  query: z.string(),
+  limit: z.number().int().positive().optional(),
+  enabled: z.boolean().nullable().optional(),
+});
 
 export interface DiscoverMessageChannel {
   on(event: "message", listener: (message: unknown) => void): this;
@@ -85,24 +94,5 @@ async function handleDiscoverMessage(
 }
 
 function isDiscoverMessage(message: unknown): message is DiscoverRequest {
-  if (!message || typeof message !== "object") {
-    return false;
-  }
-
-  const candidate = message as Partial<DiscoverRequest>;
-
-  return (
-    (candidate.type === "discover.tools" ||
-      candidate.type === "discover.services") &&
-    typeof candidate.requestId === "string" &&
-    candidate.requestId.length > 0 &&
-    typeof candidate.query === "string" &&
-    (candidate.limit === undefined ||
-      (typeof candidate.limit === "number" &&
-        Number.isInteger(candidate.limit) &&
-        candidate.limit > 0)) &&
-    (candidate.enabled === undefined ||
-      candidate.enabled === null ||
-      typeof candidate.enabled === "boolean")
-  );
+  return discoverMessageSchema.safeParse(message).success;
 }

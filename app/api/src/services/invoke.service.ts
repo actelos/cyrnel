@@ -1,9 +1,18 @@
 import Ajv, { type ValidateFunction } from "ajv";
+import { z } from "zod";
 import { logger } from "@/logger";
 import type { InvokeRequest, InvokeResponse } from "@/models/invoke.model";
 import type { JSONSchema } from "@/models/manifest.model";
 import type { AdapterModule } from "@/modules/adapter.module";
 import { ManifestService } from "@/services/manifest.service";
+
+const invokeMessageSchema = z.object({
+  type: z.literal("invoke.tool"),
+  requestId: z.string().min(1),
+  serviceName: z.string().min(1),
+  toolName: z.string().min(1),
+  parameters: z.record(z.string(), z.unknown()),
+});
 
 export interface ProcessMessageChannel {
   on(event: "message", listener: (message: unknown) => void): this;
@@ -117,24 +126,7 @@ async function handleInvokeMessage(
 }
 
 function isInvokeMessage(message: unknown): message is InvokeRequest {
-  if (!message || typeof message !== "object") {
-    return false;
-  }
-
-  const candidate = message as Partial<InvokeRequest>;
-
-  return (
-    candidate.type === "invoke.tool" &&
-    typeof candidate.requestId === "string" &&
-    candidate.requestId.length > 0 &&
-    typeof candidate.serviceName === "string" &&
-    candidate.serviceName.length > 0 &&
-    typeof candidate.toolName === "string" &&
-    candidate.toolName.length > 0 &&
-    !!candidate.parameters &&
-    typeof candidate.parameters === "object" &&
-    !Array.isArray(candidate.parameters)
-  );
+  return invokeMessageSchema.safeParse(message).success;
 }
 
 class SchemaValidator {

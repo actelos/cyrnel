@@ -1,25 +1,35 @@
+import { z } from "zod";
 import { createApp } from "@/app";
 import { logger } from "@/logger";
 
 const app = createApp();
-const port = process.env.PORT ? Number.parseInt(process.env.PORT, 10) : 7687;
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 10_000;
-const parsedShutdownTimeout = process.env.SHUTDOWN_TIMEOUT_MS
-  ? Number.parseInt(process.env.SHUTDOWN_TIMEOUT_MS, 10)
-  : undefined;
-const shutdownTimeoutMs = Number.isFinite(parsedShutdownTimeout)
-  ? Math.max(0, Math.floor(parsedShutdownTimeout as number))
-  : DEFAULT_SHUTDOWN_TIMEOUT_MS;
+const envSchema = z.object({
+  PORT: z
+    .string()
+    .regex(/^\d+$/)
+    .transform((value) => Number.parseInt(value, 10))
+    .optional(),
+  SHUTDOWN_TIMEOUT_MS: z
+    .string()
+    .regex(/^\d+$/)
+    .transform((value) => Math.max(0, Math.floor(Number.parseInt(value, 10))))
+    .optional(),
+});
 
-if (
-  process.env.SHUTDOWN_TIMEOUT_MS !== undefined &&
-  !Number.isFinite(parsedShutdownTimeout)
-) {
+const parsedEnv = envSchema.safeParse(process.env);
+
+if (!parsedEnv.success && process.env.SHUTDOWN_TIMEOUT_MS !== undefined) {
   logger.warn(
     { value: process.env.SHUTDOWN_TIMEOUT_MS },
     "Invalid SHUTDOWN_TIMEOUT_MS; using default",
   );
 }
+
+const port = parsedEnv.success ? (parsedEnv.data.PORT ?? 7687) : 7687;
+const shutdownTimeoutMs = parsedEnv.success
+  ? (parsedEnv.data.SHUTDOWN_TIMEOUT_MS ?? DEFAULT_SHUTDOWN_TIMEOUT_MS)
+  : DEFAULT_SHUTDOWN_TIMEOUT_MS;
 
 const server = app.listen(port, () => {
   logger.info({ port }, "Server listening");

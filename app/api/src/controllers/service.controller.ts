@@ -1,8 +1,109 @@
 import type { Request, Response } from "express";
+import { z } from "zod";
 
-import { HttpError } from "@/models/error.model";
 import type { ServiceInstallRequest } from "@/models/manifest.model";
 import type { ManifestService } from "@/services/manifest.service";
+import { parseOrHttpError } from "@/utils/validation.util";
+
+const nonEmptyTrimmedString = (fieldName: string) =>
+  z
+    .string({ error: `Field '${fieldName}' must be a string.` })
+    .transform((value) => value.trim())
+    .refine((value) => value.length > 0, {
+      error: `Field '${fieldName}' must not be empty.`,
+    });
+
+const serviceNameSchema = z.string({
+  error: "Field 'serviceName' must be a string.",
+});
+
+const toolNameSchema = z.string({
+  error: "Field 'toolName' must be a string.",
+});
+
+const querySchema = z
+  .string({ error: "Field 'query' must be a string." })
+  .transform((value) => value.trim())
+  .transform((value) => (value.length > 0 ? value : undefined));
+
+const installSourceSchema = z
+  .union([
+    z
+      .string({
+        error: "Field 'source' is required and must be a string or object.",
+      })
+      .transform((value, context) => {
+        const normalized = value.trim();
+
+        if (!normalized) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Field 'source' must not be empty.",
+          });
+          return z.NEVER;
+        }
+
+        return normalized;
+      }),
+    z
+      .object({
+        file_url: z.string().optional(),
+        metadata: z
+          .object({
+            file_url: z.string().optional(),
+          })
+          .optional(),
+      })
+      .transform((value, context) => {
+        const fromRoot = value.file_url?.trim();
+        if (fromRoot) {
+          return fromRoot;
+        }
+
+        const fromMetadata = value.metadata?.file_url?.trim();
+        if (fromMetadata) {
+          return fromMetadata;
+        }
+
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "Field 'source.file_url' or 'source.metadata.file_url' is required.",
+        });
+        return z.NEVER;
+      }),
+  ])
+  .or(
+    z.any().transform((_value, context) => {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Field 'source' is required and must be a string or object.",
+      });
+      return z.NEVER;
+    }),
+  );
+
+const installPayloadSchema = z
+  .object({
+    type: nonEmptyTrimmedString("type").or(
+      z.any().transform((_value, context) => {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Field 'type' is required and must be a string.",
+        });
+        return z.NEVER;
+      }),
+    ),
+    source: installSourceSchema,
+  })
+  .transform((value) => ({
+    type: value.type,
+    source: value.source,
+  }));
+
+const enabledBodySchema = z.object({
+  enabled: z.boolean({ error: "Field 'enabled' must be a boolean." }),
+});
 
 export async function listServices(req: Request, res: Response): Promise<void> {
   const manifestService = getManifestService(req);
@@ -118,19 +219,11 @@ export async function deleteService(
 }
 
 function parseServiceName(raw: unknown): string {
-  if (typeof raw !== "string") {
-    throw new HttpError(400, "Field 'serviceName' must be a string.");
-  }
-
-  return raw;
+  return parseOrHttpError(serviceNameSchema, raw);
 }
 
 function parseToolName(raw: unknown): string {
-  if (typeof raw !== "string") {
-    throw new HttpError(400, "Field 'toolName' must be a string.");
-  }
-
-  return raw;
+  return parseOrHttpError(toolNameSchema, raw);
 }
 
 function parseQueryParam(raw: unknown): string | undefined {
@@ -138,107 +231,29 @@ function parseQueryParam(raw: unknown): string | undefined {
     return undefined;
   }
 
-  if (typeof raw !== "string") {
-    throw new HttpError(400, "Field 'query' must be a string.");
-  }
-
-  const normalized = raw.trim();
-
-  return normalized.length > 0 ? normalized : undefined;
+  return parseOrHttpError(querySchema, raw);
 }
 
 function parseInstallServicePayload(rawBody: unknown): ServiceInstallRequest {
-  if (!rawBody || typeof rawBody !== "object") {
-    throw new HttpError(400, "Request body must be an object.");
-  }
-
-  const source = rawBody as {
-    type?: unknown;
-    source?: unknown;
-  };
-
-  if (typeof source.type !== "string") {
-    throw new HttpError(400, "Field 'type' is required and must be a string.");
-  }
-
-  const normalizedType = source.type.trim();
-
-  if (!normalizedType) {
-    throw new HttpError(400, "Field 'type' must not be empty.");
-  }
-
-  const sourceUrl = parseInstallSource(source.source);
-
-  return {
-    type: normalizedType,
-    source: sourceUrl,
-  };
+  return parseOrHttpError(
+    installPayloadSchema,
+    rawBody,
+    "Request body must be an object.",
+  );
 }
 
-function parseInstallSource(rawSource: unknown): string {
-  if (typeof rawSource === "string") {
-    const normalized = rawSource.trim();
-
-    if (!normalized) {
-      throw new HttpError(400, "Field 'source' must not be empty.");
-    }
-
-    return normalized;
-  }
-
-  if (!rawSource || typeof rawSource !== "object" || Array.isArray(rawSource)) {
-    throw new HttpError(
-      400,
-      "Field 'source' is required and must be a string or object.",
-    );
-  }
-
-  const sourceObject = rawSource as {
-    file_url?: unknown;
-    metadata?: unknown;
-  };
-
-  if (typeof sourceObject.file_url === "string") {
-    const normalized = sourceObject.file_url.trim();
-
-    if (!normalized) {
-      throw new HttpError(400, "Field 'source.file_url' must not be empty.");
-    }
-
-    return normalized;
-  }
-
-  const metadata = sourceObject.metadata;
-  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
-    throw new HttpError(
-      400,
-      "Field 'source.file_url' or 'source.metadata.file_url' is required.",
-    );
-  }
-
-  const metadataFileUrl = (metadata as { file_url?: unknown }).file_url;
-  if (typeof metadataFileUrl !== "string" || metadataFileUrl.trim() === "") {
-    throw new HttpError(
-      400,
-      "Field 'source.file_url' or 'source.metadata.file_url' is required.",
-    );
-  }
-
-  return metadataFileUrl.trim();
+function _parseInstallSource(rawSource: unknown): string {
+  return parseOrHttpError(installSourceSchema, rawSource);
 }
 
 function parseEnabled(rawBody: unknown): boolean {
-  if (!rawBody || typeof rawBody !== "object") {
-    throw new HttpError(400, "Request body must be an object.");
-  }
+  const parsed = parseOrHttpError(
+    enabledBodySchema,
+    rawBody,
+    "Request body must be an object.",
+  );
 
-  const enabled = (rawBody as { enabled?: unknown }).enabled;
-
-  if (typeof enabled !== "boolean") {
-    throw new HttpError(400, "Field 'enabled' must be a boolean.");
-  }
-
-  return enabled;
+  return parsed.enabled;
 }
 
 function getManifestService(req: Request): ManifestService {

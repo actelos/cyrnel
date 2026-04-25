@@ -2,6 +2,7 @@ import { EventEmitter } from "node:events";
 import type { Readable } from "node:stream";
 import { Worker } from "node:worker_threads";
 import ts from "typescript";
+import { z } from "zod";
 
 import type { ServiceManifest } from "@/models/manifest.model";
 import type { ProcessStatus } from "@/models/process.model";
@@ -103,6 +104,46 @@ type WorkerMessage =
   | WorkerBuiltinRequestMessage;
 
 const MAX_OUTPUT_BYTES = 5 * 1024 * 1024;
+
+const nonEmptyStringSchema = (errorMessage: string) =>
+  z
+    .string({ error: errorMessage })
+    .transform((value) => value.trim())
+    .refine((value) => value.length > 0, { error: errorMessage });
+
+const discoverInputSchema = z.object({
+  query: z
+    .string({ error: "Field 'query' must be a string." })
+    .transform((value) => value.trim())
+    .refine((value) => value.length > 0, {
+      error: "Field 'query' must not be empty.",
+    }),
+  limit: z
+    .number({ error: "Field 'limit' must be a positive integer." })
+    .int({ error: "Field 'limit' must be a positive integer." })
+    .positive({ error: "Field 'limit' must be a positive integer." })
+    .optional(),
+  enabled: z.boolean().nullable().optional(),
+});
+
+const invokeInputSchema = z.object({
+  serviceName: z.string({ error: "Field 'serviceName' must be a string." }),
+  toolName: z.string({ error: "Field 'toolName' must be a string." }),
+  parameters: z.record(z.string(), z.unknown(), {
+    error: "Field 'parameters' must be an object.",
+  }),
+});
+
+const serviceManifestBindingSchema = z
+  .object({
+    name: nonEmptyStringSchema("Service name must not be empty."),
+    tools: z.array(
+      z.object({
+        name: nonEmptyStringSchema("Tool name must not be empty."),
+      }),
+    ),
+  })
+  .passthrough();
 
 /**
  * SECURITY NOTICE
@@ -617,29 +658,40 @@ export class EnvironmentModule extends EventEmitter {
 function normalizeServiceManifest(
   serviceManifest: ServiceManifest,
 ): ServiceManifest {
-  const normalizedServiceName = normalizeNonEmptyString(
-    serviceManifest.name,
-    "Service name must not be empty.",
-  );
+  const parsedManifest =
+    serviceManifestBindingSchema.safeParse(serviceManifest);
+
+  if (!parsedManifest.success) {
+    throw new Error(
+      parsedManifest.error.issues[0]?.message ??
+        "Service name must not be empty.",
+    );
+  }
+
+  const normalizedTools = serviceManifest.tools.map((tool, index) => {
+    const parsedTool = parsedManifest.data.tools[index];
+
+    return {
+      ...tool,
+      name: parsedTool.name,
+    };
+  });
 
   return {
     ...serviceManifest,
-    name: normalizedServiceName,
-    tools: serviceManifest.tools.map((tool) => ({
-      ...tool,
-      name: normalizeNonEmptyString(tool.name, "Tool name must not be empty."),
-    })),
+    name: parsedManifest.data.name,
+    tools: normalizedTools,
   };
 }
 
 function normalizeNonEmptyString(value: string, errorMessage: string): string {
-  const normalized = value.trim();
+  const parsed = nonEmptyStringSchema(errorMessage).safeParse(value);
 
-  if (normalized.length === 0) {
-    throw new Error(errorMessage);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0]?.message ?? errorMessage);
   }
 
-  return normalized;
+  return parsed.data;
 }
 
 function transpileTypeScript(code: string): string {
@@ -662,94 +714,25 @@ function transpileTypeScript(code: string): string {
 }
 
 function normalizeDiscoverInput(payload: unknown): EnvironmentDiscoverInput {
-  if (!payload || typeof payload !== "object") {
-    throw new Error("Discover input must be an object.");
+  const parsed = discoverInputSchema.safeParse(payload);
+
+  if (!parsed.success) {
+    throw new Error(
+      parsed.error.issues[0]?.message ?? "Discover input must be an object.",
+    );
   }
 
-  const candidate = payload as {
-    query?: unknown;
-    limit?: unknown;
-    enabled?: unknown;
-  };
-
-  if (typeof candidate.query !== "string") {
-    throw new Error("Field 'query' must be a string.");
-  }
-
-  const normalizedQuery = candidate.query.trim();
-  if (normalizedQuery.length === 0) {
-    throw new Error("Field 'query' must not be empty.");
-  }
-
-  if (candidate.limit === undefined) {
-    if (candidate.enabled === undefined) {
-      return { query: normalizedQuery };
-    }
-
-    if (candidate.enabled !== null && typeof candidate.enabled !== "boolean") {
-      throw new Error("Field 'enabled' must be a boolean or null.");
-    }
-
-    return {
-      query: normalizedQuery,
-      enabled: candidate.enabled,
-    };
-  }
-
-  const limit = candidate.limit;
-
-  if (typeof limit !== "number" || !Number.isInteger(limit) || limit <= 0) {
-    throw new Error("Field 'limit' must be a positive integer.");
-  }
-
-  if (candidate.enabled !== undefined) {
-    if (candidate.enabled !== null && typeof candidate.enabled !== "boolean") {
-      throw new Error("Field 'enabled' must be a boolean or null.");
-    }
-
-    return {
-      query: normalizedQuery,
-      limit,
-      enabled: candidate.enabled,
-    };
-  }
-
-  return {
-    query: normalizedQuery,
-    limit,
-  };
+  return parsed.data;
 }
 
 function normalizeInvokeInput(payload: unknown): EnvironmentInvokeInput {
-  if (!payload || typeof payload !== "object") {
-    throw new Error("Invoke input must be an object.");
+  const parsed = invokeInputSchema.safeParse(payload);
+
+  if (!parsed.success) {
+    throw new Error(
+      parsed.error.issues[0]?.message ?? "Invoke input must be an object.",
+    );
   }
 
-  const candidate = payload as {
-    serviceName?: unknown;
-    toolName?: unknown;
-    parameters?: unknown;
-  };
-
-  if (typeof candidate.serviceName !== "string") {
-    throw new Error("Field 'serviceName' must be a string.");
-  }
-
-  if (typeof candidate.toolName !== "string") {
-    throw new Error("Field 'toolName' must be a string.");
-  }
-
-  if (
-    !candidate.parameters ||
-    typeof candidate.parameters !== "object" ||
-    Array.isArray(candidate.parameters)
-  ) {
-    throw new Error("Field 'parameters' must be an object.");
-  }
-
-  return {
-    serviceName: candidate.serviceName,
-    toolName: candidate.toolName,
-    parameters: candidate.parameters as Record<string, unknown>,
-  };
+  return parsed.data;
 }
