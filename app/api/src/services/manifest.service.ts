@@ -259,7 +259,7 @@ export class ManifestService {
           source: normalizedSource,
           description: parsedManifest.description,
           hash,
-          enabled: parsedManifest.enabled,
+          enabled: false,
           metadata: parsedManifest.metadata,
         });
 
@@ -364,7 +364,7 @@ export class ManifestService {
             type: normalizeServiceType(existingManifestRow.type),
             description: parsedManifest.description,
             hash,
-            enabled: parsedManifest.enabled,
+            enabled: false,
             source: storedSource,
             metadata: parsedManifest.metadata,
           })
