@@ -10,3 +10,5 @@
 - [ ] set up service configuration
 - [ ] set up service secrets
 - [ ] make modules actually modules
+- [ ] Add pool management APIs (spawn/recycle/resize/status) when pool size > 1.
+- [ ] Optimize staging by diffing to partial hydration at service/tool/property granularity.

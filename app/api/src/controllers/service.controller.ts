@@ -1,8 +1,10 @@
 import type { Request, Response } from "express";
 import { z } from "zod";
 
+import { logger } from "@/logger";
 import type { ServiceInstallRequest } from "@/models/manifest.model";
 import type { ManifestService } from "@/services/manifest.service";
+import type { EnvironmentPoolService } from "@/services/pool.service";
 import { parseOrHttpError } from "@/utils/validation.util";
 
 const nonEmptyTrimmedString = (fieldName: string) =>
@@ -196,8 +198,15 @@ export async function createService(
   res: Response,
 ): Promise<void> {
   const manifestService = getManifestService(req);
+  const environmentPoolService = getEnvironmentPoolService(req);
   const payload = parseInstallServicePayload(req.body);
   const service = await manifestService.createService(payload);
+
+  try {
+    environmentPoolService.requestRestage();
+  } catch (error) {
+    logger.warn({ err: error }, "Failed to queue environment restage");
+  }
 
   res.status(201).json(service);
 }
@@ -207,9 +216,19 @@ export async function updateService(
   res: Response,
 ): Promise<void> {
   const manifestService = getManifestService(req);
+  const environmentPoolService = getEnvironmentPoolService(req);
   const serviceName = parseServiceName(req.params.serviceName);
 
   const updated = await manifestService.updateService(serviceName);
+
+  if (updated) {
+    try {
+      environmentPoolService.requestRestage();
+    } catch (error) {
+      logger.warn({ err: error }, "Failed to queue environment restage");
+    }
+  }
+
   res.status(200).json({ name: serviceName, updated });
 }
 
@@ -243,9 +262,17 @@ export async function deleteService(
   res: Response,
 ): Promise<void> {
   const manifestService = getManifestService(req);
+  const environmentPoolService = getEnvironmentPoolService(req);
   const serviceName = parseServiceName(req.params.serviceName);
 
   await manifestService.deleteService(serviceName);
+
+  try {
+    environmentPoolService.requestRestage();
+  } catch (error) {
+    logger.warn({ err: error }, "Failed to queue environment restage");
+  }
+
   res.status(204).send();
 }
 
@@ -300,6 +327,17 @@ function getManifestService(req: Request): ManifestService {
 
   if (!service) {
     throw new Error("ManifestService not configured in app.locals");
+  }
+
+  return service;
+}
+
+function getEnvironmentPoolService(req: Request): EnvironmentPoolService {
+  const service = req.app.locals
+    .environmentPoolService as EnvironmentPoolService | undefined;
+
+  if (!service) {
+    throw new Error("EnvironmentPoolService not configured in app.locals");
   }
 
   return service;

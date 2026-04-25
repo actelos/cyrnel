@@ -1,30 +1,110 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { EnvironmentModule } from "@/modules/environment.module";
 import { EnvironmentPoolService } from "@/services/pool.service";
 
+async function waitForReadyStaging(pool: EnvironmentPoolService): Promise<void> {
+  for (let i = 0; i < 200; i += 1) {
+    if (pool.getStagingState().status === "ready") {
+      return;
+    }
+
+    await vi.advanceTimersByTimeAsync(10);
+    await Promise.resolve();
+  }
+
+  throw new Error("Timed out waiting for pool staging state to become ready");
+}
+
 describe("EnvironmentPoolService", () => {
-  it("allocate() returns an EnvironmentModule instance", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("initialize() stages environment and allocate() returns staged module", async () => {
     const pool = new EnvironmentPoolService();
+    const manifestService = {
+      getAllStagedServiceManifests: vi.fn(async () => []),
+    };
+
+    await pool.initialize(manifestService);
 
     const module = pool.allocate();
 
-    expect(module).toBeInstanceOf(EnvironmentModule);
+    expect(module).toBeTruthy();
+    pool.release(module);
   });
 
-  it("allocate() returns the same default module instance", () => {
+  it("allocate() throws 503 when no staged environment is available", () => {
     const pool = new EnvironmentPoolService();
 
-    const first = pool.allocate();
-    const second = pool.allocate();
-
-    expect(first).toBe(second);
+    expect(() => pool.allocate()).toThrow("No staged environment is available");
   });
 
-  it("shutdown() kills the default environment module", async () => {
+  it("requestRestage() defers staging while environment is leased", async () => {
     const pool = new EnvironmentPoolService();
+    const manifestService = {
+      getAllStagedServiceManifests: vi.fn(async () => [
+        {
+          name: "github",
+          tools: [
+            {
+              name: "echo",
+            },
+          ],
+        },
+      ]),
+    };
+
+    await pool.initialize(manifestService);
     const module = pool.allocate();
-    const killSpy = vi.spyOn(module, "kill").mockResolvedValue();
+
+    pool.requestRestage();
+    expect(manifestService.getAllStagedServiceManifests).toHaveBeenCalledTimes(1);
+
+    pool.release(module);
+    await Promise.resolve();
+
+    expect(manifestService.getAllStagedServiceManifests).toHaveBeenCalledTimes(2);
+  });
+
+  it("schedules retries after staging failure", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(EnvironmentModule.prototype, "execute").mockResolvedValue(
+      "success",
+    );
+
+    const pool = new EnvironmentPoolService();
+    const manifestService = {
+      getAllStagedServiceManifests: vi
+        .fn()
+        .mockRejectedValueOnce(new Error("db unavailable"))
+        .mockResolvedValue([]),
+    };
+
+    await pool.initialize(manifestService);
+
+    expect(pool.getStagingState().status).toBe("failed");
+    expect(pool.hasReadyEnvironment()).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(2_000);
+    await waitForReadyStaging(pool);
+
+    expect(manifestService.getAllStagedServiceManifests).toHaveBeenCalledTimes(2);
+    expect(pool.getStagingState().status).toBe("ready");
+    expect(pool.hasReadyEnvironment()).toBe(true);
+  });
+
+  it("shutdown() kills staged environment module", async () => {
+    const pool = new EnvironmentPoolService();
+    const manifestService = {
+      getAllStagedServiceManifests: vi.fn(async () => []),
+    };
+
+    await pool.initialize(manifestService);
+    const module = pool.allocate();
+    const killSpy = vi.spyOn(module, "kill");
+    pool.release(module);
 
     await pool.shutdown();
 

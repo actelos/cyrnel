@@ -77,6 +77,12 @@ class TestEnvironmentPoolService extends EnvironmentPoolService {
   override allocate(): EnvironmentModule {
     return this.allocateImpl();
   }
+
+  override hasReadyEnvironment(): boolean {
+    return true;
+  }
+
+  override release(_module: EnvironmentModule): void {}
 }
 
 describe("ProcessService", () => {

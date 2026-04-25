@@ -78,6 +78,10 @@ export class ProcessService {
       throw new HttpError(503, "Service is shutting down.");
     }
 
+    if (!this.environmentPoolService.hasReadyEnvironment()) {
+      throw new HttpError(503, "No staged environment is currently available.");
+    }
+
     const pid = this.createPid();
 
     this.processes.set(pid, {
@@ -162,6 +166,10 @@ export class ProcessService {
   run(pid: number, force: boolean): Process {
     if (this.isShuttingDown) {
       throw new HttpError(503, "Service is shutting down.");
+    }
+
+    if (!this.environmentPoolService.hasReadyEnvironment()) {
+      throw new HttpError(503, "No staged environment is currently available.");
     }
 
     const stored = this.getStored(pid);
@@ -459,6 +467,10 @@ export class ProcessService {
 
       if (this.currentEnvironmentModule === environmentModule) {
         this.currentEnvironmentModule = null;
+      }
+
+      if (environmentModule) {
+        this.environmentPoolService.release(environmentModule);
       }
     }
   }

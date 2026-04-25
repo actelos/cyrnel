@@ -25,6 +25,10 @@ const manifestService = {
   deleteService: vi.fn(),
 };
 
+const environmentPoolService = {
+  requestRestage: vi.fn(),
+};
+
 type MockResponse = {
   status: ReturnType<typeof vi.fn>;
   json: ReturnType<typeof vi.fn>;
@@ -41,7 +45,7 @@ const makeRes = () => {
 
 const makeReq = (overrides: Record<string, unknown> = {}) =>
   ({
-    app: { locals: { manifestService } },
+    app: { locals: { manifestService, environmentPoolService } },
     params: {},
     ...overrides,
   }) as unknown as Request;
@@ -315,6 +319,7 @@ describe("service.controller", () => {
       type: "foo",
       source: "https://registry.example.com/definition.json",
     });
+    expect(environmentPoolService.requestRestage).toHaveBeenCalledTimes(1);
     expect(res.status).toHaveBeenCalledWith(201);
     expect(res.json).toHaveBeenCalledWith({ name: "svc-1", type: "foo" });
   });
@@ -327,8 +332,21 @@ describe("service.controller", () => {
     await updateService(req, res as unknown as Response);
 
     expect(manifestService.updateService).toHaveBeenCalledWith("svc-1");
+    expect(environmentPoolService.requestRestage).toHaveBeenCalledTimes(1);
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith({ name: "svc-1", updated: true });
+  });
+
+  it("does not request restage when update reports no change", async () => {
+    const res = makeRes();
+    const req = makeReq({ params: { serviceName: "svc-1" } });
+    manifestService.updateService.mockResolvedValue(false);
+
+    await updateService(req, res as unknown as Response);
+
+    expect(environmentPoolService.requestRestage).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith({ name: "svc-1", updated: false });
   });
 
   it("deletes a service", async () => {
@@ -339,6 +357,7 @@ describe("service.controller", () => {
     await deleteService(req, res as unknown as Response);
 
     expect(manifestService.deleteService).toHaveBeenCalledWith("svc-1");
+    expect(environmentPoolService.requestRestage).toHaveBeenCalledTimes(1);
     expect(res.status).toHaveBeenCalledWith(204);
     expect(res.send).toHaveBeenCalledWith();
   });

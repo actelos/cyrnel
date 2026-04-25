@@ -25,6 +25,15 @@ export interface ServiceManifest {
   tools: ToolDefinition[];
 }
 
+export interface StagedToolManifest {
+  name: string;
+}
+
+export interface StagedServiceManifest {
+  name: string;
+  tools: StagedToolManifest[];
+}
+
 export interface PublicToolDefinition {
   name: string;
   description: string;

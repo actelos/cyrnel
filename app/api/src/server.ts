@@ -3,7 +3,6 @@ import { z } from "zod";
 import { createApp } from "@/app";
 import { logger } from "@/logger";
 
-const app = createApp();
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 10_000;
 const envSchema = z.object({
   PORT: z
@@ -30,83 +29,97 @@ const port = parsedEnv.success ? (parsedEnv.data.PORT ?? 7687) : 7687;
 const shutdownTimeoutMs = parsedEnv.success
   ? (parsedEnv.data.SHUTDOWN_TIMEOUT_MS ?? DEFAULT_SHUTDOWN_TIMEOUT_MS)
   : DEFAULT_SHUTDOWN_TIMEOUT_MS;
-
-const server = app.listen(port, () => {
-  logger.info({ port }, "Server listening");
-});
-
-let shuttingDown = false;
-let forceExit = false;
-let forceTimer: ReturnType<typeof setTimeout> | null = null;
-
-const forceShutdown = (reason: string) => {
-  if (forceExit) {
-    return;
-  }
-
-  forceExit = true;
-  logger.error({ reason }, "Forcing shutdown");
-
-  if (forceTimer !== null) {
-    clearTimeout(forceTimer);
-    forceTimer = null;
-  }
-
-  server.closeAllConnections?.();
-  server.closeIdleConnections?.();
-
-  process.exit(1);
-};
-
-const closeServer = () =>
-  new Promise<void>((resolve, reject) => {
-    server.close((err) => {
-      if (err) {
-        reject(err);
-        return;
-      }
-
-      resolve();
-    });
-  });
-
-const shutdown = async (signal: "SIGINT" | "SIGTERM") => {
-  if (shuttingDown) {
-    forceShutdown(`Received ${signal} while already shutting down`);
-    return;
-  }
-
-  shuttingDown = true;
-  logger.info({ signal, shutdownTimeoutMs }, "Starting graceful shutdown");
-
-  forceTimer = setTimeout(() => {
-    forceShutdown(
-      `Graceful shutdown timed out after ${shutdownTimeoutMs}ms (${signal})`,
-    );
-  }, shutdownTimeoutMs);
+async function bootstrap(): Promise<void> {
+  const app = createApp();
 
   try {
-    await closeServer();
-    await app.locals.processService.shutdown();
-    await app.locals.environmentPoolService.shutdown();
+    await app.locals.environmentPoolService.initialize(app.locals.manifestService);
+  } catch (err) {
+    logger.warn(
+      { err },
+      "Initial environment staging failed; server will start without ready environments",
+    );
+  }
+
+  const server = app.listen(port, () => {
+    logger.info({ port }, "Server listening");
+  });
+
+  let shuttingDown = false;
+  let forceExit = false;
+  let forceTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const forceShutdown = (reason: string) => {
+    if (forceExit) {
+      return;
+    }
+
+    forceExit = true;
+    logger.error({ reason }, "Forcing shutdown");
 
     if (forceTimer !== null) {
       clearTimeout(forceTimer);
       forceTimer = null;
     }
 
-    logger.info("Graceful shutdown complete");
-    process.exit(0);
-  } catch (err) {
-    logger.error({ err, signal }, "Graceful shutdown failed");
-    forceShutdown("Graceful shutdown failed");
-  }
-};
+    server.closeAllConnections?.();
+    server.closeIdleConnections?.();
 
-process.on("SIGINT", () => {
-  void shutdown("SIGINT");
-});
+    process.exit(1);
+  };
 
-process.on("SIGTERM", () => {
-  void shutdown("SIGTERM");
-});
+  const closeServer = () =>
+    new Promise<void>((resolve, reject) => {
+      server.close((err) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+
+        resolve();
+      });
+    });
+
+  const shutdown = async (signal: "SIGINT" | "SIGTERM") => {
+    if (shuttingDown) {
+      forceShutdown(`Received ${signal} while already shutting down`);
+      return;
+    }
+
+    shuttingDown = true;
+    logger.info({ signal, shutdownTimeoutMs }, "Starting graceful shutdown");
+
+    forceTimer = setTimeout(() => {
+      forceShutdown(
+        `Graceful shutdown timed out after ${shutdownTimeoutMs}ms (${signal})`,
+      );
+    }, shutdownTimeoutMs);
+
+    try {
+      await closeServer();
+      await app.locals.processService.shutdown();
+      await app.locals.environmentPoolService.shutdown();
+
+      if (forceTimer !== null) {
+        clearTimeout(forceTimer);
+        forceTimer = null;
+      }
+
+      logger.info("Graceful shutdown complete");
+      process.exit(0);
+    } catch (err) {
+      logger.error({ err, signal }, "Graceful shutdown failed");
+      forceShutdown("Graceful shutdown failed");
+    }
+  };
+
+  process.on("SIGINT", () => {
+    void shutdown("SIGINT");
+  });
+
+  process.on("SIGTERM", () => {
+    void shutdown("SIGTERM");
+  });
+}
+
+void bootstrap();

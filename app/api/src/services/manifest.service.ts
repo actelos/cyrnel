@@ -14,6 +14,7 @@ import type {
   ServiceManifestDetails,
   ServiceManifestResponse,
   ServiceType,
+  StagedServiceManifest,
   ToolDefinition,
   ToolDefinitionResponse,
 } from "@/models/manifest.model";
@@ -733,6 +734,131 @@ export class ManifestService {
         `Tool '${normalizedToolName}' not found in manifest for service '${normalizedServiceName}'.`,
       );
     }
+  }
+
+  async getAllServiceManifests(): Promise<ServiceManifest[]> {
+    let serviceRows: Array<{
+      id: string;
+      description: string;
+      enabled: boolean;
+      metadata: ManifestMetadata;
+    }>;
+
+    try {
+      serviceRows = await db
+        .select({
+          id: manifests.id,
+          description: manifests.description,
+          enabled: manifests.enabled,
+          metadata: manifests.metadata,
+        })
+        .from(manifests)
+        .orderBy(asc(manifests.id));
+    } catch {
+      throw new HttpError(500, "Failed to load service manifests.");
+    }
+
+    let toolRows: Array<{
+      serviceName: string;
+      name: string;
+      description: string;
+      enabled: boolean;
+      metadata: ManifestMetadata;
+      inputSchema: ToolDefinitionResponse["inputSchema"];
+      outputSchema: ToolDefinitionResponse["outputSchema"];
+    }>;
+
+    try {
+      toolRows = await db
+        .select({
+          serviceName: tools.serviceName,
+          name: tools.name,
+          description: tools.description,
+          enabled: tools.enabled,
+          metadata: tools.metadata,
+          inputSchema: tools.inputSchema,
+          outputSchema: tools.outputSchema,
+        })
+        .from(tools)
+        .orderBy(asc(tools.serviceName), asc(tools.name));
+    } catch {
+      throw new HttpError(500, "Failed to load service tools.");
+    }
+
+    const toolsByServiceName = new Map<string, ToolDefinition[]>();
+
+    for (const row of toolRows) {
+      const current = toolsByServiceName.get(row.serviceName) ?? [];
+      current.push({
+        name: row.name,
+        description: row.description,
+        enabled: row.enabled,
+        metadata: row.metadata,
+        inputSchema: row.inputSchema,
+        outputSchema: row.outputSchema,
+      });
+      toolsByServiceName.set(row.serviceName, current);
+    }
+
+    return serviceRows.map((service) => {
+      if (!isRecord(service.metadata)) {
+        throw new HttpError(
+          500,
+          `Stored manifest for service '${service.id}' has invalid metadata.`,
+        );
+      }
+
+      return {
+        name: service.id,
+        description: service.description,
+        enabled: service.enabled,
+        metadata: service.metadata,
+        tools: toolsByServiceName.get(service.id) ?? [],
+      };
+    });
+  }
+
+  async getAllStagedServiceManifests(): Promise<StagedServiceManifest[]> {
+    let serviceRows: Array<{ id: string }>;
+
+    try {
+      serviceRows = await db
+        .select({ id: manifests.id })
+        .from(manifests)
+        .orderBy(asc(manifests.id));
+    } catch {
+      throw new HttpError(500, "Failed to load service manifests for staging.");
+    }
+
+    let toolRows: Array<{
+      serviceName: string;
+      name: string;
+    }>;
+
+    try {
+      toolRows = await db
+        .select({
+          serviceName: tools.serviceName,
+          name: tools.name,
+        })
+        .from(tools)
+        .orderBy(asc(tools.serviceName), asc(tools.name));
+    } catch {
+      throw new HttpError(500, "Failed to load service tools for staging.");
+    }
+
+    const toolsByServiceName = new Map<string, Array<{ name: string }>>();
+
+    for (const row of toolRows) {
+      const current = toolsByServiceName.get(row.serviceName) ?? [];
+      current.push({ name: row.name });
+      toolsByServiceName.set(row.serviceName, current);
+    }
+
+    return serviceRows.map((service) => ({
+      name: service.id,
+      tools: toolsByServiceName.get(service.id) ?? [],
+    }));
   }
 }
 
