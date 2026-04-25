@@ -1,6 +1,5 @@
-import { isIP } from "node:net";
-
 import { and, asc, eq } from "drizzle-orm";
+import * as ipaddr from "ipaddr.js";
 import { z } from "zod";
 
 import { db } from "@/db/client";
@@ -980,11 +979,13 @@ function assertRegistryAddressAllowed(url: string): void {
     );
   }
 
-  if (!isIP(normalizedHost)) {
+  if (!ipaddr.isValid(normalizedHost)) {
     return;
   }
 
-  if (isPrivateOrLocalIp(normalizedHost)) {
+  const parsedAddress = ipaddr.process(normalizedHost);
+
+  if (isPrivateOrLocalIp(parsedAddress)) {
     throw new HttpError(
       502,
       "Registry URL resolves to a disallowed local address.",
@@ -992,51 +993,16 @@ function assertRegistryAddressAllowed(url: string): void {
   }
 }
 
-function isPrivateOrLocalIp(address: string): boolean {
-  const version = isIP(address);
-
-  if (version === 4) {
-    const octets = address
-      .split(".")
-      .map((segment) => Number.parseInt(segment, 10));
-    if (
-      octets.length !== 4 ||
-      octets.some((octet) => !Number.isInteger(octet))
-    ) {
-      return true;
-    }
-
-    const [a, b] = octets;
-    return (
-      a === 0 ||
-      a === 10 ||
-      a === 127 ||
-      (a === 169 && b === 254) ||
-      (a === 172 && b >= 16 && b <= 31) ||
-      (a === 192 && b === 168) ||
-      (a === 100 && b >= 64 && b <= 127)
-    );
-  }
-
-  if (version === 6) {
-    const normalized = address.toLowerCase();
-    return (
-      normalized === "::1" ||
-      normalized === "::" ||
-      normalized.startsWith("fe8") ||
-      normalized.startsWith("fe9") ||
-      normalized.startsWith("fea") ||
-      normalized.startsWith("feb") ||
-      normalized.startsWith("fc") ||
-      normalized.startsWith("fd") ||
-      normalized.startsWith("::ffff:127.") ||
-      normalized.startsWith("::ffff:10.") ||
-      normalized.startsWith("::ffff:192.168.") ||
-      /^::ffff:172\.(1[6-9]|2\d|3[0-1])\./.test(normalized)
-    );
-  }
-
-  return true;
+function isPrivateOrLocalIp(address: ipaddr.IPv4 | ipaddr.IPv6): boolean {
+  const range = address.range();
+  return (
+    range === "loopback" ||
+    range === "private" ||
+    range === "linkLocal" ||
+    range === "uniqueLocal" ||
+    range === "unspecified" ||
+    range === "carrierGradeNat"
+  );
 }
 
 async function readBodyAsUtf8WithLimit(

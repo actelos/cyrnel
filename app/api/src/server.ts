@@ -1,4 +1,5 @@
 import { z } from "zod";
+
 import { createApp } from "@/app";
 import { logger } from "@/logger";
 
@@ -16,7 +17,6 @@ const envSchema = z.object({
     .transform((value) => Math.max(0, Math.floor(Number.parseInt(value, 10))))
     .optional(),
 });
-
 const parsedEnv = envSchema.safeParse(process.env);
 
 if (!parsedEnv.success && process.env.SHUTDOWN_TIMEOUT_MS !== undefined) {

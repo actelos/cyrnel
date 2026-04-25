@@ -37,7 +37,7 @@ const installSourceSchema = z
 
         if (!normalized) {
           context.addIssue({
-            code: z.ZodIssueCode.custom,
+            code: "custom",
             message: "Field 'source' must not be empty.",
           });
           return z.NEVER;
@@ -66,7 +66,7 @@ const installSourceSchema = z
         }
 
         context.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: "custom",
           message:
             "Field 'source.file_url' or 'source.metadata.file_url' is required.",
         });
@@ -76,7 +76,7 @@ const installSourceSchema = z
   .or(
     z.any().transform((_value, context) => {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         message: "Field 'source' is required and must be a string or object.",
       });
       return z.NEVER;
@@ -88,7 +88,7 @@ const installPayloadSchema = z
     type: nonEmptyTrimmedString("type").or(
       z.any().transform((_value, context) => {
         context.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: "custom",
           message: "Field 'type' is required and must be a string.",
         });
         return z.NEVER;

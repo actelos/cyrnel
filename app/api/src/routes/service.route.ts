@@ -15,9 +15,9 @@ import {
 export const serviceRouter = Router();
 
 serviceRouter.get("/", listServices);
+serviceRouter.get("/:serviceName", getService);
 serviceRouter.post("/install", createService);
 serviceRouter.post("/:serviceName/update", updateService);
-serviceRouter.get("/:serviceName", getService);
 serviceRouter.post("/:serviceName/enabled", setServiceEnabled);
 serviceRouter.delete("/:serviceName", deleteService);
 

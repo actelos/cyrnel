@@ -1,4 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
+
 import type { NextFunction, Request, Response } from "express";
 
 import { HttpError } from "@/models/error.model";

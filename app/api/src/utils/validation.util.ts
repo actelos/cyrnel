@@ -1,4 +1,5 @@
 import type { ZodType, z } from "zod";
+
 import { HttpError } from "@/models/error.model";
 
 function getValidationMessage(error: z.ZodError, fallback: string): string {

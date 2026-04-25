@@ -36,7 +36,7 @@ const createProcessBodySchema = z
   .superRefine((value, context) => {
     if (value.code === undefined) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         message: "Missing required field: code",
         path: ["code"],
       });

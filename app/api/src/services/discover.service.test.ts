@@ -1,5 +1,4 @@
 import { EventEmitter } from "node:events";
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { DiscoverResponse } from "@/models/discover.model";

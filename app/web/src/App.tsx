@@ -25,7 +25,6 @@ function App() {
 
   const primaryNavItems = [
     { label: "Overview", ariaLabel: "Open homepage", icon: House },
-    { label: "Definitions", ariaLabel: "Open definitions page", icon: Scroll },
     { label: "Processes", ariaLabel: "Open processes", icon: Braces },
     { label: "Services", ariaLabel: "Open services", icon: Layers },
     { label: "Modules", ariaLabel: "Open modules", icon: Blocks },
