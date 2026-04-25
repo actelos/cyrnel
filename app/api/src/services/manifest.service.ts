@@ -54,7 +54,10 @@ export class ManifestService {
     this.fetchImpl = fetchImpl;
   }
 
-  async listServices(query?: string): Promise<ServiceManifestResponse[]> {
+  async listServices(
+    query?: string,
+    enabled: boolean | null = null,
+  ): Promise<ServiceManifestResponse[]> {
     let rows: Array<{
       id: string;
       type: ServiceType;
@@ -81,8 +84,9 @@ export class ManifestService {
     }
 
     const loweredQuery = query?.toLowerCase();
+    const normalizedEnabled = normalizeListEnabled(enabled);
 
-    const filtered =
+    const queryFiltered =
       loweredQuery === undefined
         ? rows
         : rows.filter(
@@ -91,7 +95,12 @@ export class ManifestService {
               row.description.toLowerCase().includes(loweredQuery),
           );
 
-    return filtered.map((row) => ({
+    const enabledFiltered =
+      normalizedEnabled === null
+        ? queryFiltered
+        : queryFiltered.filter((row) => row.enabled === normalizedEnabled);
+
+    return enabledFiltered.map((row) => ({
       name: row.id,
       type: row.type,
       source: row.source,
@@ -163,6 +172,7 @@ export class ManifestService {
   async listTools(
     serviceName: string,
     query?: string,
+    enabled: boolean | null = null,
   ): Promise<PublicToolDefinition[]> {
     const normalizedServiceName = normalizeServiceName(serviceName);
 
@@ -218,8 +228,9 @@ export class ManifestService {
     const serviceEnabled = serviceRows[0].enabled;
 
     const loweredQuery = normalizeOptionalQuery(query);
+    const normalizedEnabled = normalizeListEnabled(enabled);
 
-    const filtered =
+    const queryFiltered =
       loweredQuery === undefined
         ? rows
         : rows.filter(
@@ -228,13 +239,20 @@ export class ManifestService {
               row.description.toLowerCase().includes(loweredQuery),
           );
 
-    return filtered.map((row) => ({
+    const mappedRows = queryFiltered.map((row) => ({
       name: row.name,
       description: row.description,
       enabled: serviceEnabled && row.enabled,
       inputSchema: row.inputSchema,
       outputSchema: row.outputSchema,
     }));
+
+    const enabledFiltered =
+      normalizedEnabled === null
+        ? mappedRows
+        : mappedRows.filter((row) => row.enabled === normalizedEnabled);
+
+    return enabledFiltered;
   }
 
   async createService(
@@ -875,6 +893,27 @@ function normalizeDiscoverLimit(limit: unknown): number | undefined {
 function normalizeDiscoverEnabled(enabled: unknown): boolean | null {
   if (enabled === undefined) {
     return true;
+  }
+
+  const parsed = z
+    .boolean({ error: "Field 'enabled' must be a boolean or null." })
+    .nullable()
+    .safeParse(enabled);
+
+  if (!parsed.success) {
+    throw new HttpError(
+      400,
+      parsed.error.issues[0]?.message ??
+        "Field 'enabled' must be a boolean or null.",
+    );
+  }
+
+  return parsed.data;
+}
+
+function normalizeListEnabled(enabled: unknown): boolean | null {
+  if (enabled === undefined) {
+    return null;
   }
 
   const parsed = z

@@ -26,6 +26,35 @@ const querySchema = z
   .transform((value) => value.trim())
   .transform((value) => (value.length > 0 ? value : undefined));
 
+const enabledQuerySchema = z
+  .union([z.boolean(), z.null(), z.string()])
+  .transform((value, context): boolean | null => {
+    if (typeof value === "boolean" || value === null) {
+      return value;
+    }
+
+    const normalized = value.trim().toLowerCase();
+
+    if (normalized === "true") {
+      return true;
+    }
+
+    if (normalized === "false") {
+      return false;
+    }
+
+    if (normalized === "null") {
+      return null;
+    }
+
+    context.addIssue({
+      code: "custom",
+      message: "Field 'enabled' must be true, false, or null.",
+    });
+
+    return z.NEVER;
+  });
+
 const installSourceSchema = z
   .union([
     z
@@ -108,7 +137,8 @@ const enabledBodySchema = z.object({
 export async function listServices(req: Request, res: Response): Promise<void> {
   const manifestService = getManifestService(req);
   const query = parseQueryParam(req.query?.query);
-  const services = await manifestService.listServices(query);
+  const enabled = parseEnabledQueryParam(req.query?.enabled);
+  const services = await manifestService.listServices(query, enabled);
 
   res.status(200).json({ services });
 }
@@ -133,7 +163,8 @@ export async function listTools(req: Request, res: Response): Promise<void> {
   const manifestService = getManifestService(req);
   const serviceName = parseServiceName(req.params.serviceName);
   const query = parseQueryParam(req.query?.query);
-  const tools = await manifestService.listTools(serviceName, query);
+  const enabled = parseEnabledQueryParam(req.query?.enabled);
+  const tools = await manifestService.listTools(serviceName, query, enabled);
 
   res.status(200).json({ tools });
 }
@@ -232,6 +263,14 @@ function parseQueryParam(raw: unknown): string | undefined {
   }
 
   return parseOrHttpError(querySchema, raw);
+}
+
+function parseEnabledQueryParam(raw: unknown): boolean | null {
+  if (raw === undefined) {
+    return null;
+  }
+
+  return parseOrHttpError(enabledQuerySchema, raw);
 }
 
 function parseInstallServicePayload(rawBody: unknown): ServiceInstallRequest {

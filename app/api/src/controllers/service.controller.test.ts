@@ -73,7 +73,7 @@ describe("service.controller", () => {
 
     await listServices(req, res as unknown as Response);
 
-    expect(manifestService.listServices).toHaveBeenCalledWith(undefined);
+    expect(manifestService.listServices).toHaveBeenCalledWith(undefined, null);
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith({
       services: [
@@ -110,7 +110,7 @@ describe("service.controller", () => {
 
     await listServices(req, res as unknown as Response);
 
-    expect(manifestService.listServices).toHaveBeenCalledWith("svc");
+    expect(manifestService.listServices).toHaveBeenCalledWith("svc", null);
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith({
       services: [
@@ -120,6 +120,36 @@ describe("service.controller", () => {
           source: "https://registry.example.com/svc-1.json",
           hash: "hash-1",
           enabled: true,
+        },
+      ],
+    });
+  });
+
+  it("lists services with enabled query filter", async () => {
+    const res = makeRes();
+    const req = makeReq({ query: { enabled: "false" } });
+    manifestService.listServices.mockResolvedValue([
+      {
+        name: "svc-disabled",
+        type: "foo",
+        source: "https://registry.example.com/svc-disabled.json",
+        hash: "hash-disabled",
+        enabled: false,
+      },
+    ]);
+
+    await listServices(req, res as unknown as Response);
+
+    expect(manifestService.listServices).toHaveBeenCalledWith(undefined, false);
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith({
+      services: [
+        {
+          name: "svc-disabled",
+          type: "foo",
+          source: "https://registry.example.com/svc-disabled.json",
+          hash: "hash-disabled",
+          enabled: false,
         },
       ],
     });
@@ -177,7 +207,47 @@ describe("service.controller", () => {
 
     await listTools(req, res as unknown as Response);
 
-    expect(manifestService.listTools).toHaveBeenCalledWith("svc-1", "echo");
+    expect(manifestService.listTools).toHaveBeenCalledWith(
+      "svc-1",
+      "echo",
+      null,
+    );
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith({
+      tools: [
+        {
+          name: "echo",
+          enabled: true,
+          inputSchema: { type: "object" },
+          outputSchema: { type: "string" },
+        },
+      ],
+    });
+  });
+
+  it("lists service tools with enabled query filter", async () => {
+    const res = makeRes();
+    const req = makeReq({
+      params: { serviceName: "svc-1" },
+      query: { enabled: "true" },
+    });
+
+    manifestService.listTools.mockResolvedValue([
+      {
+        name: "echo",
+        enabled: true,
+        inputSchema: { type: "object" },
+        outputSchema: { type: "string" },
+      },
+    ]);
+
+    await listTools(req, res as unknown as Response);
+
+    expect(manifestService.listTools).toHaveBeenCalledWith(
+      "svc-1",
+      undefined,
+      true,
+    );
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith({
       tools: [
