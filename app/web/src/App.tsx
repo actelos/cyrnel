@@ -297,7 +297,10 @@ function App() {
                   <h4 className="text-xs font-medium">Manual method</h4>
                   <ol className="text-muted-foreground list-decimal space-y-4 pl-4 text-xs">
                     <li className="space-y-2">
-                      <p>Copy the MCI API connection URL and paste it where needed.</p>
+                      <p>
+                        Copy the MCI API connection URL and paste it where
+                        needed.
+                      </p>
                       <div className="flex items-center gap-2">
                         <Input readOnly value={mciApiUrl} />
                         <Button
