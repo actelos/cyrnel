@@ -17,7 +17,7 @@
   },
   "packageManager": "pnpm@10.30.3",
   "dependencies": {
-    "@libsql/client": "^0.17.2",
+    "@libsql/client": "^0.17.3",
     "ajv": "^8.18.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
