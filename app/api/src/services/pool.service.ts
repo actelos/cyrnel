@@ -1,9 +1,9 @@
-import { EnvironmentModule } from "@/modules/environment.module";
+import { HttpError } from "@/models/error.model";
 import type {
   ServiceManifest,
   StagedServiceManifest,
 } from "@/models/manifest.model";
-import { HttpError } from "@/models/error.model";
+import { EnvironmentModule } from "@/modules/environment.module";
 import type { ManifestService } from "@/services/manifest.service";
 
 type StagingStatus = "idle" | "staging" | "ready" | "failed";
@@ -18,7 +18,8 @@ interface StagingState {
 export class EnvironmentPoolService {
   private environmentModule: EnvironmentModule | null = null;
   private isShutdown = false;
-  private isLeased = false;
+  private readonly leaseCounts = new Map<EnvironmentModule, number>();
+  private readonly retiredModules = new Set<EnvironmentModule>();
   private pendingRestage = false;
   private readonly retryBaseDelayMs = 1_000;
   private readonly retryMaxDelayMs = 30_000;
@@ -57,7 +58,7 @@ export class EnvironmentPoolService {
 
     this.pendingRestage = true;
 
-    if (this.isLeased) {
+    if (this.getLeaseCount(this.environmentModule) > 0) {
       return;
     }
 
@@ -73,20 +74,77 @@ export class EnvironmentPoolService {
       throw new HttpError(503, "No staged environment is available.");
     }
 
-    this.isLeased = true;
-    return this.environmentModule;
+    const module = this.environmentModule;
+    this.leaseCounts.set(module, this.getLeaseCount(module) + 1);
+    return module;
   }
 
   release(module: EnvironmentModule): void {
-    if (this.environmentModule !== module) {
+    const leaseCount = this.getLeaseCount(module);
+    if (leaseCount === 0) {
       return;
     }
 
-    this.isLeased = false;
+    if (leaseCount === 1) {
+      this.leaseCounts.delete(module);
+    } else {
+      this.leaseCounts.set(module, leaseCount - 1);
+    }
 
-    if (this.pendingRestage && !this.isShutdown) {
+    const remainingLeaseCount = this.getLeaseCount(module);
+
+    if (this.retiredModules.has(module) && remainingLeaseCount === 0) {
+      this.retiredModules.delete(module);
+      void module.kill().catch(() => {
+        // best-effort cleanup for retired environments
+      });
+    }
+
+    if (
+      this.environmentModule === module &&
+      remainingLeaseCount === 0 &&
+      this.pendingRestage &&
+      !this.isShutdown
+    ) {
       void this.tryStageNow();
     }
+  }
+
+  recycleEnvironment(module: EnvironmentModule): void {
+    const leaseCount = this.getLeaseCount(module);
+    if (leaseCount === 0) {
+      return;
+    }
+
+    if (leaseCount === 1) {
+      this.leaseCounts.delete(module);
+    } else {
+      this.leaseCounts.set(module, leaseCount - 1);
+    }
+
+    const remainingLeaseCount = this.getLeaseCount(module);
+
+    if (this.environmentModule === module) {
+      this.environmentModule = null;
+      this.pendingRestage = true;
+    }
+
+    this.retiredModules.add(module);
+
+    if (remainingLeaseCount === 0) {
+      this.retiredModules.delete(module);
+      void module.kill().catch(() => {
+        // best-effort cleanup for recycled environments
+      });
+    }
+
+    if (!this.isShutdown) {
+      void this.tryStageNow();
+    }
+  }
+
+  destroy(module: EnvironmentModule): void {
+    this.recycleEnvironment(module);
   }
 
   async shutdown(): Promise<void> {
@@ -100,10 +158,19 @@ export class EnvironmentPoolService {
     }
 
     const current = this.environmentModule;
+    const retired = [...this.retiredModules];
     this.environmentModule = null;
+    this.leaseCounts.clear();
+    this.retiredModules.clear();
 
     if (current) {
       await current.kill();
+    }
+
+    for (const module of retired) {
+      if (module !== current) {
+        await module.kill();
+      }
     }
 
     this.isShutdown = true;
@@ -172,7 +239,11 @@ export class EnvironmentPoolService {
       }
 
       if (previous) {
-        await previous.kill();
+        if (this.getLeaseCount(previous) === 0) {
+          await previous.kill();
+        } else {
+          this.retiredModules.add(previous);
+        }
       }
 
       return true;
@@ -235,7 +306,9 @@ export class EnvironmentPoolService {
       this.retryMaxDelayMs,
       this.retryBaseDelayMs * 2 ** (this.stagingState.retryCount - 1),
     );
-    const jitter = Math.floor(Math.random() * Math.max(1, Math.floor(delay * 0.2)));
+    const jitter = Math.floor(
+      Math.random() * Math.max(1, Math.floor(delay * 0.2)),
+    );
     const nextDelay = delay + jitter;
     this.stagingState.nextRetryAt = Date.now() + nextDelay;
 
@@ -244,12 +317,20 @@ export class EnvironmentPoolService {
     }
 
     this.retryTimer = setTimeout(() => {
-      if (this.isShutdown || this.isLeased) {
+      if (this.isShutdown || this.getLeaseCount(this.environmentModule) > 0) {
         return;
       }
 
       void this.tryStageNow();
     }, nextDelay);
+  }
+
+  private getLeaseCount(module: EnvironmentModule | null): number {
+    if (!module) {
+      return 0;
+    }
+
+    return this.leaseCounts.get(module) ?? 0;
   }
 }
 
@@ -261,13 +342,26 @@ function toServiceManifestBinding(
     description: "",
     enabled: true,
     metadata: {},
-    tools: manifest.tools.map((tool) => ({
-      name: tool.name,
-      description: "",
-      enabled: true,
-      metadata: {},
-      inputSchema: {},
-      outputSchema: {},
-    })),
+    tools: manifest.tools.map((tool) => {
+      const stagedTool = tool as {
+        inputSchema?: Record<string, unknown> | null;
+        outputSchema?: Record<string, unknown> | null;
+      };
+
+      return {
+        name: tool.name,
+        description: "",
+        enabled: true,
+        metadata: {},
+        inputSchema: (stagedTool.inputSchema ?? null) as unknown as Record<
+          string,
+          unknown
+        >,
+        outputSchema: (stagedTool.outputSchema ?? null) as unknown as Record<
+          string,
+          unknown
+        >,
+      };
+    }),
   };
 }

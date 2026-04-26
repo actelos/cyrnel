@@ -333,8 +333,9 @@ function getManifestService(req: Request): ManifestService {
 }
 
 function getEnvironmentPoolService(req: Request): EnvironmentPoolService {
-  const service = req.app.locals
-    .environmentPoolService as EnvironmentPoolService | undefined;
+  const service = req.app.locals.environmentPoolService as
+    | EnvironmentPoolService
+    | undefined;
 
   if (!service) {
     throw new Error("EnvironmentPoolService not configured in app.locals");

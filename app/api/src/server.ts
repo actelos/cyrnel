@@ -30,10 +30,19 @@ const shutdownTimeoutMs = parsedEnv.success
   ? (parsedEnv.data.SHUTDOWN_TIMEOUT_MS ?? DEFAULT_SHUTDOWN_TIMEOUT_MS)
   : DEFAULT_SHUTDOWN_TIMEOUT_MS;
 async function bootstrap(): Promise<void> {
-  const app = createApp();
+  let app: ReturnType<typeof createApp>;
 
   try {
-    await app.locals.environmentPoolService.initialize(app.locals.manifestService);
+    app = createApp();
+  } catch (err) {
+    logger.error({ err }, "Failed to create application");
+    throw err;
+  }
+
+  try {
+    await app.locals.environmentPoolService.initialize(
+      app.locals.manifestService,
+    );
   } catch (err) {
     logger.warn(
       { err },
@@ -43,6 +52,11 @@ async function bootstrap(): Promise<void> {
 
   const server = app.listen(port, () => {
     logger.info({ port }, "Server listening");
+  });
+
+  server.on("error", (err) => {
+    logger.error({ err, port }, "Server failed to start");
+    process.exit(1);
   });
 
   let shuttingDown = false;
@@ -122,4 +136,8 @@ async function bootstrap(): Promise<void> {
   });
 }
 
-void bootstrap();
+bootstrap().catch((err) => {
+  logger.error({ err }, "Bootstrap failed");
+  console.error("Bootstrap failed", err);
+  process.exit(1);
+});

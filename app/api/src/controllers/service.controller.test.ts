@@ -378,6 +378,7 @@ describe("service.controller", () => {
       "svc-1",
       false,
     );
+    expect(environmentPoolService.requestRestage).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith({ name: "svc-1", enabled: false });
   });
@@ -399,6 +400,7 @@ describe("service.controller", () => {
       "echo",
       false,
     );
+    expect(environmentPoolService.requestRestage).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith({
       name: "echo",

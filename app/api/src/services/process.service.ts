@@ -27,6 +27,17 @@ class ProcessExecutionTimeoutError extends Error {
   }
 }
 
+type EnvironmentPoolRecycleApi = {
+  recycleEnvironment?: (module: EnvironmentModule) => void;
+  destroy?: (module: EnvironmentModule) => void;
+};
+
+type EnvironmentHealthInspectable = {
+  status?: unknown;
+  isHealthy?: () => boolean;
+  isValid?: () => boolean;
+};
+
 export class ProcessService {
   private readonly processes = new Map<number, StoredProcess>();
   private readonly pidPool: number[] = [];
@@ -147,12 +158,29 @@ export class ProcessService {
     if (stored.process.state === "running" && this.currentPid === pid) {
       stored.process.state = "terminating";
 
-      const environmentModule =
-        this.currentEnvironmentModule ?? this.environmentPoolService.allocate();
+      if (this.currentEnvironmentModule === null) {
+        const environmentModule = this.environmentPoolService.allocate();
 
-      void environmentModule.kill().catch((err: unknown) => {
-        logger.warn({ err, pid }, "Failed to send kill signal to module");
-      });
+        void environmentModule
+          .kill()
+          .finally(() => {
+            try {
+              this.environmentPoolService.release(environmentModule);
+            } catch (err) {
+              logger.error(
+                { err, pid },
+                "Failed to release environment module back to pool",
+              );
+            }
+          })
+          .catch((err: unknown) => {
+            logger.warn({ err, pid }, "Failed to send kill signal to module");
+          });
+      } else {
+        void this.currentEnvironmentModule.kill().catch((err: unknown) => {
+          logger.warn({ err, pid }, "Failed to send kill signal to module");
+        });
+      }
 
       return stored.process;
     }
@@ -345,6 +373,8 @@ export class ProcessService {
     let onStderr: ((chunk: Buffer) => void) | null = null;
     let onOutput: ((data: EnvironmentOutputPatch) => void) | null = null;
     let environmentModule: EnvironmentModule | null = null;
+    let executionErrored = false;
+    let executionTimedOut = false;
 
     const stdoutDecoder = new StringDecoder("utf8");
     const stderrDecoder = new StringDecoder("utf8");
@@ -428,6 +458,9 @@ export class ProcessService {
         current.process.status = status;
       }
     } catch (err) {
+      executionErrored = true;
+      executionTimedOut = err instanceof ProcessExecutionTimeoutError;
+
       const current = this.processes.get(pid);
 
       if (current) {
@@ -470,9 +503,106 @@ export class ProcessService {
       }
 
       if (environmentModule) {
-        this.environmentPoolService.release(environmentModule);
+        const shouldRecycle =
+          executionTimedOut ||
+          executionErrored ||
+          !this.isEnvironmentModuleHealthy(environmentModule, pid);
+
+        if (shouldRecycle) {
+          this.recycleEnvironmentModule(environmentModule, pid);
+        } else {
+          try {
+            this.environmentPoolService.release(environmentModule);
+          } catch (err) {
+            logger.error(
+              { err, pid },
+              "Failed to release environment module back to pool",
+            );
+          }
+        }
       }
     }
+  }
+
+  private recycleEnvironmentModule(
+    environmentModule: EnvironmentModule,
+    pid: number,
+  ): void {
+    const poolWithRecycle = this
+      .environmentPoolService as EnvironmentPoolService &
+      EnvironmentPoolRecycleApi;
+
+    try {
+      if (typeof poolWithRecycle.recycleEnvironment === "function") {
+        poolWithRecycle.recycleEnvironment(environmentModule);
+        return;
+      }
+
+      if (typeof poolWithRecycle.destroy === "function") {
+        poolWithRecycle.destroy(environmentModule);
+        return;
+      }
+
+      void environmentModule.kill().catch((err: unknown) => {
+        logger.warn(
+          { err, pid },
+          "Failed to kill unhealthy environment module before release",
+        );
+      });
+
+      this.environmentPoolService.release(environmentModule);
+    } catch (err) {
+      logger.error(
+        { err, pid },
+        "Failed to recycle environment module in pool",
+      );
+    }
+  }
+
+  private isEnvironmentModuleHealthy(
+    environmentModule: EnvironmentModule,
+    pid: number,
+  ): boolean {
+    const inspectable = environmentModule as EnvironmentModule &
+      EnvironmentHealthInspectable;
+
+    if (typeof inspectable.isHealthy === "function") {
+      try {
+        if (!inspectable.isHealthy()) {
+          return false;
+        }
+      } catch (err) {
+        logger.warn({ err, pid }, "Environment module isHealthy() check threw");
+        return false;
+      }
+    }
+
+    if (typeof inspectable.isValid === "function") {
+      try {
+        if (!inspectable.isValid()) {
+          return false;
+        }
+      } catch (err) {
+        logger.warn({ err, pid }, "Environment module isValid() check threw");
+        return false;
+      }
+    }
+
+    if (typeof inspectable.status === "string") {
+      const status = inspectable.status.toLowerCase();
+      if (
+        status === "timeout" ||
+        status === "timed_out" ||
+        status === "error" ||
+        status === "failed" ||
+        status === "unhealthy" ||
+        status === "invalid"
+      ) {
+        return false;
+      }
+    }
+
+    return true;
   }
 
   private async executeWithTimeout(

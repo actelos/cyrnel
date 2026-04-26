@@ -788,15 +788,24 @@ export class ManifestService {
     const toolsByServiceName = new Map<string, ToolDefinition[]>();
 
     for (const row of toolRows) {
-      const current = toolsByServiceName.get(row.serviceName) ?? [];
-      current.push({
+      const toolCandidate: unknown = {
         name: row.name,
         description: row.description,
         enabled: row.enabled,
         metadata: row.metadata,
         inputSchema: row.inputSchema,
         outputSchema: row.outputSchema,
-      });
+      };
+
+      if (!isToolDefinition(toolCandidate)) {
+        throw new HttpError(
+          500,
+          `Stored tool '${row.name}' for service '${row.serviceName}' is invalid.`,
+        );
+      }
+
+      const current = toolsByServiceName.get(row.serviceName) ?? [];
+      current.push(toolCandidate);
       toolsByServiceName.set(row.serviceName, current);
     }
 
