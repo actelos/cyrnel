@@ -1,11 +1,16 @@
-import { useState } from "react";
+import {
+  Blocks,
+  Braces,
+  House,
+  Layers,
+  Logs,
+  PanelLeftDashed,
+  Plug,
+  Settings,
+} from "lucide-react";
 import type { SyntheticEvent } from "react";
-import { Plug, House, Scroll, Braces, Layers, Blocks, Logs, Settings, PanelLeftDashed } from "lucide-react";
-
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator"
 import {
   Card,
   CardContent,
@@ -14,6 +19,9 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 
 function App() {
@@ -136,7 +144,9 @@ function App() {
                   aria-label={item.ariaLabel}
                   className={cn(
                     "h-10 gap-2",
-                    isSidebarExpanded ? "w-full justify-start" : "w-10 justify-center",
+                    isSidebarExpanded
+                      ? "w-full justify-start"
+                      : "w-10 justify-center",
                   )}
                   variant="ghost"
                 >
@@ -156,7 +166,9 @@ function App() {
                   aria-label={item.ariaLabel}
                   className={cn(
                     "h-10 justify-center gap-2",
-                    isSidebarExpanded ? "w-full justify-start" : "w-10 justify-center",
+                    isSidebarExpanded
+                      ? "w-full justify-start"
+                      : "w-10 justify-center",
                   )}
                   variant="ghost"
                 >
@@ -168,10 +180,14 @@ function App() {
             <Separator className="my-1" />
             <Button
               aria-expanded={isSidebarExpanded}
-              aria-label={isSidebarExpanded ? "Collapse sidebar" : "Expand sidebar"}
+              aria-label={
+                isSidebarExpanded ? "Collapse sidebar" : "Expand sidebar"
+              }
               className={cn(
                 "h-10 justify-center gap-2",
-                isSidebarExpanded ? "w-full justify-start" : "w-10 justify-center",
+                isSidebarExpanded
+                  ? "w-full justify-start"
+                  : "w-10 justify-center",
               )}
               onClick={() => setIsSidebarExpanded((current) => !current)}
               variant="ghost"
