@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import type { SyntheticEvent } from "react";
 import { useState } from "react";
+import { LogsView } from "@/components/logs-view";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -29,6 +30,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { copyToClipboard } from "@/utils/copy.util";
 
+type AppView =
+  | "overview"
+  | "processes"
+  | "services"
+  | "modules"
+  | "logs"
+  | "settings";
+
 function getDefaultApiUrl(): string {
   if (typeof window === "undefined") {
     return "http://localhost:7687";
@@ -40,6 +49,7 @@ function getDefaultApiUrl(): string {
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
+  const [activeView, setActiveView] = useState<AppView>("overview");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
@@ -54,17 +64,56 @@ function App() {
     "Configure VITE_MCI_API_KEY to expose your key here.";
 
   const primaryNavItems = [
-    { label: "Overview", ariaLabel: "Open homepage", icon: House },
-    { label: "Processes", ariaLabel: "Open processes", icon: Braces },
-    { label: "Services", ariaLabel: "Open services", icon: Layers },
-    { label: "Modules", ariaLabel: "Open modules", icon: Blocks },
+    {
+      key: "overview" as const,
+      label: "Overview",
+      ariaLabel: "Open homepage",
+      icon: House,
+    },
+    {
+      key: "processes" as const,
+      label: "Processes",
+      ariaLabel: "Open processes",
+      icon: Braces,
+    },
+    {
+      key: "services" as const,
+      label: "Services",
+      ariaLabel: "Open services",
+      icon: Layers,
+    },
+    {
+      key: "modules" as const,
+      label: "Modules",
+      ariaLabel: "Open modules",
+      icon: Blocks,
+    },
   ];
 
   const secondaryNavItems = [
     { label: "Connect", ariaLabel: "Open connect menu", icon: Plug },
-    { label: "Logs", ariaLabel: "Open logs", icon: Logs },
-    { label: "Settings", ariaLabel: "Open settings", icon: Settings },
+    {
+      key: "logs" as const,
+      label: "Logs",
+      ariaLabel: "Open logs",
+      icon: Logs,
+    },
+    {
+      key: "settings" as const,
+      label: "Settings",
+      ariaLabel: "Open settings",
+      icon: Settings,
+    },
   ];
+
+  const activeViewTitle: Record<AppView, string> = {
+    overview: "Overview",
+    processes: "Processes",
+    services: "Services",
+    modules: "Modules",
+    logs: "Logs",
+    settings: "Settings",
+  };
 
   async function handleCopy(
     value: string,
@@ -163,6 +212,26 @@ function App() {
     );
   }
 
+  function renderCurrentView() {
+    if (activeView === "logs") {
+      return <LogsView apiBaseUrl={mciApiUrl} apiKey={mciApiKey} />;
+    }
+
+    return (
+      <div className="mx-auto flex h-full w-full max-w-5xl items-center justify-center p-6">
+        <Card className="w-full border-border/60 bg-gradient-to-br from-card via-card to-muted/20 shadow-sm">
+          <CardHeader>
+            <CardTitle>{activeViewTitle[activeView]}</CardTitle>
+            <CardDescription>
+              This view is coming soon. Open Logs from the sidebar to query and
+              manage structured log records.
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-screen flex-col bg-background">
       <main className="flex min-h-0 flex-1">
@@ -185,7 +254,9 @@ function App() {
                     isSidebarExpanded
                       ? "w-full justify-start"
                       : "w-10 justify-center",
+                    activeView === item.key && "bg-accent",
                   )}
+                  onClick={() => setActiveView(item.key)}
                   variant="ghost"
                 >
                   <Icon />
@@ -227,7 +298,14 @@ function App() {
                     isSidebarExpanded
                       ? "w-full justify-start"
                       : "w-10 justify-center",
+                    "transition-colors",
+                    "key" in item && activeView === item.key && "bg-accent",
                   )}
+                  onClick={
+                    "key" in item && item.key
+                      ? () => setActiveView(item.key)
+                      : undefined
+                  }
                   variant="ghost"
                 >
                   <Icon className="size-4" />
@@ -256,7 +334,9 @@ function App() {
           </div>
         </aside>
 
-        <section className="flex-1" />
+        <section className="flex min-h-0 flex-1 flex-col">
+          {renderCurrentView()}
+        </section>
       </main>
 
       {isConnectMenuOpen ? (
