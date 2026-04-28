@@ -1,18 +1,15 @@
 import {
-  Blocks,
   Braces,
   Check,
   Copy,
-  House,
   Layers,
-  Logs,
   PanelLeftDashed,
   Plug,
-  Settings,
   X,
 } from "lucide-react";
 import type { SyntheticEvent } from "react";
 import { useState } from "react";
+
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -29,41 +26,28 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { copyToClipboard } from "@/utils/copy.util";
 
-function getDefaultApiUrl(): string {
-  if (typeof window === "undefined") {
-    return "http://localhost:7687";
-  }
-
-  return `${window.location.protocol}//${window.location.hostname}:7687`;
-}
-
 function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
   const [isConnectMenuOpen, setIsConnectMenuOpen] = useState(false);
-  const [copiedField, setCopiedField] = useState<"apiUrl" | "apiKey" | null>(
-    null,
-  );
+  const [copiedField, setCopiedField] = useState<"apiUrl" | "apiKey" | null>(null);
 
-  const mciApiUrl = import.meta.env.VITE_MCI_API_URL ?? getDefaultApiUrl();
+  const mciApiUrl =
+    import.meta.env.VITE_MCI_API_URL ??
+    "Configure VITE_MCI_API_URL to expose the API URL here.";
   const mciApiKey =
     import.meta.env.VITE_MCI_API_KEY ??
     "Configure VITE_MCI_API_KEY to expose your key here.";
 
   const primaryNavItems = [
-    { label: "Overview", ariaLabel: "Open homepage", icon: House },
     { label: "Processes", ariaLabel: "Open processes", icon: Braces },
     { label: "Services", ariaLabel: "Open services", icon: Layers },
-    { label: "Modules", ariaLabel: "Open modules", icon: Blocks },
   ];
-
   const secondaryNavItems = [
     { label: "Connect", ariaLabel: "Open connect menu", icon: Plug },
-    { label: "Logs", ariaLabel: "Open logs", icon: Logs },
-    { label: "Settings", ariaLabel: "Open settings", icon: Settings },
   ];
 
   async function handleCopy(
@@ -109,8 +93,8 @@ function App() {
 
   if (!isAuthenticated) {
     return (
-      <div className="flex min-h-screen flex-col bg-background">
-        <main className="flex flex-1 items-center justify-center p-6">
+      <div className="flex flex-col min-h-screen">
+        <main className="flex flex-1 items-center justify-center">
           <Card className="w-full max-w-sm">
             <CardHeader>
               <CardTitle>Sign in</CardTitle>
@@ -164,11 +148,11 @@ function App() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-background">
+    <div className="flex min-h-screen flex-col">
       <main className="flex min-h-0 flex-1">
         <aside
           className={cn(
-            "flex flex-col border-r border-border transition-all duration-200",
+            "flex flex-col border-r border-border",
             isSidebarExpanded ? "w-54" : "w-max",
           )}
         >
@@ -212,7 +196,7 @@ function App() {
                     onClick={() => setIsConnectMenuOpen((current) => !current)}
                     variant="ghost"
                   >
-                    <Icon className="size-4" />
+                    <Icon />
                     {isSidebarExpanded ? <span>{item.label}</span> : null}
                   </Button>
                 );
@@ -230,7 +214,7 @@ function App() {
                   )}
                   variant="ghost"
                 >
-                  <Icon className="size-4" />
+                  <Icon />
                   {isSidebarExpanded ? <span>{item.label}</span> : null}
                 </Button>
               );
@@ -263,14 +247,14 @@ function App() {
         <>
           <button
             aria-label="Close connect menu"
-            className="fixed inset-0 z-40 bg-black/20"
+            className="fixed inset-0 z-40 bg-background/50"
             onClick={() => setIsConnectMenuOpen(false)}
             type="button"
           />
           <aside className="fixed top-0 right-0 bottom-0 z-50 flex h-screen w-[28rem] max-w-[calc(100vw-1rem)] flex-col border-l bg-popover text-popover-foreground shadow-lg">
             <div className="flex items-center justify-between border-b p-4">
               <div className="space-y-1">
-                <h3 className="text-sm font-medium">Connect to MCI</h3>
+                <h3 className="text-sm font-medium">Connect</h3>
                 <p className="text-muted-foreground text-xs">
                   Choose one of the supported connection methods.
                 </p>
@@ -278,7 +262,6 @@ function App() {
               <Button
                 aria-label="Close connect menu"
                 onClick={() => setIsConnectMenuOpen(false)}
-                size="sm"
                 type="button"
                 variant="ghost"
               >
@@ -306,14 +289,13 @@ function App() {
                         <Button
                           aria-label="Copy MCI API URL"
                           onClick={() => void handleCopy(mciApiUrl, "apiUrl")}
-                          size="icon-sm"
                           type="button"
                           variant="outline"
                         >
                           {copiedField === "apiUrl" ? (
-                            <Check className="size-4" />
+                            <Check />
                           ) : (
-                            <Copy className="size-4" />
+                            <Copy />
                           )}
                         </Button>
                       </div>
@@ -325,14 +307,13 @@ function App() {
                         <Button
                           aria-label="Copy MCI API key"
                           onClick={() => void handleCopy(mciApiKey, "apiKey")}
-                          size="icon-sm"
                           type="button"
                           variant="outline"
                         >
                           {copiedField === "apiKey" ? (
-                            <Check className="size-4" />
+                            <Check />
                           ) : (
-                            <Copy className="size-4" />
+                            <Copy />
                           )}
                         </Button>
                       </div>
