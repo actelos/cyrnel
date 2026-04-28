@@ -55,29 +55,7 @@ export const tools = sqliteTable(
   ],
 );
 
-export const logs = sqliteTable(
-  "logs",
-  {
-    id: integer("id").primaryKey({ autoIncrement: true }),
-    timestampMs: integer("timestamp_ms", { mode: "number" }).notNull(),
-    severity: text("severity").notNull(),
-    level: integer("level").notNull(),
-    message: text("message").notNull(),
-    requestMethod: text("request_method"),
-    requestPath: text("request_path"),
-    statusCode: integer("status_code"),
-    raw: text("raw", { mode: "json" }).$type<Record<string, unknown>>(),
-  },
-  (table) => [
-    index("logs_timestamp_idx").on(table.timestampMs),
-    index("logs_severity_idx").on(table.severity),
-    index("logs_message_idx").on(table.message),
-  ],
-);
-
 export type ManifestRecord = typeof manifests.$inferSelect;
 export type NewManifestRecord = typeof manifests.$inferInsert;
 export type ToolRecord = typeof tools.$inferSelect;
 export type NewToolRecord = typeof tools.$inferInsert;
-export type LogRecord = typeof logs.$inferSelect;
-export type NewLogRecord = typeof logs.$inferInsert;
