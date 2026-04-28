@@ -38,6 +38,14 @@ type AppView =
   | "logs"
   | "settings";
 
+function getDefaultApiUrl(): string {
+  if (typeof window === "undefined") {
+    return "http://localhost:7687";
+  }
+
+  return `${window.location.protocol}//${window.location.hostname}:7687`;
+}
+
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
@@ -50,7 +58,7 @@ function App() {
     null,
   );
 
-  const mciApiUrl = import.meta.env.VITE_MCI_API_URL;
+  const mciApiUrl = import.meta.env.VITE_MCI_API_URL ?? getDefaultApiUrl();
   const mciApiKey =
     import.meta.env.VITE_MCI_API_KEY ??
     "Configure VITE_MCI_API_KEY to expose your key here.";
@@ -230,7 +238,7 @@ function App() {
         <aside
           className={cn(
             "flex flex-col border-r border-border transition-all duration-200",
-            isSidebarExpanded ? "min-w-54" : "w-max",
+            isSidebarExpanded ? "w-54" : "w-max",
           )}
         >
           <div className="flex-1 flex flex-col p-2">
@@ -275,7 +283,7 @@ function App() {
                     onClick={() => setIsConnectMenuOpen((current) => !current)}
                     variant="ghost"
                   >
-                    <Icon />
+                    <Icon className="size-4" />
                     {isSidebarExpanded ? <span>{item.label}</span> : null}
                   </Button>
                 );
@@ -300,7 +308,7 @@ function App() {
                   }
                   variant="ghost"
                 >
-                  <Icon />
+                  <Icon className="size-4" />
                   {isSidebarExpanded ? <span>{item.label}</span> : null}
                 </Button>
               );
@@ -335,14 +343,14 @@ function App() {
         <>
           <button
             aria-label="Close connect menu"
-            className="fixed inset-0 z-40 bg-background/50"
+            className="fixed inset-0 z-40 bg-black/20"
             onClick={() => setIsConnectMenuOpen(false)}
             type="button"
           />
           <aside className="fixed top-0 right-0 bottom-0 z-50 flex h-screen w-[28rem] max-w-[calc(100vw-1rem)] flex-col border-l bg-popover text-popover-foreground shadow-lg">
             <div className="flex items-center justify-between border-b p-4">
               <div className="space-y-1">
-                <h3 className="text-sm font-medium">Connect</h3>
+                <h3 className="text-sm font-medium">Connect to MCI</h3>
                 <p className="text-muted-foreground text-xs">
                   Choose one of the supported connection methods.
                 </p>
@@ -350,6 +358,7 @@ function App() {
               <Button
                 aria-label="Close connect menu"
                 onClick={() => setIsConnectMenuOpen(false)}
+                size="sm"
                 type="button"
                 variant="ghost"
               >
@@ -369,20 +378,22 @@ function App() {
                   <ol className="text-muted-foreground list-decimal space-y-4 pl-4 text-xs">
                     <li className="space-y-2">
                       <p>
-                        Copy the MCI API connection URL and paste it where needed.
+                        Copy the MCI API connection URL and paste it where
+                        needed.
                       </p>
                       <div className="flex items-center gap-2">
                         <Input readOnly value={mciApiUrl} />
                         <Button
                           aria-label="Copy MCI API URL"
                           onClick={() => void handleCopy(mciApiUrl, "apiUrl")}
+                          size="icon-sm"
                           type="button"
                           variant="outline"
                         >
                           {copiedField === "apiUrl" ? (
-                            <Check />
+                            <Check className="size-4" />
                           ) : (
-                            <Copy />
+                            <Copy className="size-4" />
                           )}
                         </Button>
                       </div>
@@ -394,13 +405,14 @@ function App() {
                         <Button
                           aria-label="Copy MCI API key"
                           onClick={() => void handleCopy(mciApiKey, "apiKey")}
+                          size="icon-sm"
                           type="button"
                           variant="outline"
                         >
                           {copiedField === "apiKey" ? (
-                            <Check />
+                            <Check className="size-4" />
                           ) : (
-                            <Copy />
+                            <Copy className="size-4" />
                           )}
                         </Button>
                       </div>
