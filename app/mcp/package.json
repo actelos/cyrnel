@@ -24,6 +24,6 @@
     "@modelcontextprotocol/express": "2.0.0-alpha.2",
     "@modelcontextprotocol/server": "2.0.0-alpha.2",
     "express": "^5.2.1",
-    "zod": "^4.3.6"
+    "zod": "^4.4.1"
   }
 }
