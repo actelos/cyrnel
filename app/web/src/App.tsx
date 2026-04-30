@@ -1,12 +1,4 @@
-import {
-  Braces,
-  Check,
-  Copy,
-  Layers,
-  PanelLeftDashed,
-  Plug,
-  X,
-} from "lucide-react";
+import { Check, Copy, Braces, PanelLeftDashed, Plug, X } from "lucide-react";
 import type { SyntheticEvent } from "react";
 import { useState } from "react";
 
@@ -25,6 +17,7 @@ import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { copyToClipboard } from "@/utils/copy.util";
+import ProcessesView from "@/views/ProcessesView";
 
 function App() {
   const [username, setUsername] = useState("");
@@ -33,7 +26,9 @@ function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
   const [isConnectMenuOpen, setIsConnectMenuOpen] = useState(false);
-  const [copiedField, setCopiedField] = useState<"apiUrl" | "apiKey" | null>(null);
+  const [copiedField, setCopiedField] = useState<"apiUrl" | "apiKey" | null>(
+    null,
+  );
 
   const mciApiUrl =
     import.meta.env.VITE_MCI_API_URL ??
@@ -41,14 +36,6 @@ function App() {
   const mciApiKey =
     import.meta.env.VITE_MCI_API_KEY ??
     "Configure VITE_MCI_API_KEY to expose your key here.";
-
-  const primaryNavItems = [
-    { label: "Processes", ariaLabel: "Open processes", icon: Braces },
-    { label: "Services", ariaLabel: "Open services", icon: Layers },
-  ];
-  const secondaryNavItems = [
-    { label: "Connect", ariaLabel: "Open connect menu", icon: Plug },
-  ];
 
   async function handleCopy(
     value: string,
@@ -93,7 +80,7 @@ function App() {
 
   if (!isAuthenticated) {
     return (
-      <div className="flex flex-col min-h-screen">
+      <div className="flex min-h-screen flex-col">
         <main className="flex flex-1 items-center justify-center">
           <Card className="w-full max-w-sm">
             <CardHeader>
@@ -148,77 +135,44 @@ function App() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col">
-      <main className="flex min-h-0 flex-1">
+    <div className="flex h-screen flex-col overflow-hidden">
+      <main className="flex min-h-0 flex-1 overflow-hidden">
         <aside
           className={cn(
             "flex flex-col border-r border-border",
             isSidebarExpanded ? "w-54" : "w-max",
           )}
         >
-          <div className="flex-1 flex flex-col p-2">
-            {primaryNavItems.map((item) => {
-              const Icon = item.icon;
-
-              return (
-                <Button
-                  key={item.label}
-                  aria-label={item.ariaLabel}
-                  className={cn(
-                    "h-10 gap-2",
-                    isSidebarExpanded
-                      ? "w-full justify-start"
-                      : "w-10 justify-center",
-                  )}
-                  variant="ghost"
-                >
-                  <Icon />
-                  {isSidebarExpanded ? <span>{item.label}</span> : null}
-                </Button>
-              );
-            })}
+          <div className="flex flex-1 flex-col p-2">
+            <Button
+              aria-label="Open processes"
+              className={cn(
+                "h-10 gap-2",
+                isSidebarExpanded
+                  ? "w-full justify-start"
+                  : "w-10 justify-center",
+              )}
+              variant="ghost"
+            >
+              <Braces />
+              {isSidebarExpanded ? <span>Processes</span> : null}
+            </Button>
           </div>
           <div className="flex flex-col p-2">
-            {secondaryNavItems.map((item) => {
-              const Icon = item.icon;
-
-              if (item.label === "Connect") {
-                return (
-                  <Button
-                    key={item.label}
-                    aria-label={item.ariaLabel}
-                    className={cn(
-                      "h-10 justify-center gap-2",
-                      isSidebarExpanded
-                        ? "w-full justify-start"
-                        : "w-10 justify-center",
-                    )}
-                    onClick={() => setIsConnectMenuOpen((current) => !current)}
-                    variant="ghost"
-                  >
-                    <Icon />
-                    {isSidebarExpanded ? <span>{item.label}</span> : null}
-                  </Button>
-                );
-              }
-
-              return (
-                <Button
-                  key={item.label}
-                  aria-label={item.ariaLabel}
-                  className={cn(
-                    "h-10 justify-center gap-2",
-                    isSidebarExpanded
-                      ? "w-full justify-start"
-                      : "w-10 justify-center",
-                  )}
-                  variant="ghost"
-                >
-                  <Icon />
-                  {isSidebarExpanded ? <span>{item.label}</span> : null}
-                </Button>
-              );
-            })}
+            <Button
+              aria-label="Open connect menu"
+              className={cn(
+                "h-10 justify-center gap-2",
+                isSidebarExpanded
+                  ? "w-full justify-start"
+                  : "w-10 justify-center",
+              )}
+              onClick={() => setIsConnectMenuOpen((current) => !current)}
+              variant="ghost"
+            >
+              <Plug />
+              {isSidebarExpanded ? <span>Connect</span> : null}
+            </Button>
             <Separator className="my-1" />
             <Button
               aria-expanded={isSidebarExpanded}
@@ -240,7 +194,7 @@ function App() {
           </div>
         </aside>
 
-        <section className="flex-1" />
+        <ProcessesView />
       </main>
 
       {isConnectMenuOpen ? (
@@ -292,11 +246,7 @@ function App() {
                           type="button"
                           variant="outline"
                         >
-                          {copiedField === "apiUrl" ? (
-                            <Check />
-                          ) : (
-                            <Copy />
-                          )}
+                          {copiedField === "apiUrl" ? <Check /> : <Copy />}
                         </Button>
                       </div>
                     </li>
@@ -310,11 +260,7 @@ function App() {
                           type="button"
                           variant="outline"
                         >
-                          {copiedField === "apiKey" ? (
-                            <Check />
-                          ) : (
-                            <Copy />
-                          )}
+                          {copiedField === "apiKey" ? <Check /> : <Copy />}
                         </Button>
                       </div>
                     </li>
