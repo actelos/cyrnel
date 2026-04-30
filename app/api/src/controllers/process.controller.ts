@@ -145,6 +145,13 @@ export function getProcessOutput(req: Request, res: Response): void {
   res.status(200).json(output);
 }
 
+export function getProcessCode(req: Request, res: Response): void {
+  const processService = getProcessService(req);
+  const pid = parsePid(req.params.pid);
+  const code = processService.getCode(pid);
+  res.status(200).type("text/plain").send(code);
+}
+
 export function getProcessStdout(req: Request, res: Response): void {
   const processService = getProcessService(req);
   const pid = parsePid(req.params.pid);

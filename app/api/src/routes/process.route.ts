@@ -4,6 +4,7 @@ import {
   createProcess,
   deleteProcess,
   getProcess,
+  getProcessCode,
   getProcessOutput,
   getProcessStderr,
   getProcessStdout,
@@ -19,6 +20,7 @@ processRouter.post("/", createProcess);
 processRouter.get("/:pid", getProcess);
 processRouter.delete("/:pid", deleteProcess);
 
+processRouter.get("/:pid/code", getProcessCode);
 processRouter.get("/:pid/output", getProcessOutput);
 processRouter.get("/:pid/stdout", getProcessStdout);
 processRouter.get("/:pid/stderr", getProcessStderr);

@@ -8,6 +8,7 @@ const processService = {
   create: vi.fn(),
   get: vi.fn(),
   getOutput: vi.fn(),
+  getCode: vi.fn(),
   getStdout: vi.fn(),
   getStderr: vi.fn(),
   kill: vi.fn(),
@@ -26,6 +27,7 @@ import {
   createProcess,
   deleteProcess,
   getProcess,
+  getProcessCode,
   getProcessOutput,
   getProcessStderr,
   getProcessStdout,
@@ -177,9 +179,14 @@ describe("process.controller", () => {
     );
   });
 
-  it("returns output and stdout/stderr payloads", () => {
+  it("returns code, output, and stdout/stderr payloads", () => {
     const res = makeRes();
     const req = makeReq({ params: { pid: "9" } });
+
+    processService.getCode.mockReturnValue("code");
+    getProcessCode(req, res as unknown as Response);
+    expect(res.type).toHaveBeenCalledWith("text/plain");
+    expect(res.send).toHaveBeenCalledWith("code");
 
     processService.getOutput.mockReturnValue({ ok: true });
     getProcessOutput(req, res as unknown as Response);

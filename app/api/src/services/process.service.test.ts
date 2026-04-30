@@ -142,6 +142,7 @@ describe("ProcessService", () => {
     const pid = service.create("code");
     await waitForState(service, pid, "idle");
 
+    expect(service.getCode(pid)).toBe("code");
     expect(service.getStdout(pid)).toBe("hello world");
     expect(service.getStderr(pid)).toBe("warn");
     expect(service.getOutput(pid)).toEqual({

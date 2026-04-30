@@ -125,6 +125,11 @@ export class ProcessService {
     return stored.output;
   }
 
+  getCode(pid: number): string {
+    const stored = this.getStored(pid);
+    return stored.code;
+  }
+
   getStdout(pid: number): string {
     const stored = this.getStored(pid);
     this.assertIdle(stored.process.state);
