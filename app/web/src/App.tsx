@@ -1,4 +1,4 @@
-import { Check, Copy, Braces, PanelLeftDashed, Plug, X } from "lucide-react";
+import { Braces, Check, Copy, PanelLeftDashed, Plug, X } from "lucide-react";
 import type { SyntheticEvent } from "react";
 import { useState } from "react";
 
