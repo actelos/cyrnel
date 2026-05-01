@@ -1,34 +1,35 @@
-import { Braces, Check, Copy, PanelLeftDashed, Plug, X } from "lucide-react";
-import type { SyntheticEvent } from "react";
+import {
+  Braces,
+  Check,
+  Copy,
+  Plug,
+  Server,
+  X,
+} from "lucide-react";
 import { useState } from "react";
+import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
+
+import { copyToClipboard } from "@/lib/copy";
+
+import LoginPage from "@/pages/LoginPage";
+import ProcessesPage from "@/pages/ProcessesPage";
+import ServicesPage from "@/pages/ServicesPage";
 
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { cn } from "@/lib/utils";
-import { copyToClipboard } from "@/utils/copy.util";
-import ProcessesView from "@/views/ProcessesView";
 
 function App() {
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [errorMessage, setErrorMessage] = useState("");
+  const location = useLocation();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
   const [isConnectMenuOpen, setIsConnectMenuOpen] = useState(false);
   const [copiedField, setCopiedField] = useState<"apiUrl" | "apiKey" | null>(
     null,
   );
+
+  const isProcessesRoute =
+    location.pathname === "/processes" || location.pathname === "/";
+  const isServicesRoute = location.pathname === "/services";
 
   const mciApiUrl =
     import.meta.env.VITE_MCI_API_URL ??
@@ -53,148 +54,61 @@ function App() {
     }, 1500);
   }
 
-  function handleSubmit(event: SyntheticEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    const expectedUsername = import.meta.env.VITE_AUTH_USERNAME;
-    const expectedPassword = import.meta.env.VITE_AUTH_PASSWORD;
-
-    if (!(expectedUsername && expectedPassword)) {
-      setIsAuthenticated(false);
-      setErrorMessage("Missing authentication configuration.");
-      return;
-    }
-
-    const matchesUsername = username === expectedUsername;
-    const matchesPassword = password === expectedPassword;
-
-    if (matchesUsername && matchesPassword) {
-      setErrorMessage("");
-      setIsAuthenticated(true);
-      return;
-    }
-
-    setIsAuthenticated(false);
-    setErrorMessage("Invalid credentials. Please try again.");
-  }
-
   if (!isAuthenticated) {
     return (
-      <div className="flex min-h-screen flex-col">
-        <main className="flex flex-1 items-center justify-center">
-          <Card className="w-full max-w-sm">
-            <CardHeader>
-              <CardTitle>Sign in</CardTitle>
-              <CardDescription>
-                Enter your admin credentials to continue.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <form className="space-y-4" onSubmit={handleSubmit}>
-                <div className="space-y-2">
-                  <Label htmlFor="username">Username</Label>
-                  <Input
-                    autoComplete="username"
-                    id="username"
-                    onChange={(event) => setUsername(event.target.value)}
-                    required
-                    value={username}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="password">Password</Label>
-                  <Input
-                    autoComplete="current-password"
-                    id="password"
-                    onChange={(event) => setPassword(event.target.value)}
-                    required
-                    type="password"
-                    value={password}
-                  />
-                </div>
-
-                {errorMessage ? (
-                  <p className="text-destructive text-sm">{errorMessage}</p>
-                ) : null}
-
-                <Button className="w-full" type="submit">
-                  Login
-                </Button>
-              </form>
-            </CardContent>
-            <CardFooter>
-              <p className="text-muted-foreground text-xs">
-                This dashboard MUST be used in local environments only
-              </p>
-            </CardFooter>
-          </Card>
-        </main>
-      </div>
+        <Routes>
+          <Route
+            path="/login"
+            element={<LoginPage onAuthenticated={() => setIsAuthenticated(true)} />}
+          />
+          <Route path="*" element={<Navigate to="/login" replace />} />
+        </Routes>
     );
   }
 
   return (
     <div className="flex h-screen flex-col overflow-hidden">
       <main className="flex min-h-0 flex-1 overflow-hidden">
-        <aside
-          className={cn(
-            "flex flex-col border-r border-border",
-            isSidebarExpanded ? "w-54" : "w-max",
-          )}
-        >
+        <aside className="flex flex-col border-r">
           <div className="flex flex-1 flex-col p-2">
             <Button
               aria-label="Open processes"
-              className={cn(
-                "h-10 gap-2",
-                isSidebarExpanded
-                  ? "w-full justify-start"
-                  : "w-10 justify-center",
-              )}
-              variant="ghost"
+              className="w-10 h-10 gap-2 justify-center"
+              variant={isProcessesRoute ? "secondary" : "ghost"}
+              asChild
             >
-              <Braces />
-              {isSidebarExpanded ? <span>Processes</span> : null}
+              <NavLink end to="/processes">
+                <Braces />
+              </NavLink>
+            </Button>
+            <Button
+              aria-label="Open services"
+              className="w-10 h-10 gap-2 justify-center"
+              variant={isServicesRoute ? "secondary" : "ghost"}
+              asChild
+            >
+              <NavLink end to="/services">
+                <Server />
+              </NavLink>
             </Button>
           </div>
           <div className="flex flex-col p-2">
             <Button
               aria-label="Open connect menu"
-              className={cn(
-                "h-10 justify-center gap-2",
-                isSidebarExpanded
-                  ? "w-full justify-start"
-                  : "w-10 justify-center",
-              )}
+              className="w-10 h-10 gap-2 justify-center"
               onClick={() => setIsConnectMenuOpen((current) => !current)}
               variant="ghost"
             >
               <Plug />
-              {isSidebarExpanded ? <span>Connect</span> : null}
-            </Button>
-            <Separator className="my-1" />
-            <Button
-              aria-expanded={isSidebarExpanded}
-              aria-label={
-                isSidebarExpanded ? "Collapse sidebar" : "Expand sidebar"
-              }
-              className={cn(
-                "h-10 justify-center gap-2",
-                isSidebarExpanded
-                  ? "w-full justify-start"
-                  : "w-10 justify-center",
-              )}
-              onClick={() => setIsSidebarExpanded((current) => !current)}
-              variant="ghost"
-            >
-              <PanelLeftDashed />
-              {isSidebarExpanded ? <span>Collapse</span> : null}
             </Button>
           </div>
         </aside>
-
-        <ProcessesView />
+        <Routes>
+          <Route path="/" element={<Navigate to="/processes" replace />} />
+          <Route path="/processes" element={<ProcessesPage />} />
+          <Route path="/services" element={<ServicesPage />} />
+          <Route path="/login" element={<Navigate to="/processes" replace />} />
+        </Routes>
       </main>
 
       {isConnectMenuOpen ? (
@@ -205,8 +119,8 @@ function App() {
             onClick={() => setIsConnectMenuOpen(false)}
             type="button"
           />
-          <aside className="fixed top-0 right-0 bottom-0 z-50 flex h-screen w-[28rem] max-w-[calc(100vw-1rem)] flex-col border-l bg-popover text-popover-foreground shadow-lg">
-            <div className="flex items-center justify-between border-b p-4">
+          <aside className="fixed top-0 right-0 bottom-0 z-50 w-md max-w-screen h-screen flex flex-col text-popover-foreground bg-popover border-l">
+            <div className="flex items-center justify-between p-4 border-b">
               <div className="space-y-1">
                 <h3 className="text-sm font-medium">Connect</h3>
                 <p className="text-muted-foreground text-xs">
@@ -222,14 +136,12 @@ function App() {
                 <X />
               </Button>
             </div>
-
             <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
               <Tabs className="h-full" defaultValue="manual">
                 <TabsList className="w-full">
                   <TabsTrigger value="manual">Manual</TabsTrigger>
                   <TabsTrigger value="mcp">MCP</TabsTrigger>
                 </TabsList>
-
                 <TabsContent className="space-y-3 pt-4" value="manual">
                   <h4 className="text-xs font-medium">Manual method</h4>
                   <ol className="text-muted-foreground list-decimal space-y-4 pl-4 text-xs">

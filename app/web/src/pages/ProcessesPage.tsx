@@ -2,6 +2,10 @@ import { Copy, Play, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { z } from "zod";
+
+import { cn } from "@/lib/utils";
+import { copyToClipboard } from "@/lib/copy";
+
 import {
   Accordion,
   AccordionContent,
@@ -51,8 +55,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { cn } from "@/lib/utils";
-import { copyToClipboard } from "@/utils/copy.util";
 
 const processStateSchema = z.enum(["idle", "queued", "running", "terminating"]);
 
@@ -172,7 +174,7 @@ const statusBadgeVariant = (status: ProcessStatus) => {
   return "outline";
 };
 
-export default function ProcessesView() {
+export default function ProcessesPage() {
   const { mutate } = useSWRConfig();
   const [refFilter, setRefFilter] = useState("");
   const [stateFilter, setStateFilter] = useState<ProcessState | "all">("all");
@@ -320,7 +322,7 @@ export default function ProcessesView() {
     });
 
     if (!parsed.success) {
-      const flattened = parsed.error.flatten();
+      const flattened = parsed.error.flatten((err) => err.message);
       setCreateErrors({
         code: flattened.fieldErrors.code?.[0],
         ref: flattened.fieldErrors.ref?.[0],
@@ -330,6 +332,7 @@ export default function ProcessesView() {
     }
 
     setIsCreating(true);
+
     try {
       const response = await fetch(buildUrl("/processes"), {
         method: "POST",
@@ -416,7 +419,7 @@ export default function ProcessesView() {
 
   return (
     <>
-      <section className="flex min-h-0 flex-1 flex-col gap-6 overflow-hidden p-6">
+      <section className="min-h-0 flex flex-col flex-1 gap-6 p-6">
         <header className="flex flex-col gap-4">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="space-y-1">
@@ -572,32 +575,29 @@ export default function ProcessesView() {
                   <SelectItem value="canceled">Canceled</SelectItem>
                 </SelectContent>
               </Select>
-            </div>
-          </div>
-        </header>
-
-        <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-hidden lg:flex-row">
-          <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
-            <CardHeader className="flex flex-row items-center justify-between">
-              <div>
-                <CardTitle>Processes</CardTitle>
-                <CardDescription>
-                  {isLoadingProcesses
-                    ? "Loading..."
-                    : `${processes.length} total`}
-                </CardDescription>
-              </div>
               <Button
                 type="button"
-                variant="ghost"
+                variant="outline"
                 className="gap-2"
                 onClick={() => void mutate(processesUrl)}
                 aria-label="Refresh processes"
               >
                 <RotateCcw />
               </Button>
+            </div>
+          </div>
+        </header>
+        <div className="flex min-h-0 flex-1 flex-col gap-6 lg:flex-row">
+          <Card className="flex min-h-0 flex-1 flex-col">
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle>Processes</CardTitle>
+              <div className="w-max px-2 bg-muted border-1 border-border">
+                {isLoadingProcesses
+                  ? "Loading..."
+                  : `${processes.length} total`}
+              </div>
             </CardHeader>
-            <CardContent className="min-h-0 flex-1 overflow-hidden">
+            <CardContent className="min-h-0 flex-1">
               <ScrollArea className="h-full">
                 <Table>
                   <TableHeader>
@@ -691,16 +691,15 @@ export default function ProcessesView() {
               </ScrollArea>
             </CardContent>
           </Card>
-
-          <aside className="flex w-full min-h-0 flex-col gap-4 overflow-hidden lg:w-[22rem]">
-            <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <aside className="flex w-full min-h-0 flex-col gap-4 lg:w-[22rem]">
+            <Card className="flex min-h-0 flex-1 flex-col">
               <CardHeader>
                 <CardTitle>Process details</CardTitle>
                 <CardDescription>
                   Output and code for the selected process.
                 </CardDescription>
               </CardHeader>
-              <CardContent className="min-h-0 flex-1 overflow-hidden">
+              <CardContent className="min-h-0 flex-1">
                 <ScrollArea className="h-full">
                   <Accordion
                     type="multiple"
@@ -710,85 +709,85 @@ export default function ProcessesView() {
                     <AccordionItem value="code">
                       <AccordionTrigger>Code</AccordionTrigger>
                       <AccordionContent>
-                        <div className="flex items-center justify-end pb-2">
+                        <div className="relative">
                           <Button
                             type="button"
                             variant="ghost"
                             size="sm"
-                            className="gap-2"
+                            className="absolute right-2 top-2 z-10 h-8 w-8 p-0"
                             onClick={() => void handleCopyText(codeContent)}
                           >
                             <Copy />
                           </Button>
+                          <ScrollArea className="h-[160px] border bg-muted/30 p-3 pr-12">
+                            <pre className="whitespace-pre-wrap text-xs font-mono">
+                              {codeContent}
+                            </pre>
+                          </ScrollArea>
                         </div>
-                        <ScrollArea className="h-[160px] rounded-md border bg-muted/30 p-3">
-                          <pre className="whitespace-pre-wrap text-xs font-mono">
-                            {codeContent}
-                          </pre>
-                        </ScrollArea>
                       </AccordionContent>
                     </AccordionItem>
                     <AccordionItem value="output">
                       <AccordionTrigger>Output</AccordionTrigger>
                       <AccordionContent>
-                        <div className="flex items-center justify-end pb-2">
+                        <div className="relative">
                           <Button
                             type="button"
                             variant="ghost"
                             size="sm"
-                            className="gap-2"
+                            className="absolute right-2 top-2 z-10 h-8 w-8 p-0"
                             onClick={() => void handleCopyText(outputContent)}
                           >
                             <Copy />
                           </Button>
+                          <ScrollArea className="h-[160px] border bg-muted/30 p-3 pr-12">
+                            <pre className="whitespace-pre-wrap text-xs font-mono">
+                              {outputContent}
+                            </pre>
+                          </ScrollArea>
                         </div>
-                        <ScrollArea className="h-[160px] rounded-md border bg-muted/30 p-3">
-                          <pre className="whitespace-pre-wrap text-xs font-mono">
-                            {outputContent}
-                          </pre>
-                        </ScrollArea>
                       </AccordionContent>
                     </AccordionItem>
                     <AccordionItem value="stdout">
                       <AccordionTrigger>Stdout</AccordionTrigger>
                       <AccordionContent>
-                        <div className="flex items-center justify-end pb-2">
+                        <div className="relative">
                           <Button
                             type="button"
                             variant="ghost"
                             size="sm"
-                            className="gap-2"
+                            className="absolute right-2 top-2 z-10 h-8 w-8 p-0"
                             onClick={() => void handleCopyText(stdoutContent)}
                           >
                             <Copy />
                           </Button>
+                          <ScrollArea className="h-[160px] border bg-muted/30 p-3 pr-12">
+                            <pre className="whitespace-pre-wrap text-xs font-mono">
+                              {stdoutContent}
+                            </pre>
+                          </ScrollArea>
                         </div>
-                        <ScrollArea className="h-[160px] rounded-md border bg-muted/30 p-3">
-                          <pre className="whitespace-pre-wrap text-xs font-mono">
-                            {stdoutContent}
-                          </pre>
-                        </ScrollArea>
                       </AccordionContent>
                     </AccordionItem>
                     <AccordionItem value="stderr">
                       <AccordionTrigger>Stderr</AccordionTrigger>
                       <AccordionContent>
-                        <div className="flex items-center justify-end pb-2">
+                        <div className="relative">
                           <Button
                             type="button"
                             variant="ghost"
                             size="sm"
-                            className="gap-2"
+                            className="absolute right-2 top-2 z-10 h-8 w-8 p-0"
                             onClick={() => void handleCopyText(stderrContent)}
                           >
                             <Copy />
                           </Button>
+                          <ScrollArea className="h-[160px] border bg-muted/30 p-3 pr-12">
+                            <pre className="whitespace-pre-wrap text-xs font-mono">
+                              {stderrContent}
+                            </pre>
+                          </ScrollArea>
                         </div>
-                        <ScrollArea className="h-[160px] rounded-md border bg-muted/30 p-3">
-                          <pre className="whitespace-pre-wrap text-xs font-mono">
-                            {stderrContent}
-                          </pre>
-                        </ScrollArea>
                       </AccordionContent>
                     </AccordionItem>
                   </Accordion>
