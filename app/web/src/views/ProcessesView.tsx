@@ -258,7 +258,7 @@ export default function ProcessesView() {
 
   const { data: outputData, error: outputError } = useSWR(
     outputKey,
-    (url) => fetchJson(url, z.record(z.unknown())),
+    (url) => fetchJson(url, z.record(z.string(), z.unknown())),
     {
       refreshInterval: 2000,
     },
@@ -546,7 +546,20 @@ export default function ProcessesView() {
                   <SelectItem value="terminating">Terminating</SelectItem>
                 </SelectContent>
               </Select>
-              <Select onValueChange={setStatusFilter} value={statusFilter}>
+              <Select
+                onValueChange={(value) =>
+                  setStatusFilter(
+                    value as
+                      | "all"
+                      | "failed"
+                      | "success"
+                      | "timeout"
+                      | "canceled"
+                      | "null",
+                  )
+                }
+                value={statusFilter}
+              >
                 <SelectTrigger className="w-[170px]">
                   <SelectValue placeholder="Status" />
                 </SelectTrigger>
