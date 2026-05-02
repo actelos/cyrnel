@@ -15,6 +15,8 @@
           buildInputs = [
             pkgs.pnpm
             pkgs.nodejs_24
+            pkgs.uv
+            pkgs.python312
           ];
         };
       }
