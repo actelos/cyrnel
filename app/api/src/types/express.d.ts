@@ -1,5 +1,5 @@
-import type { EnvironmentPoolService } from "@/services/pool.service";
 import type { ManifestService } from "@/services/manifest.service";
+import type { EnvironmentPoolService } from "@/services/pool.service";
 import type { ProcessService } from "@/services/process.service";
 
 declare global {
