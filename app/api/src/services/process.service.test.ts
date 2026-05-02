@@ -186,6 +186,60 @@ describe("ProcessService", () => {
     expect(service.get(pidB).status).toBe("failed");
   });
 
+  it("waitForIdle() resolves after completion", async () => {
+    vi.useFakeTimers();
+
+    try {
+      const executeGate = deferred<ExecutionStatus>();
+      const module = new TestEnvironmentModule(async () => executeGate.promise);
+      const pool = new TestEnvironmentPoolService(
+        () => module as unknown as EnvironmentModule,
+      );
+      const service = new ProcessService(pool);
+
+      const pid = service.create("code");
+      await waitForState(service, pid, "running");
+
+      const waitPromise = service.waitForIdle(pid, 10);
+      let resolved = false;
+      void waitPromise.then(() => {
+        resolved = true;
+      });
+
+      await flush();
+      expect(resolved).toBe(false);
+
+      executeGate.resolve("success");
+      await waitForState(service, pid, "idle");
+      await vi.advanceTimersByTimeAsync(10);
+
+      await expect(waitPromise).resolves.toMatchObject({
+        pid,
+        state: "idle",
+        status: "success",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("waitForIdle() resolves immediately when idle", async () => {
+    const module = new TestEnvironmentModule(async () => "success");
+    const pool = new TestEnvironmentPoolService(
+      () => module as unknown as EnvironmentModule,
+    );
+    const service = new ProcessService(pool);
+
+    const pid = service.create("code");
+    await waitForState(service, pid, "idle");
+
+    await expect(service.waitForIdle(pid, 10)).resolves.toMatchObject({
+      pid,
+      state: "idle",
+      status: "success",
+    });
+  });
+
   it("kill() marks a running process as terminating and invokes module kill", async () => {
     const executeGate = deferred<ExecutionStatus>();
     const kill = vi.fn(async () => {});

@@ -255,6 +255,17 @@ export class ProcessService {
     return stored.process;
   }
 
+  async waitForIdle(pid: number, pollIntervalMs = 100): Promise<Process> {
+    while (true) {
+      const stored = this.getStored(pid);
+      if (stored.process.state === "idle") {
+        return stored.process;
+      }
+
+      await this.sleep(pollIntervalMs);
+    }
+  }
+
   async shutdown(): Promise<void> {
     this.isShuttingDown = true;
 
@@ -321,6 +332,12 @@ export class ProcessService {
     const pid = this.nextId;
     this.nextId += 1;
     return pid;
+  }
+
+  private sleep(durationMs: number): Promise<void> {
+    return new Promise((resolve) => {
+      setTimeout(resolve, durationMs);
+    });
   }
 
   private enqueue(pid: number): void {

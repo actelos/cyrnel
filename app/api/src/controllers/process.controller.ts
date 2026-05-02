@@ -17,6 +17,7 @@ const createProcessBodySchema = z
     code: z
       .string({ error: 'Field "code" must be a string' })
       .or(z.undefined()),
+    block: z.boolean({ error: "Field 'block' must be a boolean." }).optional(),
     ref: z
       .string({ error: "Field 'ref' in body must be a string." })
       .transform((value) => value.trim())
@@ -44,12 +45,14 @@ const createProcessBodySchema = z
   })
   .transform((value) => ({
     code: value.code as string,
+    block: value.block,
     ref: value.ref,
     timeout: value.timeout,
   }));
 
 const forceBodySchema = z.object({
   force: z.boolean({ error: "Field 'force' must be a boolean." }).optional(),
+  block: z.boolean({ error: "Field 'block' must be a boolean." }).optional(),
 });
 
 const stateSchema = z
@@ -118,7 +121,10 @@ export function listProcesses(req: Request, res: Response): void {
   res.status(200).json({ processes });
 }
 
-export function createProcess(req: Request, res: Response): void {
+export async function createProcess(
+  req: Request,
+  res: Response,
+): Promise<void> {
   const processService = getProcessService(req);
   const body = parseOrHttpError(
     createProcessBodySchema,
@@ -127,7 +133,13 @@ export function createProcess(req: Request, res: Response): void {
   );
   const ref = parseRef(body.ref, "body");
   const timeout = parseTimeout(body.timeout);
+  const block = parseBlock(body.block);
   const pid = processService.create(body.code, ref, timeout);
+
+  if (block) {
+    await processService.waitForIdle(pid);
+  }
+
   res.status(201).json({ pid });
 }
 
@@ -186,7 +198,7 @@ export function deleteProcess(req: Request, res: Response): void {
   res.status(200).json(process);
 }
 
-export function runProcess(req: Request, res: Response): void {
+export async function runProcess(req: Request, res: Response): Promise<void> {
   const processService = getProcessService(req);
   const body = parseOrHttpError(
     forceBodySchema,
@@ -194,8 +206,15 @@ export function runProcess(req: Request, res: Response): void {
     "Request body must be an object.",
   );
   const force = parseForce(body.force);
+  const block = parseBlock(body.block);
   const pid = parsePid(req.params.pid);
   const process = processService.run(pid, force);
+
+  if (block) {
+    const completed = await processService.waitForIdle(pid);
+    res.status(200).json(completed);
+    return;
+  }
 
   res.status(200).json(process);
 }
@@ -233,6 +252,17 @@ function parseForce(raw: unknown): boolean {
 
   return parseOrHttpError(
     z.boolean({ error: "Field 'force' must be a boolean." }),
+    raw,
+  );
+}
+
+function parseBlock(raw: unknown): boolean {
+  if (raw === undefined) {
+    return false;
+  }
+
+  return parseOrHttpError(
+    z.boolean({ error: "Field 'block' must be a boolean." }),
     raw,
   );
 }

@@ -11,6 +11,7 @@ const processService = {
   getCode: vi.fn(),
   getStdout: vi.fn(),
   getStderr: vi.fn(),
+  waitForIdle: vi.fn(),
   kill: vi.fn(),
   delete: vi.fn(),
   run: vi.fn(),
@@ -77,23 +78,23 @@ describe("process.controller", () => {
     expect(res.json).toHaveBeenCalledWith({ processes: [{ pid: 1 }] });
   });
 
-  it("rejects invalid create payloads", () => {
+  it("rejects invalid create payloads", async () => {
     const res = makeRes();
     const req = makeReq({ body: {} });
 
-    expect(() => createProcess(req, res as unknown as Response)).toThrow(
-      HttpError,
-    );
+    await expect(
+      createProcess(req, res as unknown as Response),
+    ).rejects.toThrow(HttpError);
   });
 
-  it("creates process with valid body", () => {
+  it("creates process with valid body", async () => {
     const res = makeRes();
     const req = makeReq({
       body: { code: "code", ref: "ref" },
     });
     processService.create.mockReturnValue(42);
 
-    createProcess(req, res as unknown as Response);
+    await createProcess(req, res as unknown as Response);
 
     expect(processService.create).toHaveBeenCalledWith(
       "code",
@@ -104,12 +105,12 @@ describe("process.controller", () => {
     expect(res.json).toHaveBeenCalledWith({ pid: 42 });
   });
 
-  it("accepts create payload without ref", () => {
+  it("accepts create payload without ref", async () => {
     const res = makeRes();
     const req = makeReq({ body: { code: "code" } });
     processService.create.mockReturnValue(7);
 
-    createProcess(req, res as unknown as Response);
+    await createProcess(req, res as unknown as Response);
 
     expect(processService.create).toHaveBeenCalledWith(
       "code",
@@ -120,46 +121,46 @@ describe("process.controller", () => {
     expect(res.json).toHaveBeenCalledWith({ pid: 7 });
   });
 
-  it("creates process with numeric timeout", () => {
+  it("creates process with numeric timeout", async () => {
     const res = makeRes();
     const req = makeReq({ body: { code: "code", timeout: 5000 } });
     processService.create.mockReturnValue(8);
 
-    createProcess(req, res as unknown as Response);
+    await createProcess(req, res as unknown as Response);
 
     expect(processService.create).toHaveBeenCalledWith("code", undefined, 5000);
     expect(res.status).toHaveBeenCalledWith(201);
     expect(res.json).toHaveBeenCalledWith({ pid: 8 });
   });
 
-  it("creates process with null timeout", () => {
+  it("creates process with null timeout", async () => {
     const res = makeRes();
     const req = makeReq({ body: { code: "code", timeout: null } });
     processService.create.mockReturnValue(9);
 
-    createProcess(req, res as unknown as Response);
+    await createProcess(req, res as unknown as Response);
 
     expect(processService.create).toHaveBeenCalledWith("code", undefined, null);
     expect(res.status).toHaveBeenCalledWith(201);
     expect(res.json).toHaveBeenCalledWith({ pid: 9 });
   });
 
-  it("rejects invalid timeout values", () => {
+  it("rejects invalid timeout values", async () => {
     const res = makeRes();
 
-    expect(() =>
+    await expect(
       createProcess(
         makeReq({ body: { code: "code", timeout: 0 } }),
         res as unknown as Response,
       ),
-    ).toThrow(HttpError);
+    ).rejects.toThrow(HttpError);
 
-    expect(() =>
+    await expect(
       createProcess(
         makeReq({ body: { code: "code", timeout: "1000" } }),
         res as unknown as Response,
       ),
-    ).toThrow(HttpError);
+    ).rejects.toThrow(HttpError);
   });
 
   it("gets a process and validates pid", () => {
@@ -204,41 +205,86 @@ describe("process.controller", () => {
     expect(res.send).toHaveBeenCalledWith("err");
   });
 
-  it("runs and kills with body validation", () => {
+  it("blocks on create when requested", async () => {
+    const res = makeRes();
+    const req = makeReq({ body: { code: "code", block: true } });
+    processService.create.mockReturnValue(15);
+    processService.waitForIdle.mockResolvedValue({
+      pid: 15,
+      state: "idle",
+      status: "success",
+    });
+
+    await createProcess(req, res as unknown as Response);
+
+    expect(processService.create).toHaveBeenCalledWith(
+      "code",
+      undefined,
+      undefined,
+    );
+    expect(processService.waitForIdle).toHaveBeenCalledWith(15);
+    expect(res.status).toHaveBeenCalledWith(201);
+    expect(res.json).toHaveBeenCalledWith({ pid: 15 });
+  });
+
+  it("runs and kills with body validation", async () => {
     const res = makeRes();
 
-    expect(() =>
+    await expect(
       runProcess(
         makeReq({ params: { pid: "1" }, body: undefined }),
         res as unknown as Response,
       ),
-    ).toThrow(HttpError);
-    expect(() =>
-      killProcess(
-        makeReq({ params: { pid: "1" }, body: undefined }),
-        res as unknown as Response,
-      ),
+    ).rejects.toThrow(HttpError);
+    expect(
+      () =>
+        void killProcess(
+          makeReq({ params: { pid: "1" }, body: undefined }),
+          res as unknown as Response,
+        ),
     ).toThrow(HttpError);
 
-    expect(() =>
+    await expect(
       runProcess(
         makeReq({ params: { pid: "2" }, body: { force: "yes" } }),
         res as unknown as Response,
       ),
-    ).toThrow(HttpError);
+    ).rejects.toThrow(HttpError);
 
     const runReq = makeReq({
       params: { pid: "3" },
       body: { force: true },
     });
     processService.run.mockReturnValue({ pid: 3 });
-    runProcess(runReq, res as unknown as Response);
+    await runProcess(runReq, res as unknown as Response);
     expect(processService.run).toHaveBeenCalledWith(3, true);
 
     const killReq = makeReq({ params: { pid: "3" }, body: {} });
     processService.kill.mockReturnValue({ pid: 3 });
     killProcess(killReq, res as unknown as Response);
     expect(processService.kill).toHaveBeenCalledWith(3);
+  });
+
+  it("blocks on run when requested", async () => {
+    const res = makeRes();
+    const req = makeReq({ params: { pid: "6" }, body: { block: true } });
+    processService.run.mockReturnValue({ pid: 6, state: "queued" });
+    processService.waitForIdle.mockResolvedValue({
+      pid: 6,
+      state: "idle",
+      status: "success",
+    });
+
+    await runProcess(req, res as unknown as Response);
+
+    expect(processService.run).toHaveBeenCalledWith(6, false);
+    expect(processService.waitForIdle).toHaveBeenCalledWith(6);
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith({
+      pid: 6,
+      state: "idle",
+      status: "success",
+    });
   });
 
   it("deletes a process", () => {
