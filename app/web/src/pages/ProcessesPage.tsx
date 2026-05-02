@@ -2,10 +2,6 @@ import { Copy, Play, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { z } from "zod";
-
-import { cn } from "@/lib/utils";
-import { copyToClipboard } from "@/lib/copy";
-
 import {
   Accordion,
   AccordionContent,
@@ -55,6 +51,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { copyToClipboard } from "@/lib/copy";
+import { cn } from "@/lib/utils";
 
 const processStateSchema = z.enum(["idle", "queued", "running", "terminating"]);
 

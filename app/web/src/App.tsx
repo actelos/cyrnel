@@ -1,23 +1,19 @@
-import {
-  Braces,
-  Check,
-  Copy,
-  Plug,
-  Server,
-  X,
-} from "lucide-react";
+import { Braces, Check, Copy, Plug, Server, X } from "lucide-react";
 import { useState } from "react";
-import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
-
-import { copyToClipboard } from "@/lib/copy";
-
-import LoginPage from "@/pages/LoginPage";
-import ProcessesPage from "@/pages/ProcessesPage";
-import ServicesPage from "@/pages/ServicesPage";
-
+import {
+  Navigate,
+  NavLink,
+  Route,
+  Routes,
+  useLocation,
+} from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { copyToClipboard } from "@/lib/copy";
+import LoginPage from "@/pages/LoginPage";
+import ProcessesPage from "@/pages/ProcessesPage";
+import ServicesPage from "@/pages/ServicesPage";
 
 function App() {
   const location = useLocation();
@@ -56,13 +52,15 @@ function App() {
 
   if (!isAuthenticated) {
     return (
-        <Routes>
-          <Route
-            path="/login"
-            element={<LoginPage onAuthenticated={() => setIsAuthenticated(true)} />}
-          />
-          <Route path="*" element={<Navigate to="/login" replace />} />
-        </Routes>
+      <Routes>
+        <Route
+          path="/login"
+          element={
+            <LoginPage onAuthenticated={() => setIsAuthenticated(true)} />
+          }
+        />
+        <Route path="*" element={<Navigate to="/login" replace />} />
+      </Routes>
     );
   }
 

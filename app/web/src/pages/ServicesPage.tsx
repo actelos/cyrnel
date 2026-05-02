@@ -2,9 +2,6 @@ import { Plus, RotateCcw, Trash2, Wrench } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { z } from "zod";
-
-import { cn } from "@/lib/utils";
-
 import {
   AlertDialog,
   AlertDialogAction,
@@ -32,6 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 
 const metadataSchema = z.record(z.string(), z.unknown());
 
@@ -65,10 +63,7 @@ const toolListSchema = z.object({
 });
 
 const installServiceSchema = z.object({
-  type: z
-    .string()
-    .trim()
-    .min(1, { message: "Type is required." }),
+  type: z.string().trim().min(1, { message: "Type is required." }),
   source: z
     .string()
     .trim()
@@ -336,9 +331,7 @@ export default function ServicesPage() {
       await mutate(servicesUrl);
     } catch (error) {
       setActionError(
-        error instanceof Error
-          ? error.message
-          : "Unable to update tool state.",
+        error instanceof Error ? error.message : "Unable to update tool state.",
       );
     }
   };
@@ -661,9 +654,7 @@ export default function ServicesPage() {
                                     aria-checked={tool.enabled}
                                     className={cn(
                                       "relative inline-flex h-6 w-11 items-center transition",
-                                      tool.enabled
-                                        ? "bg-primary"
-                                        : "bg-muted",
+                                      tool.enabled ? "bg-primary" : "bg-muted",
                                     )}
                                     onClick={() => {
                                       if (!detailService) {
