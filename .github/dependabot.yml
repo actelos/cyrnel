@@ -8,7 +8,7 @@ updates:
     directory: "/app/web"
     schedule:
       interval: "daily"
-  - package-ecosystem: "npm"
+  - package-ecosystem: "pip"
     directory: "/app/mcp"
     schedule:
       interval: "daily"

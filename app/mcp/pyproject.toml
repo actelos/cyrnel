@@ -1,0 +1,10 @@
+[project]
+name = "mci-mcp"
+version = "1.0.0"
+requires-python = ">=3.12"
+dependencies = [
+    "fastmcp>=3.2.4",
+    "httpx>=0.28.1",
+    "mcp>=1.0.0",
+    "uvicorn>=0.46.0",
+]
