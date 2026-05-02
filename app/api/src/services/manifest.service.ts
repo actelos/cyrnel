@@ -500,6 +500,7 @@ export class ManifestService {
 
     return content;
   }
+
   async deleteService(serviceName: string): Promise<void> {
     const normalizedServiceName = normalizeServiceName(serviceName);
 
@@ -1155,37 +1156,11 @@ function assertRegistryAddressAllowed(url: string): void {
       ? hostname.slice(1, -1)
       : hostname;
 
-  if (normalizedHost === "localhost" || normalizedHost.endsWith(".localhost")) {
-    throw new HttpError(
-      502,
-      "Registry URL resolves to a disallowed local address.",
-    );
-  }
-
   if (!ipaddr.isValid(normalizedHost)) {
     return;
   }
 
-  const parsedAddress = ipaddr.process(normalizedHost);
-
-  if (isPrivateOrLocalIp(parsedAddress)) {
-    throw new HttpError(
-      502,
-      "Registry URL resolves to a disallowed local address.",
-    );
-  }
-}
-
-function isPrivateOrLocalIp(address: ipaddr.IPv4 | ipaddr.IPv6): boolean {
-  const range = address.range();
-  return (
-    range === "loopback" ||
-    range === "private" ||
-    range === "linkLocal" ||
-    range === "uniqueLocal" ||
-    range === "unspecified" ||
-    range === "carrierGradeNat"
-  );
+  ipaddr.process(normalizedHost);
 }
 
 async function readBodyAsUtf8WithLimit(

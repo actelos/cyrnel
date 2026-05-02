@@ -308,10 +308,6 @@ function parseInstallServicePayload(rawBody: unknown): ServiceInstallRequest {
   );
 }
 
-function _parseInstallSource(rawSource: unknown): string {
-  return parseOrHttpError(installSourceSchema, rawSource);
-}
-
 function parseEnabled(rawBody: unknown): boolean {
   const parsed = parseOrHttpError(
     enabledBodySchema,

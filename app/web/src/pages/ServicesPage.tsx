@@ -79,8 +79,6 @@ type Service = z.infer<typeof serviceSchema>;
 
 type InstallServiceErrors = Partial<Record<"type" | "source" | "form", string>>;
 
-type Tool = z.infer<typeof toolSchema>;
-
 const apiBase = import.meta.env.VITE_MCI_API_URL ?? "";
 
 const buildUrl = (
@@ -108,46 +106,6 @@ const fetchJson = async <T,>(url: string, schema: z.ZodType<T>) => {
   return schema.parse(data);
 };
 
-const demoServiceName = "demo-service";
-
-const demoToolsSeed: Tool[] = [
-  {
-    name: "demo.echo",
-    description: "Echoes input payload back to the caller.",
-    enabled: true,
-    inputSchema: {
-      type: "object",
-      properties: {
-        message: { type: "string" },
-      },
-      required: ["message"],
-    },
-    outputSchema: {
-      type: "object",
-      properties: {
-        message: { type: "string" },
-      },
-    },
-  },
-  {
-    name: "demo.status",
-    description: "Returns a demo status response.",
-    enabled: false,
-    inputSchema: {
-      type: "object",
-      properties: {
-        status: { type: "string" },
-      },
-    },
-    outputSchema: {
-      type: "object",
-      properties: {
-        ok: { type: "boolean" },
-      },
-    },
-  },
-];
-
 export default function ServicesPage() {
   const { mutate } = useSWRConfig();
   const [queryFilter, setQueryFilter] = useState("");
@@ -166,14 +124,6 @@ export default function ServicesPage() {
   const [deleteCandidate, setDeleteCandidate] = useState<Service | null>(null);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
-
-  const [demoEnabled, setDemoEnabled] = useState(true);
-  const [demoToolsEnabled, setDemoToolsEnabled] = useState(() =>
-    demoToolsSeed.reduce<Record<string, boolean>>((acc, tool) => {
-      acc[tool.name] = tool.enabled;
-      return acc;
-    }, {}),
-  );
 
   const normalizedQuery = queryFilter.trim();
   const enabledParam =
@@ -198,25 +148,8 @@ export default function ServicesPage() {
     refreshInterval: 8000,
   });
 
-  const demoService: Service = useMemo(
-    () => ({
-      name: demoServiceName,
-      type: "demo",
-      source: "https://example.com/demo-service.json",
-      description: "Demo service injected for local UI testing.",
-      hash: "demo",
-      enabled: demoEnabled,
-    }),
-    [demoEnabled],
-  );
-
   const apiServices = serviceList?.services ?? [];
-  const services = useMemo(() => {
-    const filtered = apiServices.filter(
-      (service) => service.name !== demoServiceName,
-    );
-    return [demoService, ...filtered];
-  }, [apiServices, demoService]);
+  const services = useMemo(() => apiServices, [apiServices]);
 
   useEffect(() => {
     if (services.length === 0) {
@@ -238,18 +171,12 @@ export default function ServicesPage() {
     );
   }, [services, selectedServiceName]);
 
-  const isDemoSelected = selectedServiceName === demoServiceName;
-
   const serviceDetailsUrl = selectedServiceName
-    ? isDemoSelected
-      ? null
-      : buildUrl(`/services/${selectedServiceName}`)
+    ? buildUrl(`/services/${selectedServiceName}`)
     : null;
 
   const toolsUrl = selectedServiceName
-    ? isDemoSelected
-      ? null
-      : buildUrl(`/services/${selectedServiceName}/tools`)
+    ? buildUrl(`/services/${selectedServiceName}/tools`)
     : null;
 
   const { data: serviceDetails, error: detailsError } = useSWR(
@@ -268,18 +195,9 @@ export default function ServicesPage() {
     refreshInterval: 8000,
   });
 
-  const demoTools = useMemo(() => {
-    return demoToolsSeed.map((tool) => ({
-      ...tool,
-      enabled: demoToolsEnabled[tool.name] ?? false,
-    }));
-  }, [demoToolsEnabled]);
+  const tools = toolList?.tools ?? [];
 
-  const tools = isDemoSelected ? demoTools : toolList?.tools ?? [];
-
-  const detailService = isDemoSelected
-    ? demoService
-    : serviceDetails ?? selectedService;
+  const detailService = serviceDetails ?? selectedService;
 
   const handleInstallService = async () => {
     setInstallErrors({});
@@ -325,11 +243,6 @@ export default function ServicesPage() {
   };
 
   const handleUpdateService = async (serviceName: string) => {
-    if (serviceName === demoServiceName) {
-      setActionError(null);
-      return;
-    }
-
     setActionError(null);
     setIsUpdating(true);
     try {
@@ -366,11 +279,6 @@ export default function ServicesPage() {
     serviceName: string,
     enabled: boolean,
   ) => {
-    if (serviceName === demoServiceName) {
-      setDemoEnabled(enabled);
-      return;
-    }
-
     setActionError(null);
     try {
       const response = await fetch(
@@ -407,14 +315,6 @@ export default function ServicesPage() {
     toolName: string,
     enabled: boolean,
   ) => {
-    if (serviceName === demoServiceName) {
-      setDemoToolsEnabled((current) => ({
-        ...current,
-        [toolName]: enabled,
-      }));
-      return;
-    }
-
     setActionError(null);
     try {
       const response = await fetch(
@@ -444,11 +344,6 @@ export default function ServicesPage() {
   };
 
   const handleDeleteService = async (serviceName: string) => {
-    if (serviceName === demoServiceName) {
-      setActionError(null);
-      return;
-    }
-
     setActionError(null);
     try {
       const response = await fetch(buildUrl(`/services/${serviceName}`), {
