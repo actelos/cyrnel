@@ -114,10 +114,7 @@ const nonEmptyStringSchema = (errorMessage: string) =>
 const discoverInputSchema = z.object({
   query: z
     .string({ error: "Field 'query' must be a string." })
-    .transform((value) => value.trim())
-    .refine((value) => value.length > 0, {
-      error: "Field 'query' must not be empty.",
-    }),
+    .transform((value) => value.trim()),
   limit: z
     .number({ error: "Field 'limit' must be a positive integer." })
     .int({ error: "Field 'limit' must be a positive integer." })
