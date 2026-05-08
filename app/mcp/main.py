@@ -33,11 +33,8 @@ mcp = FastMCP("mci-api")
 
 
 def _add_optional(params: Dict[str, Any], key: str, value: Any) -> None:
-    if value is None:
-        return
-    if isinstance(value, str) and value == "":
-        return
-    params[key] = value
+    if value is not None:
+        params[key] = value
 
 
 def _add_bool_param(params: Dict[str, Any], key: str, value: Optional[bool]) -> None:
@@ -138,7 +135,7 @@ def create_process(
     You can invoke service tools using the generated `invoke` bindings:
     `invoke.<service>.<tool>(parameters)`
 
-    If you're unsure what to call, discover first. Then invoke.
+    If you’re unsure what to call, discover first. Then invoke.
 
     Use `get_process_output`, `get_process_stdout`, `get_process_stderr`.
 
@@ -156,7 +153,7 @@ def create_process(
     """
     payload: Dict[str, Any] = {"code": code, "block": block}
     _add_optional(payload, "ref", ref)
-    _add_optional(payload, "timeout", timeout * 1000 if timeout is not None else None)
+    _add_optional(payload, "timeout", timeout)
     return _request("POST", "/processes", json=payload, expected_status=201)
 
 
