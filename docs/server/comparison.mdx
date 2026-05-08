@@ -1,0 +1,240 @@
+---
+title: "MCI vs MCP"
+description: "A Deep Comparative Analysis between MCP and MCI"
+---
+
+Modern AI systems are increasingly expected to act in the real world, modifying
+databases, deploying code, controlling hardware, and coordinating with other
+software agents. While large language models (LLMs) excel at reasoning and
+synthesis, they are non-deterministic by nature and were never designed to
+function as trusted execution engines.
+
+Most current integration strategies attempt to bridge this gap by extending the
+model's **context**. These systems describe external tools and APIs to the
+model, then rely on the model to invoke them correctly and safely. While this
+works, it begins to fail under intensive workflows.
+
+## MCP in Context
+
+The Model Context Protocol (MCP) is the standard-bearer of context-extension
+approach. It standardizes how tools and services are provided to a model and
+how models issue structured requests back to those services.
+
+For lightweight, low-risk integration, MCP is often sufficient. However, MCP's
+core assumption-that exposing capabilities through context is a reliable
+control surface-becomes increasingly fragile as systems scale.
+
+## Where Context-Based Control Breaks Down
+
+Relying on context as the primary mechanism for action introduces several
+systemic constraints:
+
+- **Security:** Safety depends on the model interpreting instructions correctly
+  rather than on strictly enforced boundaries.
+- **Cost:** Expenses scale with complexity due to "token inflation" as more
+  tools are described in the prompt.
+- **Reliability:** Systems are limited by non-deterministic behavior and
+  late-stage error detection.
+- **State:** Memory is ephemeral and session-bound, making it prone to
+  "hallucinated" history or context loss.
+- **Speed:** Performance degrades as serialized, blocking requests accumulate.
+
+These are not mere implementation bugs; they are the natural consequences of
+using a probabilistic reasoning system for execution.
+
+## The MCI Reframing
+
+The Model Control Interface (MCI) takes a different position:
+
+> **__Models are excellent at deciding what should be done, but they should not
+> be responsible for doing it.__**
+
+MCI introduces a control-oriented architecture that places deterministic
+systems between model intent and real-world effects. Instead of emitting simple
+tool calls, models emit **executable code** that runs inside a secure,
+sandboxed runtime managed by MCI.
+
+## What MCI Enables
+
+By separating reasoning from execution, MCI enables capabilities that are
+difficult or impractical under context-based protocols:
+
+- **Deterministic Security:** Achieved through sandboxing, strict permissions,
+  and secret isolation.
+- **Long-Running Workflows:** Supports asynchronous tasks without bloating the
+  model's context.
+- **Action Chaining:** Complex tasks are expressed as full programs rather than
+  a series of fragmented, serialized requests.
+- **Persistent State:** State is managed explicitly outside the model, ensuring
+  continuity.
+- **Passive Context:** Event-driven hooks allow the system to respond to
+  changes without constant polling.
+- **Deep Observability:** Structured logging and interceptors allow for total
+  visibility into every action.
+
+These properties make MCI the superior choice for robotics, infrastructure
+automation, security monitoring, and multi-agent collaboration.
+
+Imagine asking your model a simple question:
+
+> “Prep me up for work today”
+
+In an MCI-based system, that question does not trigger a flurry of ad-hoc tool
+calls. Instead, it kicks off a single, structured execution plan.
+
+The model:
+
+> Queries your task system to retrieve today’s tasks.
+> Fetches relevant emails, tickets, and documents associated with each task.
+> Gathers the resources needed to start work (links, context,
+  prior decisions, tickets, drafts a plan).
+> Orders everything into a coherent workflow.
+> Presents it back to you as one unified task narrative, not a dozen
+  disconnected responses.
+
+From the user’s perspective, it feels like asking about work and getting
+work-fully prepared and ready to act.
+
+## Core Architectural Comparison
+
+| Feature | MCP (Model Context Protocol) | MCI (Model Control Interface) |
+| - | - | - |
+| **Core Design**       | **Protocol**: Focuses on how data is exchanged.           | **Runtime**: Focuses on how actions are executed.  |
+| **Control Mechanism** | **Context-driven**: The model interprets and responds.    | **Execution-driven**: The model orchestrates a sandbox.  |
+| **Action Format**     | **Structured Text**: Uses JSON/XML tool calls.            | **Executable Code**: Uses programs running in a sandbox. |
+| **State Management**  | **Stateless**: Reliant on the session context window.     | **Stateful**: State is managed externally and persists.  |
+| **Execution Path**    | **Probabilistic**: Non-deterministic steps.               | **Deterministic**: Guaranteed, code-defined logic.       |
+
+## Practical Comparison
+
+<AccordionGroup>
+  <Accordion title="Agnosticism">
+    ### Problem in MCP
+
+    For a service to work over MCP it must be MCP compliant and follow all the
+    MCP flavored JSON-RPC definition. This requires developers to write
+    servers as code for external services.
+
+    ### MCI Approach
+
+    MCP simple ingests a definition file for the specification and uses a
+    compliant server module to register the service without having a server for
+    each end service.
+  </Accordion>
+  <Accordion title="Deterministic Security and Permission Boundaries">
+    ### Problem in MCP
+
+    MCP exposes capabilities to models via context. Once a tool is described,
+    invocation authority is implicitly granted. There is no first-class notion
+    of permission scopes, least-privilege execution, or enforced separation
+    between intent and capability rather its relies on the host to build a
+    hardened permissions system which varied for every host and is often not
+    the case.
+
+    ### MCI Approach
+
+    MCI externalizes authority. Actions execute inside a sandbox governed by
+    explicit, deterministic permission rules. Requests made by the model are
+    then inspected by interceptors which check permissions, sources and
+    dictates that happens to the request in transit. The model can request
+    actions, but cannot exceed what the sandbox, interceptors, and server
+    modules permit.
+  </Accordion>
+  <Accordion title="Elimination of Context-Based Capability Discovery">
+    ### Problem in MCP
+
+    Capabilities are described and injected into the model's context window. As
+    system complexity grows, tool descriptions compete with conversation
+    history, code, and reasoning for limited context space.
+
+    This creates a failure mode where the model either forgets capabilities or
+    hallucinates them.
+
+    ### MCI Approach
+
+    Capabilities are resolved at startup and compiled into generated, read-only
+    libraries inside the sandbox. The model does not need to remember what
+    exists; it imports what is available and if it doesnt know what to import,
+    it queries them.
+  </Accordion>
+  <Accordion title=" Token Efficiency and Cost Predictability">
+    ### Problem in MCP
+
+    Each interaction re-transmits schemas, arguments, and intermediate results
+    through the model. Token usage scales with system wiring rather than user
+    intent.
+
+    ### MCI Approach
+
+    The model emits a compact code block once. All intermediate computation
+    occurs in the sandbox. Only results and logs are streamed back.
+  </Accordion>
+  <Accordion title="Persistent State Outside the Model">
+    ### Problem in MCP
+
+    State lives in the context window. When it scrolls out, it is lost or
+    hallucinated. Cross-session continuity is unreliable.
+
+    ### MCI Approach
+
+    State is externalized into databases, filesystems, queues, and services
+    managed by MCI. The model accesses state explicitly via code.
+  </Accordion>
+  <Accordion title="Action Chaining and Complex Task Composition">
+    ### Problem in MCP
+
+    Actions are invoked as discrete, serialized requests. Intermediate results
+    must be re-injected into context, inflating tokens and increasing failure
+    risk.
+
+    ### MCI Approach
+
+    Actions are composed directly in code. Models can chain operations, branch
+    logic, loop, and aggregate results within a single execution.
+  </Accordion>
+  <Accordion title="Asynchronous and Non-Blocking Execution">
+    ### Problem in MCP
+
+    From the model's perspective, actions are blocking. Progress is opaque
+    until completion.
+
+    ### MCI Approach
+
+    Actions execute asynchronously in the sandbox. Results and logs stream back
+    while other tasks continue.
+  </Accordion>
+  <Accordion title="Passive Context via Hooks">
+    ### Problem in MCP
+
+    All context must be pulled by the model. External events cannot push
+    information proactively.
+
+    ### MCI Approach
+
+    Hooks allow external systems to inject context reactively: webhooks,
+    sensors, alerts, and scheduled events.
+  </Accordion>
+  <Accordion title="Observability and Interception">
+    ### Problem in MCP
+
+    Logging, auditing, and policy enforcement are not standardized. Each server
+    reinvents these mechanisms.
+
+    ### MCI Approach
+
+    Interceptors act as middleware for every action. Observability is
+    structural.
+  </Accordion>
+</AccordionGroup>
+
+## Why MCP Cannot Evolve into MCI Without Collapsing
+
+MCP's core abstraction is context extension. MCI's core abstraction is
+controlled execution.
+
+Adding permissions, state, observability, async execution, and code-based
+action composition to MCP would require removing its dependence on context as
+the primary control surface. At that point, MCP would no longer be MCP; it
+would be an execution runtime retrofitted onto a text protocol.
+
+This is not an implementation gap but an architectural incompatibility.

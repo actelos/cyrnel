@@ -1,0 +1,2966 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Model Control Interface",
+    "description": "Control and monitor executable units with linting and persistence options.",
+    "version": "1.0.0",
+    "license": {
+      "name": "MIT",
+      "url": "https://opensource.org/license/mit"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://api.example.com/v1",
+      "description": "Dummy server"
+    }
+  ],
+  "tags": [
+    {
+      "name": "process",
+      "description": "Management of executable units"
+    },
+    {
+      "name": "definition",
+      "description": "Management of API definitions"
+    },
+    {
+      "name": "module",
+      "description": "Management of modules"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "mci_auth": {
+        "type": "oauth2",
+        "flows": {
+          "implicit": {
+            "authorizationUrl": "https://auth.example.com/oauth/authorize",
+            "scopes": {
+              "read:processes": "read processes",
+              "write:processes": "modify processes",
+              "read:definitions": "read definitions",
+              "write:definitions": "modify definitions",
+              "read:modules": "read modules",
+              "write:modules": "modify modules"
+            }
+          }
+        }
+      },
+      "clientId": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Client-ID",
+        "description": "Client ID to distinguish between different client applications"
+      },
+      "apiToken": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Token",
+        "description": "API token for service-to-service authentication"
+      }
+    },
+    "schemas": {
+      "Process": {
+        "type": "object",
+        "required": ["code", "environment"],
+        "properties": {
+          "pid": {
+            "type": "integer",
+            "format": "int64",
+            "readOnly": true,
+            "description": "Unique process identifier assigned by the system",
+            "examples": [101, 42, 1337]
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable name for the process",
+            "examples": [
+              "Data ETL Pipeline",
+              "Payment Processor",
+              "Report Generator"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "description": "Detailed description of what this process does",
+            "examples": [
+              "Processes customer data from CSV files and loads into the database",
+              "Handles payment transactions and generates receipts"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "readOnly": true,
+            "enum": ["queued", "running", "completed"],
+            "description": "The current execution state of the process",
+            "examples": ["running", "queued", "completed"]
+          },
+          "exit_state": {
+            "type": ["null", "string"],
+            "readOnly": true,
+            "enum": ["success", "failed", "terminated"],
+            "description": "The final outcome of the process execution. Only present after completion.",
+            "examples": ["success", "failed"]
+          },
+          "code": {
+            "type": "string",
+            "description": "The executable code or script for the process",
+            "examples": ["print('Hello World')", "console.log('Processing...')"]
+          },
+          "environment": {
+            "type": "string",
+            "description": "The runtime environment identifier (e.g., python, node, bash)",
+            "examples": ["python3.11", "node18", "bash"]
+          },
+          "extras": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Additional metadata or configuration key-value pairs",
+            "examples": [
+              {
+                "timeout": "300",
+                "memory_limit": "2GB"
+              }
+            ]
+          },
+          "save": {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether to persist this process for future reference",
+            "examples": [true, false]
+          },
+          "lint": {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether to perform linting/validation on the code before execution",
+            "examples": [true, false]
+          },
+          "run": {
+            "type": "boolean",
+            "default": true,
+            "description": "Whether to immediately execute the process upon creation",
+            "examples": [true, false]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true,
+            "description": "ISO 8601 timestamp when the process was created",
+            "examples": ["2026-02-04T10:30:00Z"]
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true,
+            "description": "ISO 8601 timestamp when the process was last updated",
+            "examples": ["2026-02-04T10:32:15Z", "2026-02-04T11:00:00Z"]
+          },
+          "completed_at": {
+            "type": ["null", "string"],
+            "format": "date-time",
+            "readOnly": true,
+            "description": "ISO 8601 timestamp when the process completed. Null if never completed or currently running.",
+            "examples": ["2026-02-04T10:35:45Z", null]
+          }
+        }
+      },
+      "ProcessUpdate": {
+        "type": "object",
+        "description": "Partial update schema for processes. All fields are optional.",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Human-readable name for the process",
+            "examples": ["Data ETL Pipeline v2"]
+          },
+          "description": {
+            "type": "string",
+            "description": "Detailed description of what this process does",
+            "examples": ["Enhanced pipeline with error handling"]
+          },
+          "code": {
+            "type": "string",
+            "description": "The executable code or script for the process",
+            "examples": ["print('Hello World v2')"]
+          },
+          "environment": {
+            "type": "string",
+            "description": "The runtime environment identifier",
+            "examples": ["python3.12"]
+          },
+          "extras": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Additional metadata or configuration key-value pairs",
+            "examples": [
+              {
+                "timeout": "600"
+              }
+            ]
+          },
+          "save": {
+            "type": "boolean",
+            "description": "Whether to persist this process",
+            "examples": [true]
+          },
+          "lint": {
+            "type": "boolean",
+            "description": "Whether to perform linting/validation",
+            "examples": [false]
+          }
+        }
+      },
+      "Definition": {
+        "type": "object",
+        "required": ["id", "name", "type", "definition_file"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9-_]+$",
+            "description": "Unique identifier slug for the definition (alphanumeric, hyphens, and underscores only)",
+            "examples": ["payment-api-v2", "user-service-v1", "analytics_api"]
+          },
+          "type": {
+            "type": "string",
+            "description": "The definition format or schema type",
+            "examples": ["openapi", "graphql", "asyncapi"]
+          },
+          "is_enabled": {
+            "type": "boolean",
+            "description": "Whether the definition should be initialized and active",
+            "default": false,
+            "examples": [true, false]
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable display name for the definition",
+            "examples": ["Payment Processing API v2", "User Service"]
+          },
+          "description": {
+            "type": "string",
+            "description": "Comprehensive explanation of the definition's purpose and functionality",
+            "examples": [
+              "REST API definition for payment processing with support for credit cards, ACH, and digital wallets"
+            ]
+          },
+          "definition_file": {
+            "type": "string",
+            "format": "binary",
+            "description": "The binary content of the definition file (e.g., OpenAPI YAML/JSON, GraphQL schema)"
+          },
+          "source_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "Original URL where this definition was installed from. Populated automatically for registry-installed definitions. Used by the update endpoint.",
+            "examples": [
+              "https://registry.example.com/api/definitions/payment-api-v2"
+            ]
+          }
+        }
+      },
+      "DefinitionUpdate": {
+        "type": "object",
+        "description": "Partial update schema for definitions. All fields are optional.",
+        "properties": {
+          "is_enabled": {
+            "type": "boolean",
+            "description": "Whether the definition should be initialized and active",
+            "examples": [true, false]
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable display name for the definition",
+            "examples": ["Payment Processing API v2.1"]
+          },
+          "description": {
+            "type": "string",
+            "description": "Comprehensive explanation of the definition's purpose",
+            "examples": ["Updated API with cryptocurrency support"]
+          },
+          "type": {
+            "type": "string",
+            "description": "The definition format or schema type",
+            "examples": ["openapi"]
+          },
+          "definition_file": {
+            "type": "string",
+            "format": "binary",
+            "description": "The binary content of the definition file"
+          }
+        }
+      },
+      "Module": {
+        "type": "object",
+        "required": ["id", "name", "type", "wasm_file"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9-_]+$",
+            "description": "Unique identifier slug for the module (alphanumeric, hyphens, and underscores only)",
+            "examples": ["docker-sandbox-v1", "python_runtime", "auth-proxy"]
+          },
+          "is_enabled": {
+            "type": "boolean",
+            "description": "Whether the module should be initialized and active",
+            "default": false,
+            "examples": [true, false]
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable display name for the module",
+            "examples": ["Docker Sandbox Runtime", "Python 3.11 Runtime"]
+          },
+          "description": {
+            "type": "string",
+            "description": "Comprehensive explanation of the module's functionality and use cases",
+            "examples": [
+              "Isolated Docker-based sandbox environment for executing untrusted code with resource limits and network restrictions"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": ["sandbox", "language", "proxy", "interceptor", "hook"],
+            "description": "The functional category of the module (sandbox=execution environment, language=runtime, proxy=network proxy, interceptor=request interceptor, hook=lifecycle hook)",
+            "examples": ["sandbox", "language", "proxy"]
+          },
+          "wasm_file": {
+            "type": "string",
+            "format": "binary",
+            "description": "The compiled WebAssembly binary file containing the module implementation"
+          },
+          "source_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "Original URL where this module was installed from. Populated automatically for registry-installed modules. Used by the update endpoint.",
+            "examples": [
+              "https://registry.example.com/api/modules/docker-sandbox-v1"
+            ]
+          }
+        }
+      },
+      "ModuleUpdate": {
+        "type": "object",
+        "description": "Partial update schema for modules. All fields are optional.",
+        "properties": {
+          "enable": {
+            "type": "boolean",
+            "description": "Whether the module should be initialized and active",
+            "examples": [true, false]
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable display name for the module",
+            "examples": ["Docker Sandbox Runtime v2"]
+          },
+          "description": {
+            "type": "string",
+            "description": "Comprehensive explanation of the module's functionality",
+            "examples": ["Enhanced sandbox with GPU support"]
+          },
+          "type": {
+            "type": "string",
+            "enum": ["sandbox", "language", "proxy", "interceptor", "hook"],
+            "description": "The functional category of the module",
+            "examples": ["sandbox"]
+          },
+          "wasm_file": {
+            "type": "string",
+            "format": "binary",
+            "description": "The compiled WebAssembly binary file"
+          }
+        }
+      },
+      "InstallRequest": {
+        "type": "object",
+        "required": ["url"],
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "description": "Direct URL to the API endpoint that returns the complete definition or module data (including metadata and files)",
+            "examples": [
+              "https://registry.example.com/api/definitions/payment-api-v2",
+              "https://registry.company.com/modules/docker-sandbox-v1"
+            ]
+          }
+        }
+      },
+      "Configuration": {
+        "type": "object",
+        "description": "Runtime configuration key-value pairs for a module or definition. Maximum 100 properties allowed.",
+        "additionalProperties": {
+          "type": "string"
+        },
+        "examples": [
+          {
+            "log_level": "debug",
+            "max_connections": "50",
+            "timeout": "30"
+          },
+          {
+            "cache_enabled": "true",
+            "retry_attempts": "3"
+          }
+        ],
+        "maxProperties": 100
+      },
+      "Secret": {
+        "type": "object",
+        "description": "Write-only secrets for modules and definitions. Secret keys should follow the pattern: uppercase letters, numbers, and underscores. Values are write-only and cannot be retrieved.",
+        "additionalProperties": {
+          "type": "string",
+          "writeOnly": true
+        },
+        "examples": [
+          {
+            "API_KEY": "*******************",
+            "DB_PASSWORD": "*******************",
+            "OAUTH_SECRET": "*******************"
+          }
+        ],
+        "maxProperties": 100
+      },
+      "SignalRequest": {
+        "type": "object",
+        "required": ["signal"],
+        "properties": {
+          "signal": {
+            "type": "string",
+            "enum": ["kill", "start", "restart", "instantiate"],
+            "description": "Lifecycle control signal: kill, start, restart, initialize without starting",
+            "examples": ["restart", "start", "kill"]
+          }
+        }
+      },
+      "LogResponse": {
+        "type": "object",
+        "properties": {
+          "stdout": {
+            "type": "string",
+            "description": "Standard output from the process execution",
+            "examples": ["Processing 1000 records...\nCompleted successfully"]
+          },
+          "stderr": {
+            "type": "string",
+            "description": "Standard error output from the process execution",
+            "examples": ["Warning: Deprecated API usage detected"]
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO 8601 timestamp when the logs were captured",
+            "examples": ["2026-02-04T10:35:30Z"]
+          }
+        }
+      },
+      "ProcessOutput": {
+        "type": "object",
+        "description": "Dynamic output object from process execution. Structure varies based on process implementation.",
+        "additionalProperties": true,
+        "examples": [
+          {
+            "result": "success",
+            "records_processed": 1000,
+            "duration_ms": 4523,
+            "output_file": "/data/output.csv"
+          }
+        ]
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "Short error type or category",
+            "examples": [
+              "Conflict",
+              "NotFound",
+              "ValidationError",
+              "NotInstantiable"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "description": "Human-readable error message explaining what went wrong",
+            "examples": [
+              "Cannot delete a process while it is in the 'running' state.",
+              "This definition does not support instantiation.",
+              "This module cannot be instantiated directly."
+            ]
+          },
+          "details": {
+            "type": "object",
+            "description": "Additional structured error details or context",
+            "additionalProperties": true,
+            "examples": [
+              {
+                "process_id": 101,
+                "current_status": "running"
+              },
+              {
+                "supported_signals": ["kill", "restart"],
+                "unsupported_signal": "instantiate"
+              }
+            ]
+          }
+        }
+      },
+      "PaginatedProcessList": {
+        "type": "object",
+        "required": ["data", "total", "limit", "offset"],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Process"
+            },
+            "description": "Array of process objects"
+          },
+          "total": {
+            "type": "integer",
+            "description": "Total number of processes matching the filter criteria",
+            "examples": [245]
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of results returned in this response",
+            "examples": [50]
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Number of results skipped",
+            "examples": [0, 50]
+          }
+        }
+      },
+      "PaginatedDefinitionList": {
+        "type": "object",
+        "required": ["data", "total", "limit", "offset"],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Definition"
+            },
+            "description": "Array of definition objects"
+          },
+          "total": {
+            "type": "integer",
+            "description": "Total number of definitions matching the filter criteria",
+            "examples": [42]
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of results returned",
+            "examples": [50]
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Number of results skipped",
+            "examples": [0]
+          }
+        }
+      },
+      "PaginatedModuleList": {
+        "type": "object",
+        "required": ["data", "total", "limit", "offset"],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Module"
+            },
+            "description": "Array of module objects"
+          },
+          "total": {
+            "type": "integer",
+            "description": "Total number of modules matching the filter criteria",
+            "examples": [18]
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of results returned",
+            "examples": [50]
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Number of results skipped",
+            "examples": [0]
+          }
+        }
+      }
+    },
+    "responses": {
+      "UnauthorizedError": {
+        "description": "Authentication credentials are missing or invalid",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "examples": {
+              "missing_auth": {
+                "value": {
+                  "error": "Unauthorized",
+                  "message": "Authentication required. Please provide valid credentials.",
+                  "details": {}
+                }
+              }
+            }
+          }
+        }
+      },
+      "ForbiddenError": {
+        "description": "The authenticated user does not have permission to perform this action",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "examples": {
+              "insufficient_permissions": {
+                "value": {
+                  "error": "Forbidden",
+                  "message": "You do not have permission to access this resource.",
+                  "details": {
+                    "required_scope": "write:processes"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "InternalServerError": {
+        "description": "An unexpected error occurred on the server",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "examples": {
+              "server_error": {
+                "value": {
+                  "error": "InternalServerError",
+                  "message": "An unexpected error occurred. Please try again later.",
+                  "details": {
+                    "request_id": "req_abc123"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "security": [
+    {
+      "mci_auth": [],
+      "clientId": []
+    },
+    {
+      "apiToken": [],
+      "clientId": []
+    }
+  ],
+  "paths": {
+    "/processes": {
+      "get": {
+        "tags": ["process"],
+        "summary": "List all processes",
+        "description": "Retrieve a paginated list of processes with optional filtering by status, environment, dates, and search query. Supports sorting and pagination.",
+        "parameters": [
+          {
+            "name": "query",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Search query to filter processes by name, description, or ID (partial match, case-insensitive)",
+            "examples": {
+              "etl": {
+                "value": "ETL pipeline",
+                "summary": "Search for ETL processes"
+              }
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": ["queued", "running", "complete"]
+            },
+            "description": "Filter processes by current execution status",
+            "examples": {
+              "running": {
+                "value": "running",
+                "summary": "Only running processes"
+              }
+            }
+          },
+          {
+            "name": "exit_state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": ["success", "failed", "terminated"]
+            },
+            "description": "Filter processes by their final execution outcome",
+            "examples": {
+              "success": {
+                "value": "success",
+                "summary": "Only successful processes"
+              }
+            }
+          },
+          {
+            "name": "environment",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter processes by runtime environment",
+            "examples": {
+              "python": {
+                "value": "python3.11",
+                "summary": "Python 3.11 processes"
+              }
+            }
+          },
+          {
+            "name": "created_after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "Filter processes created after this ISO 8601 timestamp (inclusive)",
+            "examples": {
+              "feb_first": {
+                "value": "2026-02-01T00:00:00Z",
+                "summary": "After February 1st"
+              }
+            }
+          },
+          {
+            "name": "created_before",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "Filter processes created before this ISO 8601 timestamp (inclusive)",
+            "examples": {
+              "feb_fourth": {
+                "value": "2026-02-04T23:59:59Z",
+                "summary": "Before February 4th end of day"
+              }
+            }
+          },
+          {
+            "name": "completed_after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "Filter processes completed after this ISO 8601 timestamp (inclusive)",
+            "examples": {
+              "feb_third": {
+                "value": "2026-02-03T00:00:00Z"
+              }
+            }
+          },
+          {
+            "name": "completed_before",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "Filter processes completed before this ISO 8601 timestamp (inclusive)",
+            "examples": {
+              "feb_fourth": {
+                "value": "2026-02-04T23:59:59Z"
+              }
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "minimum": 1,
+              "maximum": 100
+            },
+            "description": "Maximum number of results to return per page",
+            "examples": {
+              "max": {
+                "value": 100,
+                "summary": "Maximum allowed"
+              }
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 0,
+              "minimum": 0
+            },
+            "description": "Number of results to skip (for pagination). Use with limit to paginate through results.",
+            "examples": {
+              "page_two": {
+                "value": 50,
+                "summary": "Second page (with limit=50)"
+              }
+            }
+          },
+          {
+            "name": "sort_by",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": ["created_at", "completed_at", "name", "pid"],
+              "default": "created_at"
+            },
+            "description": "Field to sort results by",
+            "examples": {
+              "created": {
+                "value": "created_at",
+                "summary": "Sort by creation time"
+              }
+            }
+          },
+          {
+            "name": "sort_order",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": ["asc", "desc"],
+              "default": "desc"
+            },
+            "description": "Sort direction - ascending (oldest/lowest first) or descending (newest/highest first)",
+            "examples": {
+              "desc": {
+                "value": "desc",
+                "summary": "Newest first"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A paginated list of processes matching the filter criteria.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedProcessList"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      },
+      "post": {
+        "tags": ["process"],
+        "summary": "Create and optionally run a process",
+        "description": "Create a new process with the provided code and configuration. Optionally lint and/or execute immediately.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Process"
+              }
+            }
+          },
+          "description": "Process configuration including code, environment, and execution options"
+        },
+        "responses": {
+          "201": {
+            "description": "Process created and initiated successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Process"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Linting or validation failure. The code contains errors.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/processes/{pid}": {
+      "get": {
+        "tags": ["process"],
+        "summary": "Get process details",
+        "description": "Retrieve complete information about a specific process including its current state, metadata, and timestamps.",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "The unique process identifier",
+            "examples": {
+              "standard": {
+                "value": 101,
+                "summary": "Standard process ID"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Process details retrieved successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Process"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Process not found with the specified PID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      },
+      "delete": {
+        "tags": ["process"],
+        "summary": "Delete process",
+        "description": "Permanently delete a process. Cannot delete a running process - it must be terminated first.",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "The unique process identifier",
+            "examples": {
+              "standard": {
+                "value": 101
+              }
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Process deleted successfully."
+          },
+          "404": {
+            "description": "Process not found with the specified PID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict: Cannot delete a process that is currently running.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      },
+      "patch": {
+        "tags": ["process"],
+        "summary": "Update process",
+        "description": "Partially update an existing process. Only provided fields will be updated. Cannot modify a running process.",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "The unique process identifier",
+            "examples": {
+              "standard": {
+                "value": 101
+              }
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProcessUpdate"
+              }
+            }
+          },
+          "description": "Fields to update (all optional)"
+        },
+        "responses": {
+          "200": {
+            "description": "Process updated successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Process"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Process not found with the specified PID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict: Cannot modify a process that is currently running.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/processes/{pid}/logs": {
+      "get": {
+        "tags": ["process"],
+        "summary": "Get process execution logs",
+        "description": "Retrieve the stdout, stderr, and timestamp for a process's execution logs.",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "The unique process identifier",
+            "examples": {
+              "standard": {
+                "value": 101
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Logs retrieved successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Process not found with the specified PID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/processes/{pid}/output": {
+      "get": {
+        "tags": ["process"],
+        "summary": "Get process output data",
+        "description": "Retrieve the structured output data produced by the process (not execution logs). The structure is dynamic and depends on the process implementation. May support streaming in future versions.",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "description": "The unique process identifier",
+            "examples": {
+              "standard": {
+                "value": 101
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Process output retrieved successfully. Structure varies by process.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProcessOutput"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Process not found with the specified PID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/processes/{pid}/signal": {
+      "post": {
+        "tags": ["process"],
+        "summary": "Send a signal to a process",
+        "description": "Send control signals to manage process lifecycle (kill, start, instantiate, restart).",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "The unique process identifier",
+            "examples": {
+              "standard": {
+                "value": 101
+              }
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["signal"],
+                "properties": {
+                  "signal": {
+                    "type": "string",
+                    "enum": ["kill", "startup", "instantiate", "restart"],
+                    "description": "Control signal: kill (terminate), startup (start execution), instantiate (initialize without running), restart (stop and start)",
+                    "examples": ["restart", "kill", "start"]
+                  }
+                }
+              }
+            }
+          },
+          "description": "Signal to send to the process"
+        },
+        "responses": {
+          "200": {
+            "description": "Signal sent successfully and process responded."
+          },
+          "404": {
+            "description": "Process not found with the specified PID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/definitions": {
+      "get": {
+        "tags": ["definition"],
+        "summary": "List all definitions",
+        "description": "Retrieve a paginated list of API definitions with optional filtering by type and search query. Supports sorting and pagination.",
+        "parameters": [
+          {
+            "name": "query",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Search query to filter definitions by ID, name, or description (partial match, case-insensitive)",
+            "examples": {
+              "payment": {
+                "value": "payment api",
+                "summary": "Search for payment-related definitions"
+              }
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter definitions by definition format/type",
+            "examples": {
+              "openapi": {
+                "value": "openapi",
+                "summary": "OpenAPI definitions only"
+              }
+            }
+          },
+          {
+            "name": "is_enabled",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            },
+            "description": "Filter by enabled definitions",
+            "examples": {
+              "enabled": {
+                "value": false,
+                "summary": "Only disabled definitions"
+              }
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "minimum": 1,
+              "maximum": 100
+            },
+            "description": "Maximum number of results to return per page",
+            "examples": {
+              "small": {
+                "value": 25
+              }
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 0,
+              "minimum": 0
+            },
+            "description": "Number of results to skip (for pagination)",
+            "examples": {
+              "start": {
+                "value": 0
+              }
+            }
+          },
+          {
+            "name": "sort_by",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": ["id", "name", "type"],
+              "default": "name"
+            },
+            "description": "Field to sort results by",
+            "examples": {
+              "name": {
+                "value": "name"
+              }
+            }
+          },
+          {
+            "name": "sort_order",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": ["asc", "desc"],
+              "default": "asc"
+            },
+            "description": "Sort direction - ascending or descending",
+            "examples": {
+              "asc": {
+                "value": "asc"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A paginated list of definitions matching the filter criteria.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedDefinitionList"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      },
+      "post": {
+        "tags": ["definition"],
+        "summary": "Create a new definition",
+        "description": "Upload and register a new API definition with metadata and definition file.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Definition"
+              },
+              "encoding": {
+                "definition_file": {
+                  "contentType": "application/octet-stream"
+                }
+              }
+            }
+          },
+          "description": "Definition metadata and definition file"
+        },
+        "responses": {
+          "201": {
+            "description": "Definition created successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Definition"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request. Check the definition format and required fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Definition with this ID already exists. Use a different ID or update the existing definition.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/definitions/{id}": {
+      "get": {
+        "tags": ["definition"],
+        "summary": "Get definition details",
+        "description": "Retrieve complete metadata and definition file content for a specific definition.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The unique definition identifier",
+            "examples": {
+              "payment": {
+                "value": "payment-api-v2",
+                "summary": "Payment API definition"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Definition retrieved successfully including metadata and definition file.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Definition"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Definition not found with the specified ID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      },
+      "delete": {
+        "tags": ["definition"],
+        "summary": "Delete definition",
+        "description": "Permanently delete a definition. Cannot delete if currently in use by active processes.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The unique definition identifier",
+            "examples": {
+              "payment": {
+                "value": "payment-api-v2"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Definition deleted successfully."
+          },
+          "404": {
+            "description": "Definition not found with the specified ID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Cannot delete definition because it is currently in use by one or more processes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      },
+      "patch": {
+        "tags": ["definition"],
+        "summary": "Update definition",
+        "description": "Partially update an existing definition. Only provided fields will be updated.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The unique definition identifier",
+            "examples": {
+              "payment": {
+                "value": "payment-api-v2"
+              }
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/DefinitionUpdate"
+              },
+              "encoding": {
+                "definition_file": {
+                  "contentType": "application/octet-stream"
+                }
+              }
+            }
+          },
+          "description": "Fields to update (all optional)"
+        },
+        "responses": {
+          "200": {
+            "description": "Definition updated successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Definition"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request. Check the update payload format.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Definition not found with the specified ID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/definitions/{id}/configuration": {
+      "get": {
+        "tags": ["definition"],
+        "summary": "Get definition configuration",
+        "description": "Retrieve the current runtime configuration key-value pairs for a definition.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The unique definition identifier",
+            "examples": {
+              "payment": {
+                "value": "payment-api-v2"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Configuration retrieved successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Configuration"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Definition not found with the specified ID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      },
+      "delete": {
+        "tags": ["definition"],
+        "summary": "Reset definition configuration",
+        "description": "Reset the configuration to system defaults. All custom configuration values will be removed.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The unique definition identifier",
+            "examples": {
+              "payment": {
+                "value": "payment-api-v2"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Configuration reset successfully."
+          },
+          "404": {
+            "description": "Definition not found with the specified ID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      },
+      "patch": {
+        "tags": ["definition"],
+        "summary": "Update definition configuration",
+        "description": "Update or override runtime configuration values. This is a partial update - only provided keys are modified. Existing keys not included in the request remain unchanged.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The unique definition identifier",
+            "examples": {
+              "payment": {
+                "value": "payment-api-v2"
+              }
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Configuration"
+              }
+            }
+          },
+          "description": "Configuration key-value pairs to update"
+        },
+        "responses": {
+          "200": {
+            "description": "Configuration updated successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Configuration"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Definition not found with the specified ID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/definitions/{id}/secrets": {
+      "post": {
+        "tags": ["definition"],
+        "summary": "Write definition secrets",
+        "description": "Store or update secrets for a definition. Secrets are write-only and cannot be retrieved via the API. This operation overwrites existing secrets with the same keys.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The unique definition identifier",
+            "examples": {
+              "payment": {
+                "value": "payment-api-v2"
+              }
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Secret"
+              }
+            }
+          },
+          "description": "Secret key-value pairs to store (write-only)"
+        },
+        "responses": {
+          "204": {
+            "description": "Secrets stored successfully. No response body is returned."
+          },
+          "404": {
+            "description": "Definition not found with the specified ID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      },
+      "delete": {
+        "tags": ["definition"],
+        "summary": "Delete all definition secrets",
+        "description": "Permanently delete all stored secrets for this definition. This action cannot be undone.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The unique definition identifier",
+            "examples": {
+              "payment": {
+                "value": "payment-api-v2"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "All secrets deleted successfully."
+          },
+          "404": {
+            "description": "Definition not found with the specified ID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/definitions/{id}/update": {
+      "post": {
+        "tags": ["definition"],
+        "summary": "Update definition from source",
+        "description": "Automatically fetch and update the definition from its original source_url. Only works for registry-installed definitions that have a source_url.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The unique definition identifier",
+            "examples": {
+              "payment": {
+                "value": "payment-api-v2"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Definition updated successfully from source URL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Definition"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Definition does not have a source_url. Only registry-installed definitions can use this endpoint.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Definition not found with the specified ID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Failed to fetch updated definition from source URL. The remote server may be unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/definitions/install": {
+      "post": {
+        "tags": ["definition"],
+        "summary": "Install definition from registry",
+        "description": "Download and install a definition from a registry URL. The URL should point to an API endpoint that returns the complete definition data.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InstallRequest"
+              }
+            }
+          },
+          "description": "Registry URL containing the definition data"
+        },
+        "responses": {
+          "201": {
+            "description": "Definition installed successfully from registry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Definition"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request or validation failure. The fetched definition may be malformed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Definition with this ID already exists. Remove the existing definition first or use a different ID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Failed to fetch definition from the provided URL. Check the URL and network connectivity.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/modules": {
+      "get": {
+        "tags": ["module"],
+        "summary": "List all modules",
+        "description": "Retrieve a paginated list of WASM modules with optional filtering by type and search query. Supports sorting and pagination.",
+        "parameters": [
+          {
+            "name": "query",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Search query to filter modules by ID, name, or description (partial match, case-insensitive)",
+            "examples": {
+              "docker": {
+                "value": "docker sandbox",
+                "summary": "Search for Docker-related modules"
+              }
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": ["sandbox", "language", "proxy", "interceptor", "hook"]
+            },
+            "description": "Filter modules by functional category",
+            "examples": {
+              "sandbox": {
+                "value": "sandbox",
+                "summary": "Sandbox modules only"
+              }
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "minimum": 1,
+              "maximum": 100
+            },
+            "description": "Maximum number of results to return per page",
+            "examples": {
+              "small": {
+                "value": 25
+              }
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 0,
+              "minimum": 0
+            },
+            "description": "Number of results to skip (for pagination)",
+            "examples": {
+              "start": {
+                "value": 0
+              }
+            }
+          },
+          {
+            "name": "sort_by",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": ["id", "name", "type"],
+              "default": "name"
+            },
+            "description": "Field to sort results by",
+            "examples": {
+              "name": {
+                "value": "name"
+              }
+            }
+          },
+          {
+            "name": "sort_order",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": ["asc", "desc"],
+              "default": "asc"
+            },
+            "description": "Sort direction - ascending or descending",
+            "examples": {
+              "asc": {
+                "value": "asc"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A paginated list of modules matching the filter criteria.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedModuleList"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      },
+      "post": {
+        "tags": ["module"],
+        "summary": "Create a new module",
+        "description": "Upload and register a new WASM module with metadata and compiled binary file.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Module"
+              },
+              "encoding": {
+                "wasm_file": {
+                  "contentType": "application/wasm"
+                }
+              }
+            }
+          },
+          "description": "Module metadata and WASM binary file"
+        },
+        "responses": {
+          "201": {
+            "description": "Module created successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Module"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request. Check the module format and required fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Module with this ID already exists. Use a different ID or update the existing module.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/modules/{id}": {
+      "get": {
+        "tags": ["module"],
+        "summary": "Get module details",
+        "description": "Retrieve complete metadata and WASM binary content for a specific module.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The unique module identifier",
+            "examples": {
+              "docker": {
+                "value": "docker-sandbox-v1",
+                "summary": "Docker sandbox module"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Module retrieved successfully including metadata and WASM file.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Module"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Module not found with the specified ID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      },
+      "delete": {
+        "tags": ["module"],
+        "summary": "Delete module",
+        "description": "Permanently delete a module. Cannot delete if currently in use by active processes.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The unique module identifier",
+            "examples": {
+              "docker": {
+                "value": "docker-sandbox-v1"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Module deleted successfully."
+          },
+          "404": {
+            "description": "Module not found with the specified ID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Cannot delete module because it is currently in use by one or more processes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      },
+      "patch": {
+        "tags": ["module"],
+        "summary": "Update module",
+        "description": "Partially update an existing module. Only provided fields will be updated.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The unique module identifier",
+            "examples": {
+              "docker": {
+                "value": "docker-sandbox-v1"
+              }
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/ModuleUpdate"
+              },
+              "encoding": {
+                "wasm_file": {
+                  "contentType": "application/wasm"
+                }
+              }
+            }
+          },
+          "description": "Fields to update (all optional)"
+        },
+        "responses": {
+          "200": {
+            "description": "Module updated successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Module"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request. Check the update payload format.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Module not found with the specified ID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/modules/{id}/configuration": {
+      "get": {
+        "tags": ["module"],
+        "summary": "Get module configuration",
+        "description": "Retrieve the current runtime configuration key-value pairs for a module.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The unique module identifier",
+            "examples": {
+              "docker": {
+                "value": "docker-sandbox-v1"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Configuration retrieved successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Configuration"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Module not found with the specified ID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      },
+      "delete": {
+        "tags": ["module"],
+        "summary": "Reset module configuration",
+        "description": "Reset the configuration to system defaults. All custom configuration values will be removed.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The unique module identifier",
+            "examples": {
+              "docker": {
+                "value": "docker-sandbox-v1"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Configuration reset successfully."
+          },
+          "404": {
+            "description": "Module not found with the specified ID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      },
+      "patch": {
+        "tags": ["module"],
+        "summary": "Update module configuration",
+        "description": "Update or override runtime configuration values. This is a partial update - only provided keys are modified. Existing keys not included in the request remain unchanged.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The unique module identifier",
+            "examples": {
+              "docker": {
+                "value": "docker-sandbox-v1"
+              }
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Configuration"
+              }
+            }
+          },
+          "description": "Configuration key-value pairs to update"
+        },
+        "responses": {
+          "200": {
+            "description": "Configuration updated successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Configuration"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Module not found with the specified ID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/modules/{id}/secrets": {
+      "post": {
+        "tags": ["module"],
+        "summary": "Write module secrets",
+        "description": "Store or update secrets for a module. Secrets are write-only and cannot be retrieved via the API. This operation overwrites existing secrets with the same keys.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The unique module identifier",
+            "examples": {
+              "docker": {
+                "value": "docker-sandbox-v1"
+              }
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Secret"
+              }
+            }
+          },
+          "description": "Secret key-value pairs to store (write-only)"
+        },
+        "responses": {
+          "204": {
+            "description": "Secrets stored successfully. No response body is returned."
+          },
+          "404": {
+            "description": "Module not found with the specified ID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      },
+      "delete": {
+        "tags": ["module"],
+        "summary": "Delete all module secrets",
+        "description": "Permanently delete all stored secrets for this module. This action cannot be undone.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The unique module identifier",
+            "examples": {
+              "docker": {
+                "value": "docker-sandbox-v1"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "All secrets deleted successfully."
+          },
+          "404": {
+            "description": "Module not found with the specified ID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/modules/{id}/signal": {
+      "post": {
+        "tags": ["module"],
+        "summary": "Send signal to module",
+        "description": "Send lifecycle control signals to a module (kill, startup, restart, instantiate). Note: Not all modules support all signals - particularly instantiate may not be available.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The unique module identifier",
+            "examples": {
+              "docker": {
+                "value": "docker-sandbox-v1"
+              }
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignalRequest"
+              }
+            }
+          },
+          "description": "Signal to send to the module"
+        },
+        "responses": {
+          "200": {
+            "description": "Signal handled successfully and module responded."
+          },
+          "404": {
+            "description": "Module not found with the specified ID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Module does not support the requested signal. For example, this module may not be instantiable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_instantiable": {
+                    "value": {
+                      "error": "NotInstantiable",
+                      "message": "This module cannot be instantiated directly.",
+                      "details": {
+                        "module_id": "docker-sandbox-v1",
+                        "supported_signals": ["kill", "startup", "restart"],
+                        "unsupported_signal": "instantiate"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/modules/{id}/update": {
+      "post": {
+        "tags": ["module"],
+        "summary": "Update module from source",
+        "description": "Automatically fetch and update the module from its original source_url. Only works for registry-installed modules that have a source_url.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The unique module identifier",
+            "examples": {
+              "docker": {
+                "value": "docker-sandbox-v1"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Module updated successfully from source URL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Module"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Module does not have a source_url. Only registry-installed modules can use this endpoint.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Module not found with the specified ID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Failed to fetch updated module from source URL. The remote server may be unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/modules/install": {
+      "post": {
+        "tags": ["module"],
+        "summary": "Install module from registry",
+        "description": "Download and install a module from a registry URL. The URL should point to an API endpoint that returns the complete module data.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InstallRequest"
+              }
+            }
+          },
+          "description": "Registry URL containing the module data"
+        },
+        "responses": {
+          "201": {
+            "description": "Module installed successfully from registry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Module"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request or validation failure. The fetched module may be malformed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Module with this ID already exists. Remove the existing module first or use a different ID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Failed to fetch module from the provided URL. Check the URL and network connectivity.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    }
+  }
+}

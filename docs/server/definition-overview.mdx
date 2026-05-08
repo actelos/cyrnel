@@ -1,0 +1,181 @@
+---
+title: "Overview"
+description: "What definitions are and what they are used for?"
+---
+
+API definition is aimed at machine consumption of APIs. An API definition
+provides information about how the API functions, how it links with other
+APIs, and the expected results in a machine-readable format. It focuses on
+defining the API and outlining the structure of the API.
+
+Examples of different types of API definitions are `OpenAPI`, `AsyncAPI` and
+`OpenRPC`.
+
+
+<CodeGroup>
+```yaml openapi.yaml
+openapi: 3.0.3
+info:
+  title: Simple Calculator REST API
+  version: 1.0.0
+
+paths:
+  /add:
+    post:
+      summary: Add two numbers
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                a:
+                  type: number
+                b:
+                  type: number
+              required: [a, b]
+      responses:
+        "200":
+          description: Result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  result:
+                    type: number
+
+  /subtract:
+    post:
+      summary: Subtract two numbers
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                a:
+                  type: number
+                b:
+                  type: number
+              required: [a, b]
+      responses:
+        "200":
+          description: Result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  result:
+                    type: number
+```
+
+```json openrpc.json
+{
+  "openrpc": "1.2.6",
+  "info": {
+    "title": "Simple Calculator RPC",
+    "version": "1.0.0"
+  },
+  "methods": [
+    {
+      "name": "add",
+      "summary": "Add two numbers",
+      "params": [
+        { "name": "a", "schema": { "type": "number" } },
+        { "name": "b", "schema": { "type": "number" } }
+      ],
+      "result": {
+        "name": "result",
+        "schema": { "type": "number" }
+      }
+    },
+    {
+      "name": "subtract",
+      "summary": "Subtract two numbers",
+      "params": [
+        { "name": "a", "schema": { "type": "number" } },
+        { "name": "b", "schema": { "type": "number" } }
+      ],
+      "result": {
+        "name": "result",
+        "schema": { "type": "number" }
+      }
+    }
+  ]
+}
+```
+
+```yaml asyncapi.yaml
+asyncapi: 2.6.0
+info:
+  title: Simple Calculator API
+  version: 1.0.0
+
+channels:
+  calculator/request:
+    publish:
+      message:
+        name: CalculationRequest
+        payload:
+          type: object
+          properties:
+            operation:
+              type: string
+              enum: [add, subtract]
+            a:
+              type: number
+            b:
+              type: number
+          required: [operation, a, b]
+
+  calculator/response:
+    subscribe:
+      message:
+        name: CalculationResult
+        payload:
+          type: object
+          properties:
+            result:
+              type: number
+```
+</CodeGroup>
+
+For MCI, these API definitions act as a manual to which it can use to
+facilitate communication with the external service.
+
+## How It Works
+
+1. **Routing:** MCI examines the definition's metadata to determine which proxy
+  module can process it (e.g., an OpenAPI definition routes to an REST proxy).
+
+2. **Translation:** The proxy module parses the definition into a structured
+  data model containing:
+    - Available requests and their parameters
+    - Request/response schemas and types
+    - Server configuration options
+    - Authentication requirements and secret keys
+
+3. **Activation:** MCI passes this structured data to active language modules,
+  which generate runtime libraries tailored to each supported language.
+  Simultaneously, MCI exposes configuration options and secrets through a UI
+  for users to complete.
+
+## Why Definitions Over MCP's Approach?
+
+Model Context Protocol (MCP) requires servers to be built specifically for MCP,
+using its SDK to expose tools, resources, and prompts. Each integration demands
+custom development. MCI's definition-driven approach offers distinct
+advantages:
+
+| **Aspect** | **MCP Approach** | **MCI Definition Approach** |
+| - | - | - |
+| **Integration effort**    | Build custom MCP server per service            | Drop in existing OpenAPI/AsyncAPI/etc. definition |
+| **Adoption barrier**      | New protocol to learn and implement            | Uses industry-standard formats already maintained by API providers |
+| **Ecosystem coverage**    | Limited to services with dedicated MCP servers | Immediate access to millions of existing APIs with published specs |
+| **Maintenance burden**    | Update custom code when APIs change            | Regenerate libraries automatically when definitions update |
+| **Developer flexibility** | Constrained by MCP's specific patterns         | Proxy modules adapt to diverse protocols (REST, GraphQL, gRPC, messaging) |
+| **Vendor independence**   | Tied to MCP specification evolution            | Decoupled—definitions are protocol-agnostic standards |

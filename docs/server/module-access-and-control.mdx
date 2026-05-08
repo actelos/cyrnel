@@ -1,0 +1,113 @@
+---
+title: "Module Management"
+description: "Accessing and interacting with modules"
+description: "Understanding module lifecycle, configuration, and deployment"
+---
+
+Modules are WebAssembly-based components that extend MCI functionality. They
+provide execution environments, language runtimes, network proxies, request
+interceptors, and lifecycle hooks. Manage modules through the endpoints
+described below.
+
+## Module Lifecycle
+
+### Creating and Installing
+
+Modules can be created from local WASM binaries or installed from remote
+registries:
+
+- **[Create a new module](/api-reference/module/create-a-new-module)** - Upload
+  and register a new WASM module with metadata and compiled binary
+- **[Install from registry](/api-reference/module/install-module-from-registry)** -
+  Download and install a module from a registry URL
+
+### Retrieving Module Information
+
+Inspect registered modules and their metadata:
+
+- **[List all modules](/api-reference/module/list-all-modules)** - Query
+  modules with filtering and pagination support
+- **[Get module details](/api-reference/module/get-module-details)** - Retrieve
+  complete metadata and WASM binary content for a specific module
+
+### Modifying and Removing
+
+Update module properties or remove them entirely:
+
+- **[Update module](/api-reference/module/update-module)** - Partially update
+  module fields (name, description, type, enable status, or WASM binary)
+- **[Delete module](/api-reference/module/delete-module)** - Permanently remove
+  a module
+
+<Danger>
+  **Active Process Protection**
+
+  You cannot delete a module currently in use by active processes. This
+  operation returns a conflict error if attempted while processes reference the
+  module.
+
+  **Safe workflow:**
+
+  1. Disable the module
+  2. Perform the deletion
+
+  This prevents runtime failures in dependent processes.
+</Danger>
+
+## Registry Management
+
+Modules installed from registries maintain their source URL for automatic
+updates:
+
+- **[Update module from source](/api-reference/module/update-module-from-source)** -
+  Automatically fetch and update the module from its original source URL
+
+This endpoint only works for registry-installed modules that have a populated
+source_url field.
+
+## Runtime Control
+
+Send control signals to manage module lifecycle:
+
+| Signal | Action |
+| - | - |
+| `start` | Begin module initialization |
+| `restart` | Stop and reinitialize |
+| `kill` | Terminate the module |
+| `instantiate` | Initialize without starting (not supported by all modules) |
+
+**Endpoint:** [Send signal to module](/api-reference/module/send-signal-to-module)
+
+## Configuration Management
+
+Modules accept runtime configuration through key-value pairs. Manage these
+independently of the module binary:
+
+### Retrieving and Modifying
+
+- **[Get module configuration](/api-reference/module/get-module-configuration)** -
+  Retrieve current runtime configuration key-value pairs
+- **[Update module configuration](/api-reference/module/update-module-configuration)** -
+  Update or override specific configuration values (partial update)
+- **[Reset module configuration](/api-reference/module/reset-module-configuration)** -
+  Reset configuration to system defaults, removing all custom values
+
+Configuration updates are partial - only provided keys are modified. Existing
+keys not included remain unchanged. Maximum 100 properties allowed per module.
+
+## Secrets Management
+
+Store sensitive data for module use. Secrets are write-only and cannot be
+retrieved via the API:
+
+- **[Write module secrets](/api-reference/module/write-module-secrets)** -
+  Store or update secrets (overwrites existing keys with same names)
+- **[Delete all module secrets](/api-reference/module/delete-all-module-secrets)** -
+  Permanently remove all stored secrets
+
+<Warning>
+  **Write-Only Access**
+
+  Secrets cannot be read back through the API. Ensure you maintain copies of
+  secret values outside the system for recovery purposes.
+</Warning>

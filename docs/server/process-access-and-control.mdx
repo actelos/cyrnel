@@ -1,0 +1,100 @@
+---
+title: "Access & Control"
+description: "Understanding process lifecycle management"
+---
+
+Processes remain accessible throughout their entire lifecycle. Query state,
+retrieve execution data, and control behavior through the dedicated endpoints
+described below.
+
+### Creation
+
+To create a process, a client must make request to the following endpoint:
+
+**Endpoint:** [Update process](/api-reference/process/create-and-optionally-run-a-process)
+
+## Retrieving Process Information
+
+Use the following endpoints to inspect processes:
+
+- **[List all processes](/api-reference/process/list-all-processes)** - Query
+  processes with filtering and pagination support
+- **[Get process details](/api-reference/process/get-process-details)** -
+  Retrieve complete information for a specific process
+
+These endpoints enable auditing execution history, monitoring active processes,
+and analyzing outcomes across environments.
+
+## Execution Artifacts
+
+Process execution produces two distinct data types, accessed through separate
+endpoints:
+
+### Logs
+
+Diagnostic traces including stdout, stderr, and timestamps. Use logs for
+debugging, troubleshooting, and auditing.
+
+**Endpoint:**
+[Get process execution logs](/api-reference/process/get-process-execution-logs)
+
+### Output
+
+Structured result data produced by the process. The format depends on the
+process implementation. Use output to retrieve computation results, processed
+data, or generated reports.
+
+**Endpoint:**
+[Get process output data](/api-reference/process/get-process-output-data)
+
+Keeping logs separate from output ensures diagnostic traces do not mix with
+meaningful result data.
+
+## Lifecycle Control
+
+Send control signals to manage process execution:
+
+| Signal | Action |
+| - | - |
+| `startup` | Begin execution |
+| `restart` | Stop and start again |
+| `kill` | Terminate execution |
+| `instantiate` | Initialize a new process without running |
+
+**Endpoint:**
+[Send a signal to a process](/api-reference/process/send-a-signal-to-a-process)
+
+Signals control runtime behavior without changing the process definition.
+
+## Modification and Deletion
+
+### Partial Updates
+
+Modify specific process fields without replacing the entire definition. Only
+provided fields are changed; all others remain unchanged.
+
+**Endpoint:** [Update process](/api-reference/process/update-process)
+
+### Deletion
+
+Permanently remove a process and all associated data.
+
+**Endpoint:** [Delete process](/api-reference/process/delete-process)
+
+<Danger>
+  **State Protection**
+
+  You cannot modify or delete a running process. These operations return a
+  conflict error if attempted while the process is running.
+
+  **Why:** Changing or removing a running process would corrupt execution state
+  and produce inconsistent results.
+
+  **Safe workflow:**
+
+  1. Send the `kill` signal to stop execution
+  2. Wait for the process to complete
+  3. Perform your modification or deletion
+
+  This ensures execution integrity and prevents state corruption.
+</Danger>

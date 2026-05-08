@@ -1,0 +1,165 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Model Control Interface",
+  "colors": {
+    "primary": "#a995c9",
+    "light": "#8a79ab",
+    "dark": "#a995c9"
+  },
+  "favicon": "/favicon.svg",
+  "navigation": {
+    "anchors": [
+      {
+        "anchor": "Documentation",
+        "icon": "book-open",
+        "tabs": [
+          {
+            "tab": "Documentation",
+            "groups": [
+              {
+                "group": "Overview",
+                "pages": [
+                  "server/introduction",
+                  "server/faq",
+                  "server/comparison"
+                ]
+              },
+              {
+                "group": "About MCI",
+                "pages": [
+                  "server/architecture",
+                  "server/transport"
+                ]
+              },
+              {
+                "group": "Processes",
+                "pages": [
+                  "server/process-overview",
+                  "server/process-access-and-control"
+                ]
+              },
+              {
+                "group": "Modules",
+                "pages": [
+                  "server/module-overview",
+                  "server/module-access-and-control",
+                  {
+                    "group": "Interceptor Modules",
+                    "pages": []
+                  },
+                  {
+                    "group": "Hook Modules",
+                    "pages": []
+                  },
+                  {
+                    "group": "Sandbox Modules",
+                    "pages": []
+                  },
+                  {
+                    "group": "Language Modules",
+                    "pages": []
+                  },
+                  {
+                    "group": "Proxy Modules",
+                    "pages": []
+                  }
+                ]
+              },
+              {
+                "group": "Definitions",
+                "pages": [
+                  "server/definition-overview",
+                  "server/definition-lifecycle",
+                  "server/definition-access-and-control"
+                ]
+              },
+              {
+                "group": "Request Flow",
+                "pages": [
+                  "definitions"
+                ]
+              }
+            ]
+          },
+          {
+            "tab": "API Reference",
+            "versions": [
+              {
+                "version": "1.0.0",
+                "default": true,
+                "openapi": "https://modelcontrolinterface.mintlify.app/openapi.json"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "anchor": "Module",
+        "icon": "cubes"
+      },
+      {
+        "anchor": "Definitions",
+        "icon": "file-code"
+      }
+    ]
+  },
+  "logo": {
+    "light": "/logo/light.svg",
+    "dark": "/logo/dark.svg",
+    "href": "/"
+  },
+  "navbar": {
+    "links": []
+  },
+  "contextual": {
+    "options": [
+      "copy",
+      "view",
+      "chatgpt",
+      "claude",
+      "perplexity",
+      "mcp",
+      "cursor",
+      "vscode"
+    ]
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/modelcontrolinterface"
+    }
+  },
+  "description": "MCI (Model Control Interface) is an open-source network of software that enables fast, reliable, secure, and efficient integration between LLM applications and external services.",
+  "seo": {
+    "indexing": "all"
+  },
+  "metadata": {
+    "timestamp": true
+  },
+  "interaction": {
+    "drilldown": true
+  },
+  "api": {
+    "playground": {
+      "display": "interactive"
+    },
+    "openapi": "/openapi.json"
+  },
+  "background": {
+    "decoration": "grid",
+    "color": {
+      "light": "#f8f7fa",
+      "dark": "#1a1823"
+    }
+  },
+  "appearance": {
+    "default": "system"
+  },
+  "styling": {
+    "latex": true,
+    "eyebrows": "breadcrumbs"
+  },
+  "icons": {
+    "library": "lucide"
+  }
+}

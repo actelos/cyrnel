@@ -1,0 +1,72 @@
+---
+title: "Frequently Asked Questions"
+description: "Frequent questions about MCI"
+---
+
+<AccordionGroup>
+  <Accordion title="What is MCI actually providing?">
+    Among others, MCI provides:
+
+    - **Efficiency:** MCI is built on researched and proven concepts, our
+      methodology assures effective token usage, cutting down costs, preventing
+      context bloat and making interactions faster.
+
+      - [MCP code execution](https://www.anthropic.com/engineering/code-execution-with-mcp)
+      - [MCP tool search](https://platform.claude.com/docs/en/agents-and-tools/tool-use/tool-search-tool)
+
+    - **Agnosticism:** MCI is an open-source, **protocol-agnostic** system.
+      It does not only work over a specific standard but allows the model to
+      make requests to servers and services over any protocol with any standard
+      from anywhere.
+
+    - **Availability:** Since MCI is a system of software with platform
+      agnosticism. It is guaranteed to work with any platform being serverless,
+      IoT or on clusters.
+
+    - **Observability:** With MCI interceptors, users and administrators are
+      assured built in extensive tool call observability.
+
+    - **Security and Permissions:** Again with MCI interceptors, users can add
+      permissions modules that provide system wide granular tool call security.
+
+    - **Better Developer Experience:** In order to make an existing service
+      usable on MCI you don't need to write any code. **All** you need to do is
+      write a specification file like `OpenAPI` among other definitions.
+  </Accordion>
+  <Accordion title="What does the “code” look like?">
+    MCI doesn't force a proprietary language (DSL) on you. It uses **language
+    modules** that translate definitions into standard libraries.
+
+    This means models can write tasks in Python, JavaScript, or any language
+    the runtime supports.
+  </Accordion>
+  <Accordion title="What makes MCI more secure and observable?">
+    MCI utilizes **interceptor modules** that function like middleware. These
+    modules can inspect every dispatch made by the code to block, redirect, or
+    log actions. For example, a Permissions Interceptor can cross-reference an
+    action against a security policy before execution.
+  </Accordion>
+  <Accordion title="Is MCI execution stateful?">
+    Yes. While MCP relies on the model’s limited context window to "remember"
+    state, MCI shifts state management to the code and the runtime. This keeps
+    the model's context clear and makes tool interactions significantly more
+    reliable.
+  </Accordion>
+  <Accordion title="Does this mean I cant use MCP?">
+    MCI being agnostic means you can use it along side existing MCP servers
+    without any overhead. However, nothing prevents you from skipping the MCP
+    server middleman and plugging directly to endpoints.
+  </Accordion>
+  <Accordion title="Why not just extend MCP to do this?">
+    MCP is a communication standard. Incorporating these features would require
+    redefining its core principles, likely breaking existing implementations.
+    While third-party wrappers could add *some* of this functionality to MCP,
+    they cannot match the native security and efficiency of a purpose-built
+    control interface.
+  </Accordion>
+  <Accordion title="Is MCI opinionated about hosting or deployment?">
+    No. MCI is infrastructure-neutral. Whether you are running on-prem, in the
+    cloud, or on embedded devices, MCI is compatible as long as the host
+    environment can enforce the execution contract.
+  </Accordion>
+</AccordionGroup>

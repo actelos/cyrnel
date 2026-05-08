@@ -1,0 +1,43 @@
+---
+title: "Overview"
+description: "An overview of MCI processes"
+---
+
+A process is the fundamental unit of execution in MCI. It represents a single,
+explicit request for the server to execute a body of code under a defined set
+of constraints-encompassing execution environment, timeouts, permissions,
+resource limits, and other metadata that ensures safe and deterministic
+execution.
+
+## How Processes Work
+
+1. **Generation**: A model produces code that interacts with external tools
+2. **Packaging**: The client extracts the generated code and bundles it with
+  execution metadata (environment selection, timeout values, resource limits)
+3. **Execution**: The client sends a `POST` request to `/processes`, the server
+  creates a new process with a unique Process ID (PID), and executes the code
+  within the declared constraints
+4. **Completion**: The server returns outputs, logs, and execution state upon
+  completion or failure
+
+### Session bound processes
+
+All processes initialized are session bound by default, this means, from moment
+a session is creates, is persists at real-time and as long as the MCI server
+instance is online, these processes will continue to exists.
+
+This allows clients to run processes and re-run them in instances where they
+failed, conditions changes or additional context is provided without using much
+output tokens and bulky requests. It also allows past processes to be modified
+and run as different instances in different conditions.
+
+### Routines processes
+
+The model or user may want a process to exist for long periods of
+times and maybe over multiple sessions. These special processes are called
+**routines**. When saved, the process code becomes reusable, allowing models to
+trigger the same logic from other processes and pass data between them.
+
+Think of routines as executable `SKILLS.md`: the model constructs modular
+processes that can be invoked across different contexts, enabling composable,
+repeatable workflows.

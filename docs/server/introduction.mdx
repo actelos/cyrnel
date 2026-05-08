@@ -1,0 +1,55 @@
+---
+title: "What is The Model Control Interface (MCI)?"
+description: "An overview of what MCI is and what problems it solves"
+sidebarTitle: "What is MCI?"
+---
+
+**MCI (Model Control Interface)** is an open-source ecosystem of software that enables **fast**, **reliable**, **secure**, and **efficient** integration between LLM applications and external services.
+
+MCI is an interface that lets users plug in any service over any protocol with any standard and have models use it efficiently at low cost.
+
+Rather than a USB-C for AI applications, think of MCI as a modular docking station. Instead of expecting all devices to use USB-C ports, we have one powerful docking station that can connect to any port and communicate with any service. If your port isn't on the existing docking station, just make an extension for it.
+
+<Warning>
+  **MCI is not MCP**
+
+  While both MCP and MCI enable LLMs to interact with external systems, they operate on fundamentally different principles.
+</Warning>
+
+## Why MCI?
+
+MCI and MCP both aim to enable AI to interact with external systems and services, but they approach the problem in fundamentally different ways.
+
+MCP is a **standard** with a custom protocol that aims to be **the** standard for AI applications communicating with services. This means any service that wants to offer an MCP server must implement the MCP protocol and standard, even if a similar server already exists over another protocol.
+
+MCI, on the other hand, is neither a standard nor a new protocol... It's software that sits between the AI application and any external service, regardless of which protocol or standard that service uses. This shifts the heavy lifting from the user or developer to us.
+
+Beyond core principles, MCI has many advantages and differences compared to MCP. A few of them are as follows:
+
+- **Code Execution Model** Instead of writing tool calls, with MCI models write code to perform actions, cutting down tokens and allowing models to perform very long, complex tasks asynchronously and even indefinitely.
+- **Passive Context Injection via Hooks** MCI has hooks that allow context to be injected into the model passively, without explicit prompting or manual orchestration.
+- **Built-in Observability Through Interceptors** MCI has built-in observability with interceptors, which act as middleware for every action executed by the model.
+- **Progressive Composition Without Context Saturation** MCI is progressive and allows infinite services to be wired to a single model without the model facing throttling or rapid, unexpected behaviors due to context overload.
+
+## What does MCI enable
+
+- MCI can be used in robotics to have a robot run an asynchronous background action to walk to an object while the model observes its environment.
+- In security, MCI can power an AI-enabled CCTV camera to scan specific points over time while the AI analyzes each frame of footage.
+- MCI can query multiple data sources and databases simultaneously, selecting specific fields and filtering them with expressions to create a pool of results for the model to analyze.
+- MCI enables multiple AIs to collaborate in a single codebase, each assigned tickets and tasks to complete. They receive GitHub hook notifications when others push changes, allowing them to handle merge conflicts when pushing to the same repository.
+- MCI can control your everyday devices and services like music, streaming, finances, education, and time management.
+
+## The Vision & Philosophy
+
+We intend to create the optimal interface that seamlessly connects artificial intelligence with the real world, enabling AI systems to interact with any service, device, or platform, empowering a future where intelligent agents can understand, act upon, and transform the world with us.
+
+## Design Principles
+
+- **Reliability:** MCI must behave predictably under all conditions, ensuring actions either complete correctly or fail safely with clear observability.
+- **Fast & Efficient:** The system minimizes latency, token usage, and resource overhead, enabling long-running and complex tasks without unnecessary cost.
+- **Open:** MCI is open-source and extensible, encouraging community contributions, transparency, and vendor-neutral adoption.
+- **Security:** All interactions are designed with strong isolation, permission boundaries, and secure execution to prevent unintended or unsafe actions.
+- **Privacy:** User data and model context are handled intentionally, with fine-grained control over what is shared, stored, or exposed.
+- **Modular & Scalable:** Services, protocols, and capabilities can be added, removed, or extended independently, allowing MCI to scale from small projects to large systems.
+- **Easy to Set Up & Use:** MCI prioritizes sensible defaults, clear configuration, and fast on-boarding so users can go from zero to working quickly.
+- **Model & Language Agnostic:** MCI does not assume a specific LLM, programming language, or runtime, allowing any model or stack to participate equally.

@@ -1,0 +1,85 @@
+---
+title: "Overview"
+description: "An top-level description of modules and their role in MCI"
+---
+
+MCI (Modular Computing Interface) is, at its core, a server and runtime
+manager. It accepts connections from clients attempting to execute tasks-but
+without modules, it cannot interpret instructions, manage dispatches, or
+communicate with external services.
+
+Modules make MCI truly *modular*. They extend your instance to support
+different instruction languages, connect to new protocols and standards, manage
+permissions, and more.
+
+## Types of Modules
+
+Modules serve specialized functions across five categories:
+
+| **Module Type** | **Primary Function** |
+| - | - |
+| **Sandbox**     | Provides a secure, isolated environment (container, VM, or shell) where scripts execute. Mounts a shared directory for code and dependencies. |
+| **Proxy**       | Acts as a reverse proxy for communicating with external services using specific protocols and standards such as `REST`, `GraphQL`, or `gRPC`. |
+| **Interceptor** | Middleware that sits between scripts and services. Handles logging, security filtering, request modification, and other cross-cutting concerns. |
+| **Language**    | Generates language-specific libraries that models use to execute actions within sandboxes and send dispatches back to the MCI server. |
+| **Hook**        | Event-driven peripherals that expose servers for external notifications (e.g., GitHub webhooks) to trigger model actions. |
+
+### Sandbox Modules
+
+Sandboxes provide isolated environments for code execution-whether
+Docker/Podman containers, online execution platforms, Nix shells, or local
+environments.
+
+A functional sandbox must satisfy three requirements:
+
+1. **Code Execution**: The environment must include all necessary tools and
+  dependencies to run the target code.
+
+2. **Directory Mounting**: The sandbox must mount a read-only directory
+  containing generated code and libraries. MCI, working with language modules,
+  prepares this directory, which can be mounted via the host filesystem or
+  Network File System (NFS).
+
+3. **MCI Communication**: The sandbox requires a lightweight client to send
+  requests and receive responses from MCI during action dispatches.
+
+When code executes, it communicates back to MCI, requiring network access.
+Sandboxes should restrict network traffic **exclusively** to the configured MCI
+server address.
+
+### Proxy Modules
+
+Each proxy module enables communication over specific protocols with defined
+definition. For example, a proxy might handle `REST` endpoints over `HTTP`.
+
+Proxy modules must implement two capabilities:
+
+1. **Proxy Instantiation**: Expose a function allowing MCI to create proxy
+  instances. Each proxy acts as a client-server hybrid that transforms MCI
+  calls into appropriate requests for target servers.
+
+2. **Definition Translation**: Ingest specification files (e.g., `OpenAPI`)
+  and return structured data describing available requests, expected responses,
+  and schemas. This structure enables generation of language-specific library
+  bindings.
+
+## Interceptor Modules
+
+Interceptors inspect and modify outgoing requests and incoming responses. They
+enable request logging, permission enforcement, request redirection, and
+on-the-fly modifications during transit.
+
+### Language Modules
+
+Language modules generate the libraries that models use to perform actions.
+They consume definition data from proxy translations and convert it into
+language-specific bindings. MCI manages these libraries as files that sandbox
+modules reference during execution. Before running code, MCI injects the
+appropriate library, enabling dispatches back to the MCI server.
+
+### Hook Modules
+
+Hook modules are event servers. When loaded, they start a server on a
+configured address and wait for external requests such as webhooks. Upon
+receiving a request, the server forwards the data to subscribed clients for
+processing.
