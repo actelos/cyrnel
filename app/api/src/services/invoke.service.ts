@@ -4,7 +4,7 @@ import { z } from "zod";
 import { logger } from "@/logger";
 import type { InvokeRequest, InvokeResponse } from "@/models/invoke.model";
 import type { JSONSchema } from "@/models/manifest.model";
-import type { AdapterModule } from "@/modules/adapter.module";
+import type { AdapterPoolService } from "@/services/adapter-pool.service";
 import { ManifestService } from "@/services/manifest.service";
 
 const invokeMessageSchema = z.object({
@@ -28,7 +28,7 @@ interface ProcessMessageSystemOptions {
 let hasWarnedMissingChannelSend = false;
 
 export function createProcessMessageSystem(
-  adapterModule: AdapterModule,
+  adapterPoolService: Pick<AdapterPoolService, "allocate" | "release">,
   channel: ProcessMessageChannel = process,
   options: ProcessMessageSystemOptions = {},
 ): () => void {
@@ -44,7 +44,7 @@ export function createProcessMessageSystem(
 
   const onMessage = (message: unknown) => {
     void handleInvokeMessage(
-      adapterModule,
+      adapterPoolService,
       channel,
       manifestService,
       validator,
@@ -60,7 +60,7 @@ export function createProcessMessageSystem(
 }
 
 async function handleInvokeMessage(
-  adapterModule: AdapterModule,
+  adapterPoolService: Pick<AdapterPoolService, "allocate" | "release">,
   channel: ProcessMessageChannel,
   manifestService: Pick<ManifestService, "getTool">,
   validator: SchemaValidator,
@@ -94,14 +94,18 @@ async function handleInvokeMessage(
       `Invalid invoke parameters for tool '${message.toolName}'.`,
     );
 
-    const output = await adapterModule.invoke(
-      message.toolName,
-      message.parameters,
-      {
+    const adapter = adapterPoolService.allocate();
+
+    let output: unknown;
+
+    try {
+      output = await adapter.invoke(message.toolName, message.parameters, {
         serviceMetadata: tool.serviceMetadata,
         toolMetadata: tool.tool.metadata,
-      },
-    );
+      });
+    } finally {
+      adapterPoolService.release(adapter);
+    }
 
     validator.validate(
       tool.tool.outputSchema,

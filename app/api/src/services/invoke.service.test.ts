@@ -6,7 +6,7 @@ import type {
   InvokeResponse,
   ResolvedToolInvocation,
 } from "@/models/invoke.model";
-import { AdapterModule } from "@/modules/adapter.module";
+import { AdapterPoolService } from "@/services/adapter-pool.service";
 import {
   createProcessMessageSystem,
   type ProcessMessageChannel,
@@ -74,16 +74,15 @@ describe("invoke.service", () => {
   });
 
   it("handles invoke.tool and sends invoke.response", async () => {
-    const adapter = new AdapterModule({
-      baseUrl: "http://127.0.0.1:9999",
-      fetchImpl: vi.fn<typeof fetch>(),
-    });
+    const adapterPool = new AdapterPoolService();
+    const adapter = adapterPool.allocate();
     const invokeSpy = vi.spyOn(adapter, "invoke");
+    adapterPool.release(adapter);
     invokeSpy.mockResolvedValueOnce("hello world");
     const channel = new TestProcessChannel();
     const manifestService = new TestManifestService([permissiveTool]);
 
-    createProcessMessageSystem(adapter, channel, { manifestService });
+    createProcessMessageSystem(adapterPool, channel, { manifestService });
 
     channel.emit("message", {
       type: "invoke.tool",
@@ -113,15 +112,14 @@ describe("invoke.service", () => {
   });
 
   it("ignores invalid process messages", async () => {
-    const adapter = new AdapterModule({
-      baseUrl: "http://127.0.0.1:9999",
-      fetchImpl: vi.fn<typeof fetch>(),
-    });
+    const adapterPool = new AdapterPoolService();
+    const adapter = adapterPool.allocate();
     const invokeSpy = vi.spyOn(adapter, "invoke");
+    adapterPool.release(adapter);
     const channel = new TestProcessChannel();
     const manifestService = new TestManifestService([permissiveTool]);
 
-    createProcessMessageSystem(adapter, channel, { manifestService });
+    createProcessMessageSystem(adapterPool, channel, { manifestService });
 
     channel.emit("message", { type: "unknown" });
     channel.emit("message", null);
@@ -140,16 +138,16 @@ describe("invoke.service", () => {
   });
 
   it("sends invoke.error when invoke throws", async () => {
-    const adapter = new AdapterModule({
-      baseUrl: "http://127.0.0.1:9999",
-      fetchImpl: vi.fn<typeof fetch>(),
-    });
+    const adapterPool = new AdapterPoolService();
+    const adapter = adapterPool.allocate();
     const channel = new TestProcessChannel();
     const manifestService = new TestManifestService([permissiveTool]);
 
     vi.spyOn(adapter, "invoke").mockRejectedValueOnce(new Error("boom"));
 
-    createProcessMessageSystem(adapter, channel, { manifestService });
+    adapterPool.release(adapter);
+
+    createProcessMessageSystem(adapterPool, channel, { manifestService });
 
     channel.emit("message", {
       type: "invoke.tool",
@@ -171,11 +169,10 @@ describe("invoke.service", () => {
   });
 
   it("sends invoke.error when input parameters do not match schema", async () => {
-    const adapter = new AdapterModule({
-      baseUrl: "http://127.0.0.1:9999",
-      fetchImpl: vi.fn<typeof fetch>(),
-    });
+    const adapterPool = new AdapterPoolService();
+    const adapter = adapterPool.allocate();
     const invokeSpy = vi.spyOn(adapter, "invoke");
+    adapterPool.release(adapter);
     const channel = new TestProcessChannel();
     const manifestService = new TestManifestService([
       {
@@ -204,7 +201,7 @@ describe("invoke.service", () => {
       },
     ]);
 
-    createProcessMessageSystem(adapter, channel, { manifestService });
+    createProcessMessageSystem(adapterPool, channel, { manifestService });
 
     channel.emit("message", {
       type: "invoke.tool",
@@ -225,10 +222,8 @@ describe("invoke.service", () => {
   });
 
   it("sends invoke.error when adapter output does not match schema", async () => {
-    const adapter = new AdapterModule({
-      baseUrl: "http://127.0.0.1:9999",
-      fetchImpl: vi.fn<typeof fetch>(),
-    });
+    const adapterPool = new AdapterPoolService();
+    const adapter = adapterPool.allocate();
     const channel = new TestProcessChannel();
     const manifestService = new TestManifestService([
       {
@@ -253,8 +248,9 @@ describe("invoke.service", () => {
     ]);
 
     vi.spyOn(adapter, "invoke").mockResolvedValueOnce(42 as never);
+    adapterPool.release(adapter);
 
-    createProcessMessageSystem(adapter, channel, { manifestService });
+    createProcessMessageSystem(adapterPool, channel, { manifestService });
 
     channel.emit("message", {
       type: "invoke.tool",
@@ -274,11 +270,10 @@ describe("invoke.service", () => {
   });
 
   it("sends invoke.error when tool is disabled", async () => {
-    const adapter = new AdapterModule({
-      baseUrl: "http://127.0.0.1:9999",
-      fetchImpl: vi.fn<typeof fetch>(),
-    });
+    const adapterPool = new AdapterPoolService();
+    const adapter = adapterPool.allocate();
     const invokeSpy = vi.spyOn(adapter, "invoke");
+    adapterPool.release(adapter);
     const channel = new TestProcessChannel();
     const manifestService = new TestManifestService([
       {
@@ -290,7 +285,7 @@ describe("invoke.service", () => {
       },
     ]);
 
-    createProcessMessageSystem(adapter, channel, { manifestService });
+    createProcessMessageSystem(adapterPool, channel, { manifestService });
 
     channel.emit("message", {
       type: "invoke.tool",
@@ -314,11 +309,10 @@ describe("invoke.service", () => {
   });
 
   it("sends invoke.error when service is disabled", async () => {
-    const adapter = new AdapterModule({
-      baseUrl: "http://127.0.0.1:9999",
-      fetchImpl: vi.fn<typeof fetch>(),
-    });
+    const adapterPool = new AdapterPoolService();
+    const adapter = adapterPool.allocate();
     const invokeSpy = vi.spyOn(adapter, "invoke");
+    adapterPool.release(adapter);
     const channel = new TestProcessChannel();
     const manifestService = new TestManifestService([
       {
@@ -327,7 +321,7 @@ describe("invoke.service", () => {
       },
     ]);
 
-    createProcessMessageSystem(adapter, channel, { manifestService });
+    createProcessMessageSystem(adapterPool, channel, { manifestService });
 
     channel.emit("message", {
       type: "invoke.tool",
@@ -350,16 +344,13 @@ describe("invoke.service", () => {
   });
 
   it("warns once when channel.send is missing", () => {
-    const adapter = new AdapterModule({
-      baseUrl: "http://127.0.0.1:9999",
-      fetchImpl: vi.fn<typeof fetch>(),
-    });
+    const adapterPool = new AdapterPoolService();
     const warnSpy = vi.spyOn(logger, "warn");
     const firstChannel = new TestInboundOnlyChannel();
     const secondChannel = new TestInboundOnlyChannel();
 
-    createProcessMessageSystem(adapter, firstChannel);
-    createProcessMessageSystem(adapter, secondChannel);
+    createProcessMessageSystem(adapterPool, firstChannel);
+    createProcessMessageSystem(adapterPool, secondChannel);
 
     expect(warnSpy).toHaveBeenCalledTimes(1);
     expect(warnSpy).toHaveBeenCalledWith(
@@ -368,14 +359,11 @@ describe("invoke.service", () => {
   });
 
   it("keeps teardown behavior unchanged", () => {
-    const adapter = new AdapterModule({
-      baseUrl: "http://127.0.0.1:9999",
-      fetchImpl: vi.fn<typeof fetch>(),
-    });
+    const adapterPool = new AdapterPoolService();
     const channel = new TestProcessChannel();
     const offSpy = vi.spyOn(channel, "off");
 
-    const teardown = createProcessMessageSystem(adapter, channel);
+    const teardown = createProcessMessageSystem(adapterPool, channel);
     teardown();
 
     expect(offSpy).toHaveBeenCalledTimes(1);

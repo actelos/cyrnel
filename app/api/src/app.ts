@@ -7,20 +7,24 @@ import { apiKeyMiddleware } from "@/middleware/auth.middleware";
 import { errorMiddleware } from "@/middleware/error.middleware";
 import { processRouter } from "@/routes/process.route";
 import { serviceRouter } from "@/routes/service.route";
-import { ManifestService } from "@/services/manifest.service";
+import { AdapterPoolService } from "@/services/adapter-pool.service";
 import { EnvironmentPoolService } from "@/services/environment-pool.service";
+import { ManifestService } from "@/services/manifest.service";
 import { ProcessService } from "@/services/process.service";
 
 export function createApp() {
   const app = express();
 
+  const adapterPoolService = new AdapterPoolService();
   const environmentPoolService = new EnvironmentPoolService();
   const manifestService = new ManifestService();
 
+  app.locals.adapterPoolService = adapterPoolService;
   app.locals.environmentPoolService = environmentPoolService;
   app.locals.manifestService = manifestService;
   app.locals.processService = new ProcessService(environmentPoolService, {
     manifestService,
+    adapterPoolService,
   });
 
   app.use(pinoHttp({ logger }));

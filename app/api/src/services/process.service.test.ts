@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { logger } from "@/logger";
 import { HttpError } from "@/models/error.model";
+import type { AdapterModule } from "@/modules/adapter.module";
 import type {
   EnvironmentModule,
   EnvironmentOutputPatch,
@@ -535,11 +536,14 @@ describe("ProcessService", () => {
       })),
     };
 
+    const adapterPoolService = {
+      allocate: () => ({ invoke: invokeAdapter }) as unknown as AdapterModule,
+      release: () => {},
+    };
+
     const service = new ProcessService(pool, {
       manifestService,
-      adapterModule: {
-        invoke: invokeAdapter,
-      },
+      adapterPoolService,
     });
 
     const pid = service.create("code");

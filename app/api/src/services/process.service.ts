@@ -9,7 +9,6 @@ import type {
   ProcessState,
   StoredProcess,
 } from "@/models/process.model";
-import { AdapterModule } from "@/modules/adapter.module";
 import type {
   EnvironmentBuiltins,
   EnvironmentInvokeInput,
@@ -17,8 +16,9 @@ import type {
   EnvironmentOutputPatch,
   ExecutionStatus,
 } from "@/modules/environment.module";
-import type { ManifestService } from "@/services/manifest.service";
+import { AdapterPoolService } from "@/services/adapter-pool.service";
 import type { EnvironmentPoolService } from "@/services/environment-pool.service";
+import type { ManifestService } from "@/services/manifest.service";
 
 class ProcessExecutionTimeoutError extends Error {
   constructor(message: string) {
@@ -56,13 +56,17 @@ export class ProcessService {
         ManifestService,
         "discoverServices" | "discoverTools" | "getTool"
       >;
-      adapterModule?: Pick<AdapterModule, "invoke">;
+      adapterPoolService?: Pick<AdapterPoolService, "allocate" | "release">;
     } = {},
   ) {
-    this.adapterModule = options.adapterModule ?? new AdapterModule();
+    this.adapterPoolService =
+      options.adapterPoolService ?? new AdapterPoolService();
   }
 
-  private readonly adapterModule: Pick<AdapterModule, "invoke">;
+  private readonly adapterPoolService: Pick<
+    AdapterPoolService,
+    "allocate" | "release"
+  >;
 
   list(filters: ProcessQueryFilters): Process[] {
     const all = Array.from(this.processes.values(), ({ process }) => process);
@@ -707,9 +711,15 @@ export class ProcessService {
       );
     }
 
-    return this.adapterModule.invoke(input.toolName, input.parameters, {
-      serviceMetadata: tool.serviceMetadata,
-      toolMetadata: tool.tool.metadata,
-    });
+    const adapter = this.adapterPoolService.allocate();
+
+    try {
+      return await adapter.invoke(input.toolName, input.parameters, {
+        serviceMetadata: tool.serviceMetadata,
+        toolMetadata: tool.tool.metadata,
+      });
+    } finally {
+      this.adapterPoolService.release(adapter);
+    }
   }
 }

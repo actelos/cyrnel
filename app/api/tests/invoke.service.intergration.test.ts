@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { db } from "@/db/client";
 import { manifests, tools } from "@/db/schema";
 import type { InvokeResponse } from "@/models/invoke.model";
-import { AdapterModule } from "@/modules/adapter.module";
+import { AdapterPoolService } from "@/services/adapter-pool.service";
 import {
   createProcessMessageSystem,
   type ProcessMessageChannel,
@@ -247,11 +247,11 @@ describe("invoke echo integration", () => {
   });
 
   it("sends invoke.tool to echo tool and receives echoed output", async () => {
-    const adapter = new AdapterModule({ baseUrl: server.baseUrl });
+    const adapterPool = new AdapterPoolService();
     const channel = new TestProcessChannel();
     const manifestService = new ManifestService();
 
-    createProcessMessageSystem(adapter, channel, { manifestService });
+    createProcessMessageSystem(adapterPool, channel, { manifestService });
 
     channel.emit("message", {
       type: "invoke.tool",
@@ -284,11 +284,11 @@ describe("invoke echo integration", () => {
   });
 
   it("returns invoke.error when the requested tool is not in the manifest", async () => {
-    const adapter = new AdapterModule({ baseUrl: server.baseUrl });
+    const adapterPool = new AdapterPoolService();
     const channel = new TestProcessChannel();
     const manifestService = new ManifestService();
 
-    createProcessMessageSystem(adapter, channel, { manifestService });
+    createProcessMessageSystem(adapterPool, channel, { manifestService });
 
     channel.emit("message", {
       type: "invoke.tool",
@@ -315,7 +315,7 @@ describe("invoke echo integration", () => {
   });
 
   it("returns invoke.error when the service is disabled", async () => {
-    const adapter = new AdapterModule({ baseUrl: server.baseUrl });
+    const adapterPool = new AdapterPoolService();
     const channel = new TestProcessChannel();
     const manifestService = new ManifestService();
 
@@ -324,7 +324,7 @@ describe("invoke echo integration", () => {
       .set({ enabled: false })
       .where(sql`${manifests.id} = 'test-service'`);
 
-    createProcessMessageSystem(adapter, channel, { manifestService });
+    createProcessMessageSystem(adapterPool, channel, { manifestService });
 
     channel.emit("message", {
       type: "invoke.tool",
@@ -350,7 +350,7 @@ describe("invoke echo integration", () => {
   });
 
   it("returns invoke.error when the tool is disabled", async () => {
-    const adapter = new AdapterModule({ baseUrl: server.baseUrl });
+    const adapterPool = new AdapterPoolService();
     const channel = new TestProcessChannel();
     const manifestService = new ManifestService();
 
@@ -361,7 +361,7 @@ describe("invoke echo integration", () => {
         sql`${tools.serviceName} = 'test-service' AND ${tools.name} = 'echo'`,
       );
 
-    createProcessMessageSystem(adapter, channel, { manifestService });
+    createProcessMessageSystem(adapterPool, channel, { manifestService });
 
     channel.emit("message", {
       type: "invoke.tool",
@@ -388,11 +388,11 @@ describe("invoke echo integration", () => {
   });
 
   it("returns invoke.error when invoke parameters do not match schema", async () => {
-    const adapter = new AdapterModule({ baseUrl: server.baseUrl });
+    const adapterPool = new AdapterPoolService();
     const channel = new TestProcessChannel();
     const manifestService = new ManifestService();
 
-    createProcessMessageSystem(adapter, channel, { manifestService });
+    createProcessMessageSystem(adapterPool, channel, { manifestService });
 
     channel.emit("message", {
       type: "invoke.tool",
@@ -415,11 +415,11 @@ describe("invoke echo integration", () => {
   });
 
   it("returns invoke.error when tool output does not match schema", async () => {
-    const adapter = new AdapterModule({ baseUrl: server.baseUrl });
+    const adapterPool = new AdapterPoolService();
     const channel = new TestProcessChannel();
     const manifestService = new ManifestService();
 
-    createProcessMessageSystem(adapter, channel, { manifestService });
+    createProcessMessageSystem(adapterPool, channel, { manifestService });
 
     channel.emit("message", {
       type: "invoke.tool",
