@@ -10,9 +10,6 @@ type StagingStatus = "idle" | "staging" | "ready" | "failed";
 
 interface StagingState {
   status: StagingStatus;
-  lastError: string | null;
-  retryCount: number;
-  nextRetryAt: number | null;
 }
 
 export class EnvironmentPoolService {
@@ -21,9 +18,6 @@ export class EnvironmentPoolService {
   private readonly leaseCounts = new Map<EnvironmentModule, number>();
   private readonly retiredModules = new Set<EnvironmentModule>();
   private pendingRestage = false;
-  private readonly retryBaseDelayMs = 1_000;
-  private readonly retryMaxDelayMs = 30_000;
-  private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private stagingPromise: Promise<boolean> | null = null;
   private manifestService: Pick<
     ManifestService,
@@ -31,9 +25,6 @@ export class EnvironmentPoolService {
   > | null = null;
   private readonly stagingState: StagingState = {
     status: "idle",
-    lastError: null,
-    retryCount: 0,
-    nextRetryAt: null,
   };
 
   hasReadyEnvironment(): boolean {
@@ -152,11 +143,6 @@ export class EnvironmentPoolService {
       return;
     }
 
-    if (this.retryTimer) {
-      clearTimeout(this.retryTimer);
-      this.retryTimer = null;
-    }
-
     const current = this.environmentModule;
     const retired = [...this.retiredModules];
     this.environmentModule = null;
@@ -208,7 +194,6 @@ export class EnvironmentPoolService {
     manifestService: Pick<ManifestService, "getAllStagedServiceManifests">,
   ): Promise<boolean> {
     this.stagingState.status = "staging";
-    this.stagingState.nextRetryAt = null;
 
     const manifests = await manifestService.getAllStagedServiceManifests();
     const stagedModule = new EnvironmentModule();
@@ -220,23 +205,10 @@ export class EnvironmentPoolService {
         );
       }
 
-      const verification = await this.verifyStaging(stagedModule, manifests);
-      if (!verification) {
-        throw new Error("Environment staging verification failed.");
-      }
-
       const previous = this.environmentModule;
       this.environmentModule = stagedModule;
       this.pendingRestage = false;
       this.stagingState.status = "ready";
-      this.stagingState.lastError = null;
-      this.stagingState.retryCount = 0;
-      this.stagingState.nextRetryAt = null;
-
-      if (this.retryTimer) {
-        clearTimeout(this.retryTimer);
-        this.retryTimer = null;
-      }
 
       if (previous) {
         if (this.getLeaseCount(previous) === 0) {
@@ -253,76 +225,9 @@ export class EnvironmentPoolService {
     }
   }
 
-  private async verifyStaging(
-    module: EnvironmentModule,
-    manifests: StagedServiceManifest[],
-  ): Promise<boolean> {
-    const expectedEntries = manifests
-      .map((manifest) => ({
-        serviceName: manifest.name,
-        tools: manifest.tools.map((tool) => tool.name),
-      }))
-      .filter((entry) => entry.tools.length > 0);
-
-    const encoded = JSON.stringify(expectedEntries);
-
-    const status = await module.execute(`
-      const expected = ${encoded};
-
-      for (const entry of expected) {
-        if (!(entry.serviceName in invoke)) {
-          throw new Error(
-            "staging verification missing service binding: " + entry.serviceName,
-          );
-        }
-
-        for (const toolName of entry.tools) {
-          if (typeof invoke[entry.serviceName]?.[toolName] !== "function") {
-            throw new Error(
-              "staging verification missing tool binding: " +
-                entry.serviceName +
-                "." +
-                toolName,
-            );
-          }
-        }
-      }
-
-      return true;
-    `);
-
-    return status === "success";
-  }
-
   private recordStagingFailure(error: unknown): void {
     this.stagingState.status = "failed";
-    this.stagingState.lastError =
-      error instanceof Error
-        ? error.message
-        : String(error ?? "Unknown staging error");
-    this.stagingState.retryCount += 1;
-
-    const delay = Math.min(
-      this.retryMaxDelayMs,
-      this.retryBaseDelayMs * 2 ** (this.stagingState.retryCount - 1),
-    );
-    const jitter = Math.floor(
-      Math.random() * Math.max(1, Math.floor(delay * 0.2)),
-    );
-    const nextDelay = delay + jitter;
-    this.stagingState.nextRetryAt = Date.now() + nextDelay;
-
-    if (this.retryTimer) {
-      clearTimeout(this.retryTimer);
-    }
-
-    this.retryTimer = setTimeout(() => {
-      if (this.isShutdown || this.getLeaseCount(this.environmentModule) > 0) {
-        return;
-      }
-
-      void this.tryStageNow();
-    }, nextDelay);
+    void error;
   }
 
   private getLeaseCount(module: EnvironmentModule | null): number {

@@ -18,7 +18,7 @@ import type {
   ExecutionStatus,
 } from "@/modules/environment.module";
 import type { ManifestService } from "@/services/manifest.service";
-import type { EnvironmentPoolService } from "@/services/pool.service";
+import type { EnvironmentPoolService } from "@/services/environment-pool.service";
 
 class ProcessExecutionTimeoutError extends Error {
   constructor(message: string) {

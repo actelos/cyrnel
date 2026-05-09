@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { EnvironmentModule } from "@/modules/environment.module";
-import { EnvironmentPoolService } from "@/services/pool.service";
+import { EnvironmentPoolService } from "@/services/environment-pool.service";
 
 function createDeferred<T>(): {
   promise: Promise<T>;
@@ -133,9 +133,9 @@ describe("EnvironmentPoolService", () => {
     expect(killSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("schedules retries after staging failure", async () => {
+  it("does not retry after staging failure", async () => {
     vi.useFakeTimers();
-    // Mock EnvironmentModule.prototype.execute to keep the retry test deterministic
+    // Mock EnvironmentModule.prototype.execute to keep the test deterministic
     // and avoid real environment execution side effects during staged verification.
     vi.spyOn(EnvironmentModule.prototype, "execute").mockResolvedValue(
       "success",
@@ -145,8 +145,7 @@ describe("EnvironmentPoolService", () => {
     const manifestService = {
       getAllStagedServiceManifests: vi
         .fn()
-        .mockRejectedValueOnce(new Error("db unavailable"))
-        .mockResolvedValue([]),
+        .mockRejectedValueOnce(new Error("db unavailable")),
     };
 
     await pool.initialize(manifestService);
@@ -155,13 +154,12 @@ describe("EnvironmentPoolService", () => {
     expect(pool.hasReadyEnvironment()).toBe(false);
 
     await vi.advanceTimersByTimeAsync(2_000);
-    await waitForReadyStaging(pool);
 
     expect(manifestService.getAllStagedServiceManifests).toHaveBeenCalledTimes(
-      2,
+      1,
     );
-    expect(pool.getStagingState().status).toBe("ready");
-    expect(pool.hasReadyEnvironment()).toBe(true);
+    expect(pool.getStagingState().status).toBe("failed");
+    expect(pool.hasReadyEnvironment()).toBe(false);
   });
 
   it("shutdown() kills staged environment module", async () => {

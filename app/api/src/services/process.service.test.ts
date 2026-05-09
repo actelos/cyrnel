@@ -8,7 +8,7 @@ import type {
   EnvironmentOutputPatch,
   ExecutionStatus,
 } from "@/modules/environment.module";
-import { EnvironmentPoolService } from "@/services/pool.service";
+import { EnvironmentPoolService } from "@/services/environment-pool.service";
 import { ProcessService } from "@/services/process.service";
 
 const flush = async () => {

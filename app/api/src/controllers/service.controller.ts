@@ -4,7 +4,7 @@ import { z } from "zod";
 import { logger } from "@/logger";
 import type { ServiceInstallRequest } from "@/models/manifest.model";
 import type { ManifestService } from "@/services/manifest.service";
-import type { EnvironmentPoolService } from "@/services/pool.service";
+import type { EnvironmentPoolService } from "@/services/environment-pool.service";
 import { parseOrHttpError } from "@/utils/validation.util";
 
 const nonEmptyTrimmedString = (fieldName: string) =>

@@ -8,7 +8,7 @@ import { errorMiddleware } from "@/middleware/error.middleware";
 import { processRouter } from "@/routes/process.route";
 import { serviceRouter } from "@/routes/service.route";
 import { ManifestService } from "@/services/manifest.service";
-import { EnvironmentPoolService } from "@/services/pool.service";
+import { EnvironmentPoolService } from "@/services/environment-pool.service";
 import { ProcessService } from "@/services/process.service";
 
 export function createApp() {
