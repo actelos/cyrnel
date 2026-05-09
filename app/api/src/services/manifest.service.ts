@@ -1,9 +1,11 @@
 import { and, asc, eq } from "drizzle-orm";
+import type { Operation } from "fast-json-patch";
+import { applyPatch } from "fast-json-patch";
 import * as ipaddr from "ipaddr.js";
 import { z } from "zod";
 
 import { db } from "@/db/client";
-import { manifests, tools } from "@/db/schema";
+import { manifests, serviceConfigs, services, tools } from "@/db/schema";
 import { HttpError } from "@/models/error.model";
 import type { ResolvedToolInvocation } from "@/models/invoke.model";
 import type {
@@ -20,6 +22,7 @@ import type {
 } from "@/models/manifest.model";
 import { AdapterModule } from "@/modules/adapter.module";
 import { computeContentHash } from "@/utils/hash.util";
+import { validateJsonSchema } from "@/utils/validation.util";
 
 const DEFINITION_DOWNLOAD_TIMEOUT_MS = 10_000;
 const MAX_DEFINITION_DOWNLOAD_BYTES = 2_048_576;
@@ -122,6 +125,7 @@ export class ManifestService {
       metadata: ManifestMetadata;
       hash: string;
       enabled: boolean;
+      configSchema: Record<string, unknown>;
     }>;
     try {
       rows = await db
@@ -133,8 +137,10 @@ export class ManifestService {
           metadata: manifests.metadata,
           hash: manifests.hash,
           enabled: manifests.enabled,
+          configSchema: services.configSchema,
         })
         .from(manifests)
+        .innerJoin(services, eq(services.id, manifests.id))
         .where(eq(manifests.id, normalizedServiceName))
         .limit(1);
     } catch {
@@ -166,6 +172,7 @@ export class ManifestService {
       description: rows[0].description,
       hash: rows[0].hash,
       enabled: rows[0].enabled,
+      configSchema: rows[0].configSchema,
       metadata,
     };
   }
@@ -280,6 +287,12 @@ export class ManifestService {
           hash,
           enabled: false,
           metadata: parsedManifest.metadata,
+          configSchema: parsedManifest.configSchema,
+        });
+
+        await tx.insert(services).values({
+          id: normalizedServiceName,
+          configSchema: parsedManifest.configSchema,
         });
 
         if (parsedManifest.tools.length > 0) {
@@ -395,8 +408,14 @@ export class ManifestService {
             enabled: false,
             source: storedSource,
             metadata: parsedManifest.metadata,
+            configSchema: parsedManifest.configSchema,
           })
           .where(eq(manifests.id, normalizedServiceName));
+
+        await tx
+          .update(services)
+          .set({ configSchema: parsedManifest.configSchema })
+          .where(eq(services.id, normalizedServiceName));
 
         await tx
           .delete(tools)
@@ -737,11 +756,116 @@ export class ManifestService {
     }
   }
 
+  async getServiceConfig(serviceName: string): Promise<Record<string, unknown>> {
+    const normalizedServiceName = normalizeServiceName(serviceName);
+
+    let rows: Array<{ config: Record<string, unknown> }>;
+    try {
+      rows = await db
+        .select({ config: serviceConfigs.config })
+        .from(serviceConfigs)
+        .where(eq(serviceConfigs.serviceName, normalizedServiceName))
+        .limit(1);
+    } catch {
+      throw new HttpError(
+        500,
+        `Failed to load configuration for service '${normalizedServiceName}'.`,
+      );
+    }
+
+    const config = rows[0]?.config;
+    if (config && typeof config === "object" && !Array.isArray(config)) {
+      return config;
+    }
+
+    return {};
+  }
+
+  async getServiceConfigSchema(
+    serviceName: string,
+  ): Promise<Record<string, unknown>> {
+    const normalizedServiceName = normalizeServiceName(serviceName);
+
+    let rows: Array<{ configSchema: Record<string, unknown> }>;
+    try {
+      rows = await db
+        .select({ configSchema: services.configSchema })
+        .from(services)
+        .where(eq(services.id, normalizedServiceName))
+        .limit(1);
+    } catch {
+      throw new HttpError(
+        500,
+        `Failed to load configuration schema for service '${normalizedServiceName}'.`,
+      );
+    }
+
+    if (rows.length === 0) {
+      throw new HttpError(
+        404,
+        `Service '${normalizedServiceName}' not found.`,
+      );
+    }
+
+    return rows[0].configSchema;
+  }
+
+  async patchServiceConfig(
+    serviceName: string,
+    patch: Operation[],
+  ): Promise<Record<string, unknown>> {
+    const normalizedServiceName = normalizeServiceName(serviceName);
+
+    const current = await this.getServiceConfig(normalizedServiceName);
+    const schema = await this.getServiceConfigSchema(normalizedServiceName);
+
+    let updated: Record<string, unknown>;
+    try {
+      const result = applyPatch(current, patch, true, false);
+      updated = result.newDocument as Record<string, unknown>;
+    } catch (error) {
+      throw new HttpError(
+        400,
+        error instanceof Error ? error.message : "Invalid JSON Patch payload.",
+      );
+    }
+
+    validateJsonSchema(
+      schema,
+      updated,
+      `Invalid configuration for service '${normalizedServiceName}'.`,
+    );
+
+    const updatedAt = Date.now();
+
+    try {
+      await db
+        .insert(serviceConfigs)
+        .values({
+          serviceName: normalizedServiceName,
+          config: updated,
+          updatedAt,
+        })
+        .onConflictDoUpdate({
+          target: serviceConfigs.serviceName,
+          set: { config: updated, updatedAt },
+        });
+    } catch {
+      throw new HttpError(
+        500,
+        `Failed to persist configuration for service '${normalizedServiceName}'.`,
+      );
+    }
+
+    return updated;
+  }
+
   async getAllServiceManifests(): Promise<ServiceManifest[]> {
     let serviceRows: Array<{
       id: string;
       description: string;
       enabled: boolean;
+      configSchema: Record<string, unknown>;
       metadata: ManifestMetadata;
     }>;
 
@@ -751,6 +875,7 @@ export class ManifestService {
           id: manifests.id,
           description: manifests.description,
           enabled: manifests.enabled,
+          configSchema: manifests.configSchema,
           metadata: manifests.metadata,
         })
         .from(manifests)
@@ -822,6 +947,7 @@ export class ManifestService {
         name: service.id,
         description: service.description,
         enabled: service.enabled,
+        configSchema: service.configSchema,
         metadata: service.metadata,
         tools: toolsByServiceName.get(service.id) ?? [],
       };

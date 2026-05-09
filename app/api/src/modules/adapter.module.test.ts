@@ -15,6 +15,7 @@ describe("AdapterModule", () => {
 
     await expect(
       adapter.invoke(
+        "svc-1",
         "tool-1",
         { input: "anything" },
         {
@@ -43,6 +44,7 @@ describe("AdapterModule", () => {
     const adapter = new AdapterModule({ fetchImpl });
 
     await adapter.invoke(
+      "svc-1",
       "tool-1",
       { input: "anything" },
       {
@@ -68,6 +70,7 @@ describe("AdapterModule", () => {
     const adapter = new AdapterModule({ fetchImpl });
 
     await adapter.invoke(
+      "svc-1",
       "tool-1",
       { input: "anything" },
       {
@@ -100,6 +103,7 @@ describe("AdapterModule", () => {
 
     await expect(
       adapter.invoke(
+        "svc-1",
         "tool-1",
         { input: "anything" },
         {
@@ -122,6 +126,7 @@ describe("AdapterModule", () => {
 
     await expect(
       adapter.invoke(
+        "svc-1",
         "missing",
         {},
         {
@@ -140,6 +145,7 @@ describe("AdapterModule", () => {
 
     await expect(
       adapter.invoke(
+        "svc-1",
         "tool-1",
         { input: "anything" },
         {
@@ -158,6 +164,7 @@ describe("parseServiceManifest", () => {
         "name": "svc-echo",
         "description": "",
         "enabled": true,
+        "configSchema": { "type": "null" },
         "metadata": {
           "serverUrl": "http://127.0.0.1:8787"
         },
@@ -187,6 +194,7 @@ describe("parseServiceManifest", () => {
       name: "svc-echo",
       description: "",
       enabled: true,
+      configSchema: { type: "null" },
       metadata: {
         serverUrl: "http://127.0.0.1:8787",
       },

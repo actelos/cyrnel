@@ -20,6 +20,7 @@ const serviceManifestSchema = z.object({
   name: z.string().trim().min(1),
   description: z.string(),
   enabled: z.boolean(),
+  configSchema: recordSchema,
   metadata: recordSchema,
   tools: z.array(manifestToolSchema),
 });
@@ -45,6 +46,7 @@ interface AdapterInvokeMetadata {
 
 export class AdapterModule {
   private readonly fetchImpl: typeof fetch;
+  private serviceConfigSnapshot: Record<string, unknown> = {};
 
   constructor(options: AdapterModuleOptions = {}) {
     this.fetchImpl = options.fetchImpl ?? fetch;
@@ -54,7 +56,21 @@ export class AdapterModule {
     return parseServiceManifest(definitionContent);
   }
 
+  setServiceConfigs(snapshot: Record<string, unknown>): void {
+    this.serviceConfigSnapshot = snapshot;
+  }
+
+  getServiceConfig(serviceName: string): Record<string, unknown> {
+    const value = this.serviceConfigSnapshot[serviceName];
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      return value as Record<string, unknown>;
+    }
+
+    return {};
+  }
+
   async invoke(
+    serviceName: string,
     toolName: string,
     parameters: Record<string, unknown>,
     metadata?: AdapterInvokeMetadata,
@@ -75,6 +91,14 @@ export class AdapterModule {
 
     if (requestKind) {
       headers["x-mci-request-kind"] = requestKind;
+    }
+
+    try {
+      headers["x-mci-service-config"] = JSON.stringify(
+        this.getServiceConfig(serviceName),
+      );
+    } catch {
+      headers["x-mci-service-config"] = "{}";
     }
 
     let response: Response;

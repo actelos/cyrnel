@@ -21,6 +21,7 @@ export interface ServiceManifest {
   name: string;
   description: string;
   enabled: boolean;
+  configSchema: JSONSchema;
   metadata: ManifestMetadata;
   tools: ToolDefinition[];
 }
@@ -63,5 +64,6 @@ export interface ServiceManifestDetails {
   description: string;
   hash: string;
   enabled: boolean;
+  configSchema: JSONSchema;
   metadata: ManifestMetadata;
 }

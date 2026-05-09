@@ -46,6 +46,8 @@ async function waitForMessageCount(
 async function resetDiscoverTables(): Promise<void> {
   await db.run(sql`PRAGMA foreign_keys = OFF`);
   await db.run(sql`DROP TABLE IF EXISTS tools`);
+  await db.run(sql`DROP TABLE IF EXISTS service_configs`);
+  await db.run(sql`DROP TABLE IF EXISTS services`);
   await db.run(sql`DROP TABLE IF EXISTS manifests`);
   await db.run(sql`
     CREATE TABLE manifests (
@@ -55,10 +57,26 @@ async function resetDiscoverTables(): Promise<void> {
       description text NOT NULL DEFAULT '',
       hash text NOT NULL,
       enabled integer NOT NULL DEFAULT 1,
-      metadata text NOT NULL
+      metadata text NOT NULL,
+      config_schema text NOT NULL
     )
   `);
   await db.run(sql`CREATE INDEX manifests_type_idx ON manifests (type)`);
+  await db.run(sql`
+    CREATE TABLE services (
+      id text PRIMARY KEY NOT NULL,
+      config_schema text NOT NULL,
+      FOREIGN KEY (id) REFERENCES manifests(id) ON UPDATE no action ON DELETE cascade
+    )
+  `);
+  await db.run(sql`
+    CREATE TABLE service_configs (
+      service_name text PRIMARY KEY NOT NULL,
+      config text NOT NULL DEFAULT '{}',
+      updated_at integer NOT NULL,
+      FOREIGN KEY (service_name) REFERENCES services(id) ON UPDATE no action ON DELETE cascade
+    )
+  `);
   await db.run(sql`
     CREATE TABLE tools (
       service_id text NOT NULL,
@@ -85,6 +103,7 @@ async function seedDiscoverFixtures(): Promise<void> {
       description: "",
       hash: "hash-alpha",
       metadata: { serverUrl: "http://127.0.0.1:8301" },
+      configSchema: { type: "null" },
     },
     {
       id: "svc-beta",
@@ -93,6 +112,7 @@ async function seedDiscoverFixtures(): Promise<void> {
       description: "",
       hash: "hash-beta",
       metadata: { serverUrl: "http://127.0.0.1:8302" },
+      configSchema: { type: "null" },
     },
     {
       id: "svc-gamma",
@@ -101,8 +121,17 @@ async function seedDiscoverFixtures(): Promise<void> {
       description: "",
       hash: "hash-gamma",
       metadata: { serverUrl: "http://127.0.0.1:8303" },
+      configSchema: { type: "null" },
     },
   ]);
+
+  await db.run(sql`
+    INSERT INTO services (id, config_schema)
+    VALUES
+      ('svc-alpha', ${JSON.stringify({ type: "null" })}),
+      ('svc-beta', ${JSON.stringify({ type: "null" })}),
+      ('svc-gamma', ${JSON.stringify({ type: "null" })})
+  `);
 
   await db.insert(tools).values([
     {

@@ -95,6 +95,7 @@ describe("invoke.service", () => {
     await flushMessageHandling();
 
     expect(invokeSpy).toHaveBeenCalledWith(
+      "service-1",
       "tool-1",
       { key: "value" },
       {

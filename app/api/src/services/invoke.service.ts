@@ -99,10 +99,15 @@ async function handleInvokeMessage(
     let output: unknown;
 
     try {
-      output = await adapter.invoke(message.toolName, message.parameters, {
-        serviceMetadata: tool.serviceMetadata,
-        toolMetadata: tool.tool.metadata,
-      });
+      output = await adapter.invoke(
+        message.serviceName,
+        message.toolName,
+        message.parameters,
+        {
+          serviceMetadata: tool.serviceMetadata,
+          toolMetadata: tool.tool.metadata,
+        },
+      );
     } finally {
       adapterPoolService.release(adapter);
     }

@@ -4,10 +4,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createService,
   deleteService,
+  getServiceConfiguration,
+  getServiceConfigurationSchema,
   getService,
   getToolByName,
   listServices,
   listTools,
+  patchServiceConfiguration,
   setServiceEnabled,
   setToolEnabled,
   updateService,
@@ -16,6 +19,9 @@ import {
 const manifestService = {
   listServices: vi.fn(),
   getService: vi.fn(),
+  getServiceConfig: vi.fn(),
+  getServiceConfigSchema: vi.fn(),
+  patchServiceConfig: vi.fn(),
   listTools: vi.fn(),
   getTool: vi.fn(),
   createService: vi.fn(),
@@ -26,6 +32,10 @@ const manifestService = {
 };
 
 const environmentPoolService = {
+  requestRestage: vi.fn(),
+};
+
+const adapterPoolService = {
   requestRestage: vi.fn(),
 };
 
@@ -45,7 +55,9 @@ const makeRes = () => {
 
 const makeReq = (overrides: Record<string, unknown> = {}) =>
   ({
-    app: { locals: { manifestService, environmentPoolService } },
+    app: {
+      locals: { manifestService, environmentPoolService, adapterPoolService },
+    },
     params: {},
     ...overrides,
   }) as unknown as Request;
@@ -168,6 +180,7 @@ describe("service.controller", () => {
       source: "https://registry.example.com/svc-1.json",
       hash: "hash-1",
       enabled: true,
+      configSchema: { type: "object" },
       metadata: { serverUrl: "http://127.0.0.1:9999" },
       tools: [
         {
@@ -189,8 +202,55 @@ describe("service.controller", () => {
       source: "https://registry.example.com/svc-1.json",
       hash: "hash-1",
       enabled: true,
+      configSchema: { type: "object" },
       metadata: { serverUrl: "http://127.0.0.1:9999" },
     });
+  });
+
+  it("gets service configuration", async () => {
+    const res = makeRes();
+    const req = makeReq({ params: { serviceName: "svc-1" } });
+
+    manifestService.getServiceConfig.mockResolvedValue({});
+
+    await getServiceConfiguration(req, res as unknown as Response);
+
+    expect(manifestService.getServiceConfig).toHaveBeenCalledWith("svc-1");
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith({ config: {} });
+  });
+
+  it("gets service configuration schema", async () => {
+    const res = makeRes();
+    const req = makeReq({ params: { serviceName: "svc-1" } });
+
+    manifestService.getServiceConfigSchema.mockResolvedValue({ type: "object" });
+
+    await getServiceConfigurationSchema(req, res as unknown as Response);
+
+    expect(manifestService.getServiceConfigSchema).toHaveBeenCalledWith("svc-1");
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith({ configSchema: { type: "object" } });
+  });
+
+  it("patches service configuration and restages adapters only", async () => {
+    const res = makeRes();
+    const req = makeReq({
+      params: { serviceName: "svc-1" },
+      body: [{ op: "add", path: "/enabled", value: true }],
+    });
+
+    manifestService.patchServiceConfig.mockResolvedValue({ enabled: true });
+
+    await patchServiceConfiguration(req, res as unknown as Response);
+
+    expect(manifestService.patchServiceConfig).toHaveBeenCalledWith("svc-1", [
+      { op: "add", path: "/enabled", value: true },
+    ]);
+    expect(adapterPoolService.requestRestage).toHaveBeenCalled();
+    expect(environmentPoolService.requestRestage).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith({ config: { enabled: true } });
   });
 
   it("lists service tools", async () => {

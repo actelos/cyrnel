@@ -129,6 +129,8 @@ describe("manifest.service unit", () => {
 async function resetManifestTables(): Promise<void> {
   await db.run(sql`PRAGMA foreign_keys = OFF`);
   await db.run(sql`DROP TABLE IF EXISTS tools`);
+  await db.run(sql`DROP TABLE IF EXISTS service_configs`);
+  await db.run(sql`DROP TABLE IF EXISTS services`);
   await db.run(sql`DROP TABLE IF EXISTS manifests`);
   await db.run(sql`
     CREATE TABLE manifests (
@@ -138,10 +140,26 @@ async function resetManifestTables(): Promise<void> {
       description text NOT NULL DEFAULT '',
       hash text NOT NULL,
       enabled integer NOT NULL DEFAULT 1,
-      metadata text NOT NULL
+      metadata text NOT NULL,
+      config_schema text NOT NULL
     )
   `);
   await db.run(sql`CREATE INDEX manifests_type_idx ON manifests (type)`);
+  await db.run(sql`
+    CREATE TABLE services (
+      id text PRIMARY KEY NOT NULL,
+      config_schema text NOT NULL,
+      FOREIGN KEY (id) REFERENCES manifests(id) ON UPDATE no action ON DELETE cascade
+    )
+  `);
+  await db.run(sql`
+    CREATE TABLE service_configs (
+      service_name text PRIMARY KEY NOT NULL,
+      config text NOT NULL DEFAULT '{}',
+      updated_at integer NOT NULL,
+      FOREIGN KEY (service_name) REFERENCES services(id) ON UPDATE no action ON DELETE cascade
+    )
+  `);
   await db.run(sql`
     CREATE TABLE tools (
       service_id text NOT NULL,
@@ -176,7 +194,12 @@ describe("manifest.service update semantics", () => {
       hash: "hash-old",
       enabled: true,
       metadata: { serverUrl: "http://127.0.0.1:9100" },
+      configSchema: { type: "null" },
     });
+
+    await db.run(
+      sql`INSERT INTO services (id, config_schema) VALUES (${serviceName}, ${JSON.stringify({ type: "null" })})`,
+    );
 
     await db.insert(tools).values([
       {
@@ -203,6 +226,7 @@ describe("manifest.service update semantics", () => {
       name: serviceName,
       description: "",
       enabled: true,
+      configSchema: { type: "null" },
       metadata: {
         serverUrl: "http://127.0.0.1:9200",
       },
@@ -274,6 +298,133 @@ describe("manifest.service update semantics", () => {
     expect(fetchImpl).toHaveBeenCalledWith(
       sourceUrl,
       expect.objectContaining({ method: "GET" }),
+    );
+  });
+});
+
+describe("manifest.service configuration", () => {
+  beforeEach(async () => {
+    await resetManifestTables();
+  });
+
+  it("returns {} when no config exists", async () => {
+    const serviceName = "svc-config-missing";
+
+    await db.insert(manifests).values({
+      id: serviceName,
+      type: "foo",
+      source: "https://registry.example.com/svc.json",
+      description: "",
+      hash: "hash",
+      enabled: true,
+      metadata: { serverUrl: "http://127.0.0.1:9999" },
+      configSchema: { type: "null" },
+    });
+
+    await db.run(
+      sql`INSERT INTO services (id, config_schema) VALUES (${serviceName}, ${JSON.stringify({ type: "null" })})`,
+    );
+
+    const service = new ManifestService();
+
+    await expect(service.getServiceConfig(serviceName)).resolves.toEqual({});
+  });
+
+  it("applies JSON Patch against {} baseline when missing", async () => {
+    const serviceName = "svc-config-patch";
+    const schema = {
+      type: "object",
+      properties: { enabled: { type: "boolean" } },
+      additionalProperties: false,
+    };
+
+    await db.insert(manifests).values({
+      id: serviceName,
+      type: "foo",
+      source: "https://registry.example.com/svc.json",
+      description: "",
+      hash: "hash",
+      enabled: true,
+      metadata: { serverUrl: "http://127.0.0.1:9999" },
+      configSchema: schema,
+    });
+
+    await db.run(
+      sql`INSERT INTO services (id, config_schema) VALUES (${serviceName}, ${JSON.stringify(schema)})`,
+    );
+
+    const service = new ManifestService();
+
+    const updated = await service.patchServiceConfig(serviceName, [
+      { op: "add", path: "/enabled", value: true },
+    ]);
+
+    expect(updated).toEqual({ enabled: true });
+
+    const stored = await db.run(
+      sql`SELECT config FROM service_configs WHERE service_name = ${serviceName} LIMIT 1`,
+    );
+    expect(stored.rows).toHaveLength(1);
+    expect(JSON.parse(String(stored.rows[0]?.config ?? "{}"))).toEqual({
+      enabled: true,
+    });
+  });
+
+  it("rejects config updates that fail schema validation", async () => {
+    const serviceName = "svc-config-invalid";
+    const schema = {
+      type: "object",
+      properties: { enabled: { type: "boolean" } },
+      additionalProperties: false,
+    };
+
+    await db.insert(manifests).values({
+      id: serviceName,
+      type: "foo",
+      source: "https://registry.example.com/svc.json",
+      description: "",
+      hash: "hash",
+      enabled: true,
+      metadata: { serverUrl: "http://127.0.0.1:9999" },
+      configSchema: schema,
+    });
+
+    await db.run(
+      sql`INSERT INTO services (id, config_schema) VALUES (${serviceName}, ${JSON.stringify(schema)})`,
+    );
+
+    const service = new ManifestService();
+
+    await expect(
+      service.patchServiceConfig(serviceName, [
+        { op: "add", path: "/enabled", value: "yes" },
+      ]),
+    ).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it("loads config schema from persisted services table", async () => {
+    const serviceName = "svc-config-schema";
+    const schema = { type: "object" };
+
+    await db.insert(manifests).values({
+      id: serviceName,
+      type: "foo",
+      source: "https://registry.example.com/svc.json",
+      description: "",
+      hash: "hash",
+      enabled: true,
+      metadata: { serverUrl: "http://127.0.0.1:9999" },
+      configSchema: schema,
+    });
+
+    await db.run(
+      sql`INSERT INTO services (id, config_schema) VALUES (${serviceName}, ${JSON.stringify(schema)})`,
+    );
+
+    const service = new ManifestService();
+
+    await expect(service.getServiceConfigSchema(serviceName)).resolves.toEqual(
+      schema,
     );
   });
 });

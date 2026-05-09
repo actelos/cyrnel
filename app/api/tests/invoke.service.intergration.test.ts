@@ -1,10 +1,4 @@
 import { EventEmitter } from "node:events";
-import {
-  createServer,
-  type IncomingMessage,
-  type ServerResponse,
-} from "node:http";
-import type { AddressInfo } from "node:net";
 
 import { sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -12,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { db } from "@/db/client";
 import { manifests, tools } from "@/db/schema";
 import type { InvokeResponse } from "@/models/invoke.model";
-import { AdapterPoolService } from "@/services/adapter-pool.service";
+import { AdapterModule } from "@/modules/adapter.module";
 import {
   createProcessMessageSystem,
   type ProcessMessageChannel,
@@ -48,106 +42,6 @@ async function waitForMessageCount(
   );
 }
 
-interface StartedTestServer {
-  readonly baseUrl: string;
-  readonly calls: Array<{ toolName: string; body: unknown }>;
-  close: () => Promise<void>;
-}
-
-async function startTestServer(): Promise<StartedTestServer> {
-  const calls: Array<{ toolName: string; body: unknown }> = [];
-
-  const server = createServer((req, res) => {
-    void handleServerRequest(req, res, calls);
-  });
-
-  await new Promise<void>((resolve, reject) => {
-    server.listen(0, "127.0.0.1", () => resolve());
-    server.once("error", reject);
-  });
-
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("Failed to determine test server address.");
-  }
-
-  const baseUrl = `http://127.0.0.1:${(address as AddressInfo).port}`;
-
-  return {
-    baseUrl,
-    calls,
-    close: async () => {
-      await new Promise<void>((resolve, reject) => {
-        server.close((error) => {
-          if (error) {
-            reject(error);
-            return;
-          }
-
-          resolve();
-        });
-      });
-    },
-  };
-}
-
-async function handleServerRequest(
-  req: IncomingMessage,
-  res: ServerResponse,
-  calls: Array<{ toolName: string; body: unknown }>,
-): Promise<void> {
-  if (!req.url || req.method !== "POST") {
-    res.writeHead(404, { "content-type": "application/json" });
-    res.end(JSON.stringify({ message: "Not found" }));
-    return;
-  }
-
-  const toolName = decodeURIComponent(req.url.replace(/^\//, ""));
-  const body = await readJsonBody(req);
-  calls.push({ toolName, body });
-
-  if (toolName === "echo") {
-    if (!isObject(body) || typeof body.input !== "string") {
-      res.writeHead(400, { "content-type": "application/json" });
-      res.end(JSON.stringify({ message: "input must be a string" }));
-      return;
-    }
-
-    res.writeHead(200, { "content-type": "application/json" });
-    res.end(JSON.stringify({ output: body.input }));
-    return;
-  }
-
-  if (toolName === "broken-output") {
-    res.writeHead(200, { "content-type": "application/json" });
-    res.end(JSON.stringify({ output: "not-a-number" }));
-    return;
-  }
-
-  res.writeHead(404, { "content-type": "application/json" });
-  res.end(JSON.stringify({ message: `Tool '${toolName}' does not exist` }));
-}
-
-async function readJsonBody(req: IncomingMessage): Promise<unknown> {
-  const chunks: Buffer[] = [];
-
-  await new Promise<void>((resolve, reject) => {
-    req.on("data", (chunk) => {
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-    });
-
-    req.on("end", () => resolve());
-    req.on("error", reject);
-  });
-
-  const raw = Buffer.concat(chunks).toString("utf8").trim();
-  if (!raw) {
-    return {};
-  }
-
-  return JSON.parse(raw);
-}
-
 function isObject(
   value: unknown,
 ): value is Record<string, string | number | boolean | null> {
@@ -157,6 +51,8 @@ function isObject(
 async function resetManifestsTable(): Promise<void> {
   await db.run(sql`PRAGMA foreign_keys = OFF`);
   await db.run(sql`DROP TABLE IF EXISTS tools`);
+  await db.run(sql`DROP TABLE IF EXISTS service_configs`);
+  await db.run(sql`DROP TABLE IF EXISTS services`);
   await db.run(sql`DROP TABLE IF EXISTS manifests`);
   await db.run(sql`
     CREATE TABLE manifests (
@@ -166,10 +62,26 @@ async function resetManifestsTable(): Promise<void> {
       description text NOT NULL DEFAULT '',
       hash text NOT NULL,
       enabled integer NOT NULL DEFAULT 1,
-      metadata text NOT NULL
+      metadata text NOT NULL,
+      config_schema text NOT NULL
     )
   `);
   await db.run(sql`CREATE INDEX manifests_type_idx ON manifests (type)`);
+  await db.run(sql`
+    CREATE TABLE services (
+      id text PRIMARY KEY NOT NULL,
+      config_schema text NOT NULL,
+      FOREIGN KEY (id) REFERENCES manifests(id) ON UPDATE no action ON DELETE cascade
+    )
+  `);
+  await db.run(sql`
+    CREATE TABLE service_configs (
+      service_name text PRIMARY KEY NOT NULL,
+      config text NOT NULL DEFAULT '{}',
+      updated_at integer NOT NULL,
+      FOREIGN KEY (service_name) REFERENCES services(id) ON UPDATE no action ON DELETE cascade
+    )
+  `);
   await db.run(sql`
     CREATE TABLE tools (
       service_id text NOT NULL,
@@ -188,22 +100,75 @@ async function resetManifestsTable(): Promise<void> {
 }
 
 describe("invoke echo integration", () => {
-  let server: StartedTestServer;
+  const baseUrl = "http://adapter.local";
+  const calls: Array<{ toolName: string; body: unknown }> = [];
+  let adapter: AdapterModule;
 
   beforeEach(async () => {
+    calls.length = 0;
     await resetManifestsTable();
-    server = await startTestServer();
+
+    adapter = new AdapterModule({
+      fetchImpl: async (input, init) => {
+        const url = typeof input === "string" ? input : input.url;
+        const toolName = decodeURIComponent(
+          new URL(url).pathname.replace(/^\//, ""),
+        );
+
+        const bodyRaw = typeof init?.body === "string" ? init.body : "";
+        const body = bodyRaw.trim() ? JSON.parse(bodyRaw) : {};
+        calls.push({ toolName, body });
+
+        if (toolName === "echo") {
+          if (!isObject(body) || typeof body.input !== "string") {
+            return new Response(
+              JSON.stringify({ message: "input must be a string" }),
+              {
+                status: 400,
+                headers: { "content-type": "application/json" },
+              },
+            );
+          }
+
+          return new Response(JSON.stringify({ output: body.input }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+
+        if (toolName === "broken-output") {
+          return new Response(JSON.stringify({ output: "not-a-number" }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+
+        return new Response(
+          JSON.stringify({ message: `Tool '${toolName}' does not exist` }),
+          {
+            status: 404,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      },
+    });
+    adapter.setServiceConfigs({});
 
     await db.insert(manifests).values({
       id: "test-service",
       type: "foo",
-      source: "http://127.0.0.1/definition",
+      source: `${baseUrl}/definition`,
       description: "",
       hash: "test-manifest-hash",
       metadata: {
-        serverUrl: server.baseUrl,
+        serverUrl: baseUrl,
       },
+      configSchema: { type: "null" },
     });
+
+    await db.run(
+      sql`INSERT INTO services (id, config_schema) VALUES ('test-service', ${JSON.stringify({ type: "null" })})`,
+    );
 
     await db.insert(tools).values([
       {
@@ -243,15 +208,17 @@ describe("invoke echo integration", () => {
 
   afterEach(async () => {
     await db.delete(manifests);
-    await server.close();
   });
 
   it("sends invoke.tool to echo tool and receives echoed output", async () => {
-    const adapterPool = new AdapterPoolService();
     const channel = new TestProcessChannel();
     const manifestService = new ManifestService();
 
-    createProcessMessageSystem(adapterPool, channel, { manifestService });
+    createProcessMessageSystem(
+      { allocate: () => adapter, release: () => {} },
+      channel,
+      { manifestService },
+    );
 
     channel.emit("message", {
       type: "invoke.tool",
@@ -273,7 +240,7 @@ describe("invoke echo integration", () => {
       },
     ]);
 
-    expect(server.calls).toEqual([
+    expect(calls).toEqual([
       {
         toolName: "echo",
         body: {
@@ -284,11 +251,14 @@ describe("invoke echo integration", () => {
   });
 
   it("returns invoke.error when the requested tool is not in the manifest", async () => {
-    const adapterPool = new AdapterPoolService();
     const channel = new TestProcessChannel();
     const manifestService = new ManifestService();
 
-    createProcessMessageSystem(adapterPool, channel, { manifestService });
+    createProcessMessageSystem(
+      { allocate: () => adapter, release: () => {} },
+      channel,
+      { manifestService },
+    );
 
     channel.emit("message", {
       type: "invoke.tool",
@@ -311,11 +281,10 @@ describe("invoke echo integration", () => {
       },
     ]);
 
-    expect(server.calls).toEqual([]);
+    expect(calls).toEqual([]);
   });
 
   it("returns invoke.error when the service is disabled", async () => {
-    const adapterPool = new AdapterPoolService();
     const channel = new TestProcessChannel();
     const manifestService = new ManifestService();
 
@@ -324,7 +293,11 @@ describe("invoke echo integration", () => {
       .set({ enabled: false })
       .where(sql`${manifests.id} = 'test-service'`);
 
-    createProcessMessageSystem(adapterPool, channel, { manifestService });
+    createProcessMessageSystem(
+      { allocate: () => adapter, release: () => {} },
+      channel,
+      { manifestService },
+    );
 
     channel.emit("message", {
       type: "invoke.tool",
@@ -346,11 +319,10 @@ describe("invoke echo integration", () => {
       },
     ]);
 
-    expect(server.calls).toEqual([]);
+    expect(calls).toEqual([]);
   });
 
   it("returns invoke.error when the tool is disabled", async () => {
-    const adapterPool = new AdapterPoolService();
     const channel = new TestProcessChannel();
     const manifestService = new ManifestService();
 
@@ -361,7 +333,11 @@ describe("invoke echo integration", () => {
         sql`${tools.serviceName} = 'test-service' AND ${tools.name} = 'echo'`,
       );
 
-    createProcessMessageSystem(adapterPool, channel, { manifestService });
+    createProcessMessageSystem(
+      { allocate: () => adapter, release: () => {} },
+      channel,
+      { manifestService },
+    );
 
     channel.emit("message", {
       type: "invoke.tool",
@@ -384,15 +360,18 @@ describe("invoke echo integration", () => {
       },
     ]);
 
-    expect(server.calls).toEqual([]);
+    expect(calls).toEqual([]);
   });
 
   it("returns invoke.error when invoke parameters do not match schema", async () => {
-    const adapterPool = new AdapterPoolService();
     const channel = new TestProcessChannel();
     const manifestService = new ManifestService();
 
-    createProcessMessageSystem(adapterPool, channel, { manifestService });
+    createProcessMessageSystem(
+      { allocate: () => adapter, release: () => {} },
+      channel,
+      { manifestService },
+    );
 
     channel.emit("message", {
       type: "invoke.tool",
@@ -411,15 +390,18 @@ describe("invoke echo integration", () => {
       type: "invoke.error",
       requestId: "req-invalid-input",
     });
-    expect(server.calls).toEqual([]);
+    expect(calls).toEqual([]);
   });
 
   it("returns invoke.error when tool output does not match schema", async () => {
-    const adapterPool = new AdapterPoolService();
     const channel = new TestProcessChannel();
     const manifestService = new ManifestService();
 
-    createProcessMessageSystem(adapterPool, channel, { manifestService });
+    createProcessMessageSystem(
+      { allocate: () => adapter, release: () => {} },
+      channel,
+      { manifestService },
+    );
 
     channel.emit("message", {
       type: "invoke.tool",
@@ -436,7 +418,7 @@ describe("invoke echo integration", () => {
       type: "invoke.error",
       requestId: "req-broken-output",
     });
-    expect(server.calls).toEqual([
+    expect(calls).toEqual([
       {
         toolName: "broken-output",
         body: {},
@@ -444,3 +426,4 @@ describe("invoke echo integration", () => {
     ]);
   });
 });
+

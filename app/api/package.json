@@ -24,6 +24,7 @@
     "drizzle-orm": "^0.45.2",
     "effect": "^3.21.2",
     "express": "^5.2.1",
+    "fast-json-patch": "^3.1.1",
     "ipaddr.js": "^2.4.0",
     "multer": "^2.1.1",
     "pino": "^10.3.1",
