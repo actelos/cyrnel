@@ -36,12 +36,8 @@
           "name": "configurations_service_name_services_id_fk",
           "tableFrom": "configurations",
           "tableTo": "services",
-          "columnsFrom": [
-            "service_name"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["service_name"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -116,9 +112,7 @@
       "indexes": {
         "services_type_idx": {
           "name": "services_type_idx",
-          "columns": [
-            "type"
-          ],
+          "columns": ["type"],
           "isUnique": false
         }
       },
@@ -185,9 +179,7 @@
       "indexes": {
         "tools_name_idx": {
           "name": "tools_name_idx",
-          "columns": [
-            "name"
-          ],
+          "columns": ["name"],
           "isUnique": false
         }
       },
@@ -196,22 +188,15 @@
           "name": "tools_service_id_services_id_fk",
           "tableFrom": "tools",
           "tableTo": "services",
-          "columnsFrom": [
-            "service_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["service_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {
         "tools_service_id_name_pk": {
-          "columns": [
-            "service_id",
-            "name"
-          ],
+          "columns": ["service_id", "name"],
           "name": "tools_service_id_name_pk"
         }
       },

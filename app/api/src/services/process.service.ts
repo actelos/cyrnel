@@ -714,10 +714,15 @@ export class ProcessService {
     const adapter = this.adapterPoolService.allocate();
 
     try {
-      return await adapter.invoke(input.serviceName, input.toolName, input.parameters, {
-        serviceMetadata: tool.serviceMetadata,
-        toolMetadata: tool.tool.metadata,
-      });
+      return await adapter.invoke(
+        input.serviceName,
+        input.toolName,
+        input.parameters,
+        {
+          serviceMetadata: tool.serviceMetadata,
+          toolMetadata: tool.tool.metadata,
+        },
+      );
     } finally {
       this.adapterPoolService.release(adapter);
     }
