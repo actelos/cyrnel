@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Popover,
   PopoverContent,
@@ -30,6 +31,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import ConfigEditor from "@/components/ConfigEditor";
 
 const metadataSchema = z.record(z.string(), z.unknown());
 
@@ -48,6 +50,15 @@ const serviceListSchema = z.object({
 
 const serviceDetailsSchema = serviceSchema.extend({
   metadata: metadataSchema,
+  configSchema: metadataSchema,
+});
+
+const serviceConfigSchema = z.object({
+  config: metadataSchema,
+});
+
+const serviceConfigSchemaSchema = z.object({
+  configSchema: metadataSchema,
 });
 
 const toolSchema = z.object({
@@ -119,6 +130,9 @@ export default function ServicesPage() {
   const [deleteCandidate, setDeleteCandidate] = useState<Service | null>(null);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [configDraft, setConfigDraft] = useState<string>("{\n  \n}");
+  const [configDraftError, setConfigDraftError] = useState<string | null>(null);
+  const [isSavingConfig, setIsSavingConfig] = useState(false);
 
   const normalizedQuery = queryFilter.trim();
   const enabledParam =
@@ -174,6 +188,14 @@ export default function ServicesPage() {
     ? buildUrl(`/services/${selectedServiceName}/tools`)
     : null;
 
+  const configUrl = selectedServiceName
+    ? buildUrl(`/services/${selectedServiceName}/configuration`)
+    : null;
+
+  const configSchemaUrl = selectedServiceName
+    ? buildUrl(`/services/${selectedServiceName}/configuration/schema`)
+    : null;
+
   const { data: serviceDetails, error: detailsError } = useSWR(
     serviceDetailsUrl,
     (url) => fetchJson(url, serviceDetailsSchema),
@@ -193,6 +215,101 @@ export default function ServicesPage() {
   const tools = toolList?.tools ?? [];
 
   const detailService = serviceDetails ?? selectedService;
+
+  const { data: serviceConfig } = useSWR(
+    configUrl,
+    (url) => fetchJson(url, serviceConfigSchema),
+    { refreshInterval: 8000 },
+  );
+
+  const { data: serviceConfigSchemaPayload } = useSWR(
+    configSchemaUrl,
+    (url) => fetchJson(url, serviceConfigSchemaSchema),
+    { refreshInterval: 8000 },
+  );
+
+  useEffect(() => {
+    if (!selectedServiceName) {
+      return;
+    }
+
+    setConfigDraftError(null);
+    const normalized = JSON.stringify(serviceConfig?.config ?? {}, null, 2);
+    setConfigDraft(normalized);
+  }, [selectedServiceName, serviceConfig?.config]);
+
+  const escapeJsonPointer = (value: string) =>
+    value.replace(/~/g, "~0").replace(/\//g, "~1");
+
+  const handleSaveConfiguration = async (serviceName: string) => {
+    setActionError(null);
+    setConfigDraftError(null);
+
+    let desiredConfig: unknown;
+    try {
+      desiredConfig = JSON.parse(configDraft);
+    } catch (error) {
+      setConfigDraftError(
+        error instanceof Error ? error.message : "Configuration is not valid JSON.",
+      );
+      return;
+    }
+
+    const patch: Array<Record<string, unknown>> = [];
+
+    if (Array.isArray(desiredConfig)) {
+      patch.push(...(desiredConfig as Array<Record<string, unknown>>));
+    } else {
+      if (!desiredConfig || typeof desiredConfig !== "object") {
+        setConfigDraftError("Configuration must be a JSON object or JSON Patch array.");
+        return;
+      }
+
+      const currentConfig = (serviceConfig?.config ?? {}) as Record<string, unknown>;
+      const nextConfig = desiredConfig as Record<string, unknown>;
+
+      for (const key of Object.keys(currentConfig)) {
+        if (!Object.hasOwn(nextConfig, key)) {
+          patch.push({ op: "remove", path: `/${escapeJsonPointer(key)}` });
+        }
+      }
+
+      for (const [key, value] of Object.entries(nextConfig)) {
+        const op = Object.hasOwn(currentConfig, key) ? "replace" : "add";
+        if (Object.hasOwn(currentConfig, key) && currentConfig[key] === value) {
+          continue;
+        }
+        patch.push({ op, path: `/${escapeJsonPointer(key)}`, value });
+      }
+    }
+
+    setIsSavingConfig(true);
+    try {
+      const response = await fetch(
+        buildUrl(`/services/${serviceName}/configuration`),
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patch),
+        },
+      );
+
+      if (!response.ok) {
+        const text = await response.text().catch(() => "");
+        throw new Error(text.trim().length > 0 ? text : `Request failed: ${response.status}`);
+      }
+
+      if (configUrl) {
+        await mutate(configUrl);
+      }
+    } catch (error) {
+      setActionError(
+        error instanceof Error ? error.message : "Unable to save configuration.",
+      );
+    } finally {
+      setIsSavingConfig(false);
+    }
+  };
 
   const handleInstallService = async () => {
     setInstallErrors({});
@@ -680,6 +797,44 @@ export default function ServicesPage() {
                               </div>
                             ))}
                           </div>
+                        </div>
+
+                        <div className="space-y-4">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <h3 className="text-sm font-semibold">
+                              Configuration
+                            </h3>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              disabled={isSavingConfig || !detailService}
+                              onClick={() => {
+                                if (!detailService) {
+                                  return;
+                                }
+                                void handleSaveConfiguration(detailService.name);
+                              }}
+                            >
+                              {isSavingConfig ? "Saving" : "Save"}
+                            </Button>
+                          </div>
+
+                          {configDraftError ? (
+                            <p className="text-sm text-destructive">
+                              {configDraftError}
+                            </p>
+                          ) : null}
+
+                          <ConfigEditor
+                            config={configDraft}
+                            schema={JSON.stringify(
+                              serviceConfigSchemaPayload?.configSchema ?? {},
+                              null,
+                              2,
+                            )}
+                            jsonPatch=""
+                            onJsonPatchChange={(patch) => { }}
+                          />
                         </div>
                       </div>
                     ) : (
