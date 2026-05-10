@@ -24,6 +24,15 @@ const manifest = {
   name: "svc_dummy",
   description: "Dummy service for local testing",
   enabled: true,
+  configSchema: {
+    type: "object",
+    properties: {
+      echoPrefix: { type: "string" },
+      quoteSuffix: { type: "string" },
+      calculatorFactor: { type: "number" },
+    },
+    additionalProperties: false,
+  },
   metadata: {
     serverUrl: toolBaseUrl,
   },
@@ -154,8 +163,6 @@ const registryPayload = (baseUrl) =>
     source: `${baseUrl}/definition.json`,
   });
 
-let servedDefinition = false;
-
 const server = http.createServer((req, res) => {
   if (req.method !== "GET") {
     res.statusCode = 405;
@@ -175,16 +182,9 @@ const server = http.createServer((req, res) => {
   }
 
   if (path === "/definition.json") {
-    if (servedDefinition) {
-      res.statusCode = 410;
-      res.end("Server already served the definition once.");
-      return;
-    }
-
     res.statusCode = 200;
     res.setHeader("Content-Type", "application/json; charset=utf-8");
     res.end(definitionJson);
-    servedDefinition = true;
     return;
   }
 
@@ -234,6 +234,19 @@ const toolServer = http.createServer(async (req, res) => {
 
   res.setHeader("Content-Type", "application/json; charset=utf-8");
 
+  let serviceConfig = {};
+  const rawConfigHeader = req.headers["x-mci-service-config"];
+  if (typeof rawConfigHeader === "string" && rawConfigHeader.trim()) {
+    try {
+      const parsedConfig = JSON.parse(rawConfigHeader);
+      if (parsedConfig && typeof parsedConfig === "object") {
+        serviceConfig = parsedConfig;
+      }
+    } catch {
+      serviceConfig = {};
+    }
+  }
+
   if (route === "invoke/echo") {
     if (!body || typeof body.input !== "string") {
       res.statusCode = 400;
@@ -241,8 +254,13 @@ const toolServer = http.createServer(async (req, res) => {
       return;
     }
 
+    const echoPrefix =
+      typeof serviceConfig.echoPrefix === "string"
+        ? serviceConfig.echoPrefix
+        : "";
+
     res.statusCode = 200;
-    res.end(JSON.stringify({ output: body.input }));
+    res.end(JSON.stringify({ output: `${echoPrefix}${body.input}` }));
     return;
   }
 
@@ -308,15 +326,24 @@ const toolServer = http.createServer(async (req, res) => {
         return;
     }
 
+    const calculatorFactor =
+      typeof serviceConfig.calculatorFactor === "number"
+        ? serviceConfig.calculatorFactor
+        : 1;
+
     res.statusCode = 200;
-    res.end(JSON.stringify({ result }));
+    res.end(JSON.stringify({ result: result * calculatorFactor }));
     return;
   }
 
   if (route === "invoke/quote") {
     const quote = quotes[Math.floor(Math.random() * quotes.length)];
+    const quoteSuffix =
+      typeof serviceConfig.quoteSuffix === "string"
+        ? serviceConfig.quoteSuffix
+        : "";
     res.statusCode = 200;
-    res.end(JSON.stringify({ quote }));
+    res.end(JSON.stringify({ quote: `${quote}${quoteSuffix}` }));
     return;
   }
 
