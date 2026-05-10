@@ -246,6 +246,7 @@ function toServiceManifestBinding(
     name: manifest.name,
     description: "",
     enabled: true,
+    configSchema: {} as ServiceManifest["configSchema"],
     metadata: {},
     tools: manifest.tools.map((tool) => {
       const stagedTool = tool as {

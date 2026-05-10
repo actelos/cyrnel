@@ -89,14 +89,14 @@ describe("manifest.service unit", () => {
   it("detects SQLite and Postgres unique-constraint errors", () => {
     expect(
       isUniqueConstraintViolation(
-        new Error("UNIQUE constraint failed: manifests.definition_id"),
+        new Error("UNIQUE constraint failed: services.definition_id"),
       ),
     ).toBe(true);
 
     expect(
       isUniqueConstraintViolation(
         new Error(
-          'duplicate key value violates unique constraint "manifests_definition_id_unique"',
+          'duplicate key value violates unique constraint "services_definition_id_unique"',
         ),
       ),
     ).toBe(true);
@@ -112,7 +112,7 @@ describe("manifest.service unit", () => {
   it("does not mislabel non-unique constraint errors", () => {
     expect(
       isUniqueConstraintViolation(
-        new Error("NOT NULL constraint failed: manifests.hash"),
+        new Error("NOT NULL constraint failed: services.hash"),
       ),
     ).toBe(false);
 
@@ -129,11 +129,10 @@ describe("manifest.service unit", () => {
 async function resetManifestTables(): Promise<void> {
   await db.run(sql`PRAGMA foreign_keys = OFF`);
   await db.run(sql`DROP TABLE IF EXISTS tools`);
-  await db.run(sql`DROP TABLE IF EXISTS service_configs`);
+  await db.run(sql`DROP TABLE IF EXISTS configurations`);
   await db.run(sql`DROP TABLE IF EXISTS services`);
-  await db.run(sql`DROP TABLE IF EXISTS manifests`);
   await db.run(sql`
-    CREATE TABLE manifests (
+    CREATE TABLE services (
       id text PRIMARY KEY NOT NULL,
       type text NOT NULL,
       source text NOT NULL DEFAULT '',
@@ -144,16 +143,9 @@ async function resetManifestTables(): Promise<void> {
       config_schema text NOT NULL
     )
   `);
-  await db.run(sql`CREATE INDEX manifests_type_idx ON manifests (type)`);
+  await db.run(sql`CREATE INDEX services_type_idx ON services (type)`);
   await db.run(sql`
-    CREATE TABLE services (
-      id text PRIMARY KEY NOT NULL,
-      config_schema text NOT NULL,
-      FOREIGN KEY (id) REFERENCES manifests(id) ON UPDATE no action ON DELETE cascade
-    )
-  `);
-  await db.run(sql`
-    CREATE TABLE service_configs (
+    CREATE TABLE configurations (
       service_name text PRIMARY KEY NOT NULL,
       config text NOT NULL DEFAULT '{}',
       updated_at integer NOT NULL,
@@ -170,7 +162,7 @@ async function resetManifestTables(): Promise<void> {
       output_schema text NOT NULL,
       metadata text NOT NULL,
       PRIMARY KEY(service_id, name),
-      FOREIGN KEY (service_id) REFERENCES manifests(id) ON UPDATE no action ON DELETE cascade
+      FOREIGN KEY (service_id) REFERENCES services(id) ON UPDATE no action ON DELETE cascade
     )
   `);
   await db.run(sql`CREATE INDEX tools_name_idx ON tools (name)`);
@@ -196,10 +188,6 @@ describe("manifest.service update semantics", () => {
       metadata: { serverUrl: "http://127.0.0.1:9100" },
       configSchema: { type: "null" },
     });
-
-    await db.run(
-      sql`INSERT INTO services (id, config_schema) VALUES (${serviceName}, ${JSON.stringify({ type: "null" })})`,
-    );
 
     await db.insert(tools).values([
       {
@@ -321,10 +309,6 @@ describe("manifest.service configuration", () => {
       configSchema: { type: "null" },
     });
 
-    await db.run(
-      sql`INSERT INTO services (id, config_schema) VALUES (${serviceName}, ${JSON.stringify({ type: "null" })})`,
-    );
-
     const service = new ManifestService();
 
     await expect(service.getServiceConfig(serviceName)).resolves.toEqual({});
@@ -349,10 +333,6 @@ describe("manifest.service configuration", () => {
       configSchema: schema,
     });
 
-    await db.run(
-      sql`INSERT INTO services (id, config_schema) VALUES (${serviceName}, ${JSON.stringify(schema)})`,
-    );
-
     const service = new ManifestService();
 
     const updated = await service.patchServiceConfig(serviceName, [
@@ -362,7 +342,7 @@ describe("manifest.service configuration", () => {
     expect(updated).toEqual({ enabled: true });
 
     const stored = await db.run(
-      sql`SELECT config FROM service_configs WHERE service_name = ${serviceName} LIMIT 1`,
+      sql`SELECT config FROM configurations WHERE service_name = ${serviceName} LIMIT 1`,
     );
     expect(stored.rows).toHaveLength(1);
     expect(JSON.parse(String(stored.rows[0]?.config ?? "{}"))).toEqual({
@@ -389,10 +369,6 @@ describe("manifest.service configuration", () => {
       configSchema: schema,
     });
 
-    await db.run(
-      sql`INSERT INTO services (id, config_schema) VALUES (${serviceName}, ${JSON.stringify(schema)})`,
-    );
-
     const service = new ManifestService();
 
     await expect(
@@ -402,7 +378,7 @@ describe("manifest.service configuration", () => {
     ).rejects.toMatchObject({ statusCode: 400 });
   });
 
-  it("loads config schema from persisted services table", async () => {
+  it("loads config schema from persisted manifests table", async () => {
     const serviceName = "svc-config-schema";
     const schema = { type: "object" };
 
@@ -417,14 +393,78 @@ describe("manifest.service configuration", () => {
       configSchema: schema,
     });
 
-    await db.run(
-      sql`INSERT INTO services (id, config_schema) VALUES (${serviceName}, ${JSON.stringify(schema)})`,
-    );
-
     const service = new ManifestService();
 
     await expect(service.getServiceConfigSchema(serviceName)).resolves.toEqual(
       schema,
     );
+  });
+
+  it("applies schema defaults when patching configuration", async () => {
+    const serviceName = "svc-config-defaults";
+    const schema = {
+      type: "object",
+      properties: {
+        enabled: { type: "boolean", default: true },
+        mode: { type: "string", default: "fast" },
+      },
+      additionalProperties: false,
+    };
+
+    await db.insert(manifests).values({
+      id: serviceName,
+      type: "foo",
+      source: "https://registry.example.com/svc.json",
+      description: "",
+      hash: "hash",
+      enabled: true,
+      metadata: { serverUrl: "http://127.0.0.1:9999" },
+      configSchema: schema,
+    });
+
+    const service = new ManifestService();
+
+    const updated = await service.patchServiceConfig(serviceName, []);
+
+    expect(updated).toEqual({ enabled: true, mode: "fast" });
+
+    const stored = await db.run(
+      sql`SELECT config FROM configurations WHERE service_name = ${serviceName} LIMIT 1`,
+    );
+    expect(stored.rows).toHaveLength(1);
+    expect(JSON.parse(String(stored.rows[0]?.config ?? "{}"))).toEqual({
+      enabled: true,
+      mode: "fast",
+    });
+  });
+
+  it("rejects enabling when stored config fails schema validation", async () => {
+    const serviceName = "svc-config-enable-invalid";
+    const schema = {
+      type: "object",
+      properties: { enabled: { type: "boolean" } },
+      additionalProperties: false,
+    };
+
+    await db.insert(manifests).values({
+      id: serviceName,
+      type: "foo",
+      source: "https://registry.example.com/svc.json",
+      description: "",
+      hash: "hash",
+      enabled: false,
+      metadata: { serverUrl: "http://127.0.0.1:9999" },
+      configSchema: schema,
+    });
+
+    await db.run(
+      sql`INSERT INTO configurations (service_name, config, updated_at) VALUES (${serviceName}, ${JSON.stringify({ enabled: "yes" })}, ${Date.now()})`,
+    );
+
+    const service = new ManifestService();
+
+    await expect(
+      service.setServiceEnabled(serviceName, true),
+    ).rejects.toMatchObject({ statusCode: 400 });
   });
 });

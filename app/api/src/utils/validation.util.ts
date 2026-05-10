@@ -38,7 +38,24 @@ export function parseOrError<T>(
 }
 
 const ajv = new Ajv({ allErrors: true, strict: false });
+const ajvWithDefaults = new Ajv({
+  allErrors: true,
+  strict: false,
+  useDefaults: true,
+});
 const schemaValidators = new Map<string, ValidateFunction>();
+const schemaDefaultsValidators = new Map<string, ValidateFunction>();
+
+function formatAjvErrors(validate: ValidateFunction): string {
+  return (
+    validate.errors
+      ?.map((error) => {
+        const location = error.instancePath || "/";
+        return `${location} ${error.message}`.trim();
+      })
+      .join("; ") ?? "Schema validation failed."
+  );
+}
 
 export function validateJsonSchema(
   schema: JSONSchema,
@@ -57,13 +74,31 @@ export function validateJsonSchema(
     return;
   }
 
-  const details =
-    validate.errors
-      ?.map((error) => {
-        const location = error.instancePath || "/";
-        return `${location} ${error.message}`.trim();
-      })
-      .join("; ") ?? "Schema validation failed.";
+  const details = formatAjvErrors(validate);
+
+  throw new HttpError(400, `${message} ${details}`.trim());
+}
+
+export function applyJsonSchemaDefaults<T extends Record<string, unknown>>(
+  schema: JSONSchema,
+  payload: T,
+  message = "Schema validation failed.",
+): T {
+  const key = JSON.stringify(schema);
+  const cached = schemaDefaultsValidators.get(key);
+  const validate = cached ?? ajvWithDefaults.compile(schema);
+
+  if (!cached) {
+    schemaDefaultsValidators.set(key, validate);
+  }
+
+  const normalized = JSON.parse(JSON.stringify(payload ?? {})) as T;
+
+  if (validate(normalized)) {
+    return normalized;
+  }
+
+  const details = formatAjvErrors(validate);
 
   throw new HttpError(400, `${message} ${details}`.trim());
 }

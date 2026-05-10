@@ -88,7 +88,7 @@ const manifestV2 = (baseUrl: string): ServiceManifest => ({
 async function resetManifestTables(): Promise<void> {
   await db.run(sql`PRAGMA foreign_keys = OFF`);
   await db.run(sql`DROP TABLE IF EXISTS tools`);
-  await db.run(sql`DROP TABLE IF EXISTS manifests`);
+  await db.run(sql`DROP TABLE IF EXISTS services`);
   await db.run(sql`DROP TABLE IF EXISTS definitions`);
   await db.run(sql`
     CREATE TABLE definitions (
@@ -100,7 +100,7 @@ async function resetManifestTables(): Promise<void> {
     )
   `);
   await db.run(sql`
-    CREATE TABLE manifests (
+    CREATE TABLE services (
       id text PRIMARY KEY NOT NULL,
       definition_id text,
       description text NOT NULL DEFAULT '',
@@ -111,7 +111,7 @@ async function resetManifestTables(): Promise<void> {
     )
   `);
   await db.run(
-    sql`CREATE UNIQUE INDEX manifests_definition_id_unique ON manifests (definition_id)`,
+    sql`CREATE UNIQUE INDEX services_definition_id_unique ON services (definition_id)`,
   );
   await db.run(sql`
     CREATE TABLE tools (
@@ -123,7 +123,7 @@ async function resetManifestTables(): Promise<void> {
       output_schema text NOT NULL,
       metadata text NOT NULL,
       PRIMARY KEY(service_id, name),
-      FOREIGN KEY (service_id) REFERENCES manifests(id) ON UPDATE no action ON DELETE cascade
+      FOREIGN KEY (service_id) REFERENCES services(id) ON UPDATE no action ON DELETE cascade
     )
   `);
   await db.run(sql`CREATE INDEX tools_name_idx ON tools (name)`);

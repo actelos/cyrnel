@@ -14,7 +14,7 @@ import type {
 } from "@/models/manifest.model";
 
 export const manifests = sqliteTable(
-  "manifests",
+  "services",
   {
     id: text("id").primaryKey(),
     type: text("type").$type<ServiceType>().notNull(),
@@ -29,22 +29,13 @@ export const manifests = sqliteTable(
       .$type<JSONSchema>()
       .notNull(),
   },
-  (table) => [index("manifests_type_idx").on(table.type)],
+  (table) => [index("services_type_idx").on(table.type)],
 );
 
-export const services = sqliteTable("services", {
-  id: text("id")
-    .primaryKey()
-    .references(() => manifests.id, { onDelete: "cascade" }),
-  configSchema: text("config_schema", { mode: "json" })
-    .$type<JSONSchema>()
-    .notNull(),
-});
-
-export const serviceConfigs = sqliteTable("service_configs", {
+export const configurations = sqliteTable("configurations", {
   serviceName: text("service_name")
     .primaryKey()
-    .references(() => services.id, { onDelete: "cascade" }),
+    .references(() => manifests.id, { onDelete: "cascade" }),
   config: text("config", { mode: "json" })
     .$type<Record<string, unknown>>()
     .notNull()
@@ -81,9 +72,7 @@ export const tools = sqliteTable(
 
 export type ManifestRecord = typeof manifests.$inferSelect;
 export type NewManifestRecord = typeof manifests.$inferInsert;
-export type ServiceRecord = typeof services.$inferSelect;
-export type NewServiceRecord = typeof services.$inferInsert;
-export type ServiceConfigRecord = typeof serviceConfigs.$inferSelect;
-export type NewServiceConfigRecord = typeof serviceConfigs.$inferInsert;
+export type ConfigurationRecord = typeof configurations.$inferSelect;
+export type NewConfigurationRecord = typeof configurations.$inferInsert;
 export type ToolRecord = typeof tools.$inferSelect;
 export type NewToolRecord = typeof tools.$inferInsert;

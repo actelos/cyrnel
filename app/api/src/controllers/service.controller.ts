@@ -1,4 +1,5 @@
 import type { Request, Response } from "express";
+import type { Operation } from "fast-json-patch";
 import { z } from "zod";
 
 import { logger } from "@/logger";
@@ -137,14 +138,41 @@ const enabledBodySchema = z.object({
   enabled: z.boolean({ error: "Field 'enabled' must be a boolean." }),
 });
 
-const jsonPatchOperationSchema = z.object({
-  op: z.enum(["add", "remove", "replace", "move", "copy", "test"]),
-  path: z.string().min(1),
-  from: z.string().optional(),
-  value: z.unknown().optional(),
-});
+const jsonPatchOperationSchema = z.union([
+  z.object({
+    op: z.literal("add"),
+    path: z.string().min(1),
+    value: z.unknown(),
+  }),
+  z.object({
+    op: z.literal("remove"),
+    path: z.string().min(1),
+  }),
+  z.object({
+    op: z.literal("replace"),
+    path: z.string().min(1),
+    value: z.unknown(),
+  }),
+  z.object({
+    op: z.literal("move"),
+    path: z.string().min(1),
+    from: z.string().min(1),
+  }),
+  z.object({
+    op: z.literal("copy"),
+    path: z.string().min(1),
+    from: z.string().min(1),
+  }),
+  z.object({
+    op: z.literal("test"),
+    path: z.string().min(1),
+    value: z.unknown(),
+  }),
+]);
 
-const jsonPatchBodySchema = z.array(jsonPatchOperationSchema);
+const jsonPatchBodySchema: z.ZodType<Operation[]> = z.array(
+  jsonPatchOperationSchema,
+);
 
 export async function listServices(req: Request, res: Response): Promise<void> {
   const manifestService = getManifestService(req);
@@ -189,7 +217,8 @@ export async function getServiceConfigurationSchema(
 ): Promise<void> {
   const manifestService = getManifestService(req);
   const serviceName = parseServiceName(req.params.serviceName);
-  const configSchema = await manifestService.getServiceConfigSchema(serviceName);
+  const configSchema =
+    await manifestService.getServiceConfigSchema(serviceName);
 
   res.status(200).json({ configSchema });
 }
@@ -208,6 +237,12 @@ export async function patchServiceConfiguration(
   );
 
   const config = await manifestService.patchServiceConfig(serviceName, patch);
+
+  try {
+    adapterPoolService.updateServiceConfig(serviceName, config);
+  } catch (error) {
+    logger.warn({ err: error }, "Failed to update adapter configuration");
+  }
 
   try {
     adapterPoolService.requestRestage();

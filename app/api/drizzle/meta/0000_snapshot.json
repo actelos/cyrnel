@@ -1,11 +1,57 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "9deb12b1-6950-4d55-83eb-4c5c036a66d9",
+  "id": "1d567532-59a6-4b15-a23d-debb30b27898",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
-    "manifests": {
-      "name": "manifests",
+    "configurations": {
+      "name": "configurations",
+      "columns": {
+        "service_name": {
+          "name": "service_name",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "config": {
+          "name": "config",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'{}'"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "configurations_service_name_services_id_fk": {
+          "name": "configurations_service_name_services_id_fk",
+          "tableFrom": "configurations",
+          "tableTo": "services",
+          "columnsFrom": [
+            "service_name"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "services": {
+      "name": "services",
       "columns": {
         "id": {
           "name": "id",
@@ -58,12 +104,21 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "config_schema": {
+          "name": "config_schema",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
         }
       },
       "indexes": {
-        "manifests_type_idx": {
-          "name": "manifests_type_idx",
-          "columns": ["type"],
+        "services_type_idx": {
+          "name": "services_type_idx",
+          "columns": [
+            "type"
+          ],
           "isUnique": false
         }
       },
@@ -130,24 +185,33 @@
       "indexes": {
         "tools_name_idx": {
           "name": "tools_name_idx",
-          "columns": ["name"],
+          "columns": [
+            "name"
+          ],
           "isUnique": false
         }
       },
       "foreignKeys": {
-        "tools_service_id_manifests_id_fk": {
-          "name": "tools_service_id_manifests_id_fk",
+        "tools_service_id_services_id_fk": {
+          "name": "tools_service_id_services_id_fk",
           "tableFrom": "tools",
-          "tableTo": "manifests",
-          "columnsFrom": ["service_id"],
-          "columnsTo": ["id"],
+          "tableTo": "services",
+          "columnsFrom": [
+            "service_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {
         "tools_service_id_name_pk": {
-          "columns": ["service_id", "name"],
+          "columns": [
+            "service_id",
+            "name"
+          ],
           "name": "tools_service_id_name_pk"
         }
       },

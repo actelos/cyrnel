@@ -51,11 +51,10 @@ function isObject(
 async function resetManifestsTable(): Promise<void> {
   await db.run(sql`PRAGMA foreign_keys = OFF`);
   await db.run(sql`DROP TABLE IF EXISTS tools`);
-  await db.run(sql`DROP TABLE IF EXISTS service_configs`);
+  await db.run(sql`DROP TABLE IF EXISTS configurations`);
   await db.run(sql`DROP TABLE IF EXISTS services`);
-  await db.run(sql`DROP TABLE IF EXISTS manifests`);
   await db.run(sql`
-    CREATE TABLE manifests (
+    CREATE TABLE services (
       id text PRIMARY KEY NOT NULL,
       type text NOT NULL,
       source text NOT NULL DEFAULT '',
@@ -66,16 +65,9 @@ async function resetManifestsTable(): Promise<void> {
       config_schema text NOT NULL
     )
   `);
-  await db.run(sql`CREATE INDEX manifests_type_idx ON manifests (type)`);
+  await db.run(sql`CREATE INDEX services_type_idx ON services (type)`);
   await db.run(sql`
-    CREATE TABLE services (
-      id text PRIMARY KEY NOT NULL,
-      config_schema text NOT NULL,
-      FOREIGN KEY (id) REFERENCES manifests(id) ON UPDATE no action ON DELETE cascade
-    )
-  `);
-  await db.run(sql`
-    CREATE TABLE service_configs (
+    CREATE TABLE configurations (
       service_name text PRIMARY KEY NOT NULL,
       config text NOT NULL DEFAULT '{}',
       updated_at integer NOT NULL,
@@ -92,7 +84,7 @@ async function resetManifestsTable(): Promise<void> {
       output_schema text NOT NULL,
       metadata text NOT NULL,
       PRIMARY KEY(service_id, name),
-      FOREIGN KEY (service_id) REFERENCES manifests(id) ON UPDATE no action ON DELETE cascade
+      FOREIGN KEY (service_id) REFERENCES services(id) ON UPDATE no action ON DELETE cascade
     )
   `);
   await db.run(sql`CREATE INDEX tools_name_idx ON tools (name)`);
@@ -110,7 +102,12 @@ describe("invoke echo integration", () => {
 
     adapter = new AdapterModule({
       fetchImpl: async (input, init) => {
-        const url = typeof input === "string" ? input : input.url;
+        const url =
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url;
         const toolName = decodeURIComponent(
           new URL(url).pathname.replace(/^\//, ""),
         );
@@ -165,10 +162,6 @@ describe("invoke echo integration", () => {
       },
       configSchema: { type: "null" },
     });
-
-    await db.run(
-      sql`INSERT INTO services (id, config_schema) VALUES ('test-service', ${JSON.stringify({ type: "null" })})`,
-    );
 
     await db.insert(tools).values([
       {
@@ -426,4 +419,3 @@ describe("invoke echo integration", () => {
     ]);
   });
 });
-

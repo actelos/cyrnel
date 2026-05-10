@@ -46,11 +46,10 @@ async function waitForMessageCount(
 async function resetDiscoverTables(): Promise<void> {
   await db.run(sql`PRAGMA foreign_keys = OFF`);
   await db.run(sql`DROP TABLE IF EXISTS tools`);
-  await db.run(sql`DROP TABLE IF EXISTS service_configs`);
+  await db.run(sql`DROP TABLE IF EXISTS configurations`);
   await db.run(sql`DROP TABLE IF EXISTS services`);
-  await db.run(sql`DROP TABLE IF EXISTS manifests`);
   await db.run(sql`
-    CREATE TABLE manifests (
+    CREATE TABLE services (
       id text PRIMARY KEY NOT NULL,
       type text NOT NULL,
       source text NOT NULL DEFAULT '',
@@ -61,16 +60,9 @@ async function resetDiscoverTables(): Promise<void> {
       config_schema text NOT NULL
     )
   `);
-  await db.run(sql`CREATE INDEX manifests_type_idx ON manifests (type)`);
+  await db.run(sql`CREATE INDEX services_type_idx ON services (type)`);
   await db.run(sql`
-    CREATE TABLE services (
-      id text PRIMARY KEY NOT NULL,
-      config_schema text NOT NULL,
-      FOREIGN KEY (id) REFERENCES manifests(id) ON UPDATE no action ON DELETE cascade
-    )
-  `);
-  await db.run(sql`
-    CREATE TABLE service_configs (
+    CREATE TABLE configurations (
       service_name text PRIMARY KEY NOT NULL,
       config text NOT NULL DEFAULT '{}',
       updated_at integer NOT NULL,
@@ -87,7 +79,7 @@ async function resetDiscoverTables(): Promise<void> {
       output_schema text NOT NULL,
       metadata text NOT NULL,
       PRIMARY KEY(service_id, name),
-      FOREIGN KEY (service_id) REFERENCES manifests(id) ON UPDATE no action ON DELETE cascade
+      FOREIGN KEY (service_id) REFERENCES services(id) ON UPDATE no action ON DELETE cascade
     )
   `);
   await db.run(sql`CREATE INDEX tools_name_idx ON tools (name)`);
@@ -124,14 +116,6 @@ async function seedDiscoverFixtures(): Promise<void> {
       configSchema: { type: "null" },
     },
   ]);
-
-  await db.run(sql`
-    INSERT INTO services (id, config_schema)
-    VALUES
-      ('svc-alpha', ${JSON.stringify({ type: "null" })}),
-      ('svc-beta', ${JSON.stringify({ type: "null" })}),
-      ('svc-gamma', ${JSON.stringify({ type: "null" })})
-  `);
 
   await db.insert(tools).values([
     {
@@ -690,7 +674,7 @@ describe("discover.service integration", () => {
     const dispose = createDiscoverMessageSystem(channel);
     disposers.push(dispose);
 
-    await db.run(sql`DROP TABLE manifests`);
+    await db.run(sql`DROP TABLE services`);
 
     channel.emit("message", {
       type: "discover.services",

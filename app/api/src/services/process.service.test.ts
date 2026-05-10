@@ -554,6 +554,7 @@ describe("ProcessService", () => {
       "listIssues",
     );
     expect(invokeAdapter).toHaveBeenCalledWith(
+      "github",
       "listIssues",
       { owner: "acme" },
       {

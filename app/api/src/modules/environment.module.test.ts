@@ -203,6 +203,7 @@ describe("EnvironmentModule", () => {
         name: "github",
         description: "",
         enabled: true,
+        configSchema: { type: "null" },
         metadata: {},
         tools: [
           {
@@ -253,6 +254,7 @@ describe("EnvironmentModule", () => {
         name: "github",
         description: "",
         enabled: true,
+        configSchema: { type: "null" },
         metadata: {},
         tools: [
           {
@@ -270,6 +272,7 @@ describe("EnvironmentModule", () => {
         name: "github",
         description: "",
         enabled: true,
+        configSchema: { type: "null" },
         metadata: {},
         tools: [
           {
@@ -314,6 +317,7 @@ describe("EnvironmentModule", () => {
         name: "github",
         description: "",
         enabled: true,
+        configSchema: { type: "null" },
         metadata: {},
         tools: [
           {
@@ -449,6 +453,7 @@ describe("EnvironmentModule", () => {
         name: "math",
         description: "",
         enabled: true,
+        configSchema: { type: "null" },
         metadata: {},
         tools: [
           {

@@ -5,7 +5,7 @@ import * as ipaddr from "ipaddr.js";
 import { z } from "zod";
 
 import { db } from "@/db/client";
-import { manifests, serviceConfigs, services, tools } from "@/db/schema";
+import { configurations, manifests, tools } from "@/db/schema";
 import { HttpError } from "@/models/error.model";
 import type { ResolvedToolInvocation } from "@/models/invoke.model";
 import type {
@@ -22,7 +22,10 @@ import type {
 } from "@/models/manifest.model";
 import { AdapterModule } from "@/modules/adapter.module";
 import { computeContentHash } from "@/utils/hash.util";
-import { validateJsonSchema } from "@/utils/validation.util";
+import {
+  applyJsonSchemaDefaults,
+  validateJsonSchema,
+} from "@/utils/validation.util";
 
 const DEFINITION_DOWNLOAD_TIMEOUT_MS = 10_000;
 const MAX_DEFINITION_DOWNLOAD_BYTES = 2_048_576;
@@ -137,10 +140,9 @@ export class ManifestService {
           metadata: manifests.metadata,
           hash: manifests.hash,
           enabled: manifests.enabled,
-          configSchema: services.configSchema,
+          configSchema: manifests.configSchema,
         })
         .from(manifests)
-        .innerJoin(services, eq(services.id, manifests.id))
         .where(eq(manifests.id, normalizedServiceName))
         .limit(1);
     } catch {
@@ -290,11 +292,6 @@ export class ManifestService {
           configSchema: parsedManifest.configSchema,
         });
 
-        await tx.insert(services).values({
-          id: normalizedServiceName,
-          configSchema: parsedManifest.configSchema,
-        });
-
         if (parsedManifest.tools.length > 0) {
           await tx.insert(tools).values(
             parsedManifest.tools.map((tool) => ({
@@ -411,11 +408,6 @@ export class ManifestService {
             configSchema: parsedManifest.configSchema,
           })
           .where(eq(manifests.id, normalizedServiceName));
-
-        await tx
-          .update(services)
-          .set({ configSchema: parsedManifest.configSchema })
-          .where(eq(services.id, normalizedServiceName));
 
         await tx
           .delete(tools)
@@ -698,6 +690,19 @@ export class ManifestService {
     const normalizedServiceName = normalizeServiceName(serviceName);
     const normalizedEnabled = normalizeEnabled(enabled);
 
+    if (normalizedEnabled) {
+      const config = await this.getServiceConfig(normalizedServiceName);
+      const schema = await this.getServiceConfigSchema(normalizedServiceName);
+
+      if (!isNullOnlySchema(schema)) {
+        applyJsonSchemaDefaults(
+          schema,
+          config,
+          `Invalid configuration for service '${normalizedServiceName}'.`,
+        );
+      }
+    }
+
     let updatedRows: Array<{ id: string }>;
     try {
       updatedRows = await db
@@ -756,15 +761,17 @@ export class ManifestService {
     }
   }
 
-  async getServiceConfig(serviceName: string): Promise<Record<string, unknown>> {
+  async getServiceConfig(
+    serviceName: string,
+  ): Promise<Record<string, unknown>> {
     const normalizedServiceName = normalizeServiceName(serviceName);
 
     let rows: Array<{ config: Record<string, unknown> }>;
     try {
       rows = await db
-        .select({ config: serviceConfigs.config })
-        .from(serviceConfigs)
-        .where(eq(serviceConfigs.serviceName, normalizedServiceName))
+        .select({ config: configurations.config })
+        .from(configurations)
+        .where(eq(configurations.serviceName, normalizedServiceName))
         .limit(1);
     } catch {
       throw new HttpError(
@@ -789,9 +796,9 @@ export class ManifestService {
     let rows: Array<{ configSchema: Record<string, unknown> }>;
     try {
       rows = await db
-        .select({ configSchema: services.configSchema })
-        .from(services)
-        .where(eq(services.id, normalizedServiceName))
+        .select({ configSchema: manifests.configSchema })
+        .from(manifests)
+        .where(eq(manifests.id, normalizedServiceName))
         .limit(1);
     } catch {
       throw new HttpError(
@@ -801,10 +808,7 @@ export class ManifestService {
     }
 
     if (rows.length === 0) {
-      throw new HttpError(
-        404,
-        `Service '${normalizedServiceName}' not found.`,
-      );
+      throw new HttpError(404, `Service '${normalizedServiceName}' not found.`);
     }
 
     return rows[0].configSchema;
@@ -836,19 +840,27 @@ export class ManifestService {
       `Invalid configuration for service '${normalizedServiceName}'.`,
     );
 
+    const normalizedConfig = isNullOnlySchema(schema)
+      ? updated
+      : applyJsonSchemaDefaults(
+          schema,
+          updated,
+          `Invalid configuration for service '${normalizedServiceName}'.`,
+        );
+
     const updatedAt = Date.now();
 
     try {
       await db
-        .insert(serviceConfigs)
+        .insert(configurations)
         .values({
           serviceName: normalizedServiceName,
-          config: updated,
+          config: normalizedConfig,
           updatedAt,
         })
         .onConflictDoUpdate({
-          target: serviceConfigs.serviceName,
-          set: { config: updated, updatedAt },
+          target: configurations.serviceName,
+          set: { config: normalizedConfig, updatedAt },
         });
     } catch {
       throw new HttpError(
@@ -857,7 +869,7 @@ export class ManifestService {
       );
     }
 
-    return updated;
+    return normalizedConfig;
   }
 
   async getAllServiceManifests(): Promise<ServiceManifest[]> {
@@ -1427,4 +1439,18 @@ function normalizeEnabled(enabled: unknown): boolean {
   }
 
   return parsed.data;
+}
+
+function isNullOnlySchema(schema: Record<string, unknown>): boolean {
+  const type = schema.type;
+
+  if (type === "null") {
+    return true;
+  }
+
+  if (Array.isArray(type) && type.length === 1 && type[0] === "null") {
+    return true;
+  }
+
+  return false;
 }

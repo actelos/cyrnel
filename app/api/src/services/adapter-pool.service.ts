@@ -1,7 +1,10 @@
+import { eq } from "drizzle-orm";
+
 import { db } from "@/db/client";
-import { serviceConfigs } from "@/db/schema";
+import { configurations, manifests } from "@/db/schema";
 import { HttpError } from "@/models/error.model";
 import { AdapterModule } from "@/modules/adapter.module";
+import { applyJsonSchemaDefaults } from "@/utils/validation.util";
 
 export class AdapterPoolService {
   private adapter: AdapterModule;
@@ -28,6 +31,21 @@ export class AdapterPoolService {
     }
 
     void this.tryStageNow();
+  }
+
+  updateServiceConfig(
+    serviceName: string,
+    config: Record<string, unknown>,
+  ): void {
+    if (this.isShutdown) {
+      return;
+    }
+
+    this.adapter.setServiceConfig(serviceName, config);
+
+    for (const adapter of this.retiredAdapters) {
+      adapter.setServiceConfig(serviceName, config);
+    }
   }
 
   allocate(): AdapterModule {
@@ -122,15 +140,49 @@ export class AdapterPoolService {
 
   private async hydrateSnapshot(): Promise<Record<string, unknown>> {
     const rows = await db
-      .select({ serviceName: serviceConfigs.serviceName, config: serviceConfigs.config })
-      .from(serviceConfigs);
+      .select({
+        serviceName: manifests.id,
+        configSchema: manifests.configSchema,
+        config: configurations.config,
+      })
+      .from(manifests)
+      .leftJoin(configurations, eq(configurations.serviceName, manifests.id));
 
     const snapshot: Record<string, unknown> = {};
     for (const row of rows) {
-      snapshot[row.serviceName] = row.config ?? {};
+      const rawConfig =
+        row.config &&
+        typeof row.config === "object" &&
+        !Array.isArray(row.config)
+          ? row.config
+          : {};
+
+      if (isNullOnlySchema(row.configSchema)) {
+        snapshot[row.serviceName] = rawConfig;
+        continue;
+      }
+
+      snapshot[row.serviceName] = applyJsonSchemaDefaults(
+        row.configSchema,
+        rawConfig,
+        `Invalid configuration for service '${row.serviceName}'.`,
+      );
     }
 
     return snapshot;
   }
 }
 
+function isNullOnlySchema(schema: Record<string, unknown>): boolean {
+  const type = schema.type;
+
+  if (type === "null") {
+    return true;
+  }
+
+  if (Array.isArray(type) && type.length === 1 && type[0] === "null") {
+    return true;
+  }
+
+  return false;
+}

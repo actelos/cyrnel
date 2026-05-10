@@ -3,9 +3,9 @@ import { Router } from "express";
 import {
   createService,
   deleteService,
+  getService,
   getServiceConfiguration,
   getServiceConfigurationSchema,
-  getService,
   getToolByName,
   listServices,
   listTools,
@@ -19,16 +19,17 @@ export const serviceRouter = Router();
 
 serviceRouter.get("/", listServices);
 serviceRouter.get("/:serviceName", getService);
-serviceRouter.get("/:serviceName/configuration", getServiceConfiguration);
-serviceRouter.get(
-  "/:serviceName/configuration/schema",
-  getServiceConfigurationSchema,
-);
-serviceRouter.patch("/:serviceName/configuration", patchServiceConfiguration);
 serviceRouter.post("/install", createService);
 serviceRouter.post("/:serviceName/update", updateService);
 serviceRouter.post("/:serviceName/enabled", setServiceEnabled);
 serviceRouter.delete("/:serviceName", deleteService);
+
+serviceRouter.get(
+  "/:serviceName/configuration/schema",
+  getServiceConfigurationSchema,
+);
+serviceRouter.get("/:serviceName/configuration", getServiceConfiguration);
+serviceRouter.patch("/:serviceName/configuration", patchServiceConfiguration);
 
 serviceRouter.get("/:serviceName/tools", listTools);
 serviceRouter.get("/:serviceName/tools/:toolName", getToolByName);

@@ -60,6 +60,13 @@ export class AdapterModule {
     this.serviceConfigSnapshot = snapshot;
   }
 
+  setServiceConfig(serviceName: string, config: Record<string, unknown>): void {
+    this.serviceConfigSnapshot = {
+      ...this.serviceConfigSnapshot,
+      [serviceName]: config,
+    };
+  }
+
   getServiceConfig(serviceName: string): Record<string, unknown> {
     const value = this.serviceConfigSnapshot[serviceName];
     if (value && typeof value === "object" && !Array.isArray(value)) {
