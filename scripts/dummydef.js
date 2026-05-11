@@ -24,6 +24,14 @@ const manifest = {
   name: "svc_dummy",
   description: "Dummy service for local testing",
   enabled: true,
+  secretsSchema: {
+    type: "object",
+    properties: {
+      apiKey: { type: "string" },
+    },
+    required: ["apiKey"],
+    additionalProperties: false,
+  },
   configSchema: {
     type: "object",
     properties: {
@@ -245,6 +253,28 @@ const toolServer = http.createServer(async (req, res) => {
     } catch {
       serviceConfig = {};
     }
+  }
+
+  let serviceSecrets = {};
+  const rawSecretsHeader = req.headers["x-mci-service-secrets"];
+  if (typeof rawSecretsHeader === "string" && rawSecretsHeader.trim()) {
+    try {
+      const parsedSecrets = JSON.parse(rawSecretsHeader);
+      if (parsedSecrets && typeof parsedSecrets === "object") {
+        serviceSecrets = parsedSecrets;
+      }
+    } catch {
+      serviceSecrets = {};
+    }
+  }
+
+  const apiKey =
+    typeof serviceSecrets.apiKey === "string" ? serviceSecrets.apiKey : "";
+
+  if (apiKey !== "hello world") {
+    res.statusCode = 401;
+    res.end(JSON.stringify({ message: "Invalid API key." }));
+    return;
   }
 
   if (route === "invoke/echo") {
