@@ -16,7 +16,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Popover,
   PopoverContent,
@@ -51,6 +50,7 @@ const serviceListSchema = z.object({
 const serviceDetailsSchema = serviceSchema.extend({
   metadata: metadataSchema,
   configSchema: metadataSchema,
+  secretsSchema: metadataSchema,
 });
 
 const serviceConfigSchema = z.object({
@@ -59,6 +59,14 @@ const serviceConfigSchema = z.object({
 
 const serviceConfigSchemaSchema = z.object({
   configSchema: metadataSchema,
+});
+
+const serviceSecretsSchema = z.object({
+  secrets: metadataSchema,
+});
+
+const serviceSecretsSchemaSchema = z.object({
+  secretsSchema: metadataSchema,
 });
 
 const toolSchema = z.object({
@@ -133,6 +141,9 @@ export default function ServicesPage() {
   const [configDraft, setConfigDraft] = useState<string>("{\n  \n}");
   const [configDraftError, setConfigDraftError] = useState<string | null>(null);
   const [isSavingConfig, setIsSavingConfig] = useState(false);
+  const [secretsDraft, setSecretsDraft] = useState<string>("{\n  \n}");
+  const [secretsDraftError, setSecretsDraftError] = useState<string | null>(null);
+  const [isSavingSecrets, setIsSavingSecrets] = useState(false);
 
   const normalizedQuery = queryFilter.trim();
   const enabledParam =
@@ -196,6 +207,14 @@ export default function ServicesPage() {
     ? buildUrl(`/services/${selectedServiceName}/configuration/schema`)
     : null;
 
+  const secretsUrl = selectedServiceName
+    ? buildUrl(`/services/${selectedServiceName}/secrets`)
+    : null;
+
+  const secretsSchemaUrl = selectedServiceName
+    ? buildUrl(`/services/${selectedServiceName}/secrets/schema`)
+    : null;
+
   const { data: serviceDetails, error: detailsError } = useSWR(
     serviceDetailsUrl,
     (url) => fetchJson(url, serviceDetailsSchema),
@@ -228,6 +247,20 @@ export default function ServicesPage() {
     { refreshInterval: 8000 },
   );
 
+  const { data: serviceSecrets } = useSWR(
+    secretsUrl,
+    (url) => fetchJson(url, serviceSecretsSchema),
+    { refreshInterval: 8000 },
+  );
+
+  const { data: serviceSecretsSchemaPayload } = useSWR(
+    secretsSchemaUrl,
+    (url) => fetchJson(url, serviceSecretsSchemaSchema),
+    { refreshInterval: 8000 },
+  );
+
+  const currentConfigDisplay = JSON.stringify(serviceConfig?.config ?? {}, null, 2);
+
   useEffect(() => {
     if (!selectedServiceName) {
       return;
@@ -237,6 +270,16 @@ export default function ServicesPage() {
     const normalized = JSON.stringify(serviceConfig?.config ?? {}, null, 2);
     setConfigDraft(normalized);
   }, [selectedServiceName, serviceConfig?.config]);
+
+  useEffect(() => {
+    if (!selectedServiceName) {
+      return;
+    }
+
+    setSecretsDraftError(null);
+    const normalized = JSON.stringify(serviceSecrets?.secrets ?? {}, null, 2);
+    setSecretsDraft(normalized);
+  }, [selectedServiceName, serviceSecrets?.secrets]);
 
   const escapeJsonPointer = (value: string) =>
     value.replace(/~/g, "~0").replace(/\//g, "~1");
@@ -308,6 +351,76 @@ export default function ServicesPage() {
       );
     } finally {
       setIsSavingConfig(false);
+    }
+  };
+
+  const handleSaveSecrets = async (serviceName: string) => {
+    setActionError(null);
+    setSecretsDraftError(null);
+
+    let desiredSecrets: unknown;
+    try {
+      desiredSecrets = JSON.parse(secretsDraft);
+    } catch (error) {
+      setSecretsDraftError(
+        error instanceof Error ? error.message : "Secrets are not valid JSON.",
+      );
+      return;
+    }
+
+    const patch: Array<Record<string, unknown>> = [];
+
+    if (Array.isArray(desiredSecrets)) {
+      patch.push(...(desiredSecrets as Array<Record<string, unknown>>));
+    } else {
+      if (!desiredSecrets || typeof desiredSecrets !== "object") {
+        setSecretsDraftError("Secrets must be a JSON object or JSON Patch array.");
+        return;
+      }
+
+      const currentSecrets = (serviceSecrets?.secrets ?? {}) as Record<string, unknown>;
+      const nextSecrets = desiredSecrets as Record<string, unknown>;
+
+      for (const key of Object.keys(currentSecrets)) {
+        if (!Object.hasOwn(nextSecrets, key)) {
+          patch.push({ op: "remove", path: `/${escapeJsonPointer(key)}` });
+        }
+      }
+
+      for (const [key, value] of Object.entries(nextSecrets)) {
+        const op = Object.hasOwn(currentSecrets, key) ? "replace" : "add";
+        if (Object.hasOwn(currentSecrets, key) && currentSecrets[key] === value) {
+          continue;
+        }
+        patch.push({ op, path: `/${escapeJsonPointer(key)}`, value });
+      }
+    }
+
+    setIsSavingSecrets(true);
+    try {
+      const response = await fetch(
+        buildUrl(`/services/${serviceName}/secrets`),
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patch),
+        },
+      );
+
+      if (!response.ok) {
+        const text = await response.text().catch(() => "");
+        throw new Error(text.trim().length > 0 ? text : `Request failed: ${response.status}`);
+      }
+
+      if (secretsUrl) {
+        await mutate(secretsUrl);
+      }
+    } catch (error) {
+      setActionError(
+        error instanceof Error ? error.message : "Unable to save secrets.",
+      );
+    } finally {
+      setIsSavingSecrets(false);
     }
   };
 
@@ -826,14 +939,71 @@ export default function ServicesPage() {
                           ) : null}
 
                           <ConfigEditor
-                            config={configDraft}
+                            idPrefix="config"
+                            config={currentConfigDisplay}
                             schema={JSON.stringify(
                               serviceConfigSchemaPayload?.configSchema ?? {},
                               null,
                               2,
                             )}
-                            jsonPatch=""
-                            onJsonPatchChange={(patch) => { }}
+                            jsonPatch={configDraft}
+                            onJsonPatchChange={(value) => {
+                              setConfigDraftError(null);
+                              setConfigDraft(value);
+                            }}
+                            labels={{
+                              config: "Current Configuration",
+                              schema: "Schema",
+                              patch: "Edit Configuration (JSON or JSON Patch)",
+                            }}
+                          />
+                        </div>
+
+                        <div className="space-y-4">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <h3 className="text-sm font-semibold">
+                              Secrets
+                            </h3>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              disabled={isSavingSecrets || !detailService}
+                              onClick={() => {
+                                if (!detailService) {
+                                  return;
+                                }
+                                void handleSaveSecrets(detailService.name);
+                              }}
+                            >
+                              {isSavingSecrets ? "Saving" : "Save"}
+                            </Button>
+                          </div>
+
+                          {secretsDraftError ? (
+                            <p className="text-sm text-destructive">
+                              {secretsDraftError}
+                            </p>
+                          ) : null}
+
+                          <ConfigEditor
+                            idPrefix="secrets"
+                            labels={{
+                              config: "Current Secrets",
+                              schema: "Schema",
+                              patch: "Edit Secrets (JSON or JSON Patch)",
+                            }}
+                            hideConfig
+                            config={secretsDraft}
+                            schema={JSON.stringify(
+                              serviceSecretsSchemaPayload?.secretsSchema ?? {},
+                              null,
+                              2,
+                            )}
+                            jsonPatch={secretsDraft}
+                            onJsonPatchChange={(value) => {
+                              setSecretsDraftError(null);
+                              setSecretsDraft(value);
+                            }}
                           />
                         </div>
                       </div>

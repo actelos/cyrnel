@@ -1,13 +1,19 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 interface ConfigEditorProps {
   config?: string;
   schema?: string;
   jsonPatch?: string;
   onJsonPatchChange?: (value: string) => void;
+  idPrefix?: string;
+  labels?: {
+    config?: string;
+    schema?: string;
+    patch?: string;
+  };
+  hideConfig?: boolean;
 }
 
 export default function ConfigEditor({
@@ -15,8 +21,20 @@ export default function ConfigEditor({
   schema = "",
   jsonPatch = "",
   onJsonPatchChange,
+  idPrefix = "config-editor",
+  labels,
+  hideConfig = false,
 }: ConfigEditorProps) {
   const [patch, setPatch] = useState(jsonPatch);
+  const resolvedLabels = {
+    config: labels?.config ?? "Current Config",
+    schema: labels?.schema ?? "Schema",
+    patch: labels?.patch ?? "JSON Patch",
+  };
+
+  useEffect(() => {
+    setPatch(jsonPatch);
+  }, [jsonPatch]);
 
   const handlePatchChange = (value: string) => {
     setPatch(value);
@@ -25,29 +43,31 @@ export default function ConfigEditor({
 
   return (
     <div className="space-y-4">
-      <Label htmlFor="config">Current Config</Label>
-      <Textarea
-        id="config"
-        value={config}
-        readOnly
-        placeholder="Current configuration will appear here..."
-        className="min-h-[250px] font-mono text-sm resize-none"
-      />
+      {hideConfig ? null : (
+        <>
+          <Label htmlFor={`${idPrefix}-config`}>{resolvedLabels.config}</Label>
+          <Textarea
+            id={`${idPrefix}-config`}
+            value={config}
+            readOnly
+            placeholder="Current configuration will appear here..."
+            className="min-h-[250px] font-mono text-sm resize-none"
+          />
+        </>
+      )}
 
-      <Label htmlFor="schema">Schema</Label>
+      <Label htmlFor={`${idPrefix}-schema`}>{resolvedLabels.schema}</Label>
       <Textarea
-        id="schema"
+        id={`${idPrefix}-schema`}
         value={schema}
         readOnly
         placeholder="Schema definition will appear here..."
         className="min-h-[250px] font-mono text-sm resize-none"
       />
 
-      <Label htmlFor="patch">
-        JSON Patch
-      </Label>
+      <Label htmlFor={`${idPrefix}-patch`}>{resolvedLabels.patch}</Label>
       <Textarea
-        id="patch"
+        id={`${idPrefix}-patch`}
         value={patch}
         onChange={(e) => handlePatchChange(e.target.value)}
         placeholder="Enter JSON patch operations here..."
