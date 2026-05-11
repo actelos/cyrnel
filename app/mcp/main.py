@@ -322,6 +322,92 @@ def get_service(service_name: str) -> Dict[str, Any]:
 
 
 @mcp.tool()
+def get_service_configuration_schema(service_name: str) -> Dict[str, Any]:
+    """
+    Get the configuration schema for a service.
+
+    Parameters
+    - service_name: Service identifier.
+
+    Returns
+    - configSchema: JSON schema for service configuration.
+    """
+    return _request("GET", f"/services/{service_name}/configuration/schema")
+
+
+@mcp.tool()
+def get_service_configuration(service_name: str) -> Dict[str, Any]:
+    """
+    Get the configuration for a service.
+
+    Parameters
+    - service_name: Service identifier.
+
+    Returns
+    - config: Current service configuration.
+    """
+    return _request("GET", f"/services/{service_name}/configuration")
+
+
+@mcp.tool()
+def patch_service_configuration(
+    service_name: str,
+    patch: list[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """
+    Patch the configuration for a service using JSON Patch.
+
+    Parameters
+    - service_name: Service identifier.
+    - patch: JSON Patch array.
+
+    Returns
+    - config: Updated service configuration.
+    """
+    return _request(
+        "PATCH",
+        f"/services/{service_name}/configuration",
+        json=patch,
+    )
+
+
+@mcp.tool()
+def get_service_secrets_schema(service_name: str) -> Dict[str, Any]:
+    """
+    Get the secrets schema for a service.
+
+    Parameters
+    - service_name: Service identifier.
+
+    Returns
+    - secretsSchema: JSON schema for service secrets.
+    """
+    return _request("GET", f"/services/{service_name}/secrets/schema")
+
+
+@mcp.tool()
+def patch_service_secrets(
+    service_name: str,
+    patch: list[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """
+    Patch the secrets for a service using JSON Patch.
+
+    Parameters
+    - service_name: Service identifier.
+    - patch: JSON Patch array.
+
+    Returns
+    - updated: True when secrets were updated.
+    """
+    return _request(
+        "PATCH",
+        f"/services/{service_name}/secrets",
+        json=patch,
+    )
+
+
+@mcp.tool()
 def create_service(service_type: str, source: str) -> Dict[str, Any]:
     """
     Install a service from a registry definition URL.
