@@ -32,7 +32,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.4.14",
+    "@biomejs/biome": "2.4.15",
     "@types/cors": "2.8.19",
     "@types/express": "5.0.6",
     "@types/multer": "2.1.0",
