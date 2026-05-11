@@ -196,6 +196,7 @@ export async function getService(req: Request, res: Response): Promise<void> {
     hash: service.hash,
     enabled: service.enabled,
     configSchema: service.configSchema,
+    secretsSchema: service.secretsSchema,
     metadata: service.metadata,
   });
 }
@@ -221,6 +222,18 @@ export async function getServiceConfigurationSchema(
     await manifestService.getServiceConfigSchema(serviceName);
 
   res.status(200).json({ configSchema });
+}
+
+export async function getServiceSecretsSchema(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const manifestService = getManifestService(req);
+  const serviceName = parseServiceName(req.params.serviceName);
+  const secretsSchema =
+    await manifestService.getServiceSecretsSchema(serviceName);
+
+  res.status(200).json({ secretsSchema });
 }
 
 export async function patchServiceConfiguration(
@@ -251,6 +264,36 @@ export async function patchServiceConfiguration(
   }
 
   res.status(200).json({ config });
+}
+
+export async function patchServiceSecrets(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const manifestService = getManifestService(req);
+  const adapterPoolService = getAdapterPoolService(req);
+  const serviceName = parseServiceName(req.params.serviceName);
+  const patch = parseOrHttpError(
+    jsonPatchBodySchema,
+    req.body,
+    "Request body must be a JSON Patch array.",
+  );
+
+  const secrets = await manifestService.patchServiceSecrets(serviceName, patch);
+
+  try {
+    adapterPoolService.updateServiceSecrets(serviceName, secrets);
+  } catch (error) {
+    logger.warn({ err: error }, "Failed to update adapter secrets");
+  }
+
+  try {
+    adapterPoolService.requestRestage();
+  } catch (error) {
+    logger.warn({ err: error }, "Failed to queue adapter restage");
+  }
+
+  res.status(200).json({ updated: true });
 }
 
 export async function listTools(req: Request, res: Response): Promise<void> {

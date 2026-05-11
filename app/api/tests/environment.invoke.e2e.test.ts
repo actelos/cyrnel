@@ -27,6 +27,7 @@ const manifestV1 = (baseUrl: string): ServiceManifest => ({
   name: serviceName,
   description: "",
   enabled: true,
+  configSchema: { type: "null" },
   metadata: {
     serverUrl: baseUrl,
   },
@@ -52,12 +53,14 @@ const manifestV1 = (baseUrl: string): ServiceManifest => ({
       },
     },
   ],
+  secretsSchema: { type: "null" },
 });
 
 const manifestV2 = (baseUrl: string): ServiceManifest => ({
   name: serviceName,
   description: "",
   enabled: true,
+  configSchema: { type: "null" },
   metadata: {
     serverUrl: baseUrl,
   },
@@ -83,6 +86,7 @@ const manifestV2 = (baseUrl: string): ServiceManifest => ({
       },
     },
   ],
+  secretsSchema: { type: "null" },
 });
 
 async function resetManifestTables(): Promise<void> {

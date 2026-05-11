@@ -1,9 +1,10 @@
 import { eq } from "drizzle-orm";
 
 import { db } from "@/db/client";
-import { configurations, manifests } from "@/db/schema";
+import { configurations, manifests, secrets } from "@/db/schema";
 import { HttpError } from "@/models/error.model";
 import { AdapterModule } from "@/modules/adapter.module";
+import { decryptSecrets } from "@/utils/secrets.util";
 import { applyJsonSchemaDefaults } from "@/utils/validation.util";
 
 export class AdapterPoolService {
@@ -17,6 +18,7 @@ export class AdapterPoolService {
   constructor() {
     this.adapter = new AdapterModule();
     this.adapter.setServiceConfigs({});
+    this.adapter.setServiceSecrets({});
   }
 
   requestRestage(): void {
@@ -45,6 +47,21 @@ export class AdapterPoolService {
 
     for (const adapter of this.retiredAdapters) {
       adapter.setServiceConfig(serviceName, config);
+    }
+  }
+
+  updateServiceSecrets(
+    serviceName: string,
+    secretsPayload: Record<string, unknown>,
+  ): void {
+    if (this.isShutdown) {
+      return;
+    }
+
+    this.adapter.setServiceSecret(serviceName, secretsPayload);
+
+    for (const adapter of this.retiredAdapters) {
+      adapter.setServiceSecret(serviceName, secretsPayload);
     }
   }
 
@@ -125,7 +142,8 @@ export class AdapterPoolService {
   private async stageFromDatabase(): Promise<boolean> {
     const snapshot = await this.hydrateSnapshot();
     const staged = new AdapterModule();
-    staged.setServiceConfigs(snapshot);
+    staged.setServiceConfigs(snapshot.configs);
+    staged.setServiceSecrets(snapshot.secrets);
 
     const previous = this.adapter;
     this.adapter = staged;
@@ -138,17 +156,24 @@ export class AdapterPoolService {
     return true;
   }
 
-  private async hydrateSnapshot(): Promise<Record<string, unknown>> {
+  private async hydrateSnapshot(): Promise<{
+    configs: Record<string, unknown>;
+    secrets: Record<string, unknown>;
+  }> {
     const rows = await db
       .select({
         serviceName: manifests.id,
         configSchema: manifests.configSchema,
+        secretsSchema: manifests.secretsSchema,
         config: configurations.config,
+        secrets: secrets.payload,
       })
       .from(manifests)
-      .leftJoin(configurations, eq(configurations.serviceName, manifests.id));
+      .leftJoin(configurations, eq(configurations.serviceName, manifests.id))
+      .leftJoin(secrets, eq(secrets.serviceName, manifests.id));
 
-    const snapshot: Record<string, unknown> = {};
+    const configSnapshot: Record<string, unknown> = {};
+    const secretsSnapshot: Record<string, unknown> = {};
     for (const row of rows) {
       const rawConfig =
         row.config &&
@@ -158,18 +183,29 @@ export class AdapterPoolService {
           : {};
 
       if (isNullOnlySchema(row.configSchema)) {
-        snapshot[row.serviceName] = rawConfig;
-        continue;
+        configSnapshot[row.serviceName] = rawConfig;
+      } else {
+        configSnapshot[row.serviceName] = applyJsonSchemaDefaults(
+          row.configSchema,
+          rawConfig,
+          `Invalid configuration for service '${row.serviceName}'.`,
+        );
       }
 
-      snapshot[row.serviceName] = applyJsonSchemaDefaults(
-        row.configSchema,
-        rawConfig,
-        `Invalid configuration for service '${row.serviceName}'.`,
-      );
+      const rawSecrets = row.secrets ? decryptSecrets(row.secrets) : {};
+
+      if (isNullOnlySchema(row.secretsSchema)) {
+        secretsSnapshot[row.serviceName] = rawSecrets;
+      } else {
+        secretsSnapshot[row.serviceName] = applyJsonSchemaDefaults(
+          row.secretsSchema,
+          rawSecrets,
+          `Invalid secrets for service '${row.serviceName}'.`,
+        );
+      }
     }
 
-    return snapshot;
+    return { configs: configSnapshot, secrets: secretsSnapshot };
   }
 }
 

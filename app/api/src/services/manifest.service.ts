@@ -3,9 +3,9 @@ import type { Operation } from "fast-json-patch";
 import { applyPatch } from "fast-json-patch";
 import * as ipaddr from "ipaddr.js";
 import { z } from "zod";
-
 import { db } from "@/db/client";
-import { configurations, manifests, tools } from "@/db/schema";
+import { configurations, manifests, secrets, tools } from "@/db/schema";
+import { logger } from "@/logger";
 import { HttpError } from "@/models/error.model";
 import type { ResolvedToolInvocation } from "@/models/invoke.model";
 import type {
@@ -22,6 +22,12 @@ import type {
 } from "@/models/manifest.model";
 import { AdapterModule } from "@/modules/adapter.module";
 import { computeContentHash } from "@/utils/hash.util";
+import type { EncryptedSecretsPayload } from "@/utils/secrets.util";
+import {
+  decryptSecrets,
+  encryptSecrets,
+  normalizeSecrets,
+} from "@/utils/secrets.util";
 import {
   applyJsonSchemaDefaults,
   validateJsonSchema,
@@ -39,6 +45,13 @@ const persistedToolSchema = z.object({
   inputSchema: metadataSchema,
   outputSchema: metadataSchema,
   metadata: metadataSchema,
+});
+
+const encryptedSecretsSchema = z.object({
+  alg: z.literal("aes-256-gcm"),
+  iv: z.string(),
+  tag: z.string(),
+  ciphertext: z.string(),
 });
 
 type ServiceMetadataLoader = (
@@ -129,6 +142,7 @@ export class ManifestService {
       hash: string;
       enabled: boolean;
       configSchema: Record<string, unknown>;
+      secretsSchema: Record<string, unknown>;
     }>;
     try {
       rows = await db
@@ -141,6 +155,7 @@ export class ManifestService {
           hash: manifests.hash,
           enabled: manifests.enabled,
           configSchema: manifests.configSchema,
+          secretsSchema: manifests.secretsSchema,
         })
         .from(manifests)
         .where(eq(manifests.id, normalizedServiceName))
@@ -175,6 +190,7 @@ export class ManifestService {
       hash: rows[0].hash,
       enabled: rows[0].enabled,
       configSchema: rows[0].configSchema,
+      secretsSchema: rows[0].secretsSchema,
       metadata,
     };
   }
@@ -290,6 +306,7 @@ export class ManifestService {
           enabled: false,
           metadata: parsedManifest.metadata,
           configSchema: parsedManifest.configSchema,
+          secretsSchema: parsedManifest.secretsSchema,
         });
 
         if (parsedManifest.tools.length > 0) {
@@ -406,6 +423,7 @@ export class ManifestService {
             source: storedSource,
             metadata: parsedManifest.metadata,
             configSchema: parsedManifest.configSchema,
+            secretsSchema: parsedManifest.secretsSchema,
           })
           .where(eq(manifests.id, normalizedServiceName));
 
@@ -701,6 +719,19 @@ export class ManifestService {
           `Invalid configuration for service '${normalizedServiceName}'.`,
         );
       }
+
+      const secrets = await this.loadServiceSecrets(normalizedServiceName);
+      const secretsSchema = await this.getServiceSecretsSchema(
+        normalizedServiceName,
+      );
+
+      if (!isNullOnlySchema(secretsSchema)) {
+        applyJsonSchemaDefaults(
+          secretsSchema,
+          secrets,
+          `Invalid secrets for service '${normalizedServiceName}'.`,
+        );
+      }
     }
 
     let updatedRows: Array<{ id: string }>;
@@ -814,6 +845,32 @@ export class ManifestService {
     return rows[0].configSchema;
   }
 
+  async getServiceSecretsSchema(
+    serviceName: string,
+  ): Promise<Record<string, unknown>> {
+    const normalizedServiceName = normalizeServiceName(serviceName);
+
+    let rows: Array<{ secretsSchema: Record<string, unknown> }>;
+    try {
+      rows = await db
+        .select({ secretsSchema: manifests.secretsSchema })
+        .from(manifests)
+        .where(eq(manifests.id, normalizedServiceName))
+        .limit(1);
+    } catch {
+      throw new HttpError(
+        500,
+        `Failed to load secrets schema for service '${normalizedServiceName}'.`,
+      );
+    }
+
+    if (rows.length === 0) {
+      throw new HttpError(404, `Service '${normalizedServiceName}' not found.`);
+    }
+
+    return rows[0].secretsSchema;
+  }
+
   async patchServiceConfig(
     serviceName: string,
     patch: Operation[],
@@ -872,12 +929,84 @@ export class ManifestService {
     return normalizedConfig;
   }
 
+  async patchServiceSecrets(
+    serviceName: string,
+    patch: Operation[],
+  ): Promise<Record<string, unknown>> {
+    const normalizedServiceName = normalizeServiceName(serviceName);
+
+    const schema = await this.getServiceSecretsSchema(normalizedServiceName);
+
+    const current = await this.loadServiceSecrets(normalizedServiceName);
+
+    let updated: Record<string, unknown>;
+    try {
+      const result = applyPatch(current, patch, true, false);
+      updated = normalizeSecrets(
+        result.newDocument,
+        "Secrets payload must be a JSON object.",
+      );
+    } catch (error) {
+      throw new HttpError(
+        400,
+        error instanceof Error ? error.message : "Invalid JSON Patch payload.",
+      );
+    }
+
+    validateJsonSchema(
+      schema,
+      updated,
+      `Invalid secrets for service '${normalizedServiceName}'.`,
+    );
+
+    const normalizedSecrets = isNullOnlySchema(schema)
+      ? updated
+      : applyJsonSchemaDefaults(
+          schema,
+          updated,
+          `Invalid secrets for service '${normalizedServiceName}'.`,
+        );
+
+    const encrypted = encryptSecrets(normalizedSecrets);
+    const updatedAt = Date.now();
+
+    try {
+      await db
+        .insert(secrets)
+        .values({
+          serviceName: normalizedServiceName,
+          payload: encrypted,
+          updatedAt,
+        })
+        .onConflictDoUpdate({
+          target: secrets.serviceName,
+          set: { payload: encrypted, updatedAt },
+        });
+    } catch {
+      throw new HttpError(
+        500,
+        `Failed to persist secrets for service '${normalizedServiceName}'.`,
+      );
+    }
+
+    logger.info(
+      {
+        serviceName: normalizedServiceName,
+        secretKeyCount: Object.keys(normalizedSecrets).length,
+      },
+      "Service secrets updated",
+    );
+
+    return normalizedSecrets;
+  }
+
   async getAllServiceManifests(): Promise<ServiceManifest[]> {
     let serviceRows: Array<{
       id: string;
       description: string;
       enabled: boolean;
       configSchema: Record<string, unknown>;
+      secretsSchema: Record<string, unknown>;
       metadata: ManifestMetadata;
     }>;
 
@@ -888,6 +1017,7 @@ export class ManifestService {
           description: manifests.description,
           enabled: manifests.enabled,
           configSchema: manifests.configSchema,
+          secretsSchema: manifests.secretsSchema,
           metadata: manifests.metadata,
         })
         .from(manifests)
@@ -960,10 +1090,36 @@ export class ManifestService {
         description: service.description,
         enabled: service.enabled,
         configSchema: service.configSchema,
+        secretsSchema: service.secretsSchema,
         metadata: service.metadata,
         tools: toolsByServiceName.get(service.id) ?? [],
       };
     });
+  }
+
+  private async loadServiceSecrets(
+    serviceName: string,
+  ): Promise<Record<string, unknown>> {
+    let rows: Array<{ payload: EncryptedSecretsPayload }>;
+    try {
+      rows = await db
+        .select({ payload: secrets.payload })
+        .from(secrets)
+        .where(eq(secrets.serviceName, serviceName))
+        .limit(1);
+    } catch {
+      throw new HttpError(
+        500,
+        `Failed to load secrets for service '${serviceName}'.`,
+      );
+    }
+
+    const payload = rows[0]?.payload;
+    if (!payload) {
+      return {};
+    }
+
+    return decryptSecrets(normalizeEncryptedSecretsPayload(payload));
   }
 
   async getAllStagedServiceManifests(): Promise<StagedServiceManifest[]> {
@@ -1424,6 +1580,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isToolDefinition(value: unknown): value is ToolDefinition {
   return persistedToolSchema.safeParse(value).success;
+}
+
+function normalizeEncryptedSecretsPayload(
+  payload: unknown,
+): EncryptedSecretsPayload {
+  const parsed = encryptedSecretsSchema.safeParse(payload);
+
+  if (!parsed.success) {
+    throw new HttpError(500, "Stored secrets payload is malformed.");
+  }
+
+  return parsed.data;
 }
 
 function normalizeEnabled(enabled: unknown): boolean {

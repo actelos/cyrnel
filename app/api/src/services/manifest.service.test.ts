@@ -9,6 +9,7 @@ import {
   isUniqueConstraintViolation,
   ManifestService,
 } from "@/services/manifest.service";
+import { decryptSecrets, encryptSecrets } from "@/utils/secrets.util";
 
 describe("manifest.service unit", () => {
   it("loads tool and metadata through injected loaders", async () => {
@@ -130,6 +131,7 @@ async function resetManifestTables(): Promise<void> {
   await db.run(sql`PRAGMA foreign_keys = OFF`);
   await db.run(sql`DROP TABLE IF EXISTS tools`);
   await db.run(sql`DROP TABLE IF EXISTS configurations`);
+  await db.run(sql`DROP TABLE IF EXISTS secrets`);
   await db.run(sql`DROP TABLE IF EXISTS services`);
   await db.run(sql`
     CREATE TABLE services (
@@ -140,7 +142,8 @@ async function resetManifestTables(): Promise<void> {
       hash text NOT NULL,
       enabled integer NOT NULL DEFAULT 1,
       metadata text NOT NULL,
-      config_schema text NOT NULL
+      config_schema text NOT NULL,
+      secrets_schema text NOT NULL
     )
   `);
   await db.run(sql`CREATE INDEX services_type_idx ON services (type)`);
@@ -148,6 +151,14 @@ async function resetManifestTables(): Promise<void> {
     CREATE TABLE configurations (
       service_name text PRIMARY KEY NOT NULL,
       config text NOT NULL DEFAULT '{}',
+      updated_at integer NOT NULL,
+      FOREIGN KEY (service_name) REFERENCES services(id) ON UPDATE no action ON DELETE cascade
+    )
+  `);
+  await db.run(sql`
+    CREATE TABLE secrets (
+      service_name text PRIMARY KEY NOT NULL,
+      payload text NOT NULL,
       updated_at integer NOT NULL,
       FOREIGN KEY (service_name) REFERENCES services(id) ON UPDATE no action ON DELETE cascade
     )
@@ -187,6 +198,7 @@ describe("manifest.service update semantics", () => {
       enabled: true,
       metadata: { serverUrl: "http://127.0.0.1:9100" },
       configSchema: { type: "null" },
+      secretsSchema: { type: "null" },
     });
 
     await db.insert(tools).values([
@@ -215,6 +227,7 @@ describe("manifest.service update semantics", () => {
       description: "",
       enabled: true,
       configSchema: { type: "null" },
+      secretsSchema: { type: "null" },
       metadata: {
         serverUrl: "http://127.0.0.1:9200",
       },
@@ -307,6 +320,7 @@ describe("manifest.service configuration", () => {
       enabled: true,
       metadata: { serverUrl: "http://127.0.0.1:9999" },
       configSchema: { type: "null" },
+      secretsSchema: { type: "null" },
     });
 
     const service = new ManifestService();
@@ -331,6 +345,7 @@ describe("manifest.service configuration", () => {
       enabled: true,
       metadata: { serverUrl: "http://127.0.0.1:9999" },
       configSchema: schema,
+      secretsSchema: { type: "null" },
     });
 
     const service = new ManifestService();
@@ -367,6 +382,7 @@ describe("manifest.service configuration", () => {
       enabled: true,
       metadata: { serverUrl: "http://127.0.0.1:9999" },
       configSchema: schema,
+      secretsSchema: { type: "null" },
     });
 
     const service = new ManifestService();
@@ -391,6 +407,7 @@ describe("manifest.service configuration", () => {
       enabled: true,
       metadata: { serverUrl: "http://127.0.0.1:9999" },
       configSchema: schema,
+      secretsSchema: { type: "null" },
     });
 
     const service = new ManifestService();
@@ -420,6 +437,7 @@ describe("manifest.service configuration", () => {
       enabled: true,
       metadata: { serverUrl: "http://127.0.0.1:9999" },
       configSchema: schema,
+      secretsSchema: { type: "null" },
     });
 
     const service = new ManifestService();
@@ -455,6 +473,7 @@ describe("manifest.service configuration", () => {
       enabled: false,
       metadata: { serverUrl: "http://127.0.0.1:9999" },
       configSchema: schema,
+      secretsSchema: { type: "null" },
     });
 
     await db.run(
@@ -463,6 +482,172 @@ describe("manifest.service configuration", () => {
 
     const service = new ManifestService();
 
+    await expect(
+      service.setServiceEnabled(serviceName, true),
+    ).rejects.toMatchObject({ statusCode: 400 });
+  });
+});
+
+describe("manifest.service secrets", () => {
+  beforeEach(async () => {
+    await resetManifestTables();
+  });
+
+  it("applies JSON Patch against {} baseline when missing", async () => {
+    const serviceName = "svc-secrets-patch";
+    const schema = {
+      type: "object",
+      properties: { token: { type: "string" } },
+      additionalProperties: false,
+    };
+
+    await db.insert(manifests).values({
+      id: serviceName,
+      type: "foo",
+      source: "https://registry.example.com/svc.json",
+      description: "",
+      hash: "hash",
+      enabled: true,
+      metadata: { serverUrl: "http://127.0.0.1:9999" },
+      configSchema: { type: "null" },
+      secretsSchema: schema,
+    });
+
+    const service = new ManifestService();
+
+    await service.patchServiceSecrets(serviceName, [
+      { op: "add", path: "/token", value: "secret" },
+    ]);
+
+    const stored = await db.run(
+      sql`SELECT payload FROM secrets WHERE service_name = ${serviceName} LIMIT 1`,
+    );
+    expect(stored.rows).toHaveLength(1);
+    const payload = JSON.parse(String(stored.rows[0]?.payload ?? "{}"));
+    expect(payload.alg).toBe("aes-256-gcm");
+    expect(typeof payload.ciphertext).toBe("string");
+    expect(decryptSecrets(payload)).toEqual({ token: "secret" });
+  });
+
+  it("rejects secrets updates that fail schema validation", async () => {
+    const serviceName = "svc-secrets-invalid";
+    const schema = {
+      type: "object",
+      properties: { token: { type: "string" } },
+      additionalProperties: false,
+    };
+
+    await db.insert(manifests).values({
+      id: serviceName,
+      type: "foo",
+      source: "https://registry.example.com/svc.json",
+      description: "",
+      hash: "hash",
+      enabled: true,
+      metadata: { serverUrl: "http://127.0.0.1:9999" },
+      configSchema: { type: "null" },
+      secretsSchema: schema,
+    });
+
+    const service = new ManifestService();
+
+    await expect(
+      service.patchServiceSecrets(serviceName, [
+        { op: "add", path: "/token", value: 123 },
+      ]),
+    ).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it("loads secrets schema from persisted manifests table", async () => {
+    const serviceName = "svc-secrets-schema";
+    const schema = { type: "object" };
+
+    await db.insert(manifests).values({
+      id: serviceName,
+      type: "foo",
+      source: "https://registry.example.com/svc.json",
+      description: "",
+      hash: "hash",
+      enabled: true,
+      metadata: { serverUrl: "http://127.0.0.1:9999" },
+      configSchema: { type: "null" },
+      secretsSchema: schema,
+    });
+
+    const service = new ManifestService();
+
+    await expect(service.getServiceSecretsSchema(serviceName)).resolves.toEqual(
+      schema,
+    );
+  });
+
+  it("applies schema defaults when patching secrets", async () => {
+    const serviceName = "svc-secrets-defaults";
+    const schema = {
+      type: "object",
+      properties: {
+        token: { type: "string" },
+        region: { type: "string", default: "us-east-1" },
+      },
+      additionalProperties: false,
+    };
+
+    await db.insert(manifests).values({
+      id: serviceName,
+      type: "foo",
+      source: "https://registry.example.com/svc.json",
+      description: "",
+      hash: "hash",
+      enabled: true,
+      metadata: { serverUrl: "http://127.0.0.1:9999" },
+      configSchema: { type: "null" },
+      secretsSchema: schema,
+    });
+
+    const service = new ManifestService();
+
+    await service.patchServiceSecrets(serviceName, [
+      { op: "add", path: "/token", value: "secret" },
+    ]);
+
+    const stored = await db.run(
+      sql`SELECT payload FROM secrets WHERE service_name = ${serviceName} LIMIT 1`,
+    );
+    expect(stored.rows).toHaveLength(1);
+    const payload = JSON.parse(String(stored.rows[0]?.payload ?? "{}"));
+    expect(decryptSecrets(payload)).toEqual({
+      token: "secret",
+      region: "us-east-1",
+    });
+  });
+
+  it("rejects enabling when stored secrets fail schema validation", async () => {
+    const serviceName = "svc-secrets-enable-invalid";
+    const schema = {
+      type: "object",
+      properties: { token: { type: "string" } },
+      additionalProperties: false,
+    };
+
+    await db.insert(manifests).values({
+      id: serviceName,
+      type: "foo",
+      source: "https://registry.example.com/svc.json",
+      description: "",
+      hash: "hash",
+      enabled: false,
+      metadata: { serverUrl: "http://127.0.0.1:9999" },
+      configSchema: { type: "null" },
+      secretsSchema: schema,
+    });
+
+    const encrypted = encryptSecrets({ token: 123 } as Record<string, unknown>);
+
+    await db.run(
+      sql`INSERT INTO secrets (service_name, payload, updated_at) VALUES (${serviceName}, ${JSON.stringify(encrypted)}, ${Date.now()})`,
+    );
+
+    const service = new ManifestService();
     await expect(
       service.setServiceEnabled(serviceName, true),
     ).rejects.toMatchObject({ statusCode: 400 });

@@ -47,6 +47,7 @@ async function resetDiscoverTables(): Promise<void> {
   await db.run(sql`PRAGMA foreign_keys = OFF`);
   await db.run(sql`DROP TABLE IF EXISTS tools`);
   await db.run(sql`DROP TABLE IF EXISTS configurations`);
+  await db.run(sql`DROP TABLE IF EXISTS secrets`);
   await db.run(sql`DROP TABLE IF EXISTS services`);
   await db.run(sql`
     CREATE TABLE services (
@@ -57,7 +58,8 @@ async function resetDiscoverTables(): Promise<void> {
       hash text NOT NULL,
       enabled integer NOT NULL DEFAULT 1,
       metadata text NOT NULL,
-      config_schema text NOT NULL
+      config_schema text NOT NULL,
+      secrets_schema text NOT NULL
     )
   `);
   await db.run(sql`CREATE INDEX services_type_idx ON services (type)`);
@@ -65,6 +67,14 @@ async function resetDiscoverTables(): Promise<void> {
     CREATE TABLE configurations (
       service_name text PRIMARY KEY NOT NULL,
       config text NOT NULL DEFAULT '{}',
+      updated_at integer NOT NULL,
+      FOREIGN KEY (service_name) REFERENCES services(id) ON UPDATE no action ON DELETE cascade
+    )
+  `);
+  await db.run(sql`
+    CREATE TABLE secrets (
+      service_name text PRIMARY KEY NOT NULL,
+      payload text NOT NULL,
       updated_at integer NOT NULL,
       FOREIGN KEY (service_name) REFERENCES services(id) ON UPDATE no action ON DELETE cascade
     )
@@ -96,6 +106,7 @@ async function seedDiscoverFixtures(): Promise<void> {
       hash: "hash-alpha",
       metadata: { serverUrl: "http://127.0.0.1:8301" },
       configSchema: { type: "null" },
+      secretsSchema: { type: "null" },
     },
     {
       id: "svc-beta",
@@ -105,6 +116,7 @@ async function seedDiscoverFixtures(): Promise<void> {
       hash: "hash-beta",
       metadata: { serverUrl: "http://127.0.0.1:8302" },
       configSchema: { type: "null" },
+      secretsSchema: { type: "null" },
     },
     {
       id: "svc-gamma",
@@ -114,6 +126,7 @@ async function seedDiscoverFixtures(): Promise<void> {
       hash: "hash-gamma",
       metadata: { serverUrl: "http://127.0.0.1:8303" },
       configSchema: { type: "null" },
+      secretsSchema: { type: "null" },
     },
   ]);
 

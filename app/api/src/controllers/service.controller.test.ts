@@ -7,10 +7,12 @@ import {
   getService,
   getServiceConfiguration,
   getServiceConfigurationSchema,
+  getServiceSecretsSchema,
   getToolByName,
   listServices,
   listTools,
   patchServiceConfiguration,
+  patchServiceSecrets,
   setServiceEnabled,
   setToolEnabled,
   updateService,
@@ -21,7 +23,9 @@ const manifestService = {
   getService: vi.fn(),
   getServiceConfig: vi.fn(),
   getServiceConfigSchema: vi.fn(),
+  getServiceSecretsSchema: vi.fn(),
   patchServiceConfig: vi.fn(),
+  patchServiceSecrets: vi.fn(),
   listTools: vi.fn(),
   getTool: vi.fn(),
   createService: vi.fn(),
@@ -38,6 +42,7 @@ const environmentPoolService = {
 const adapterPoolService = {
   requestRestage: vi.fn(),
   updateServiceConfig: vi.fn(),
+  updateServiceSecrets: vi.fn(),
 };
 
 type MockResponse = {
@@ -182,6 +187,7 @@ describe("service.controller", () => {
       hash: "hash-1",
       enabled: true,
       configSchema: { type: "object" },
+      secretsSchema: { type: "object" },
       metadata: { serverUrl: "http://127.0.0.1:9999" },
       tools: [
         {
@@ -204,6 +210,7 @@ describe("service.controller", () => {
       hash: "hash-1",
       enabled: true,
       configSchema: { type: "object" },
+      secretsSchema: { type: "object" },
       metadata: { serverUrl: "http://127.0.0.1:9999" },
     });
   });
@@ -238,6 +245,25 @@ describe("service.controller", () => {
     expect(res.json).toHaveBeenCalledWith({ configSchema: { type: "object" } });
   });
 
+  it("gets service secrets schema", async () => {
+    const res = makeRes();
+    const req = makeReq({ params: { serviceName: "svc-1" } });
+
+    manifestService.getServiceSecretsSchema.mockResolvedValue({
+      type: "object",
+    });
+
+    await getServiceSecretsSchema(req, res as unknown as Response);
+
+    expect(manifestService.getServiceSecretsSchema).toHaveBeenCalledWith(
+      "svc-1",
+    );
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith({
+      secretsSchema: { type: "object" },
+    });
+  });
+
   it("patches service configuration and updates adapters", async () => {
     const res = makeRes();
     const req = makeReq({
@@ -262,6 +288,33 @@ describe("service.controller", () => {
     expect(environmentPoolService.requestRestage).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith({ config: { enabled: true } });
+  });
+
+  it("patches service secrets and restages adapters", async () => {
+    const res = makeRes();
+    const req = makeReq({
+      params: { serviceName: "svc-1" },
+      body: [{ op: "add", path: "/token", value: "secret" }],
+    });
+
+    manifestService.patchServiceSecrets.mockResolvedValue({
+      token: "secret",
+    });
+
+    await patchServiceSecrets(req, res as unknown as Response);
+
+    expect(manifestService.patchServiceSecrets).toHaveBeenCalledWith("svc-1", [
+      { op: "add", path: "/token", value: "secret" },
+    ]);
+    expect(adapterPoolService.updateServiceSecrets).toHaveBeenCalledWith(
+      "svc-1",
+      {
+        token: "secret",
+      },
+    );
+    expect(adapterPoolService.requestRestage).toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith({ updated: true });
   });
 
   it("lists service tools", async () => {

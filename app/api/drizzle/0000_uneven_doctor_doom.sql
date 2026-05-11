@@ -13,10 +13,18 @@ CREATE TABLE `services` (
 	`hash` text NOT NULL,
 	`enabled` integer DEFAULT true NOT NULL,
 	`metadata` text NOT NULL,
-	`config_schema` text NOT NULL
+	`config_schema` text NOT NULL,
+	`secrets_schema` text NOT NULL
 );
 --> statement-breakpoint
 CREATE INDEX `services_type_idx` ON `services` (`type`);--> statement-breakpoint
+CREATE TABLE `secrets` (
+	`service_name` text PRIMARY KEY NOT NULL,
+	`payload` text NOT NULL,
+	`updated_at` integer NOT NULL,
+	FOREIGN KEY (`service_name`) REFERENCES `services`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
 CREATE TABLE `tools` (
 	`service_id` text NOT NULL,
 	`name` text NOT NULL,

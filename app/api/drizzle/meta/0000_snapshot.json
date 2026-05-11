@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "1d567532-59a6-4b15-a23d-debb30b27898",
+  "id": "0dcbfffe-d30c-4c76-b46d-09f456c7997a",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "configurations": {
@@ -107,6 +107,13 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "secrets_schema": {
+          "name": "secrets_schema",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
         }
       },
       "indexes": {
@@ -117,6 +124,47 @@
         }
       },
       "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "secrets": {
+      "name": "secrets",
+      "columns": {
+        "service_name": {
+          "name": "service_name",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "payload": {
+          "name": "payload",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "secrets_service_name_services_id_fk": {
+          "name": "secrets_service_name_services_id_fk",
+          "tableFrom": "secrets",
+          "tableTo": "services",
+          "columnsFrom": ["service_name"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}

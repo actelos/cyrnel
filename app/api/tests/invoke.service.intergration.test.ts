@@ -52,6 +52,7 @@ async function resetManifestsTable(): Promise<void> {
   await db.run(sql`PRAGMA foreign_keys = OFF`);
   await db.run(sql`DROP TABLE IF EXISTS tools`);
   await db.run(sql`DROP TABLE IF EXISTS configurations`);
+  await db.run(sql`DROP TABLE IF EXISTS secrets`);
   await db.run(sql`DROP TABLE IF EXISTS services`);
   await db.run(sql`
     CREATE TABLE services (
@@ -62,7 +63,8 @@ async function resetManifestsTable(): Promise<void> {
       hash text NOT NULL,
       enabled integer NOT NULL DEFAULT 1,
       metadata text NOT NULL,
-      config_schema text NOT NULL
+      config_schema text NOT NULL,
+      secrets_schema text NOT NULL
     )
   `);
   await db.run(sql`CREATE INDEX services_type_idx ON services (type)`);
@@ -70,6 +72,14 @@ async function resetManifestsTable(): Promise<void> {
     CREATE TABLE configurations (
       service_name text PRIMARY KEY NOT NULL,
       config text NOT NULL DEFAULT '{}',
+      updated_at integer NOT NULL,
+      FOREIGN KEY (service_name) REFERENCES services(id) ON UPDATE no action ON DELETE cascade
+    )
+  `);
+  await db.run(sql`
+    CREATE TABLE secrets (
+      service_name text PRIMARY KEY NOT NULL,
+      payload text NOT NULL,
       updated_at integer NOT NULL,
       FOREIGN KEY (service_name) REFERENCES services(id) ON UPDATE no action ON DELETE cascade
     )
@@ -161,6 +171,7 @@ describe("invoke echo integration", () => {
         serverUrl: baseUrl,
       },
       configSchema: { type: "null" },
+      secretsSchema: { type: "null" },
     });
 
     await db.insert(tools).values([

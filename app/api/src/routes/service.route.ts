@@ -6,10 +6,12 @@ import {
   getService,
   getServiceConfiguration,
   getServiceConfigurationSchema,
+  getServiceSecretsSchema,
   getToolByName,
   listServices,
   listTools,
   patchServiceConfiguration,
+  patchServiceSecrets,
   setServiceEnabled,
   setToolEnabled,
   updateService,
@@ -30,6 +32,9 @@ serviceRouter.get(
 );
 serviceRouter.get("/:serviceName/configuration", getServiceConfiguration);
 serviceRouter.patch("/:serviceName/configuration", patchServiceConfiguration);
+
+serviceRouter.get("/:serviceName/secrets/schema", getServiceSecretsSchema);
+serviceRouter.patch("/:serviceName/secrets", patchServiceSecrets);
 
 serviceRouter.get("/:serviceName/tools", listTools);
 serviceRouter.get("/:serviceName/tools/:toolName", getToolByName);

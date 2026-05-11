@@ -7,8 +7,8 @@
 - [x] have the environment module use manifests to generate code
 - [x] merge definitions and services
 - [x] set ups system to notify environments about changes to service manifests for recompilation
-- [ ] set up service configuration
-- [ ] set up service secrets
+- [x] set up service configuration
+- [x] set up service secrets
 - [ ] make modules actually modules
 - [ ] Add pool management APIs (spawn/recycle/resize/status) when pool size > 1.
 - [ ] Optimize staging by using diffing to enable partial hydration (instead of full hydration), at service/tool/property granularity.

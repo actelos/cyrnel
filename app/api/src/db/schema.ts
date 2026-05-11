@@ -12,6 +12,7 @@ import type {
   ServiceType,
   ToolDefinition,
 } from "@/models/manifest.model";
+import type { EncryptedSecretsPayload } from "@/models/secrets.model";
 
 export const manifests = sqliteTable(
   "services",
@@ -28,6 +29,9 @@ export const manifests = sqliteTable(
     configSchema: text("config_schema", { mode: "json" })
       .$type<JSONSchema>()
       .notNull(),
+    secretsSchema: text("secrets_schema", { mode: "json" })
+      .$type<JSONSchema>()
+      .notNull(),
   },
   (table) => [index("services_type_idx").on(table.type)],
 );
@@ -40,6 +44,16 @@ export const configurations = sqliteTable("configurations", {
     .$type<Record<string, unknown>>()
     .notNull()
     .default({}),
+  updatedAt: integer("updated_at").notNull(),
+});
+
+export const secrets = sqliteTable("secrets", {
+  serviceName: text("service_name")
+    .primaryKey()
+    .references(() => manifests.id, { onDelete: "cascade" }),
+  payload: text("payload", { mode: "json" })
+    .$type<EncryptedSecretsPayload>()
+    .notNull(),
   updatedAt: integer("updated_at").notNull(),
 });
 
@@ -74,5 +88,7 @@ export type ManifestRecord = typeof manifests.$inferSelect;
 export type NewManifestRecord = typeof manifests.$inferInsert;
 export type ConfigurationRecord = typeof configurations.$inferSelect;
 export type NewConfigurationRecord = typeof configurations.$inferInsert;
+export type SecretsRecord = typeof secrets.$inferSelect;
+export type NewSecretsRecord = typeof secrets.$inferInsert;
 export type ToolRecord = typeof tools.$inferSelect;
 export type NewToolRecord = typeof tools.$inferInsert;

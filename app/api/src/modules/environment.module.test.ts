@@ -204,6 +204,7 @@ describe("EnvironmentModule", () => {
         description: "",
         enabled: true,
         configSchema: { type: "null" },
+        secretsSchema: { type: "null" },
         metadata: {},
         tools: [
           {
@@ -255,6 +256,7 @@ describe("EnvironmentModule", () => {
         description: "",
         enabled: true,
         configSchema: { type: "null" },
+        secretsSchema: { type: "null" },
         metadata: {},
         tools: [
           {
@@ -273,6 +275,7 @@ describe("EnvironmentModule", () => {
         description: "",
         enabled: true,
         configSchema: { type: "null" },
+        secretsSchema: { type: "null" },
         metadata: {},
         tools: [
           {
@@ -318,6 +321,7 @@ describe("EnvironmentModule", () => {
         description: "",
         enabled: true,
         configSchema: { type: "null" },
+        secretsSchema: { type: "null" },
         metadata: {},
         tools: [
           {
@@ -454,6 +458,7 @@ describe("EnvironmentModule", () => {
         description: "",
         enabled: true,
         configSchema: { type: "null" },
+        secretsSchema: { type: "null" },
         metadata: {},
         tools: [
           {

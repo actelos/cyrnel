@@ -21,6 +21,7 @@ const serviceManifestSchema = z.object({
   description: z.string(),
   enabled: z.boolean(),
   configSchema: recordSchema,
+  secretsSchema: recordSchema.optional().default({}),
   metadata: recordSchema,
   tools: z.array(manifestToolSchema),
 });
@@ -47,6 +48,7 @@ interface AdapterInvokeMetadata {
 export class AdapterModule {
   private readonly fetchImpl: typeof fetch;
   private serviceConfigSnapshot: Record<string, unknown> = {};
+  private serviceSecretsSnapshot: Record<string, unknown> = {};
 
   constructor(options: AdapterModuleOptions = {}) {
     this.fetchImpl = options.fetchImpl ?? fetch;
@@ -60,6 +62,10 @@ export class AdapterModule {
     this.serviceConfigSnapshot = snapshot;
   }
 
+  setServiceSecrets(snapshot: Record<string, unknown>): void {
+    this.serviceSecretsSnapshot = snapshot;
+  }
+
   setServiceConfig(serviceName: string, config: Record<string, unknown>): void {
     this.serviceConfigSnapshot = {
       ...this.serviceConfigSnapshot,
@@ -67,8 +73,27 @@ export class AdapterModule {
     };
   }
 
+  setServiceSecret(
+    serviceName: string,
+    secrets: Record<string, unknown>,
+  ): void {
+    this.serviceSecretsSnapshot = {
+      ...this.serviceSecretsSnapshot,
+      [serviceName]: secrets,
+    };
+  }
+
   getServiceConfig(serviceName: string): Record<string, unknown> {
     const value = this.serviceConfigSnapshot[serviceName];
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      return value as Record<string, unknown>;
+    }
+
+    return {};
+  }
+
+  getServiceSecrets(serviceName: string): Record<string, unknown> {
+    const value = this.serviceSecretsSnapshot[serviceName];
     if (value && typeof value === "object" && !Array.isArray(value)) {
       return value as Record<string, unknown>;
     }
@@ -106,6 +131,14 @@ export class AdapterModule {
       );
     } catch {
       headers["x-mci-service-config"] = "{}";
+    }
+
+    try {
+      headers["x-mci-service-secrets"] = JSON.stringify(
+        this.getServiceSecrets(serviceName),
+      );
+    } catch {
+      headers["x-mci-service-secrets"] = "{}";
     }
 
     let response: Response;

@@ -247,6 +247,7 @@ function toServiceManifestBinding(
     description: "",
     enabled: true,
     configSchema: {} as ServiceManifest["configSchema"],
+    secretsSchema: {} as ServiceManifest["secretsSchema"],
     metadata: {},
     tools: manifest.tools.map((tool) => {
       const stagedTool = tool as {

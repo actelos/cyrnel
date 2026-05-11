@@ -195,6 +195,7 @@ describe("parseServiceManifest", () => {
       description: "",
       enabled: true,
       configSchema: { type: "null" },
+      secretsSchema: {},
       metadata: {
         serverUrl: "http://127.0.0.1:8787",
       },
