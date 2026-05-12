@@ -2,6 +2,7 @@ import { Plus, RotateCcw, Trash2, Wrench } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { z } from "zod";
+import ConfigEditor from "@/components/ConfigEditor";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -30,7 +31,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import ConfigEditor from "@/components/ConfigEditor";
 
 const metadataSchema = z.record(z.string(), z.unknown());
 
@@ -142,7 +142,9 @@ export default function ServicesPage() {
   const [configDraftError, setConfigDraftError] = useState<string | null>(null);
   const [isSavingConfig, setIsSavingConfig] = useState(false);
   const [secretsDraft, setSecretsDraft] = useState<string>("{\n  \n}");
-  const [secretsDraftError, setSecretsDraftError] = useState<string | null>(null);
+  const [secretsDraftError, setSecretsDraftError] = useState<string | null>(
+    null,
+  );
   const [isSavingSecrets, setIsSavingSecrets] = useState(false);
 
   const normalizedQuery = queryFilter.trim();
@@ -259,7 +261,11 @@ export default function ServicesPage() {
     { refreshInterval: 8000 },
   );
 
-  const currentConfigDisplay = JSON.stringify(serviceConfig?.config ?? {}, null, 2);
+  const currentConfigDisplay = JSON.stringify(
+    serviceConfig?.config ?? {},
+    null,
+    2,
+  );
 
   useEffect(() => {
     if (!selectedServiceName) {
@@ -293,7 +299,9 @@ export default function ServicesPage() {
       desiredConfig = JSON.parse(configDraft);
     } catch (error) {
       setConfigDraftError(
-        error instanceof Error ? error.message : "Configuration is not valid JSON.",
+        error instanceof Error
+          ? error.message
+          : "Configuration is not valid JSON.",
       );
       return;
     }
@@ -304,11 +312,16 @@ export default function ServicesPage() {
       patch.push(...(desiredConfig as Array<Record<string, unknown>>));
     } else {
       if (!desiredConfig || typeof desiredConfig !== "object") {
-        setConfigDraftError("Configuration must be a JSON object or JSON Patch array.");
+        setConfigDraftError(
+          "Configuration must be a JSON object or JSON Patch array.",
+        );
         return;
       }
 
-      const currentConfig = (serviceConfig?.config ?? {}) as Record<string, unknown>;
+      const currentConfig = (serviceConfig?.config ?? {}) as Record<
+        string,
+        unknown
+      >;
       const nextConfig = desiredConfig as Record<string, unknown>;
 
       for (const key of Object.keys(currentConfig)) {
@@ -339,7 +352,9 @@ export default function ServicesPage() {
 
       if (!response.ok) {
         const text = await response.text().catch(() => "");
-        throw new Error(text.trim().length > 0 ? text : `Request failed: ${response.status}`);
+        throw new Error(
+          text.trim().length > 0 ? text : `Request failed: ${response.status}`,
+        );
       }
 
       if (configUrl) {
@@ -347,7 +362,9 @@ export default function ServicesPage() {
       }
     } catch (error) {
       setActionError(
-        error instanceof Error ? error.message : "Unable to save configuration.",
+        error instanceof Error
+          ? error.message
+          : "Unable to save configuration.",
       );
     } finally {
       setIsSavingConfig(false);
@@ -374,11 +391,16 @@ export default function ServicesPage() {
       patch.push(...(desiredSecrets as Array<Record<string, unknown>>));
     } else {
       if (!desiredSecrets || typeof desiredSecrets !== "object") {
-        setSecretsDraftError("Secrets must be a JSON object or JSON Patch array.");
+        setSecretsDraftError(
+          "Secrets must be a JSON object or JSON Patch array.",
+        );
         return;
       }
 
-      const currentSecrets = (serviceSecrets?.secrets ?? {}) as Record<string, unknown>;
+      const currentSecrets = (serviceSecrets?.secrets ?? {}) as Record<
+        string,
+        unknown
+      >;
       const nextSecrets = desiredSecrets as Record<string, unknown>;
 
       for (const key of Object.keys(currentSecrets)) {
@@ -389,7 +411,10 @@ export default function ServicesPage() {
 
       for (const [key, value] of Object.entries(nextSecrets)) {
         const op = Object.hasOwn(currentSecrets, key) ? "replace" : "add";
-        if (Object.hasOwn(currentSecrets, key) && currentSecrets[key] === value) {
+        if (
+          Object.hasOwn(currentSecrets, key) &&
+          currentSecrets[key] === value
+        ) {
           continue;
         }
         patch.push({ op, path: `/${escapeJsonPointer(key)}`, value });
@@ -409,7 +434,9 @@ export default function ServicesPage() {
 
       if (!response.ok) {
         const text = await response.text().catch(() => "");
-        throw new Error(text.trim().length > 0 ? text : `Request failed: ${response.status}`);
+        throw new Error(
+          text.trim().length > 0 ? text : `Request failed: ${response.status}`,
+        );
       }
 
       if (secretsUrl) {
@@ -925,7 +952,9 @@ export default function ServicesPage() {
                                 if (!detailService) {
                                   return;
                                 }
-                                void handleSaveConfiguration(detailService.name);
+                                void handleSaveConfiguration(
+                                  detailService.name,
+                                );
                               }}
                             >
                               {isSavingConfig ? "Saving" : "Save"}
@@ -961,9 +990,7 @@ export default function ServicesPage() {
 
                         <div className="space-y-4">
                           <div className="flex flex-wrap items-center justify-between gap-2">
-                            <h3 className="text-sm font-semibold">
-                              Secrets
-                            </h3>
+                            <h3 className="text-sm font-semibold">Secrets</h3>
                             <Button
                               type="button"
                               variant="outline"

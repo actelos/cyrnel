@@ -552,6 +552,17 @@ describe("ProcessService", () => {
     const manifestService = {
       discoverTools: vi.fn(async () => []),
       discoverServices: vi.fn(async () => []),
+      getService: vi.fn(async () => ({
+        name: "github",
+        type: "registry",
+        source: "https://example.invalid/definition.json",
+        description: "Mock service for tests",
+        hash: "test-hash",
+        enabled: true,
+        configSchema: { type: "object" },
+        secretsSchema: { type: "object" },
+        metadata: {},
+      })),
       getTool: vi.fn(async () => ({
         tool: {
           name: "listIssues",
