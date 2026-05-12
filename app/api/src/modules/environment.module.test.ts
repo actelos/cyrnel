@@ -157,7 +157,11 @@ describe("EnvironmentModule", () => {
         `
         const foundTools = await tools.discover({ query: "github issues", limit: 5, enabled: null });
         const foundServices = await services.discover({ query: "github", limit: 1, enabled: false });
+        const foundTool = await tools.get({ serviceName: "github", toolName: "listIssues" });
+        const foundService = await services.get({ serviceName: "github" });
         emitOutput("tools", foundTools);
+        emitOutput("tool", foundTool);
+        emitOutput("service", foundService);
         return foundServices;
       `,
         {
@@ -166,11 +170,20 @@ describe("EnvironmentModule", () => {
               discover: async ({ query, limit, enabled }) => [
                 { query, limit, enabled, kind: "tool" },
               ],
+              get: async ({ serviceName, toolName }) => ({
+                serviceName,
+                toolName,
+                kind: "tool-detail",
+              }),
             },
             services: {
               discover: async ({ query, limit, enabled }) => [
                 { query, limit, enabled, kind: "service" },
               ],
+              get: async ({ serviceName }) => ({
+                serviceName,
+                kind: "service-detail",
+              }),
             },
           },
         },
@@ -182,6 +195,21 @@ describe("EnvironmentModule", () => {
         value: [
           { query: "github issues", limit: 5, enabled: null, kind: "tool" },
         ],
+      });
+      expect(outputs).toContainEqual({
+        key: "tool",
+        value: {
+          serviceName: "github",
+          toolName: "listIssues",
+          kind: "tool-detail",
+        },
+      });
+      expect(outputs).toContainEqual({
+        key: "service",
+        value: {
+          serviceName: "github",
+          kind: "service-detail",
+        },
       });
       expect(outputs).toContainEqual({
         key: "result",

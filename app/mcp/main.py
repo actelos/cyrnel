@@ -125,24 +125,29 @@ def create_process(
     A process encapsulates runnable code executed by the MCI. After creation,
     the process is automatically executed.
 
-    In a process, you can discover tools, discover services, invoke tools and
-    manipulate their outputs to do complex tasks.
+    In a process, you can discover tools/services, fetch a single tool/service
+    by name, invoke tools, and manipulate outputs to do complex tasks.
 
-    You can use discovery to find what tools and services are available:
+    Use discover to search and shortlist:
     `tools.discover({ query, limit, enabled })`
     `services.discover({ query, limit, enabled })`
 
-    You can invoke service tools using the generated `invoke` bindings:
+    Use get to fetch full details for a specific item:
+    `tools.get({ serviceName, toolName })`
+    `services.get({ serviceName })`
+
+    You can invoke service tools using generated `invoke` bindings:
     `invoke.<service>.<tool>(parameters)`
 
-    If you’re unsure what to call, discover first. Then invoke.
+    If you're unsure what to call, discover first, then get for details,
+    then invoke.
 
     Use `get_process_output`, `get_process_stdout`, `get_process_stderr`.
 
     Parameters
     - code: Source code to execute (MUST BE TYPESCRIPT CODE).
     - ref: Optional reference label to group or identify the process.
-    - timeout: Optional execution timeout in seconds for this process.
+    - timeout: Optional execution timeout in int seconds for this process.
     - block: Wait for completion before returning (defaults to true).
 
     Returns
@@ -289,10 +294,12 @@ def list_services(
     """
     List installed services with optional filters.
 
-    This is a discovery helper to find services. This is not to be mistaken with
-    service discovery from withing the process.
+    This is a discovery helper to list services via the management API.
+    This is not to be mistaken with service discovery within a process.
 
-    `services.discover({ query, limit, enabled })` is the recommended method.
+    Use `services.discover({ query, limit, enabled })` inside a process.
+    Use `services.get({ serviceName })` inside a process when you already
+    know the name and need full details.
 
     Parameters
     - query: Optional name or substring filter.
@@ -310,7 +317,10 @@ def list_services(
 @mcp.tool()
 def get_service(service_name: str) -> Dict[str, Any]:
     """
-    Get a service by name.
+    Get a service by name (management API).
+
+    Inside a process, prefer `services.get({ serviceName })` for the
+    service details and `services.discover(...)` for search.
 
     Parameters
     - service_name: Exact service identifier.
@@ -481,12 +491,14 @@ def list_tools(
     enabled: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """
-    List tools for a service.
+    List tools for a service (management API).
 
-    This is a discovery helper to find tools of a service. This is not to be
-    mistaken with tool discovery from withing the process.
+    This is a discovery helper to list tools of a service. This is not to be
+    mistaken with tool discovery within a process.
 
-    `tools.discover({ query, limit, enabled })` is the recommended method.
+    Use `tools.discover({ query, limit, enabled })` inside a process.
+    Use `tools.get({ serviceName, toolName })` inside a process when you
+    already know the tool and need full details.
 
     Parameters
     - service_name: Service identifier.
@@ -502,10 +514,10 @@ def list_tools(
 @mcp.tool()
 def get_tool_by_name(service_name: str, tool_name: str) -> Dict[str, Any]:
     """
-    Get a tool definition by service and tool name.
+    Get a tool definition by service and tool name (management API).
 
-    Use this to retrieve the schema for a specific tool after discovery,
-    including parameter names and types.
+    Inside a process, prefer `tools.get({ serviceName, toolName })` for
+    tool details and `tools.discover(...)` for search.
 
     Parameters
     - service_name: Service identifier.

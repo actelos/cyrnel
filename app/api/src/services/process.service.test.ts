@@ -407,6 +407,10 @@ describe("ProcessService", () => {
                   limit?: number;
                   enabled?: boolean | null;
                 }) => Promise<unknown>;
+                get?: (input: {
+                  serviceName: string;
+                  toolName: string;
+                }) => Promise<unknown>;
               };
               services?: {
                 discover?: (input: {
@@ -414,6 +418,7 @@ describe("ProcessService", () => {
                   limit?: number;
                   enabled?: boolean | null;
                 }) => Promise<unknown>;
+                get?: (input: { serviceName: string }) => Promise<unknown>;
               };
             }
           | undefined;
@@ -427,6 +432,15 @@ describe("ProcessService", () => {
           query: "github",
           limit: 1,
           enabled: false,
+        });
+
+        await builtins?.tools?.get?.({
+          serviceName: "github",
+          toolName: "listIssues",
+        });
+
+        await builtins?.services?.get?.({
+          serviceName: "github",
         });
 
         return "success";
@@ -458,6 +472,17 @@ describe("ProcessService", () => {
         serviceMetadata: { serverUrl: "http://127.0.0.1:9999" },
         serviceEnabled: true,
       })),
+      getService: vi.fn(async () => ({
+        name: "github",
+        type: "adapter",
+        source: "https://example.com/manifest.json",
+        description: "GitHub",
+        hash: "hash-1",
+        enabled: true,
+        configSchema: {},
+        secretsSchema: {},
+        metadata: {},
+      })),
     };
 
     const service = new ProcessService(pool, { manifestService });
@@ -475,6 +500,11 @@ describe("ProcessService", () => {
       1,
       false,
     );
+    expect(manifestService.getTool).toHaveBeenCalledWith(
+      "github",
+      "listIssues",
+    );
+    expect(manifestService.getService).toHaveBeenCalledWith("github");
   });
 
   it("injects invoke builtins that resolve from service manifests", async () => {

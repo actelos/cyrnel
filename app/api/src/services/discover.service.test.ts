@@ -22,6 +22,8 @@ class TestDiscoverChannel
 const manifestService = {
   discoverTools: vi.fn(),
   discoverServices: vi.fn(),
+  getTool: vi.fn(),
+  getService: vi.fn(),
 };
 
 async function flushMessageHandling(): Promise<void> {
@@ -40,9 +42,8 @@ describe("discover.service", () => {
       {
         serviceName: "svc-1",
         name: "echo",
+        description: "Echo",
         enabled: true,
-        inputSchema: {},
-        outputSchema: {},
       },
     ]);
 
@@ -68,9 +69,8 @@ describe("discover.service", () => {
           {
             serviceName: "svc-1",
             name: "echo",
+            description: "Echo",
             enabled: true,
-            inputSchema: {},
-            outputSchema: {},
           },
         ],
       },
@@ -82,7 +82,7 @@ describe("discover.service", () => {
     manifestService.discoverServices.mockResolvedValueOnce([
       {
         name: "svc-1",
-        hash: "hash-1",
+        description: "Service",
         enabled: true,
       },
     ]);
@@ -108,7 +108,7 @@ describe("discover.service", () => {
         services: [
           {
             name: "svc-1",
-            hash: "hash-1",
+            description: "Service",
             enabled: true,
           },
         ],
@@ -135,6 +135,96 @@ describe("discover.service", () => {
         type: "tools.error",
         requestId: "req-tools-2",
         message: "boom",
+      },
+    ]);
+  });
+
+  it("handles discover.tool and sends tool.response", async () => {
+    const channel = new TestDiscoverChannel();
+    manifestService.getTool.mockResolvedValueOnce({
+      tool: {
+        name: "echo",
+        description: "Echo",
+        enabled: true,
+        inputSchema: {},
+        outputSchema: {},
+        metadata: { foo: "bar" },
+      },
+      serviceMetadata: { service: "meta" },
+      serviceEnabled: true,
+    });
+
+    createDiscoverMessageSystem(channel, { manifestService });
+
+    channel.emit("message", {
+      type: "discover.tool",
+      requestId: "req-tool-1",
+      serviceName: "svc-1",
+      toolName: "echo",
+    });
+
+    await flushMessageHandling();
+
+    expect(manifestService.getTool).toHaveBeenCalledWith("svc-1", "echo");
+    expect(channel.sent).toEqual([
+      {
+        type: "tool.response",
+        requestId: "req-tool-1",
+        tool: {
+          name: "echo",
+          description: "Echo",
+          enabled: true,
+          inputSchema: {},
+          outputSchema: {},
+          metadata: { foo: "bar" },
+        },
+        serviceName: "svc-1",
+        serviceEnabled: true,
+        serviceMetadata: { service: "meta" },
+      },
+    ]);
+  });
+
+  it("handles discover.service and sends service.response", async () => {
+    const channel = new TestDiscoverChannel();
+    manifestService.getService.mockResolvedValueOnce({
+      name: "svc-1",
+      type: "adapter",
+      source: "https://example.com/manifest.json",
+      description: "Service",
+      hash: "hash-1",
+      enabled: true,
+      configSchema: {},
+      secretsSchema: {},
+      metadata: { env: "prod" },
+    });
+
+    createDiscoverMessageSystem(channel, { manifestService });
+
+    channel.emit("message", {
+      type: "discover.service",
+      requestId: "req-service-1",
+      serviceName: "svc-1",
+    });
+
+    await flushMessageHandling();
+
+    expect(manifestService.getService).toHaveBeenCalledWith("svc-1");
+    expect(channel.sent).toEqual([
+      {
+        type: "service.response",
+        requestId: "req-service-1",
+        service: {
+          name: "svc-1",
+          type: "adapter",
+          source: "https://example.com/manifest.json",
+          description: "Service",
+          hash: "hash-1",
+          enabled: true,
+          configSchema: {},
+          secretsSchema: {},
+          metadata: { env: "prod" },
+        },
       },
     ]);
   });
@@ -229,11 +319,24 @@ describe("discover.service", () => {
       query: "ok",
       enabled: "yes",
     });
+    channel.emit("message", {
+      type: "discover.tool",
+      requestId: "req-tool-invalid",
+      serviceName: "",
+      toolName: "ok",
+    });
+    channel.emit("message", {
+      type: "discover.service",
+      requestId: "req-service-invalid",
+      serviceName: "",
+    });
 
     await flushMessageHandling();
 
     expect(manifestService.discoverTools).not.toHaveBeenCalled();
     expect(manifestService.discoverServices).not.toHaveBeenCalled();
+    expect(manifestService.getTool).not.toHaveBeenCalled();
+    expect(manifestService.getService).not.toHaveBeenCalled();
     expect(channel.sent).toEqual([]);
   });
 });

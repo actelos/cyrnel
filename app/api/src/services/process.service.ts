@@ -54,7 +54,7 @@ export class ProcessService {
       executeTimeoutMs?: number;
       manifestService?: Pick<
         ManifestService,
-        "discoverServices" | "discoverTools" | "getTool"
+        "discoverServices" | "discoverTools" | "getTool" | "getService"
       >;
       adapterPoolService?: Pick<AdapterPoolService, "allocate" | "release">;
     } = {},
@@ -674,6 +674,8 @@ export class ProcessService {
           enabled === undefined
             ? manifestService.discoverTools(query, limit)
             : manifestService.discoverTools(query, limit, enabled),
+        get: ({ serviceName, toolName }) =>
+          manifestService.getTool(serviceName, toolName),
         invoke: (input) => this.invokeToolFromManifest(input),
       },
       services: {
@@ -681,6 +683,7 @@ export class ProcessService {
           enabled === undefined
             ? manifestService.discoverServices(query, limit)
             : manifestService.discoverServices(query, limit, enabled),
+        get: ({ serviceName }) => manifestService.getService(serviceName),
       },
     };
   }

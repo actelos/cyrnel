@@ -1,5 +1,8 @@
 import type {
+  ManifestMetadata,
+  ServiceManifestDetails,
   ServiceManifestResponse,
+  ToolDefinition,
   ToolDefinitionResponse,
 } from "@/models/manifest.model";
 
@@ -19,7 +22,24 @@ export interface DiscoverServicesRequest {
   enabled?: boolean | null;
 }
 
-export type DiscoverRequest = DiscoverToolsRequest | DiscoverServicesRequest;
+export interface DiscoverToolRequest {
+  type: "discover.tool";
+  requestId: string;
+  serviceName: string;
+  toolName: string;
+}
+
+export interface DiscoverServiceRequest {
+  type: "discover.service";
+  requestId: string;
+  serviceName: string;
+}
+
+export type DiscoverRequest =
+  | DiscoverToolsRequest
+  | DiscoverServicesRequest
+  | DiscoverToolRequest
+  | DiscoverServiceRequest;
 
 export interface DiscoverToolsResponse {
   type: "tools.response";
@@ -31,6 +51,21 @@ export interface DiscoverServicesResponse {
   type: "services.response";
   requestId: string;
   services: ServiceManifestResponse[];
+}
+
+export interface DiscoverToolResponse {
+  type: "tool.response";
+  requestId: string;
+  tool: ToolDefinition;
+  serviceName: string;
+  serviceEnabled: boolean;
+  serviceMetadata: ManifestMetadata;
+}
+
+export interface DiscoverServiceResponse {
+  type: "service.response";
+  requestId: string;
+  service: ServiceManifestDetails;
 }
 
 export interface DiscoverToolsErrorResponse {
@@ -45,8 +80,24 @@ export interface DiscoverServicesErrorResponse {
   message: string;
 }
 
+export interface DiscoverToolErrorResponse {
+  type: "tool.error";
+  requestId: string;
+  message: string;
+}
+
+export interface DiscoverServiceErrorResponse {
+  type: "service.error";
+  requestId: string;
+  message: string;
+}
+
 export type DiscoverResponse =
   | DiscoverToolsResponse
   | DiscoverServicesResponse
+  | DiscoverToolResponse
+  | DiscoverServiceResponse
   | DiscoverToolsErrorResponse
-  | DiscoverServicesErrorResponse;
+  | DiscoverServicesErrorResponse
+  | DiscoverToolErrorResponse
+  | DiscoverServiceErrorResponse;

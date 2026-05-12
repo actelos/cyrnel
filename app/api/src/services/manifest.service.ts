@@ -590,10 +590,10 @@ export class ManifestService {
 
     const mappedRows: ToolDefinitionResponse[] = rows.map((row) => ({
       serviceName: row.serviceName,
+      serviceDescription: row.serviceDescription,
       name: row.name,
       description: row.description,
       enabled: row.serviceEnabled && row.toolEnabled,
-      serviceDescription: row.serviceDescription,
       inputSchema: row.inputSchema,
       outputSchema: row.outputSchema,
     }));
@@ -640,8 +640,10 @@ export class ManifestService {
 
     const loweredQuery = normalizedQuery.toLowerCase();
 
-    const filtered = enabledFiltered.filter((service) =>
-      service.name.toLowerCase().includes(loweredQuery),
+    const filtered = enabledFiltered.filter(
+      (service) =>
+        service.name.toLowerCase().includes(loweredQuery) ||
+        service.description.toLowerCase().includes(loweredQuery),
     );
 
     return applyDiscoverLimit(filtered, normalizedLimit);

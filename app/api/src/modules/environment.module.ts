@@ -15,13 +15,24 @@ export interface EnvironmentDiscoverInput {
   enabled?: boolean | null;
 }
 
+export interface EnvironmentDiscoverToolInput {
+  serviceName: string;
+  toolName: string;
+}
+
+export interface EnvironmentDiscoverServiceInput {
+  serviceName: string;
+}
+
 export interface EnvironmentBuiltins {
   tools?: {
     discover?: (input: EnvironmentDiscoverInput) => Promise<unknown>;
+    get?: (input: EnvironmentDiscoverToolInput) => Promise<unknown>;
     invoke?: (input: EnvironmentInvokeInput) => Promise<unknown>;
   };
   services?: {
     discover?: (input: EnvironmentDiscoverInput) => Promise<unknown>;
+    get?: (input: EnvironmentDiscoverServiceInput) => Promise<unknown>;
   };
 }
 
@@ -92,7 +103,12 @@ interface WorkerBuiltinRequestMessage {
   type: "builtin.request";
   request: {
     requestId: string;
-    builtin: "discover.tools" | "discover.services" | "invoke.tool";
+    builtin:
+      | "discover.tools"
+      | "discover.services"
+      | "discover.tool"
+      | "discover.service"
+      | "invoke.tool";
     payload: unknown;
   };
 }
@@ -124,6 +140,30 @@ const discoverInputSchema = z.object({
     .positive({ error: "Field 'limit' must be a positive integer." })
     .optional(),
   enabled: z.boolean().nullable().optional(),
+});
+
+const discoverToolInputSchema = z.object({
+  serviceName: z
+    .string({ error: "Field 'serviceName' must be a string." })
+    .transform((value) => value.trim())
+    .refine((value) => value.length > 0, {
+      error: "Field 'serviceName' must not be empty.",
+    }),
+  toolName: z
+    .string({ error: "Field 'toolName' must be a string." })
+    .transform((value) => value.trim())
+    .refine((value) => value.length > 0, {
+      error: "Field 'toolName' must not be empty.",
+    }),
+});
+
+const discoverServiceInputSchema = z.object({
+  serviceName: z
+    .string({ error: "Field 'serviceName' must be a string." })
+    .transform((value) => value.trim())
+    .refine((value) => value.length > 0, {
+      error: "Field 'serviceName' must not be empty.",
+    }),
 });
 
 const invokeInputSchema = z.object({
@@ -519,10 +559,12 @@ export class EnvironmentModule extends EventEmitter {
 
         const tools = Object.freeze({
           discover: async (input) => callBuiltin("discover.tools", input),
+          get: async (input) => callBuiltin("discover.tool", input),
         });
 
         const services = Object.freeze({
           discover: async (input) => callBuiltin("discover.services", input),
+          get: async (input) => callBuiltin("discover.service", input),
         });
 
         function createInvokeBindings() {
@@ -626,13 +668,12 @@ export class EnvironmentModule extends EventEmitter {
       return;
     }
 
-    const payload = normalizeDiscoverInput(request.payload);
-
     if (request.builtin === "discover.tools") {
       if (!builtins?.tools?.discover) {
         throw new Error("Builtin 'discover.tools' is not configured.");
       }
 
+      const payload = normalizeDiscoverInput(request.payload);
       const data = await builtins.tools.discover(payload);
       worker.postMessage({
         type: "builtin.response",
@@ -642,11 +683,42 @@ export class EnvironmentModule extends EventEmitter {
       return;
     }
 
-    if (!builtins?.services?.discover) {
-      throw new Error("Builtin 'discover.services' is not configured.");
+    if (request.builtin === "discover.services") {
+      if (!builtins?.services?.discover) {
+        throw new Error("Builtin 'discover.services' is not configured.");
+      }
+
+      const payload = normalizeDiscoverInput(request.payload);
+      const data = await builtins.services.discover(payload);
+      worker.postMessage({
+        type: "builtin.response",
+        requestId: request.requestId,
+        data,
+      });
+      return;
     }
 
-    const data = await builtins.services.discover(payload);
+    if (request.builtin === "discover.tool") {
+      if (!builtins?.tools?.get) {
+        throw new Error("Builtin 'discover.tool' is not configured.");
+      }
+
+      const payload = normalizeDiscoverToolInput(request.payload);
+      const data = await builtins.tools.get(payload);
+      worker.postMessage({
+        type: "builtin.response",
+        requestId: request.requestId,
+        data,
+      });
+      return;
+    }
+
+    if (!builtins?.services?.get) {
+      throw new Error("Builtin 'discover.service' is not configured.");
+    }
+
+    const payload = normalizeDiscoverServiceInput(request.payload);
+    const data = await builtins.services.get(payload);
     worker.postMessage({
       type: "builtin.response",
       requestId: request.requestId,
@@ -719,6 +791,36 @@ function normalizeDiscoverInput(payload: unknown): EnvironmentDiscoverInput {
   if (!parsed.success) {
     throw new Error(
       parsed.error.issues[0]?.message ?? "Discover input must be an object.",
+    );
+  }
+
+  return parsed.data;
+}
+
+function normalizeDiscoverToolInput(
+  payload: unknown,
+): EnvironmentDiscoverToolInput {
+  const parsed = discoverToolInputSchema.safeParse(payload);
+
+  if (!parsed.success) {
+    throw new Error(
+      parsed.error.issues[0]?.message ??
+        "Discover tool input must be an object.",
+    );
+  }
+
+  return parsed.data;
+}
+
+function normalizeDiscoverServiceInput(
+  payload: unknown,
+): EnvironmentDiscoverServiceInput {
+  const parsed = discoverServiceInputSchema.safeParse(payload);
+
+  if (!parsed.success) {
+    throw new Error(
+      parsed.error.issues[0]?.message ??
+        "Discover service input must be an object.",
     );
   }
 

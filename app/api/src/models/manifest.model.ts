@@ -49,12 +49,25 @@ export interface ToolDefinitionResponse extends PublicToolDefinition {
   serviceDescription: string;
 }
 
+export interface DiscoverToolSummary {
+  serviceName: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+}
+
 export interface ServiceManifestResponse {
   name: string;
   type: ServiceType;
   source: string;
   description: string;
   hash: string;
+  enabled: boolean;
+}
+
+export interface DiscoverServiceSummary {
+  name: string;
+  description: string;
   enabled: boolean;
 }
 
