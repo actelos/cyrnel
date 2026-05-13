@@ -9,7 +9,7 @@ import httpx
 from fastmcp import FastMCP
 from pydantic import Field
 
-from types import (
+from mcp_types import (
     DiscoverRequest,
     DiscoverServicesResponse,
     DiscoverToolsResponse,
