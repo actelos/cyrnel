@@ -32,8 +32,6 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
-const metadataSchema = z.record(z.string(), z.unknown());
-
 const serviceSchema = z.object({
   name: z.string(),
   type: z.string(),
@@ -48,33 +46,30 @@ const serviceListSchema = z.object({
 });
 
 const serviceDetailsSchema = serviceSchema.extend({
-  metadata: metadataSchema,
-  configSchema: metadataSchema,
-  secretsSchema: metadataSchema,
+  configSchema: z.record(z.string(), z.unknown()),
+  secretsSchema: z.record(z.string(), z.unknown()),
 });
 
 const serviceConfigSchema = z.object({
-  config: metadataSchema,
+  config: z.record(z.string(), z.unknown()),
 });
 
 const serviceConfigSchemaSchema = z.object({
-  configSchema: metadataSchema,
+  configSchema: z.record(z.string(), z.unknown()),
 });
 
 const serviceSecretsSchema = z.object({
-  secrets: metadataSchema,
+  secrets: z.record(z.string(), z.unknown()),
 });
 
 const serviceSecretsSchemaSchema = z.object({
-  secretsSchema: metadataSchema,
+  secretsSchema: z.record(z.string(), z.unknown()),
 });
 
 const toolSchema = z.object({
   name: z.string(),
   description: z.string(),
   enabled: z.boolean(),
-  inputSchema: metadataSchema,
-  outputSchema: metadataSchema,
 });
 
 const toolListSchema = z.object({

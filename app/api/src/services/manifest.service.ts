@@ -9,16 +9,17 @@ import { logger } from "@/logger";
 import { HttpError } from "@/models/error.model";
 import type { ResolvedToolInvocation } from "@/models/invoke.model";
 import type {
+  JSONSchema,
   ManifestMetadata,
-  PublicToolDefinition,
+  ServiceDetails,
   ServiceInstallRequest,
-  ServiceManifest,
-  ServiceManifestDetails,
-  ServiceManifestResponse,
+  ServiceListItem,
+  ServiceManifestDefinition,
+  ServiceToolDefinition,
   ServiceType,
-  StagedServiceManifest,
-  ToolDefinition,
-  ToolDefinitionResponse,
+  StagedServiceEntry,
+  ToolDiscoverItem,
+  ToolListItem,
 } from "@/models/manifest.model";
 import { AdapterModule } from "@/modules/adapter.module";
 import { computeContentHash } from "@/utils/hash.util";
@@ -60,7 +61,7 @@ type ServiceMetadataLoader = (
 type ToolLoader = (
   serviceName: string,
   toolName: string,
-) => Promise<ToolDefinition | null>;
+) => Promise<ServiceToolDefinition | null>;
 
 export class ManifestService {
   private readonly fetchImpl: typeof fetch;
@@ -77,7 +78,7 @@ export class ManifestService {
   async listServices(
     query?: string,
     enabled: boolean | null = null,
-  ): Promise<ServiceManifestResponse[]> {
+  ): Promise<ServiceListItem[]> {
     let rows: Array<{
       id: string;
       type: ServiceType;
@@ -130,7 +131,7 @@ export class ManifestService {
     }));
   }
 
-  async getService(serviceName: string): Promise<ServiceManifestDetails> {
+  async getService(serviceName: string): Promise<ServiceDetails> {
     const normalizedServiceName = normalizeServiceName(serviceName);
 
     let rows: Array<{
@@ -191,7 +192,6 @@ export class ManifestService {
       enabled: rows[0].enabled,
       configSchema: rows[0].configSchema,
       secretsSchema: rows[0].secretsSchema,
-      metadata,
     };
   }
 
@@ -199,13 +199,21 @@ export class ManifestService {
     serviceName: string,
     query?: string,
     enabled: boolean | null = null,
-  ): Promise<PublicToolDefinition[]> {
+  ): Promise<ToolListItem[]> {
     const normalizedServiceName = normalizeServiceName(serviceName);
 
-    let serviceRows: Array<{ id: string; enabled: boolean }>;
+    let serviceRows: Array<{
+      id: string;
+      enabled: boolean;
+      description: string;
+    }>;
     try {
       serviceRows = await db
-        .select({ id: manifests.id, enabled: manifests.enabled })
+        .select({
+          id: manifests.id,
+          enabled: manifests.enabled,
+          description: manifests.description,
+        })
         .from(manifests)
         .where(eq(manifests.id, normalizedServiceName))
         .limit(1);
@@ -224,22 +232,16 @@ export class ManifestService {
     }
 
     let rows: Array<{
-      serviceName: string;
       name: string;
       description: string;
       enabled: boolean;
-      inputSchema: ToolDefinitionResponse["inputSchema"];
-      outputSchema: ToolDefinitionResponse["outputSchema"];
     }>;
     try {
       rows = await db
         .select({
-          serviceName: tools.serviceName,
           name: tools.name,
           description: tools.description,
           enabled: tools.enabled,
-          inputSchema: tools.inputSchema,
-          outputSchema: tools.outputSchema,
         })
         .from(tools)
         .where(eq(tools.serviceName, normalizedServiceName))
@@ -265,12 +267,10 @@ export class ManifestService {
               row.description.toLowerCase().includes(loweredQuery),
           );
 
-    const mappedRows = queryFiltered.map((row) => ({
+    const mappedRows: ToolListItem[] = queryFiltered.map((row) => ({
       name: row.name,
       description: row.description,
       enabled: serviceEnabled && row.enabled,
-      inputSchema: row.inputSchema,
-      outputSchema: row.outputSchema,
     }));
 
     const enabledFiltered =
@@ -279,6 +279,113 @@ export class ManifestService {
         : mappedRows.filter((row) => row.enabled === normalizedEnabled);
 
     return enabledFiltered;
+  }
+  async getToolWithServiceInfo(
+    serviceName: string,
+    toolName: string,
+  ): Promise<
+    ResolvedToolInvocation & { serviceName: string; serviceDescription: string }
+  > {
+    const normalizedServiceName = normalizeServiceName(serviceName);
+    const resolved = await this.getTool(normalizedServiceName, toolName);
+    const service = await this.getService(normalizedServiceName);
+
+    return {
+      serviceName: normalizedServiceName,
+      serviceDescription: service.description,
+      ...resolved,
+    };
+  }
+
+  async getToolByName(
+    toolName: string,
+  ): Promise<
+    ResolvedToolInvocation & { serviceName: string; serviceDescription: string }
+  > {
+    const normalizedToolName = normalizeToolName(toolName);
+
+    let rows: Array<{
+      serviceName: string;
+      serviceDescription: string;
+      serviceMetadata: ManifestMetadata;
+      serviceEnabled: boolean;
+      toolName: string;
+      toolDescription: string;
+      toolEnabled: boolean;
+      toolMetadata: ManifestMetadata;
+      inputSchema: JSONSchema;
+      outputSchema: JSONSchema;
+    }>;
+
+    try {
+      rows = await db
+        .select({
+          serviceName: tools.serviceName,
+          serviceDescription: manifests.description,
+          serviceMetadata: manifests.metadata,
+          serviceEnabled: manifests.enabled,
+          toolName: tools.name,
+          toolDescription: tools.description,
+          toolEnabled: tools.enabled,
+          toolMetadata: tools.metadata,
+          inputSchema: tools.inputSchema,
+          outputSchema: tools.outputSchema,
+        })
+        .from(tools)
+        .innerJoin(manifests, eq(tools.serviceName, manifests.id))
+        .where(eq(tools.name, normalizedToolName))
+        .orderBy(asc(tools.serviceName))
+        .limit(2);
+    } catch {
+      throw new HttpError(
+        500,
+        `Failed to lookup tool '${normalizedToolName}'.`,
+      );
+    }
+
+    if (rows.length === 0) {
+      throw new HttpError(404, `Tool '${normalizedToolName}' not found.`);
+    }
+
+    if (rows.length > 1) {
+      const serviceNames = rows.map((row) => row.serviceName).join(", ");
+      throw new HttpError(
+        409,
+        `Tool '${normalizedToolName}' is ambiguous across services: ${serviceNames}.`,
+      );
+    }
+
+    const row = rows[0];
+    const toolCandidate: unknown = {
+      name: row.toolName,
+      description: row.toolDescription,
+      enabled: row.toolEnabled,
+      metadata: row.toolMetadata,
+      inputSchema: row.inputSchema,
+      outputSchema: row.outputSchema,
+    };
+
+    if (!isServiceToolDefinition(toolCandidate)) {
+      throw new HttpError(
+        500,
+        `Stored tool '${row.toolName}' for service '${row.serviceName}' is invalid.`,
+      );
+    }
+
+    if (!isRecord(row.serviceMetadata)) {
+      throw new HttpError(
+        500,
+        `Stored manifest for service '${row.serviceName}' has invalid metadata.`,
+      );
+    }
+
+    return {
+      serviceName: row.serviceName,
+      serviceDescription: row.serviceDescription,
+      tool: toolCandidate,
+      serviceMetadata: row.serviceMetadata,
+      serviceEnabled: row.serviceEnabled,
+    };
   }
 
   async createService(
@@ -558,13 +665,13 @@ export class ManifestService {
     query: string,
     limit?: number,
     enabled: boolean | null = true,
-  ): Promise<ToolDefinitionResponse[]> {
+  ): Promise<ToolDiscoverItem[]> {
     const normalizedQuery = normalizeDiscoverQuery(query);
     const normalizedLimit = normalizeDiscoverLimit(limit);
     const normalizedEnabled = normalizeDiscoverEnabled(enabled);
 
     let rows: Array<
-      Omit<ToolDefinitionResponse, "enabled"> & {
+      Omit<ToolDiscoverItem, "enabled"> & {
         toolEnabled: boolean;
         serviceEnabled: boolean;
       }
@@ -577,9 +684,6 @@ export class ManifestService {
           description: tools.description,
           toolEnabled: tools.enabled,
           serviceEnabled: manifests.enabled,
-          serviceDescription: manifests.description,
-          inputSchema: tools.inputSchema,
-          outputSchema: tools.outputSchema,
         })
         .from(tools)
         .innerJoin(manifests, eq(tools.serviceName, manifests.id))
@@ -588,14 +692,11 @@ export class ManifestService {
       throw new HttpError(500, "Failed to discover tools.");
     }
 
-    const mappedRows: ToolDefinitionResponse[] = rows.map((row) => ({
+    const mappedRows: ToolDiscoverItem[] = rows.map((row) => ({
       serviceName: row.serviceName,
-      serviceDescription: row.serviceDescription,
       name: row.name,
       description: row.description,
       enabled: row.serviceEnabled && row.toolEnabled,
-      inputSchema: row.inputSchema,
-      outputSchema: row.outputSchema,
     }));
 
     const enabledFiltered =
@@ -613,8 +714,7 @@ export class ManifestService {
       (row) =>
         row.name.toLowerCase().includes(loweredQuery) ||
         row.description.toLowerCase().includes(loweredQuery) ||
-        row.serviceName.toLowerCase().includes(loweredQuery) ||
-        row.serviceDescription.toLowerCase().includes(loweredQuery),
+        row.serviceName.toLowerCase().includes(loweredQuery),
     );
 
     return applyDiscoverLimit(filtered, normalizedLimit);
@@ -624,7 +724,7 @@ export class ManifestService {
     query: string,
     limit?: number,
     enabled: boolean | null = true,
-  ): Promise<ServiceManifestResponse[]> {
+  ): Promise<ServiceListItem[]> {
     const normalizedQuery = normalizeDiscoverQuery(query);
     const normalizedLimit = normalizeDiscoverLimit(limit);
     const normalizedEnabled = normalizeDiscoverEnabled(enabled);
@@ -676,7 +776,7 @@ export class ManifestService {
       );
     }
 
-    let tool: ToolDefinition | null;
+    let tool: ServiceToolDefinition | null;
     try {
       tool = await this.loadToolByName(
         normalizedServiceName,
@@ -1002,7 +1102,7 @@ export class ManifestService {
     return normalizedSecrets;
   }
 
-  async getAllServiceManifests(): Promise<ServiceManifest[]> {
+  async getAllServiceManifests(): Promise<ServiceManifestDefinition[]> {
     let serviceRows: Array<{
       id: string;
       description: string;
@@ -1034,8 +1134,8 @@ export class ManifestService {
       description: string;
       enabled: boolean;
       metadata: ManifestMetadata;
-      inputSchema: ToolDefinitionResponse["inputSchema"];
-      outputSchema: ToolDefinitionResponse["outputSchema"];
+      inputSchema: JSONSchema;
+      outputSchema: JSONSchema;
     }>;
 
     try {
@@ -1055,7 +1155,7 @@ export class ManifestService {
       throw new HttpError(500, "Failed to load service tools.");
     }
 
-    const toolsByServiceName = new Map<string, ToolDefinition[]>();
+    const toolsByServiceName = new Map<string, ServiceToolDefinition[]>();
 
     for (const row of toolRows) {
       const toolCandidate: unknown = {
@@ -1067,7 +1167,7 @@ export class ManifestService {
         outputSchema: row.outputSchema,
       };
 
-      if (!isToolDefinition(toolCandidate)) {
+      if (!isServiceToolDefinition(toolCandidate)) {
         throw new HttpError(
           500,
           `Stored tool '${row.name}' for service '${row.serviceName}' is invalid.`,
@@ -1124,7 +1224,7 @@ export class ManifestService {
     return decryptSecrets(normalizeEncryptedSecretsPayload(payload));
   }
 
-  async getAllStagedServiceManifests(): Promise<StagedServiceManifest[]> {
+  async getAllStagedServiceManifests(): Promise<StagedServiceEntry[]> {
     let serviceRows: Array<{ id: string }>;
 
     try {
@@ -1172,7 +1272,7 @@ async function parseRegisteredManifest(
   adapter: AdapterModule,
   definitionContent: string,
   expectedServiceName?: string,
-): Promise<ServiceManifest> {
+): Promise<ServiceManifestDefinition> {
   try {
     const parsedManifest = await adapter.register(definitionContent);
 
@@ -1186,7 +1286,7 @@ async function parseRegisteredManifest(
       );
     }
 
-    return parsedManifest satisfies ServiceManifest;
+    return parsedManifest satisfies ServiceManifestDefinition;
   } catch (error) {
     if (error instanceof HttpError) {
       throw error;
@@ -1547,7 +1647,7 @@ async function loadServiceMetadataByServiceName(
 async function loadToolByServiceAndToolName(
   serviceName: string,
   toolName: string,
-): Promise<ToolDefinition | null> {
+): Promise<ServiceToolDefinition | null> {
   const rows = await db
     .select({
       name: tools.name,
@@ -1566,7 +1666,7 @@ async function loadToolByServiceAndToolName(
   }
 
   const tool = rows[0];
-  if (!isToolDefinition(tool)) {
+  if (!isServiceToolDefinition(tool)) {
     throw new HttpError(
       500,
       `Stored tool '${toolName}' for service '${serviceName}' is invalid.`,
@@ -1580,7 +1680,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return metadataSchema.safeParse(value).success;
 }
 
-function isToolDefinition(value: unknown): value is ToolDefinition {
+function isServiceToolDefinition(
+  value: unknown,
+): value is ServiceToolDefinition {
   return persistedToolSchema.safeParse(value).success;
 }
 

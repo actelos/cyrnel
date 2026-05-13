@@ -4,10 +4,17 @@ import { Worker } from "node:worker_threads";
 import ts from "typescript";
 import { z } from "zod";
 
-import type { ServiceManifest } from "@/models/manifest.model";
+import type {
+  ServiceDetails,
+  ServiceDiscoverItem,
+  ServiceManifestDefinition,
+} from "@/models/manifest.model";
 import type { ProcessStatus } from "@/models/process.model";
 
 export type ExecutionStatus = Extract<ProcessStatus, "success" | "failed">;
+
+export interface EnvironmentServiceDetails
+  extends Omit<ServiceDetails, "source" | "hash"> {}
 
 export interface EnvironmentDiscoverInput {
   query: string;
@@ -31,8 +38,12 @@ export interface EnvironmentBuiltins {
     invoke?: (input: EnvironmentInvokeInput) => Promise<unknown>;
   };
   services?: {
-    discover?: (input: EnvironmentDiscoverInput) => Promise<unknown>;
-    get?: (input: EnvironmentDiscoverServiceInput) => Promise<unknown>;
+    discover?: (
+      input: EnvironmentDiscoverInput,
+    ) => Promise<ServiceDiscoverItem[]>;
+    get?: (
+      input: EnvironmentDiscoverServiceInput,
+    ) => Promise<EnvironmentServiceDetails>;
   };
 }
 
@@ -49,7 +60,7 @@ export type EnvironmentToolBinding = (
 export type EnvironmentServiceBindings = Record<string, EnvironmentToolBinding>;
 
 export function generateServiceToolBindings(
-  serviceManifest: ServiceManifest,
+  serviceManifest: ServiceManifestDefinition,
   invoke: (input: EnvironmentInvokeInput) => Promise<unknown>,
 ): EnvironmentServiceBindings {
   if (!serviceManifest.enabled) {
@@ -174,6 +185,26 @@ const invokeInputSchema = z.object({
   }),
 });
 
+const discoverServiceSummarySchema = z.object({
+  name: z.string(),
+  description: z.string(),
+  enabled: z.boolean(),
+});
+
+const discoverServicesResultSchema = z.array(discoverServiceSummarySchema);
+
+const jsonSchemaPayloadSchema = z.record(z.string(), z.unknown());
+
+const environmentServiceDetailsSchema = z.object({
+  name: z.string(),
+  type: z.string(),
+  description: z.string(),
+  enabled: z.boolean(),
+  configSchema: jsonSchemaPayloadSchema,
+  secretsSchema: jsonSchemaPayloadSchema,
+  metadata: jsonSchemaPayloadSchema,
+});
+
 const serviceManifestBindingSchema = z
   .object({
     name: nonEmptyStringSchema("Service name must not be empty."),
@@ -210,14 +241,19 @@ export class EnvironmentModule extends EventEmitter {
   private killed = false;
   private worker: Worker | null = null;
   private timeoutHandle: ReturnType<typeof setTimeout> | null = null;
-  private readonly serviceManifestBindings = new Map<string, ServiceManifest>();
+  private readonly serviceManifestBindings = new Map<
+    string,
+    ServiceManifestDefinition
+  >();
 
-  setServiceManifestBindings(serviceManifest: ServiceManifest): void {
+  setServiceManifestBindings(serviceManifest: ServiceManifestDefinition): void {
     const normalized = normalizeServiceManifest(serviceManifest);
     this.serviceManifestBindings.set(normalized.name, normalized);
   }
 
-  updateServiceManifestBindings(serviceManifest: ServiceManifest): void {
+  updateServiceManifestBindings(
+    serviceManifest: ServiceManifestDefinition,
+  ): void {
     this.setServiceManifestBindings(serviceManifest);
   }
 
@@ -689,7 +725,9 @@ export class EnvironmentModule extends EventEmitter {
       }
 
       const payload = normalizeDiscoverInput(request.payload);
-      const data = await builtins.services.discover(payload);
+      const data = discoverServicesResultSchema.parse(
+        await builtins.services.discover(payload),
+      );
       worker.postMessage({
         type: "builtin.response",
         requestId: request.requestId,
@@ -718,7 +756,9 @@ export class EnvironmentModule extends EventEmitter {
     }
 
     const payload = normalizeDiscoverServiceInput(request.payload);
-    const data = await builtins.services.get(payload);
+    const data = environmentServiceDetailsSchema.parse(
+      await builtins.services.get(payload),
+    );
     worker.postMessage({
       type: "builtin.response",
       requestId: request.requestId,
@@ -728,8 +768,8 @@ export class EnvironmentModule extends EventEmitter {
 }
 
 function normalizeServiceManifest(
-  serviceManifest: ServiceManifest,
-): ServiceManifest {
+  serviceManifest: ServiceManifestDefinition,
+): ServiceManifestDefinition {
   const parsedManifest =
     serviceManifestBindingSchema.safeParse(serviceManifest);
 

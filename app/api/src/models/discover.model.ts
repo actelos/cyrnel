@@ -1,9 +1,9 @@
 import type {
   ManifestMetadata,
-  ServiceManifestDetails,
-  ServiceManifestResponse,
-  ToolDefinition,
-  ToolDefinitionResponse,
+  ServiceDetails,
+  ServiceListItem,
+  ServiceToolDefinition,
+  ToolDiscoverItem,
 } from "@/models/manifest.model";
 
 export interface DiscoverToolsRequest {
@@ -44,19 +44,19 @@ export type DiscoverRequest =
 export interface DiscoverToolsResponse {
   type: "tools.response";
   requestId: string;
-  tools: ToolDefinitionResponse[];
+  tools: ToolDiscoverItem[];
 }
 
 export interface DiscoverServicesResponse {
   type: "services.response";
   requestId: string;
-  services: ServiceManifestResponse[];
+  services: ServiceListItem[];
 }
 
 export interface DiscoverToolResponse {
   type: "tool.response";
   requestId: string;
-  tool: ToolDefinition;
+  tool: ServiceToolDefinition;
   serviceName: string;
   serviceEnabled: boolean;
   serviceMetadata: ManifestMetadata;
@@ -65,7 +65,7 @@ export interface DiscoverToolResponse {
 export interface DiscoverServiceResponse {
   type: "service.response";
   requestId: string;
-  service: ServiceManifestDetails;
+  service: ServiceDetails;
 }
 
 export interface DiscoverToolsErrorResponse {

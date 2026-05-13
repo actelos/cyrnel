@@ -1,4 +1,7 @@
-import type { ManifestMetadata, ToolDefinition } from "@/models/manifest.model";
+import type {
+  ManifestMetadata,
+  ServiceToolDefinition,
+} from "@/models/manifest.model";
 
 export interface InvokeRequest {
   type: "invoke.tool";
@@ -23,7 +26,7 @@ export interface InvokeErrorResponseMessage {
 export type InvokeResponse = InvokeResponseMessage | InvokeErrorResponseMessage;
 
 export interface ResolvedToolInvocation {
-  tool: ToolDefinition;
+  tool: ServiceToolDefinition;
   serviceMetadata: ManifestMetadata;
   serviceEnabled: boolean;
 }

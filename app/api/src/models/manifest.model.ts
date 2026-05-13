@@ -8,7 +8,7 @@ export interface ServiceInstallRequest {
   source: string;
 }
 
-export interface ToolDefinition {
+export interface ServiceToolDefinition {
   name: string;
   description: string;
   enabled: boolean;
@@ -17,26 +17,39 @@ export interface ToolDefinition {
   metadata: ManifestMetadata;
 }
 
-export interface ServiceManifest {
+export interface ServiceManifestDefinition {
   name: string;
   description: string;
   enabled: boolean;
   configSchema: JSONSchema;
   secretsSchema: JSONSchema;
   metadata: ManifestMetadata;
-  tools: ToolDefinition[];
+  tools: ServiceToolDefinition[];
 }
 
-export interface StagedToolManifest {
+export interface StagedToolEntry {
   name: string;
 }
 
-export interface StagedServiceManifest {
+export interface StagedServiceEntry {
   name: string;
-  tools: StagedToolManifest[];
+  tools: StagedToolEntry[];
 }
 
-export interface PublicToolDefinition {
+export interface ToolListItem {
+  name: string;
+  description: string;
+  enabled: boolean;
+}
+
+export interface ToolDiscoverItem {
+  serviceName: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+}
+
+export interface ToolDetails {
   name: string;
   description: string;
   enabled: boolean;
@@ -44,19 +57,7 @@ export interface PublicToolDefinition {
   outputSchema: JSONSchema;
 }
 
-export interface ToolDefinitionResponse extends PublicToolDefinition {
-  serviceName: string;
-  serviceDescription: string;
-}
-
-export interface DiscoverToolSummary {
-  serviceName: string;
-  name: string;
-  description: string;
-  enabled: boolean;
-}
-
-export interface ServiceManifestResponse {
+export interface ServiceListItem {
   name: string;
   type: ServiceType;
   source: string;
@@ -65,13 +66,13 @@ export interface ServiceManifestResponse {
   enabled: boolean;
 }
 
-export interface DiscoverServiceSummary {
+export interface ServiceDiscoverItem {
   name: string;
   description: string;
   enabled: boolean;
 }
 
-export interface ServiceManifestDetails {
+export interface ServiceDetails {
   name: string;
   type: ServiceType;
   source: string;
@@ -80,5 +81,4 @@ export interface ServiceManifestDetails {
   enabled: boolean;
   configSchema: JSONSchema;
   secretsSchema: JSONSchema;
-  metadata: ManifestMetadata;
 }

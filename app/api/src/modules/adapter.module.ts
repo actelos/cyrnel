@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import type {
   ManifestMetadata,
-  ServiceManifest,
+  ServiceManifestDefinition,
 } from "@/models/manifest.model";
 
 const recordSchema = z.record(z.string(), z.unknown());
@@ -54,7 +54,9 @@ export class AdapterModule {
     this.fetchImpl = options.fetchImpl ?? fetch;
   }
 
-  async register(definitionContent: string): Promise<ServiceManifest> {
+  async register(
+    definitionContent: string,
+  ): Promise<ServiceManifestDefinition> {
     return parseServiceManifest(definitionContent);
   }
 
@@ -170,7 +172,9 @@ export class AdapterModule {
   }
 }
 
-export function parseServiceManifest(manifestSource: string): ServiceManifest {
+export function parseServiceManifest(
+  manifestSource: string,
+): ServiceManifestDefinition {
   const normalized = manifestSource.trim();
 
   if (!normalized) {

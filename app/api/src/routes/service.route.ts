@@ -7,13 +7,13 @@ import {
   getServiceConfiguration,
   getServiceConfigurationSchema,
   getServiceSecretsSchema,
-  getToolByName,
+  getServiceTool,
   listServices,
-  listTools,
+  listServiceTools,
   patchServiceConfiguration,
   patchServiceSecrets,
   setServiceEnabled,
-  setToolEnabled,
+  setServiceToolEnabled,
   updateService,
 } from "@/controllers/service.controller";
 
@@ -36,6 +36,9 @@ serviceRouter.patch("/:serviceName/configuration", patchServiceConfiguration);
 serviceRouter.get("/:serviceName/secrets/schema", getServiceSecretsSchema);
 serviceRouter.patch("/:serviceName/secrets", patchServiceSecrets);
 
-serviceRouter.get("/:serviceName/tools", listTools);
-serviceRouter.get("/:serviceName/tools/:toolName", getToolByName);
-serviceRouter.post("/:serviceName/tools/:toolName/enabled", setToolEnabled);
+serviceRouter.get("/:serviceName/tools", listServiceTools);
+serviceRouter.get("/:serviceName/tools/:toolName", getServiceTool);
+serviceRouter.post(
+  "/:serviceName/tools/:toolName/enabled",
+  setServiceToolEnabled,
+);

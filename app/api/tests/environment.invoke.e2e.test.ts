@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createApp } from "@/app";
 import { db } from "@/db/client";
-import type { ServiceManifest } from "@/models/manifest.model";
+import type { ServiceManifestDefinition } from "@/models/manifest.model";
 import type { Process } from "@/models/process.model";
 import { computeContentHash } from "@/utils/hash.util";
 
@@ -23,7 +23,7 @@ interface StartedToolServer {
 
 const serviceName = "liveService";
 
-const manifestV1 = (baseUrl: string): ServiceManifest => ({
+const manifestV1 = (baseUrl: string): ServiceManifestDefinition => ({
   name: serviceName,
   description: "",
   enabled: true,
@@ -56,7 +56,7 @@ const manifestV1 = (baseUrl: string): ServiceManifest => ({
   secretsSchema: { type: "null" },
 });
 
-const manifestV2 = (baseUrl: string): ServiceManifest => ({
+const manifestV2 = (baseUrl: string): ServiceManifestDefinition => ({
   name: serviceName,
   description: "",
   enabled: true,
@@ -136,7 +136,7 @@ async function resetManifestTables(): Promise<void> {
 
 async function insertDefinition(
   definitionId: string,
-  manifest: ServiceManifest,
+  manifest: ServiceManifestDefinition,
 ): Promise<void> {
   const content = JSON.stringify(manifest);
 

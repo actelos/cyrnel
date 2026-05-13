@@ -9,8 +9,8 @@ import {
 import type {
   JSONSchema,
   ManifestMetadata,
+  ServiceToolDefinition,
   ServiceType,
-  ToolDefinition,
 } from "@/models/manifest.model";
 import type { EncryptedSecretsPayload } from "@/models/secrets.model";
 
@@ -69,13 +69,13 @@ export const tools = sqliteTable(
     description: text("description").notNull().default(""),
     enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
     inputSchema: text("input_schema", { mode: "json" })
-      .$type<ToolDefinition["inputSchema"]>()
+      .$type<ServiceToolDefinition["inputSchema"]>()
       .notNull(),
     outputSchema: text("output_schema", { mode: "json" })
-      .$type<ToolDefinition["outputSchema"]>()
+      .$type<ServiceToolDefinition["outputSchema"]>()
       .notNull(),
     metadata: text("metadata", { mode: "json" })
-      .$type<ToolDefinition["metadata"]>()
+      .$type<ServiceToolDefinition["metadata"]>()
       .notNull(),
   },
   (table) => [

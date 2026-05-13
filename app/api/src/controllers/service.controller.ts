@@ -3,7 +3,10 @@ import type { Operation } from "fast-json-patch";
 import { z } from "zod";
 
 import { logger } from "@/logger";
-import type { ServiceInstallRequest } from "@/models/manifest.model";
+import type {
+  ServiceInstallRequest,
+  ToolDetails,
+} from "@/models/manifest.model";
 import type { AdapterPoolService } from "@/services/adapter-pool.service";
 import type { EnvironmentPoolService } from "@/services/environment-pool.service";
 import type { ManifestService } from "@/services/manifest.service";
@@ -138,6 +141,10 @@ const enabledBodySchema = z.object({
   enabled: z.boolean({ error: "Field 'enabled' must be a boolean." }),
 });
 
+const toolEnabledBodySchema = z.object({
+  enabled: z.boolean({ error: "Field 'enabled' must be a boolean." }),
+});
+
 const jsonPatchOperationSchema = z.union([
   z.object({
     op: z.literal("add"),
@@ -197,7 +204,6 @@ export async function getService(req: Request, res: Response): Promise<void> {
     enabled: service.enabled,
     configSchema: service.configSchema,
     secretsSchema: service.secretsSchema,
-    metadata: service.metadata,
   });
 }
 
@@ -296,38 +302,6 @@ export async function patchServiceSecrets(
   res.status(200).json({ updated: true });
 }
 
-export async function listTools(req: Request, res: Response): Promise<void> {
-  const manifestService = getManifestService(req);
-  const serviceName = parseServiceName(req.params.serviceName);
-  const query = parseQueryParam(req.query?.query);
-  const enabled = parseEnabledQueryParam(req.query?.enabled);
-  const tools = await manifestService.listTools(serviceName, query, enabled);
-
-  res.status(200).json({ tools });
-}
-
-export async function getToolByName(
-  req: Request,
-  res: Response,
-): Promise<void> {
-  const manifestService = getManifestService(req);
-  const serviceName = parseServiceName(req.params.serviceName);
-  const toolName = parseToolName(req.params.toolName);
-  const { tool, serviceEnabled } = await manifestService.getTool(
-    serviceName,
-    toolName,
-  );
-
-  res.status(200).json({
-    name: tool.name,
-    description: tool.description,
-    enabled: serviceEnabled && tool.enabled,
-    inputSchema: tool.inputSchema,
-    outputSchema: tool.outputSchema,
-    metadata: tool.metadata,
-  });
-}
-
 export async function createService(
   req: Request,
   res: Response,
@@ -379,19 +353,6 @@ export async function setServiceEnabled(
   res.status(200).json({ name: serviceName, enabled });
 }
 
-export async function setToolEnabled(
-  req: Request,
-  res: Response,
-): Promise<void> {
-  const manifestService = getManifestService(req);
-  const serviceName = parseServiceName(req.params.serviceName);
-  const toolName = parseToolName(req.params.toolName);
-  const enabled = parseEnabled(req.body);
-
-  await manifestService.setToolEnabled(serviceName, toolName, enabled);
-  res.status(200).json({ name: toolName, serviceName, enabled });
-}
-
 export async function deleteService(
   req: Request,
   res: Response,
@@ -409,6 +370,60 @@ export async function deleteService(
   }
 
   res.status(204).send();
+}
+
+export async function listServiceTools(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const manifestService = getManifestService(req);
+  const serviceName = parseServiceName(req.params.serviceName);
+  const query = parseQueryParam(req.query?.query);
+  const enabled = parseEnabledQueryParam(req.query?.enabled);
+
+  const tools = await manifestService.listTools(serviceName, query, enabled);
+  res.status(200).json({ tools });
+}
+
+export async function getServiceTool(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const manifestService = getManifestService(req);
+  const serviceName = parseServiceName(req.params.serviceName);
+  const toolName = parseToolName(req.params.toolName);
+
+  const resolved = await manifestService.getToolWithServiceInfo(
+    serviceName,
+    toolName,
+  );
+
+  const response: ToolDetails = {
+    name: resolved.tool.name,
+    description: resolved.tool.description,
+    enabled: resolved.serviceEnabled && resolved.tool.enabled,
+    inputSchema: resolved.tool.inputSchema,
+    outputSchema: resolved.tool.outputSchema,
+  };
+
+  res.status(200).json(response);
+}
+
+export async function setServiceToolEnabled(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const manifestService = getManifestService(req);
+  const serviceName = parseServiceName(req.params.serviceName);
+  const toolName = parseToolName(req.params.toolName);
+  const { enabled } = parseOrHttpError(
+    toolEnabledBodySchema,
+    req.body,
+    "Request body must be an object.",
+  );
+
+  await manifestService.setToolEnabled(serviceName, toolName, enabled);
+  res.status(200).json({ name: toolName, serviceName, enabled });
 }
 
 function parseServiceName(raw: unknown): string {

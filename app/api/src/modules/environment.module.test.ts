@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import type { ServiceManifest } from "@/models/manifest.model";
+import type { ServiceManifestDefinition } from "@/models/manifest.model";
 import {
   EnvironmentModule,
   type EnvironmentOutputPatch,
@@ -177,12 +177,21 @@ describe("EnvironmentModule", () => {
               }),
             },
             services: {
-              discover: async ({ query, limit, enabled }) => [
-                { query, limit, enabled, kind: "service" },
+              discover: async () => [
+                {
+                  name: "github",
+                  description: "GitHub service",
+                  enabled: false,
+                },
               ],
               get: async ({ serviceName }) => ({
-                serviceName,
-                kind: "service-detail",
+                name: serviceName,
+                type: "registry",
+                description: "GitHub service",
+                enabled: false,
+                configSchema: {},
+                secretsSchema: {},
+                metadata: {},
               }),
             },
           },
@@ -207,13 +216,20 @@ describe("EnvironmentModule", () => {
       expect(outputs).toContainEqual({
         key: "service",
         value: {
-          serviceName: "github",
-          kind: "service-detail",
+          name: "github",
+          type: "registry",
+          description: "GitHub service",
+          enabled: false,
+          configSchema: {},
+          secretsSchema: {},
+          metadata: {},
         },
       });
       expect(outputs).toContainEqual({
         key: "result",
-        value: [{ query: "github", limit: 1, enabled: false, kind: "service" }],
+        value: [
+          { name: "github", description: "GitHub service", enabled: false },
+        ],
       });
     });
 
@@ -481,7 +497,7 @@ describe("EnvironmentModule", () => {
 
   describe("generateServiceToolBindings()", () => {
     it("builds callable tool functions from a service manifest", async () => {
-      const manifest: ServiceManifest = {
+      const manifest: ServiceManifestDefinition = {
         name: "math",
         description: "",
         enabled: true,

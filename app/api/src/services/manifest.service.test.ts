@@ -3,7 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { db } from "@/db/client";
 import { manifests, tools } from "@/db/schema";
-import type { ManifestMetadata, ToolDefinition } from "@/models/manifest.model";
+import type {
+  ManifestMetadata,
+  ServiceToolDefinition,
+} from "@/models/manifest.model";
 import type { AdapterModule } from "@/modules/adapter.module";
 import {
   isUniqueConstraintViolation,
@@ -14,7 +17,7 @@ import { decryptSecrets, encryptSecrets } from "@/utils/secrets.util";
 describe("manifest.service unit", () => {
   it("loads tool and metadata through injected loaders", async () => {
     const metadata: ManifestMetadata = { serverUrl: "http://127.0.0.1:8787" };
-    const toolDefinition: ToolDefinition = {
+    const toolDefinition: ServiceToolDefinition = {
       name: "tool-1",
       description: "",
       enabled: true,

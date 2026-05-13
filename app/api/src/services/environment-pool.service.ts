@@ -1,7 +1,7 @@
 import { HttpError } from "@/models/error.model";
 import type {
-  ServiceManifest,
-  StagedServiceManifest,
+  ServiceManifestDefinition,
+  StagedServiceEntry,
 } from "@/models/manifest.model";
 import { EnvironmentModule } from "@/modules/environment.module";
 import type { ManifestService } from "@/services/manifest.service";
@@ -240,14 +240,14 @@ export class EnvironmentPoolService {
 }
 
 function toServiceManifestBinding(
-  manifest: StagedServiceManifest,
-): ServiceManifest {
+  manifest: StagedServiceEntry,
+): ServiceManifestDefinition {
   return {
     name: manifest.name,
     description: "",
     enabled: true,
-    configSchema: {} as ServiceManifest["configSchema"],
-    secretsSchema: {} as ServiceManifest["secretsSchema"],
+    configSchema: {} as ServiceManifestDefinition["configSchema"],
+    secretsSchema: {} as ServiceManifestDefinition["secretsSchema"],
     metadata: {},
     tools: manifest.tools.map((tool) => {
       const stagedTool = tool as {

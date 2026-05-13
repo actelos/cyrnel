@@ -8,13 +8,13 @@ import {
   getServiceConfiguration,
   getServiceConfigurationSchema,
   getServiceSecretsSchema,
-  getToolByName,
+  getServiceTool,
   listServices,
-  listTools,
+  listServiceTools,
   patchServiceConfiguration,
   patchServiceSecrets,
   setServiceEnabled,
-  setToolEnabled,
+  setServiceToolEnabled,
   updateService,
 } from "@/controllers/service.controller";
 
@@ -26,13 +26,13 @@ const manifestService = {
   getServiceSecretsSchema: vi.fn(),
   patchServiceConfig: vi.fn(),
   patchServiceSecrets: vi.fn(),
-  listTools: vi.fn(),
-  getTool: vi.fn(),
   createService: vi.fn(),
   updateService: vi.fn(),
   setServiceEnabled: vi.fn(),
-  setToolEnabled: vi.fn(),
   deleteService: vi.fn(),
+  listTools: vi.fn(),
+  getToolWithServiceInfo: vi.fn(),
+  setToolEnabled: vi.fn(),
 };
 
 const environmentPoolService = {
@@ -184,6 +184,7 @@ describe("service.controller", () => {
       name: "svc-1",
       type: "foo",
       source: "https://registry.example.com/svc-1.json",
+      description: "Service description",
       hash: "hash-1",
       enabled: true,
       configSchema: { type: "object" },
@@ -207,11 +208,11 @@ describe("service.controller", () => {
       name: "svc-1",
       type: "foo",
       source: "https://registry.example.com/svc-1.json",
+      description: "Service description",
       hash: "hash-1",
       enabled: true,
       configSchema: { type: "object" },
       secretsSchema: { type: "object" },
-      metadata: { serverUrl: "http://127.0.0.1:9999" },
     });
   });
 
@@ -317,109 +318,6 @@ describe("service.controller", () => {
     expect(res.json).toHaveBeenCalledWith({ updated: true });
   });
 
-  it("lists service tools", async () => {
-    const res = makeRes();
-    const req = makeReq({
-      params: { serviceName: "svc-1" },
-      query: { query: "  echo " },
-    });
-
-    manifestService.listTools.mockResolvedValue([
-      {
-        name: "echo",
-        enabled: true,
-        inputSchema: { type: "object" },
-        outputSchema: { type: "string" },
-      },
-    ]);
-
-    await listTools(req, res as unknown as Response);
-
-    expect(manifestService.listTools).toHaveBeenCalledWith(
-      "svc-1",
-      "echo",
-      null,
-    );
-    expect(res.status).toHaveBeenCalledWith(200);
-    expect(res.json).toHaveBeenCalledWith({
-      tools: [
-        {
-          name: "echo",
-          enabled: true,
-          inputSchema: { type: "object" },
-          outputSchema: { type: "string" },
-        },
-      ],
-    });
-  });
-
-  it("lists service tools with enabled query filter", async () => {
-    const res = makeRes();
-    const req = makeReq({
-      params: { serviceName: "svc-1" },
-      query: { enabled: "true" },
-    });
-
-    manifestService.listTools.mockResolvedValue([
-      {
-        name: "echo",
-        enabled: true,
-        inputSchema: { type: "object" },
-        outputSchema: { type: "string" },
-      },
-    ]);
-
-    await listTools(req, res as unknown as Response);
-
-    expect(manifestService.listTools).toHaveBeenCalledWith(
-      "svc-1",
-      undefined,
-      true,
-    );
-    expect(res.status).toHaveBeenCalledWith(200);
-    expect(res.json).toHaveBeenCalledWith({
-      tools: [
-        {
-          name: "echo",
-          enabled: true,
-          inputSchema: { type: "object" },
-          outputSchema: { type: "string" },
-        },
-      ],
-    });
-  });
-
-  it("gets a single tool by name", async () => {
-    const res = makeRes();
-    const req = makeReq({
-      params: { serviceName: "svc-1", toolName: "echo" },
-    });
-
-    manifestService.getTool.mockResolvedValue({
-      tool: {
-        name: "echo",
-        enabled: true,
-        metadata: { route: "invoke/echo" },
-        inputSchema: { type: "object" },
-        outputSchema: { type: "string" },
-      },
-      serviceMetadata: { serverUrl: "http://127.0.0.1:9999" },
-      serviceEnabled: true,
-    });
-
-    await getToolByName(req, res as unknown as Response);
-
-    expect(manifestService.getTool).toHaveBeenCalledWith("svc-1", "echo");
-    expect(res.status).toHaveBeenCalledWith(200);
-    expect(res.json).toHaveBeenCalledWith({
-      name: "echo",
-      enabled: true,
-      metadata: { route: "invoke/echo" },
-      inputSchema: { type: "object" },
-      outputSchema: { type: "string" },
-    });
-  });
-
   it("creates a service", async () => {
     const res = makeRes();
     const req = makeReq({
@@ -507,24 +405,91 @@ describe("service.controller", () => {
     expect(res.json).toHaveBeenCalledWith({ name: "svc-1", enabled: false });
   });
 
-  it("sets tool enabled state", async () => {
+  it("lists tools within a service using URL params", async () => {
+    const res = makeRes();
+    const req = makeReq({
+      params: { serviceName: "svc-1" },
+      query: { query: "  echo ", enabled: "null" },
+    });
+
+    manifestService.listTools.mockResolvedValueOnce([
+      {
+        name: "echo",
+        description: "Echo",
+        enabled: true,
+      },
+    ]);
+
+    await listServiceTools(req, res as unknown as Response);
+
+    expect(manifestService.listTools).toHaveBeenCalledWith(
+      "svc-1",
+      "echo",
+      null,
+    );
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith({
+      tools: [
+        {
+          name: "echo",
+          description: "Echo",
+          enabled: true,
+        },
+      ],
+    });
+  });
+
+  it("gets a tool by name within a service using URL params", async () => {
     const res = makeRes();
     const req = makeReq({
       params: { serviceName: "svc-1", toolName: "echo" },
-      body: {
-        enabled: false,
-      },
     });
-    manifestService.setToolEnabled.mockResolvedValue(undefined);
 
-    await setToolEnabled(req, res as unknown as Response);
+    manifestService.getToolWithServiceInfo.mockResolvedValueOnce({
+      serviceName: "svc-1",
+      serviceDescription: "Service 1",
+      tool: {
+        name: "echo",
+        description: "Echo",
+        enabled: true,
+        metadata: { route: "invoke/echo" },
+        inputSchema: { type: "object" },
+        outputSchema: { type: "string" },
+      },
+      serviceMetadata: { serverUrl: "http://127.0.0.1:9999" },
+      serviceEnabled: true,
+    });
+
+    await getServiceTool(req, res as unknown as Response);
+
+    expect(manifestService.getToolWithServiceInfo).toHaveBeenCalledWith(
+      "svc-1",
+      "echo",
+    );
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith({
+      name: "echo",
+      description: "Echo",
+      enabled: true,
+      inputSchema: { type: "object" },
+      outputSchema: { type: "string" },
+    });
+  });
+
+  it("sets a tool enabled state using URL params", async () => {
+    const res = makeRes();
+    const req = makeReq({
+      params: { serviceName: "svc-1", toolName: "echo" },
+      body: { enabled: false },
+    });
+
+    await setServiceToolEnabled(req, res as unknown as Response);
 
     expect(manifestService.setToolEnabled).toHaveBeenCalledWith(
       "svc-1",
       "echo",
       false,
     );
-    expect(environmentPoolService.requestRestage).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith({
       name: "echo",

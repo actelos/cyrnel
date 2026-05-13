@@ -3,7 +3,10 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { db } from "@/db/client";
 import { manifests, tools } from "@/db/schema";
-import type { ManifestMetadata, ToolDefinition } from "@/models/manifest.model";
+import type {
+  ManifestMetadata,
+  ServiceToolDefinition,
+} from "@/models/manifest.model";
 import { ManifestService } from "@/services/manifest.service";
 import { computeContentHash } from "@/utils/hash.util";
 
@@ -61,7 +64,7 @@ describe.skip("manifest.service integration", () => {
     const metadata: ManifestMetadata = {
       serverUrl: "http://127.0.0.1:8787",
     };
-    const toolDefinition: ToolDefinition = {
+    const toolDefinition: ServiceToolDefinition = {
       name: "tool-1",
       description: "",
       enabled: true,

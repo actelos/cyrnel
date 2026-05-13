@@ -681,9 +681,31 @@ export class ProcessService {
       services: {
         discover: ({ query, limit, enabled }) =>
           enabled === undefined
-            ? manifestService.discoverServices(query, limit)
-            : manifestService.discoverServices(query, limit, enabled),
-        get: ({ serviceName }) => manifestService.getService(serviceName),
+            ? manifestService.discoverServices(query, limit).then((services) =>
+                services.map((service) => ({
+                  name: service.name,
+                  description: service.description,
+                  enabled: service.enabled,
+                })),
+              )
+            : manifestService
+                .discoverServices(query, limit, enabled)
+                .then((services) =>
+                  services.map((service) => ({
+                    name: service.name,
+                    description: service.description,
+                    enabled: service.enabled,
+                  })),
+                ),
+        get: ({ serviceName }) =>
+          manifestService.getService(serviceName).then((service) => ({
+            name: service.name,
+            type: service.type,
+            description: service.description,
+            enabled: service.enabled,
+            configSchema: service.configSchema,
+            secretsSchema: service.secretsSchema,
+          })),
       },
     };
   }
