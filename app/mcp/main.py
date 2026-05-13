@@ -94,6 +94,16 @@ def _request(
             headers=_headers(),
         )
 
+    if response.status_code >= 400:
+        try:
+            error_data = response.json()
+            error_message = error_data.get("message", response.text)
+        except Exception:
+            error_message = response.text
+        raise RuntimeError(
+            f"API request failed: {method} {path} -> {response.status_code}: {error_message}"
+        )
+
     if expected_status is not None and response.status_code != expected_status:
         raise RuntimeError(
             f"API request failed: {method} {path} -> {response.status_code}: {response.text}"
@@ -592,7 +602,7 @@ def discover_services(
     _add_optional(payload, "query", query)
     _add_optional(payload, "limit", limit)
     _add_bool_param(payload, "enabled", enabled)
-    return _request("POST", "/services/discover", json=payload)
+    return _request("POST", "/discover/services", json=payload)
 
 
 @mcp.tool(
@@ -1061,7 +1071,7 @@ def discover_tools(
     _add_optional(payload, "query", query)
     _add_optional(payload, "limit", limit)
     _add_bool_param(payload, "enabled", enabled)
-    return _request("POST", "/tools/discover", json=payload)
+    return _request("POST", "/discover/tools", json=payload)
 
 
 @mcp.tool(
