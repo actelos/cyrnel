@@ -1081,20 +1081,19 @@ def get_tool(
     tool_name: Annotated[
         str,
         Field(
-            description='Tool name identifier (may be ambiguous across services). Example: "listIssues".',
+            description='Tool name identifier (within the service). Example: "listIssues".',
             min_length=1,
         ),
     ],
     service_name: Annotated[
-        str | None,
+        str,
         Field(
             description=(
-                'Optional service identifier to disambiguate tool name. Example: "github". '
-                "If omitted and the tool name is ambiguous, the API may return an error."
+                'Service identifier to disambiguate tool name. Example: "github".'
             ),
             min_length=1,
         ),
-    ] = None,
+    ],
 ) -> ToolDetails:
     """Fetch a tool definition by name (and optional service), returning schemas and enabled status.
 
@@ -1118,9 +1117,8 @@ def get_tool(
         get_tool(\"listIssues\", service_name=\"github\")
         → {"name":"listIssues","description":"...","enabled":true,"inputSchema":{...},"outputSchema":{...}}
     """
-    payload: Dict[str, Any] = {"toolName": tool_name}
-    _add_optional(payload, "serviceName", service_name)
-    return _request("POST", f"/tools/{tool_name}", json=payload)
+    payload: Dict[str, Any] = {"toolName": tool_name, "serviceName": service_name}
+    return _request("GET", f"/services/{service_name}/tools/{tool_name}", json=payload)
 
 
 @mcp.tool(annotations={"idempotentHint": True, "openWorldHint": True})
@@ -1169,8 +1167,8 @@ def set_tool_enabled(
     """
     return _request(
         "POST",
-        f"/tools/{tool_name}/enabled",
-        json={"serviceName": service_name, "enabled": enabled},
+        f"/services/{service_name}/tools/{tool_name}/enabled",
+        json={"enabled": enabled},
     )
 
 
