@@ -25,7 +25,7 @@ Relying on context as the primary mechanism for action introduces several system
 
 These are not mere implementation bugs; they are the natural consequences of using a probabilistic reasoning system for execution.
 
-## The MCI Re framing
+## The MCI Reframing
 
 The Model Control Interface (MCI) takes a different position:
 
@@ -41,8 +41,8 @@ By separating reasoning from execution, MCI enables capabilities that are diffic
 - **Long-Running Workflows:** Supports asynchronous tasks without bloating the model's context.
 - **Action Chaining:** Complex tasks are expressed as full programs rather than a series of fragmented, serialized requests.
 - **Persistent State:** State is managed explicitly outside the model, ensuring continuity.
-- **Passive Context:** Event-driven hooks allow the system to respond to changes without constant polling.
-- **Deep Observability:** Structured logging and interceptors allow for total visibility into every action.
+- **Passive Context:** Event-driven integrations allow the system to respond to changes without constant polling.
+- **Deep Observability:** Structured logging and interception controls allow visibility into every action.
 - **Fine Grained Security and Permissions:** Each and every action done by the model can be observed, approved or disapproved, redirected, etc. across every client over MCI.
 
 These properties make MCI the superior choice for robotics, infrastructure automation, security monitoring, and multi-agent collaboration.
@@ -79,17 +79,17 @@ From the user’s perspective, it feels like asking about work and getting work-
 
     ### MCI Approach
 
-    MCP simple ingests a definition file for the specification and uses a compliant server module to register the service without having a server for each end service.
+    MCI ingests a definition file and uses a compliant adapter module to register the service without requiring a dedicated server for each end service.
   </Accordion>
 
   <Accordion title="Deterministic Security and Permission Boundaries">
     ### Problem in MCP
 
-    MCP exposes capabilities to models via context. Once a tool is described, invocation authority is implicitly granted. There is no first-class notion of permission scopes, least-privilege execution, or enforced separation between intent and capability rather its relies on the host to build a hardened permissions system which varied for every host and is often not the case.
+    MCP exposes capabilities to models via context. Once a tool is described, invocation authority is implicitly granted. There is no first-class notion of permission scopes, least-privilege execution, or enforced separation between intent and capability. It relies on each host to build its own hardened permission system.
 
     ### MCI Approach
 
-    MCI externalizes authority. Actions execute inside a sandbox governed by explicit, deterministic permission rules. Requests made by the model are then inspected by interceptors which check permissions, sources and dictates that happens to the request in transit. The model can request actions, but cannot exceed what the sandbox, interceptors, and server modules permit.
+    MCI externalizes authority. Actions execute inside a sandbox governed by explicit, deterministic permission rules. Requests can be inspected in transit to enforce policy. The model can request actions, but cannot exceed what the sandbox and server modules permit.
   </Accordion>
 
   <Accordion title="Elimination of Context-Based Capability Discovery">
@@ -101,7 +101,7 @@ From the user’s perspective, it feels like asking about work and getting work-
 
     ### MCI Approach
 
-    Capabilities are resolved at startup and compiled into generated, read-only libraries inside the sandbox. The model does not need to remember what exists; it imports what is available and if it doesnt know what to import, it queries them.
+    Capabilities are resolved at startup and compiled into generated, read-only libraries inside the sandbox. The model does not need to remember what exists. It imports what is available and can query capability discovery when needed.
   </Accordion>
 
   <Accordion title=" Token Efficiency and Cost Predictability">
@@ -141,17 +141,17 @@ From the user’s perspective, it feels like asking about work and getting work-
 
     ### MCI Approach
 
-    Actions execute asynchronously in the sandbox. Results and logs stream back while other tasks continue.
+    Clients can start executions without blocking their request flow. Results and logs can be retrieved as execution progresses or after completion.
   </Accordion>
 
-  <Accordion title="Passive Context via Hooks">
+  <Accordion title="Passive Context">
     ### Problem in MCP
 
     All context must be pulled by the model. External events cannot push information proactively.
 
     ### MCI Approach
 
-    Hooks allow external systems to inject context reactively: webhooks, sensors, alerts, and scheduled events.
+    Event sources can inject context reactively, such as callbacks, sensors, alerts, and scheduled events.
   </Accordion>
 
   <Accordion title="Observability and Interception">
@@ -161,7 +161,7 @@ From the user’s perspective, it feels like asking about work and getting work-
 
     ### MCI Approach
 
-    Interceptors act as middleware for every action. Observability is structural.
+    Action interception and observability are built into the execution flow.
   </Accordion>
 </AccordionGroup>
 

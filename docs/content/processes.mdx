@@ -1,0 +1,111 @@
+---
+title: "Processes"
+description: "Creating and managing processes"
+---
+
+A process is a stateful execution unit in MCI. When a client submits code, MCI creates a process with a unique process ID (PID). Process execution does not block the client request unless blocking is explicitly requested.
+
+## Process Model
+
+Each process contains:
+
+- `pid`: unique process identifier
+- `ref`: optional reference label
+- `state`: lifecycle phase
+- `status`: execution outcome
+
+### Process States
+
+- `idle`: not executing
+- `queued`: waiting for execution
+- `running`: currently executing
+- `terminating`: shutting down after a kill signal
+
+### Process Status Values
+
+- `null`: no outcome yet
+- `success`: execution completed successfully
+- `failed`: execution ended with an error
+- `timeout`: execution exceeded timeout limit
+- `canceled`: execution was canceled by a kill signal
+
+## Create a Process
+
+Endpoint: `POST /processes`
+
+Request body:
+
+```json
+{
+	"code": "string",
+	"ref": "optional string",
+	"timeout": 30000,
+	"block": false
+}
+```
+
+Rules:
+
+- `code` is required
+- `ref` is optional and trimmed
+- `timeout` must be a positive integer or `null`
+- `block` is optional and controls whether the request waits for completion
+
+Response when non-blocking:
+
+```json
+{ "pid": 42 }
+```
+
+## Blocking and Non-Blocking Behavior
+
+- Non-blocking: create returns immediately with `pid`; client polls for result later.
+- Blocking (`block: true`): create waits until process returns to `idle` and then returns final process state.
+
+This is the asynchronous behavior of MCI at the client level. The client can continue other work while processes run.
+
+## Timeout Behavior
+
+- Default timeout is 30000 ms if not provided.
+- `timeout: null` disables timeout.
+- If execution exceeds timeout, process status becomes `timeout`.
+
+## Process Signals
+
+### Run signal
+
+Endpoint: `POST /processes/:pid/signals/run`
+
+Optional body:
+
+```json
+{ "force": true, "block": false }
+```
+
+- Process must be `idle` before run signal.
+- If process has existing outputs, `force: true` is required to overwrite.
+- `block: true` waits until process returns to `idle`.
+
+### Kill signal
+
+Endpoint: `POST /processes/:pid/signals/kill`
+
+- If process is `queued`, it becomes `idle` with status `canceled`.
+- If process is `running`, it moves to `terminating`, then to `idle` with status `canceled`.
+
+## Retrieve Process Data
+
+- `GET /processes` list processes with optional filters: `state`, `status`, `ref`
+- `GET /processes/:pid` get process metadata
+- `GET /processes/:pid/code` get submitted code
+- `GET /processes/:pid/output` get structured output (only when `state = idle`)
+- `GET /processes/:pid/stdout` get stdout (only when `state = idle`)
+- `GET /processes/:pid/stderr` get stderr (only when `state = idle`)
+
+## Minimal Flow Example
+
+1. `POST /processes` with code
+2. Receive `{ "pid": ... }`
+3. Poll `GET /processes/:pid` until `state` is `idle`
+4. Fetch `GET /processes/:pid/output`, `stdout`, or `stderr`
+

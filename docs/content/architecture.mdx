@@ -1,0 +1,120 @@
+---
+title: "How Does MCI Work?"
+description: "A high-level description of the inner workings of MCI"
+sidebarTitle: "Architecture Overview"
+---
+
+This document provides a comprehensive overview of the **Model Control Interface (MCI)**, covering its operational scope, core concepts, and structural design.
+
+## System Architecture
+
+MCI utilizes a centralized **Client-Proxy-Server** model. By acting as a unified gateway, it eliminates the need for AI applications to manage multiple complex integrations.
+
+```mermaid
+graph LR
+    subgraph Clients [AI Applications]
+        C1[Mobile App]
+        C2[Desktop/CLI]
+        C3[Web/Serverless]
+    end
+
+    MCI[MCI Server Instance]
+
+    subgraph End_Servers [Service Layer]
+        Sentry[Sentry]
+        DB[Databases]
+        Editor[Code Editors]
+        REST[REST APIs]
+        CLI[CLI Commands]
+    end
+
+    C1 --- MCI
+    C2 --- MCI
+    C3 --- MCI
+
+    MCI --- Sentry
+    MCI --- DB
+    MCI --- Editor
+    MCI --- REST
+    MCI --- CLI
+```
+
+## Core Components
+
+### The Client (AI Application)
+
+Clients are the consumers of the architecture. An MCI client can be any interface, ranging from mobile apps to serverless functions, capable of receiving model output and executing HTTP requests.
+
+### The Server (The Proxy)
+
+The MCI Server is the central intelligence of the system. It acts as a proxy, managing authentication, request transformation, and communication between the client and the external environment.
+
+### The Services (The Providers)
+
+These are the functional targets that perform specific tasks or store data.
+
+- **REST Servers:** Traditional web services.
+- **Database Engines:** Direct data persistence layers.
+- **Execution Environments:** CLI tools, code editors, or message consumers.
+
+## Runtime Building Blocks
+
+MCI coordinates two module types:
+
+1. **Environment Modules:** Isolated runtimes where process code executes.
+2. **Adapter Modules:** Protocol bridge modules that connect MCI to end services.
+
+For module types, pooling, hydration, and lifecycle, see [Modules](/modules).
+
+For process creation, lifecycle, timeout behavior, blocking and non-blocking execution, and retrieval endpoints, see [Processes](/processes).
+
+## Asynchronous Client Interaction
+
+From the client perspective, process execution is asynchronous. Clients can create processes and continue without blocking, then retrieve state and outputs later by process ID.
+
+## Sequence Diagram
+
+```mermaid
+sequenceDiagram
+    autonumber
+
+    participant Client
+
+    box MCI Runtime
+        participant Manager as MCI Manager
+        participant EnvPool as Environment Pool
+        participant AdapterPool as Adapter Pool
+        participant Env as Environment
+        participant Adapter
+    end
+
+    participant Service as End Service
+
+    Note over Manager,AdapterPool: System Initialization
+    Manager->>EnvPool: Initialize Pool
+    Manager->>AdapterPool: Initialize Pool
+    Manager->>Env: Hydrate with Service Definitions
+    Env-->>EnvPool: Ready
+    Manager->>Adapter: Hydrate with Configurations
+    Adapter-->>AdapterPool: Ready
+
+    Note over Client,Service: Process Execution
+    Client->>Manager: Create Process (Code)
+    Manager-->>Client: Process ID
+    Manager->>EnvPool: Allocate Environment
+    EnvPool-->>Manager: Environment Available
+    Manager->>Env: Execute Code
+    Env->>Manager: invoke(serviceName, toolName, parameters)
+    Manager->>AdapterPool: Allocate Adapter
+    AdapterPool-->>Manager: Adapter Available
+    Manager->>Adapter: Forward Request
+    Adapter->>Service: Call Service
+    Service-->>Adapter: Response
+    Adapter-->>Manager: Response
+    Manager-->>Env: Result
+    Env-->>Manager: Execution Complete
+    Manager->>EnvPool: Release Environment
+    EnvPool-->>Manager: Ready for Reuse
+    Client->>Manager: Get Process Result
+    Manager-->>Client: Result
+```

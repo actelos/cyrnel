@@ -1,0 +1,63 @@
+---
+title: "Modules"
+---
+
+MCI uses modules to execute code and communicate with end services.
+
+## Module Types
+
+MCI coordinates two module types:
+
+1. **Environment modules**
+	- Execute process code in an isolated runtime.
+	- Expose generated bindings for available services and tools.
+	- Stream stdout, stderr, and structured output updates.
+
+2. **Adapter modules**
+	- Receive invocation requests from environments.
+	- Translate those requests to target protocols and service contracts.
+	- Return normalized results back to the environment.
+
+Adapter modules are what make MCI protocol-agnostic at the end-service level. MCI itself exposes an HTTP REST API, while adapters can connect to end services over different protocols and standards.
+
+## Pooling
+
+Modules are managed by pools to avoid repeated cold starts and reduce execution overhead.
+
+- Environment pool: allocates and releases staged environment modules.
+- Adapter pool: allocates and releases adapter modules with current service configuration and secrets.
+
+At runtime, modules are leased to executions and released back to their pool after use.
+
+## Hydration
+
+Hydration loads runtime data into modules so they can execute correctly.
+
+### Environment hydration
+
+- Loads staged service and tool definitions.
+- Generates service/tool bindings that process code can call.
+
+### Adapter hydration
+
+- Loads service configuration snapshots.
+- Loads service secret snapshots.
+- Applies updated configuration and secrets during restage.
+
+## Module Lifecycle
+
+1. **Instantiate** module
+2. **Hydrate** module with current definitions and runtime data
+3. **Stage** module in pool as ready
+4. **Allocate** module for execution
+5. **Release** module back to pool
+6. **Recycle/Retire** module when unhealthy or outdated
+
+## Failure Handling
+
+If a module execution fails, times out, or health checks fail, the module is recycled or retired and replaced by a newly staged module.
+
+## Related Pages
+
+- [Architecture](/architecture)
+- [Processes](/processes)

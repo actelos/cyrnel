@@ -20,25 +20,25 @@
               {
                 "group": "Overview",
                 "pages": [
-                  "mci/docs/introduction",
-                  "mci/docs/faq",
-                  "mci/docs/comparison"
+                  "content/introduction",
+                  "content/faq",
+                  "content/comparison"
                 ]
               },
               {
                 "group": "About MCI",
                 "pages": [
-                  "mci/docs/architecture",
-                  "mci/docs/transport"
+                  "content/architecture",
+                  "content/transport"
                 ]
               },
               {
                 "group": "Core Concepts",
                 "pages": [
-                  "mci/docs/concepts-processes",
-                  "mci/docs/concepts-services",
-                  "mci/docs/concepts-tools",
-                  "mci/docs/concepts-modules"
+                  "content/processes",
+                  "content/services",
+                  "content/tools",
+                  "content/modules"
                 ]
               }
             ]

@@ -10,18 +10,17 @@ description: "Frequent questions about MCI"
     - **Efficiency:** MCI is built on researched and proven concepts, our methodology assures effective token usage, cutting down costs, preventing context bloat and making interactions faster.
       - [MCP code execution](https://www.anthropic.com/engineering/code-execution-with-mcp)
       - [MCP tool search](https://platform.claude.com/docs/en/agents-and-tools/tool-use/tool-search-tool)
-    - **Agnosticism:** MCI is an open-source, **protocol-agnostic** system. It does not only work over a specific standard but allows the model to make requests to servers and services over any protocol with any standard from anywhere.
-    - **Availability:** Since MCI is a system of software with platform agnosticism. It is guaranteed to work with any platform being serverless, IoT or on clusters.
-    - **Observability:** With MCI interceptors, users and administrators are assured built in extensive tool call observability.
-    - **Security and Permissions:** Again with MCI interceptors, users can add permissions modules that provide system wide granular tool call security.
-    - **Better Developer Experience:** In order to make an existing service usable on MCI you don't need to write any code. **All** you need to do is write a specification file like `OpenAPI` among other definitions.
+    - **Agnosticism:** MCI is protocol-agnostic at the end-service layer. MCI exposes an HTTP REST API, while adapter modules connect to end services over their native protocols and standards.
+    - **Availability:** MCI is infrastructure-agnostic and can run in serverless, IoT, or clustered environments.
+    - **Observability:** MCI provides built-in tool call observability for users and administrators.
+    - **Security and Permissions:** MCI supports granular tool call security and permission controls.
+    - **Better Developer Experience:** To make an existing service usable on MCI, you do not need to write new server code. You can provide a definition such as `OpenAPI` and register it through adapter modules.
   </Accordion>
   
   <Accordion title="What makes MCI more secure and observable?">
-    MCI utilizes **interceptor modules** that function like middleware. These
-    modules can inspect every dispatch made by the code to block, redirect, or
-    log actions. For example, a Permissions Interceptor can cross-reference an
-    action against a security policy before execution.
+    MCI provides an interception layer for tool calls. Requests can be inspected
+    to block, redirect, or log actions before execution. This supports policy
+    enforcement and audit workflows.
   </Accordion>
 
   <Accordion title="What does the “code” look like?">
@@ -35,7 +34,7 @@ description: "Frequent questions about MCI"
   </Accordion>
 
   <Accordion title="Does this mean I cant use MCP?">
-    MCI being agnostic means you can use it along side existing MCP servers without any overhead. However, nothing prevents you from skipping the MCP server middleman and plugging directly to endpoints.
+    No. You can use MCI alongside existing MCP servers. You can also connect MCI directly to endpoints when an MCP middle layer is not needed.
   </Accordion>
 
   <Accordion title="Why not just extend MCP to do this?">

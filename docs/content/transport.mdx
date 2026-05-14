@@ -1,0 +1,14 @@
+---
+title: "Transport"
+description: "The data transport layers within MCI"
+---
+
+## External Transport
+
+The MCI server exposes an HTTP REST API for client interactions. Clients create processes, send process signals, and retrieve outputs through REST endpoints.
+
+MCI is protocol-agnostic at the end-service layer. Adapter modules handle communication to target services over their native protocols.
+
+## Internal Transport
+
+Internal runtime data flow such as tool invocations, module hydration, and invoke responses is handled through process messaging between runtime components.

@@ -8,8 +8,6 @@ sidebarTitle: "What is MCI?"
 
 MCI is an interface that lets users plug in any service over any protocol with any standard and have models use it efficiently at low cost.
 
-Rather than a USB-C for AI applications, think of MCI as a modular docking station. Instead of expecting all devices to use USB-C ports, we have one powerful docking station that can connect to any port and communicate with any service. If your port isn't on the existing docking station, just make an extension for it.
-
 <Warning>
   **MCI is not MCP**
 
@@ -27,16 +25,16 @@ MCI, on the other hand, is neither a standard nor a new protocol... It's softwar
 Beyond core principles, MCI has many advantages and differences. A few of them are as follows:
 
 - **Code Execution Model:** Instead of writing tool calls, with MCI models write code to perform actions, cutting down tokens and allowing models to perform very long, complex tasks.
-- **Asynchronous Execution**: Process executions and all manner of tool calls done with MCI allow the model to perform tasks asynchronously and poll results when they are needed, instead of all tool calls blocking the model.
+- **Asynchronous Execution**: MCI lets clients start process execution without blocking client requests. Clients can retrieve process results when needed.
 - **First-class Observability and Interception:** Every tool call done over MCI can be observed and intercepted for logging, permission management and security audits.
-- **Progressive Composition Without Context Saturation** MCI is progressive and allows infinite services to be wired to a single model without the model facing throttling or rapid, unexpected behaviors due to context overload.
+- **Progressive Composition Without Context Saturation:** MCI allows many services to be wired to a single model without context overload.
 
 ## What does MCI enable
 
 - MCI can be used in robotics to have a robot run an asynchronous background action to walk to an object while the model observes its environment.
 - In security, MCI can power an AI-enabled CCTV camera to scan specific points over time while the AI analyzes each frame of footage.
 - MCI can query multiple data sources and databases simultaneously, selecting specific fields and filtering them with expressions to create a pool of results for the model to analyze.
-- MCI enables multiple AIs to collaborate in a single codebase, each assigned tickets and tasks to complete. They receive GitHub hook notifications when others push changes, allowing them to handle merge conflicts when pushing to the same repository.
+- MCI enables multiple AIs to collaborate in a single codebase, each assigned tickets and tasks to complete. They can receive repository event notifications when others push changes, allowing them to handle merge conflicts when pushing to the same repository.
 - MCI can control your everyday devices and services like music, streaming, finances, education, and time management.
 
 ## The Vision & Philosophy
