@@ -1,4 +1,81 @@
 ---
 title: "Services"
+description: "Service manifests, tools, configuration, and secrets"
 ---
 
+This page documents how MCI models services, how manifests and tools are stored and used, and how configuration and secrets flow through the system.
+
+## What is a Service
+
+A service is a named, discoverable integration that exposes one or more tools. Each service has a manifest describing its metadata, tools, configuration schema, and secrets schema. Services are registered with MCI and staged for use by environment modules.
+
+## Service Manifest
+
+A service manifest describes the service and its available tools. The manifest structure used by the runtime is defined in `app/api/src/models/manifest.model.ts` and validated by `AdapterModule.parseServiceManifest`.
+
+Typical manifest fields include:
+
+- `name`: service name
+- `description`: human-friendly description
+- `enabled`: whether the service is active
+- `configSchema`: JSON Schema that defines valid configuration for this service
+- `secretsSchema`: JSON Schema that defines required secret structure
+- `metadata`: arbitrary metadata consumed by adapters (e.g., adapter URL)
+- `tools`: an array of tool definitions (`name`, `description`, `inputSchema`, `outputSchema`, `metadata`, `enabled`)
+
+The adapter is responsible for parsing a service definition (for example an `OpenAPI`-derived manifest) and returning a validated `ServiceManifestDefinition` to the system.
+
+## Tools
+
+Tools are the callable operations provided by a service. Each tool has:
+
+- `name`: the tool identifier
+- `description`: what the tool does
+- `inputSchema`: JSON Schema for expected parameters
+- `outputSchema`: JSON Schema for returned value
+- `metadata`: adapter-level data such as route names or request kinds
+
+Tools are stored in the database and are discoverable via the manifest service APIs (`discoverTools`, `listTools`, `getTool`).
+
+## Configuration and Secrets
+
+Service configuration and secrets are stored separately:
+
+- Configurations follow the `configSchema` declared in the manifest. Stored configuration values are validated and defaults are applied when loading the adapter snapshot.
+- Secrets are stored encrypted in the database. The system decrypts secrets when hydrating adapter snapshots. The `AdapterPoolService` calls `decryptSecrets` when building snapshots.
+
+Adapter pool staging loads a snapshot of configurations and secrets and applies them to the adapter instance using `AdapterModule.setServiceConfigs` and `AdapterModule.setServiceSecrets`.
+
+## Hydration and Staging
+
+Hydration is the process of loading manifest, configuration, and secrets into runtime modules.
+
+- The `ManifestService` composes staged manifests for all services and the `EnvironmentPoolService` uses `getAllStagedServiceManifests` to build environment bindings.
+- When manifests or configurations change, the system requests a restage: pools mark `pendingRestage` and will stage a fresh module when current leases allow.
+
+## How Services are Used at Execution Time
+
+- Environment modules expose generated bindings for each service/tool so process code can call `tools.discover`, `tools.get`, or `tools.invoke` directly.
+- When an environment invokes a tool, the environment uses the manifest-driven binding to call the MCI manager, which allocates an adapter and forwards the invocation to `AdapterModule.invoke`.
+- `AdapterModule.invoke` resolves adapter URLs and route names from tool and service metadata, sets request headers with configuration and secrets snapshots, and issues the remote request.
+
+## Generation of Manifests from Adapter Definitions
+
+Adapters can register services by parsing a given definition content (for example an OpenAPI document) via `AdapterModule.register`. The `ManifestService` uses this to validate and persist the canonical manifest for a service. When a new manifest is published, tooling updates the database and triggers staging/hydration.
+
+## Administrative Actions
+
+- Install a service: `POST /services/install` with `type` and `source` (source URL or definition reference).
+- Update service configuration: `PATCH /services/:serviceName/configuration`
+- Update service secrets: `PATCH /services/:serviceName/secrets`
+- Enable/disable services or individual tools via dedicated endpoints.
+
+## Discovery
+
+The runtime exposes discovery endpoints for service and tool lookup. These are implemented by the `ManifestService` and surfaced through `discover` controllers.
+
+## Notes and Best Practices
+
+- Use manifests to declare input/output schemas and metadata for reliable adapter invocation.
+- Keep secrets minimal and scope them per-service.
+- When updating manifests, expect a restage to occur; pools attempt to minimize disruption by retiring modules only after leases expire.

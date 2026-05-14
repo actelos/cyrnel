@@ -5,6 +5,8 @@ description: "Creating and managing processes"
 
 A process is a stateful execution unit in MCI. When a client submits code, MCI creates a process with a unique process ID (PID). Process execution does not block the client request unless blocking is explicitly requested.
 
+See [Architecture](/architecture) for how processes fit into the overall system: environments execute code, adapters perform service invocations, and pools manage module lifecycle.
+
 ## Process Model
 
 Each process contains:
@@ -62,13 +64,15 @@ Response when non-blocking:
 - Non-blocking: create returns immediately with `pid`; client polls for result later.
 - Blocking (`block: true`): create waits until process returns to `idle` and then returns final process state.
 
-This is the asynchronous behavior of MCI at the client level. The client can continue other work while processes run.
+Client-facing asynchronous behavior means the client request can return immediately while execution proceeds separately. Implementation note: the current `ProcessService` implementation schedules processes in a FIFO queue and executes them one at a time (single active execution). Clients may submit many processes concurrently, but they will be queued and executed serially by the server.
 
 ## Timeout Behavior
 
 - Default timeout is 30000 ms if not provided.
 - `timeout: null` disables timeout.
 - If execution exceeds timeout, process status becomes `timeout`.
+
+Implementation note: the default timeout used by the runtime is 30_000ms unless overridden per-process or by server configuration.
 
 ## Process Signals
 
@@ -108,4 +112,3 @@ Endpoint: `POST /processes/:pid/signals/kill`
 2. Receive `{ "pid": ... }`
 3. Poll `GET /processes/:pid` until `state` is `idle`
 4. Fetch `GET /processes/:pid/output`, `stdout`, or `stderr`
-
