@@ -1,0 +1,116 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Actelos",
+  "colors": {
+    "primary": "#a995c9",
+    "light": "#8a79ab",
+    "dark": "#a995c9"
+  },
+  "favicon": "/favicon.svg",
+  "navigation": {
+    "anchors": [
+      {
+        "anchor": "Documentation",
+        "icon": "book-open",
+        "tabs": [
+          {
+            "tab": "Documentation",
+            "groups": [
+              {
+                "group": "Overview",
+                "pages": [
+                  "mci/docs/introduction",
+                  "mci/docs/faq",
+                  "mci/docs/comparison"
+                ]
+              },
+              {
+                "group": "About MCI",
+                "pages": [
+                  "mci/docs/architecture",
+                  "mci/docs/transport"
+                ]
+              },
+              {
+                "group": "Core Concepts",
+                "pages": [
+                  "mci/docs/concepts-processes",
+                  "mci/docs/concepts-services",
+                  "mci/docs/concepts-tools",
+                  "mci/docs/concepts-modules"
+                ]
+              }
+            ]
+          },
+          {
+            "tab": "API Reference",
+            "openapi": "https://modelcontrolinterface.mintlify.app/openapi.json"
+          }
+        ]
+      },
+      {
+        "anchor": "Blog",
+        "icon": "newspaper",
+        "href": "https://actelos.github.io/blog/"
+      }
+    ]
+  },
+  "logo": {
+    "light": "/logo/light.svg",
+    "dark": "/logo/dark.svg",
+    "href": "/"
+  },
+  "navbar": {
+    "links": []
+  },
+  "contextual": {
+    "options": [
+      "copy",
+      "view",
+      "chatgpt",
+      "claude",
+      "perplexity",
+      "mcp",
+      "cursor",
+      "vscode"
+    ]
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/modelcontrolinterface"
+    }
+  },
+  "description": "Actelos is an open AI lab focusing of giving models efficient and reliable agency.",
+  "seo": {
+    "indexing": "all"
+  },
+  "metadata": {
+    "timestamp": true
+  },
+  "interaction": {
+    "drilldown": true
+  },
+  "api": {
+    "playground": {
+      "display": "interactive"
+    }
+  },
+  "background": {
+    "decoration": "grid",
+    "color": {
+      "light": "#f8f7fa",
+      "dark": "#1a1823"
+    }
+  },
+  "appearance": {
+    "default": "system"
+  },
+  "styling": {
+    "latex": true,
+    "eyebrows": "breadcrumbs"
+  },
+  "icons": {
+    "library": "lucide"
+  }
+}

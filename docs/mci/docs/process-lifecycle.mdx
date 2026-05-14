@@ -1,0 +1,47 @@
+---
+title: "Life Cycle"
+description: "How processes move from the client to the server and back"
+---
+
+When an AI client sends code to be executed to the MCI server instance, MCI
+initializes a **process**. A process in MCI is a stateful, controllable
+execution unit.
+
+## 1. Initialization
+
+A process is created by sending a `POST` request to `/processes` with code,
+environment configuration, and execution options.
+Upon creation, the server validates and optionally lints the process. If
+successful, the server assigns a unique Process ID (PID). The process begins
+execution unless otherwise specified.
+
+## 2. Scheduling
+
+If execution is triggered (either at creation or via the `startup` signal), the
+MCI server instance looks to see if the process is dependent on any other
+processes and resolves them accordingly, if so, the process enters the queued
+state until all it's dependents are executed.
+
+## 3. Execution
+
+After resources are free to use and all dependents are executed, the process
+enters a `running` state. During this, the process runs within it's declared
+environment and constraints, logs (stdout, stderr, timestamps) are captured
+and structured output may be produced.
+
+It is important to note however that, during this, the proccess can not be
+modified but control signals like `kill`, `restart` and `instantiate` can be
+sent.
+
+## 4. Completion
+
+Execution ends when the process transitions to the `complete` state. Completion
+represents the end of runtime activity. It does not imply success. Each
+completed process has an `exit_state`:
+
+- `success` - Execution completed without error.
+- `failed` - Execution ended due to error.
+- `terminated` - Execution was externally stopped (e.g., via kill).
+
+The status reflects lifecycle phase, while `exit_state` reflects outcome of the
+process.

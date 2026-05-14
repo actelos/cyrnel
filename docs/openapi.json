@@ -1,0 +1,757 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "MCI (Model Code Interface)",
+    "version": "0.1.0",
+    "description": "MCI (Model Control Interface) is an open-source ecosystem of software that enables fast, reliable, secure, and efficient integration between LLM applications and external services."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:7687",
+      "description": "Local MCI server"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Processes",
+      "description": "Create, inspect, and control execution processes."
+    }
+  ],
+  "paths": {
+    "/processes": {
+      "get": {
+        "operationId": "listProcesses",
+        "summary": "List processes",
+        "description": "Returns a list of all processes.",
+        "tags": ["Processes"],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/stateFilter"
+          },
+          {
+            "$ref": "#/components/parameters/statusFilter"
+          },
+          {
+            "$ref": "#/components/parameters/refFilter"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of processes (may be empty).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProcessList"
+                },
+                "examples": {
+                  "unfiltered": {
+                    "summary": "All processes",
+                    "value": {
+                      "processes": [
+                        {
+                          "pid": 1,
+                          "state": "idle",
+                          "status": "success"
+                        },
+                        {
+                          "pid": 2,
+                          "state": "running",
+                          "status": null
+                        },
+                        {
+                          "pid": 3,
+                          "state": "queued",
+                          "status": null
+                        }
+                      ]
+                    }
+                  },
+                  "filteredByState": {
+                    "summary": "Filter by state=idle",
+                    "value": {
+                      "processes": [
+                        {
+                          "pid": 1,
+                          "state": "idle",
+                          "status": "success"
+                        },
+                        {
+                          "pid": 4,
+                          "state": "idle",
+                          "status": "canceled"
+                        }
+                      ]
+                    }
+                  },
+                  "filteredByBoth": {
+                    "summary": "Filter by state=idle&status=failed",
+                    "value": {
+                      "processes": [
+                        {
+                          "pid": 5,
+                          "state": "idle",
+                          "status": "failed"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A query parameter value is not a valid enum member.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "invalidState": {
+                    "summary": "Invalid state value",
+                    "value": {
+                      "error": "Invalid value for 'state': must be one of queued, running, idle."
+                    }
+                  },
+                  "invalidStatus": {
+                    "summary": "Invalid status value",
+                    "value": {
+                      "error": "Invalid value for 'status': must be one of success, failed, canceled, null."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createProcess",
+        "summary": "Submit code for execution",
+        "description": "Creates a new process and queues it for execution.",
+        "tags": ["Processes"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateProcessRequest"
+              },
+              "examples": {
+                "fetchUser": {
+                  "summary": "Fetch a user from an external API",
+                  "value": {
+                    "code": "const res = await fetch(\"https://api.example.com/users/1\");\noutput(res.json());\n"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Process created and queued.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProcessCreatedResponse"
+                },
+                "examples": {
+                  "created": {
+                    "summary": "Newly created process",
+                    "value": {
+                      "pid": 1
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        }
+      }
+    },
+    "/processes/{pid}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/pid"
+        }
+      ],
+      "get": {
+        "operationId": "getProcess",
+        "summary": "Get process state and status",
+        "description": "Returns the current state and status of a process.",
+        "tags": ["Processes"],
+        "responses": {
+          "200": {
+            "description": "Process found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Process"
+                },
+                "examples": {
+                  "queued": {
+                    "summary": "Waiting for sandbox",
+                    "value": {
+                      "pid": 1,
+                      "state": "queued",
+                      "status": null
+                    }
+                  },
+                  "running": {
+                    "summary": "Actively executing",
+                    "value": {
+                      "pid": 1,
+                      "state": "running",
+                      "status": null
+                    }
+                  },
+                  "success": {
+                    "summary": "Completed successfully",
+                    "value": {
+                      "pid": 1,
+                      "state": "idle",
+                      "status": "success"
+                    }
+                  },
+                  "failed": {
+                    "summary": "Completed with an error",
+                    "value": {
+                      "pid": 1,
+                      "state": "idle",
+                      "status": "failed"
+                    }
+                  },
+                  "canceled": {
+                    "summary": "Terminated via kill signal",
+                    "value": {
+                      "pid": 1,
+                      "state": "idle",
+                      "status": "canceled"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteProcess",
+        "summary": "Delete a process",
+        "description": "Removes a process from the store and frees any associated resources.",
+        "tags": ["Processes"],
+        "responses": {
+          "204": {
+            "description": "Process successfully deleted."
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "Process is not idle and cannot be deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "notIdle": {
+                    "summary": "Process must be idle",
+                    "value": {
+                      "error": "Process must be idle before it can be deleted."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/processes/{pid}/output": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/pid"
+        }
+      ],
+      "get": {
+        "operationId": "getProcessOutput",
+        "summary": "Get structured output",
+        "description": "Returns putput explicitly set by the intent code.",
+        "tags": ["Processes"],
+        "responses": {
+          "200": {
+            "description": "Output retrieved.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProcessOutput"
+                },
+                "examples": {
+                  "objectOutput": {
+                    "summary": "Output is a JSON object",
+                    "value": {
+                      "output": {
+                        "id": 1,
+                        "name": "Alice",
+                        "email": "alice@example.com"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/NotIdle"
+          }
+        }
+      }
+    },
+    "/processes/{pid}/stdout": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/pid"
+        }
+      ],
+      "get": {
+        "operationId": "getProcessStdout",
+        "summary": "Get raw stdout",
+        "description": "Returns the raw standard output stream of the process as plain text.",
+        "tags": ["Processes"],
+        "responses": {
+          "200": {
+            "description": "stdout stream content.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "examples": ["fetching user...\ndone\n"]
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/NotIdle"
+          }
+        }
+      }
+    },
+    "/processes/{pid}/stderr": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/pid"
+        }
+      ],
+      "get": {
+        "operationId": "getProcessStderr",
+        "summary": "Get raw stderr",
+        "description": "Returns the raw standard error stream of the process as plain text.",
+        "tags": ["Processes"],
+        "responses": {
+          "200": {
+            "description": "stderr stream content.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "examples": ["Error: connect ECONNREFUSED 127.0.0.1:5432\n"]
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/NotIdle"
+          }
+        }
+      }
+    },
+    "/processes/{pid}/signals/kill": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/pid"
+        }
+      ],
+      "post": {
+        "operationId": "killProcess",
+        "summary": "Send kill signal",
+        "description": "Stops a `queued` or `running` process.",
+        "tags": ["Processes"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "Empty body — reserved for future signal options."
+              },
+              "examples": {
+                "empty": {
+                  "summary": "Empty body",
+                  "value": {}
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Kill signal accepted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Process"
+                },
+                "examples": {
+                  "canceled": {
+                    "summary": "Process successfully canceled",
+                    "value": {
+                      "pid": 1,
+                      "state": "idle",
+                      "status": "canceled"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "Process is already idle and cannot be killed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "alreadyIdle": {
+                    "summary": "Process already idle",
+                    "value": {
+                      "error": "Process is already idle."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/processes/{pid}/signals/run": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/pid"
+        }
+      ],
+      "post": {
+        "operationId": "runProcess",
+        "summary": "Send run signal",
+        "description": "Re-queues an `idle` process for execution. Works on canceled processes as well as successfully completed ones. If the process is complete, `force: true` must be set to explicitly overwrite run and overwrite outputs.",
+        "tags": ["Processes"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunSignalRequest"
+              },
+              "examples": {
+                "normal": {
+                  "summary": "Re-run a canceled process",
+                  "value": {
+                    "force": false
+                  }
+                },
+                "force": {
+                  "summary": "Overwrite outputs of a completed process",
+                  "value": {
+                    "force": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Run signal accepted; process re-queued.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Process"
+                },
+                "examples": {
+                  "requeued": {
+                    "summary": "Process re-queued",
+                    "value": {
+                      "pid": 1,
+                      "state": "queued",
+                      "status": null
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Process has existing outputs and `force` was not set to `true`.\n",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "forceRequired": {
+                    "summary": "force required to overwrite existing outputs",
+                    "value": {
+                      "error": "Process has existing outputs. Set force: true to overwrite."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "Process is not idle and cannot be re-queued.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "notIdle": {
+                    "summary": "Process not in idle state",
+                    "value": {
+                      "error": "Process must be idle to accept a run signal."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "pid": {
+        "name": "pid",
+        "in": "path",
+        "required": true,
+        "description": "The process ID returned by `POST /processes`.",
+        "schema": {
+          "type": "integer",
+          "examples": [1]
+        }
+      },
+      "stateFilter": {
+        "name": "state",
+        "in": "query",
+        "required": false,
+        "description": "Filter processes by life-cycle state.",
+        "schema": {
+          "$ref": "#/components/schemas/ProcessState"
+        }
+      },
+      "statusFilter": {
+        "name": "status",
+        "in": "query",
+        "required": false,
+        "description": "Filter processes by execution outcome.",
+        "schema": {
+          "$ref": "#/components/schemas/ProcessStatus"
+        }
+      },
+      "refFilter": {
+        "name": "ref",
+        "in": "query",
+        "required": false,
+        "description": "Filter processes by reference.",
+        "schema": {
+          "type": "string"
+        }
+      }
+    },
+    "schemas": {
+      "ProcessState": {
+        "type": "string",
+        "enum": ["queued", "running", "idle"],
+        "description": "Where the process is in its life-cycle."
+      },
+      "ProcessStatus": {
+        "type": ["string", "null"],
+        "enum": ["success", "failed", "canceled", null],
+        "description": "The outcome of execution."
+      },
+      "Process": {
+        "type": "object",
+        "required": ["pid", "state", "status"],
+        "properties": {
+          "pid": {
+            "type": "integer",
+            "description": "Unique identifier for the process.",
+            "examples": [1]
+          },
+          "state": {
+            "$ref": "#/components/schemas/ProcessState"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ProcessStatus"
+          },
+          "ref": {
+            "type": ["string", "null"],
+            "description": "Client-provided reference identifying the source of the process."
+          }
+        }
+      },
+      "ProcessList": {
+        "type": "object",
+        "required": ["processes"],
+        "properties": {
+          "processes": {
+            "type": "array",
+            "description": "The matching processes. Empty array if none match the filters.",
+            "items": {
+              "$ref": "#/components/schemas/Process"
+            }
+          }
+        }
+      },
+      "CreateProcessRequest": {
+        "type": "object",
+        "required": ["code"],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "The code to execute in the sandbox.",
+            "examples": [
+              "const res = await fetch(\"https://api.example.com/users/1\");\noutput(res.json());\n"
+            ]
+          },
+          "ref": {
+            "type": "string",
+            "description": "Reference used to identify context of the process."
+          }
+        }
+      },
+      "ProcessCreatedResponse": {
+        "type": "object",
+        "required": ["pid"],
+        "properties": {
+          "pid": {
+            "type": "integer",
+            "description": "The ID of the newly created process.",
+            "examples": [1]
+          }
+        }
+      },
+      "ProcessOutput": {
+        "type": "object",
+        "required": ["output"],
+        "properties": {
+          "output": {
+            "description": "The structured output values set by the intent code`. Can be any JSON-serializable value."
+          }
+        }
+      },
+      "RunSignalRequest": {
+        "type": "object",
+        "properties": {
+          "force": {
+            "type": "boolean",
+            "default": false,
+            "description": "When `true`, overwrites any existing outputs from a prior execution. Required if the process completed successfully and already has output."
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "Human-readable error message."
+          }
+        }
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "Request body is invalid or missing required fields.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "examples": {
+              "missingCode": {
+                "summary": "Missing required field",
+                "value": {
+                  "error": "Missing required field: code"
+                }
+              }
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "No process found with the given `pid`.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "examples": {
+              "notFound": {
+                "summary": "Process not found",
+                "value": {
+                  "error": "Process not found."
+                }
+              }
+            }
+          }
+        }
+      },
+      "NotIdle": {
+        "description": "The process has not yet reached the `idle` state.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "examples": {
+              "notIdle": {
+                "summary": "Output not yet available",
+                "value": {
+                  "error": "Process output is not yet available."
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

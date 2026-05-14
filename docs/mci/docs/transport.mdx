@@ -1,0 +1,12 @@
+---
+title: "Transport"
+description: "The data transport layers within MCI"
+---
+
+## External Transport
+
+The MCI Server exposes a single HTTP endpoint that automatically negotiates the most suitable transport protocol for each client connection. This allows MCI to provide low-latency communication and continuous feedback during script execution, regardless of the client’s capabilities or network conditions.
+
+## Internal Transport
+
+All internal data transport like tool invokes from environments to MCI, module hydration, tool invoke responses, etc. are handled via process messages IPCs.
