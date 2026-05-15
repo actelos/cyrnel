@@ -63,6 +63,9 @@ jobs:
           enable-cache: true
           cache-dependency-glob: apps/mcp/uv.lock
 
+      - name: Create lockfile
+        run: uv lock
+
       - name: Install dependencies
         run: uv sync --frozen
 
