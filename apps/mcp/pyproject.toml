@@ -1,0 +1,27 @@
+[project]
+name = "mci-mcp"
+version = "1.0.0"
+requires-python = ">=3.12"
+dependencies = [
+    "fastmcp>=3.3.0",
+    "httpx>=0.28.1",
+    "mcp>=1.27.1",
+    "pydantic>=2.13.4",
+    "uvicorn>=0.47.0",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1.409",
+    "ruff>=0.15.13",
+]

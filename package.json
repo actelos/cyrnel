@@ -1,0 +1,14 @@
+{
+  "name": "mci",
+  "license": "MIT",
+  "scripts": {
+    "build": "turbo build",
+    "start": "turbo start",
+    "test": "turbo test",
+    "typecheck": "turbo typecheck"
+  },
+  "packageManager": "pnpm@10.30.3",
+  "devDependencies": {
+    "turbo": "^2.9.14"
+  }
+}

@@ -4,12 +4,13 @@
   "version": "1.0.0",
   "scripts": {
     "dev": "vite",
-    "preview": "vite preview",
-    "build": "tsc -b && vite build",
+    "build": "vite build",
+    "start": "vite preview",
     "check": "biome check .",
     "check:fix": "biome check --write .",
     "typecheck": "tsc --noEmit"
   },
+  "packageManager": "pnpm@10.30.3",
   "dependencies": {
     "@fontsource-variable/inter": "^5.2.8",
     "@tailwindcss/vite": "^4.3.0",

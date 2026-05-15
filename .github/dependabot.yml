@@ -1,14 +1,14 @@
 version: 2
 updates:
   - package-ecosystem: "npm"
-    directory: "/app/api"
+    directory: "/apps/api"
     schedule:
       interval: "weekly"
   - package-ecosystem: "npm"
-    directory: "/app/web"
+    directory: "/apps/web"
     schedule:
       interval: "weekly"
   - package-ecosystem: "pip"
-    directory: "/app/mcp"
+    directory: "/apps/mcp"
     schedule:
       interval: "weekly"

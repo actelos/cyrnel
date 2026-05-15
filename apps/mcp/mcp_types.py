@@ -5,7 +5,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, RootModel
 
-
 # Enums
 
 
@@ -31,7 +30,9 @@ class ProcessStatus(str, Enum):
 
 # API: GET /processes?status=... (process.controller.ts)
 class ProcessStatusQuery(str, Enum):
-    """Query-string representation for filtering process status (supports literal 'null')."""
+    """
+    Query-string representation for filtering process status (supports literal 'null').
+    """
 
     failed = "failed"
     success = "success"
@@ -46,7 +47,7 @@ class JsonPatchOp(str, Enum):
 
     add = "add"
     remove = "remove"
-    replace = "replace"
+    replace = "replace"  # pyright: ignore[reportAssignmentType]
     move = "move"
     copy = "copy"
     test = "test"
@@ -74,8 +75,8 @@ class CreateProcessRequest(BaseModel):
     ref: str | None = Field(
         default=None,
         description=(
-            "Optional reference label to group processes. Must be non-empty after trimming. "
-            'Example: "nightly-sync".'
+            "Optional reference label to group processes. Must be non-empty after "
+            'trimming. Example: "nightly-sync".'
         ),
         min_length=1,
     )
@@ -94,14 +95,14 @@ class RunProcessSignalRequest(BaseModel):
     force: bool | None = Field(
         default=None,
         description=(
-            "Whether to overwrite existing outputs (stdout/stderr/output/status) before rerun. "
-            "Example: true."
+            "Whether to overwrite existing outputs (stdout/stderr/output/status) "
+            "before rerun. Example: true."
         ),
     )
     block: bool | None = Field(
         default=None,
         description=(
-            "Whether to wait for the process to become idle before responding. "
+            "Whether to wait for the process to become idle before responding."
             "Example: false."
         ),
     )
@@ -112,19 +113,23 @@ class DiscoverRequest(BaseModel):
     query: str | None = Field(
         default=None,
         description=(
-            'Optional search string; whitespace is trimmed. Example: "github" or "issues".'
+            'Optional search string; whitespace is trimmed. Example: "github" or '
+            '"issues".'
         ),
     )
     limit: int | None = Field(
         default=None,
-        description="Optional maximum number of results to return. Must be a positive integer. Example: 10.",
+        description=(
+            "Optional maximum number of results to return. Must be a positive "
+            "integer. Example: 10."
+        ),
         ge=1,
     )
     enabled: bool | None = Field(
         default=None,
         description=(
-            "Optional enabled filter. Use true for enabled only, false for disabled only, "
-            "or null to include both. Example: null."
+            "Optional enabled filter. Use true for enabled only, false for disabled "
+            "only, or null to include both. Example: null."
         ),
     )
 
@@ -160,13 +165,16 @@ class InstallServiceSourceObject(BaseModel):
 # API: POST /services/install (service.controller.ts)
 class ServiceInstallRequest(BaseModel):
     type: str = Field(
-        description='Registry type identifier. Must be non-empty after trimming. Example: "registry".',
+        description=(
+            "Registry type identifier. Must be non-empty after trimming. "
+            'Example: "registry".'
+        ),
         min_length=1,
     )
     source: str | InstallServiceSourceObject = Field(
         description=(
-            "Manifest definition source, either a URL string or an object with a file_url. "
-            'Examples: "https://registry.example.com/service.json" or '
+            "Manifest definition source, either a URL string or an object with a "
+            'file_url. Examples: "https://registry.example.com/service.json" or '
             '{"file_url": "https://registry.example.com/service.json"}.'
         ),
     )
@@ -186,13 +194,16 @@ class SetServiceToolEnabledRequest(BaseModel):
     )
 
 
-# API: PATCH /services/:serviceName/configuration and /services/:serviceName/secrets (service.controller.ts)
+# API: PATCH /services/:serviceName/configuration and /services/:serviceName/secrets
 class JsonPatchAdd(BaseModel):
     op: Literal[JsonPatchOp.add] = Field(
         description="JSON Patch operation type. Must be 'add'. Example: \"add\".",
     )
     path: str = Field(
-        description='JSON Pointer path to the target field. Must be non-empty. Example: "/enabled".',
+        description=(
+            "JSON Pointer path to the target field. Must be non-empty. "
+            'Example: "/enabled".'
+        ),
         min_length=1,
     )
     value: Any = Field(
@@ -200,24 +211,33 @@ class JsonPatchAdd(BaseModel):
     )
 
 
-# API: PATCH /services/:serviceName/configuration and /services/:serviceName/secrets (service.controller.ts)
+# API: PATCH /services/:serviceName/configuration and /services/:serviceName/secrets
 class JsonPatchRemove(BaseModel):
     op: Literal[JsonPatchOp.remove] = Field(
-        description="JSON Patch operation type. Must be 'remove'. Example: \"remove\".",
+        description=(
+            "JSON Patch operation type. Must be 'remove'. Example: \"remove\"."
+        ),
     )
     path: str = Field(
-        description='JSON Pointer path to remove. Must be non-empty. Example: "/token".',
+        description=(
+            'JSON Pointer path to remove. Must be non-empty. Example: "/token".'
+        ),
         min_length=1,
     )
 
 
-# API: PATCH /services/:serviceName/configuration and /services/:serviceName/secrets (service.controller.ts)
+# API: PATCH /services/:serviceName/configuration and /services/:serviceName/secrets
 class JsonPatchReplace(BaseModel):
     op: Literal[JsonPatchOp.replace] = Field(
-        description="JSON Patch operation type. Must be 'replace'. Example: \"replace\".",
+        description=(
+            "JSON Patch operation type. Must be 'replace'. Example: \"replace\"."
+        ),
     )
     path: str = Field(
-        description='JSON Pointer path to the target field. Must be non-empty. Example: "/timeout".',
+        description=(
+            "JSON Pointer path to the target field. Must be non-empty. "
+            'Example: "/timeout".'
+        ),
         min_length=1,
     )
     value: Any = Field(
@@ -225,39 +245,49 @@ class JsonPatchReplace(BaseModel):
     )
 
 
-# API: PATCH /services/:serviceName/configuration and /services/:serviceName/secrets (service.controller.ts)
+# API: PATCH /services/:serviceName/configuration and /services/:serviceName/secrets
 class JsonPatchMove(BaseModel):
     op: Literal[JsonPatchOp.move] = Field(
         description="JSON Patch operation type. Must be 'move'. Example: \"move\".",
     )
     path: str = Field(
-        description='Destination JSON Pointer path. Must be non-empty. Example: "/newKey".',
+        description=(
+            'Destination JSON Pointer path. Must be non-empty. Example: "/newKey".'
+        ),
         min_length=1,
     )
-    from_: str = Field(  # NOTE: serialized name is handled by aliases in call sites if needed.
-        description='Source JSON Pointer path. Must be non-empty. Example: "/oldKey".',
-        min_length=1,
-        alias="from",
+    from_: str = (
+        Field(  # NOTE: serialized name is handled by aliases in call sites if needed.
+            description=(
+                'Source JSON Pointer path. Must be non-empty. Example: "/oldKey".'
+            ),
+            min_length=1,
+            alias="from",
+        )
     )
 
 
-# API: PATCH /services/:serviceName/configuration and /services/:serviceName/secrets (service.controller.ts)
+# API: PATCH /services/:serviceName/configuration and /services/:serviceName/secrets
 class JsonPatchCopy(BaseModel):
     op: Literal[JsonPatchOp.copy] = Field(
         description="JSON Patch operation type. Must be 'copy'. Example: \"copy\".",
     )
     path: str = Field(
-        description='Destination JSON Pointer path. Must be non-empty. Example: "/copied".',
+        description=(
+            'Destination JSON Pointer path. Must be non-empty. Example: "/copied".'
+        ),
         min_length=1,
     )
     from_: str = Field(
-        description='Source JSON Pointer path. Must be non-empty. Example: "/original".',
+        description=(
+            'Source JSON Pointer path. Must be non-empty. Example: "/original".'
+        ),
         min_length=1,
         alias="from",
     )
 
 
-# API: PATCH /services/:serviceName/configuration and /services/:serviceName/secrets (service.controller.ts)
+# API: PATCH /services/:serviceName/configuration and /services/:serviceName/secrets
 class JsonPatchTest(BaseModel):
     op: Literal[JsonPatchOp.test] = Field(
         description="JSON Patch operation type. Must be 'test'. Example: \"test\".",
@@ -267,11 +297,13 @@ class JsonPatchTest(BaseModel):
         min_length=1,
     )
     value: Any = Field(
-        description='Value to compare against the current value at path. Example: "prod".',
+        description=(
+            'Value to compare against the current value at path. Example: "prod".'
+        ),
     )
 
 
-# API: PATCH /services/:serviceName/configuration and /services/:serviceName/secrets (service.controller.ts)
+# API: PATCH /services/:serviceName/configuration and /services/:serviceName/secrets
 JsonPatchOperation = (
     JsonPatchAdd
     | JsonPatchRemove
@@ -282,7 +314,7 @@ JsonPatchOperation = (
 )
 
 
-# API: PATCH /services/:serviceName/configuration and /services/:serviceName/secrets (service.controller.ts)
+# API: PATCH /services/:serviceName/configuration and /services/:serviceName/secrets
 class JsonPatch(RootModel[list[JsonPatchOperation]]):
     root: list[JsonPatchOperation] = Field(
         description=(
@@ -304,7 +336,10 @@ class Process(BaseModel):
     )
     ref: str | None = Field(
         default=None,
-        description='Optional reference label assigned at creation time. Example: "nightly-sync".',
+        description=(
+            "Optional reference label assigned at creation time. Example: "
+            '"nightly-sync".'
+        ),
         min_length=1,
     )
     state: ProcessState = Field(
@@ -319,7 +354,10 @@ class Process(BaseModel):
 # API: GET /processes (process.controller.ts)
 class ProcessListResponse(BaseModel):
     processes: list[Process] = Field(
-        description='List of stored processes matching the provided filters. Example: [{"pid":12,"state":"idle","status":null}].',
+        description=(
+            "List of stored processes matching the provided filters. Example: "
+            '[{"pid":12,"state":"idle","status":null}].'
+        ),
     )
 
 
@@ -334,7 +372,9 @@ class ProcessCreatedResponse(BaseModel):
 # API: GET /processes/:pid/output (process.controller.ts)
 class ProcessOutputResponse(RootModel[dict[str, Any]]):
     root: dict[str, Any] = Field(
-        description='Structured output object emitted by process code. Example: {"result": 42}.',
+        description=(
+            'Structured output object emitted by process code. Example: {"result": 42}.'
+        ),
     )
 
 
@@ -349,17 +389,27 @@ class ToolDiscoverItem(BaseModel):
         min_length=1,
     )
     description: str = Field(
-        description='Human-readable tool description. Example: "List issues for a repository".',
+        description=(
+            'Human-readable tool description. Example: "List issues for a repository".'
+        ),
     )
     enabled: bool = Field(
-        description="Whether the tool is enabled (includes service enabled state). Example: true.",
+        description=(
+            "Whether the tool is enabled (includes service enabled state)."
+            "Example: true."
+        ),
     )
 
 
 # API: POST /discover/tools (discover.controller.ts)
 class DiscoverToolsResponse(BaseModel):
     tools: list[ToolDiscoverItem] = Field(
-        description='Discovered tools matching the query. Returns an empty list if no matches. Example: [{"serviceName":"github","name":"listIssues","description":"...","enabled":true}].',
+        description=(
+            "Discovered tools matching the query. Returns an empty list if no "
+            "matches. Example: "
+            '[{"serviceName":"github","name":"listIssues","description":"...",'
+            '"enabled":true}].'
+        ),
     )
 
 
@@ -374,14 +424,21 @@ class ServiceListItem(BaseModel):
         min_length=1,
     )
     source: str = Field(
-        description='Stored install source URL for the service. Example: "https://registry.example.com/service.json".',
+        description=(
+            "Stored install source URL for the service. Example: "
+            '"https://registry.example.com/service.json".'
+        ),
         min_length=1,
     )
     description: str = Field(
-        description='Human-readable service description. Example: "GitHub API integration".',
+        description=(
+            'Human-readable service description. Example: "GitHub API integration".'
+        ),
     )
     hash: str = Field(
-        description='Content hash for the installed manifest definition. Example: "sha256:...".',
+        description=(
+            'Content hash for the installed manifest definition. Example: "sha256:...".'
+        ),
         min_length=1,
     )
     enabled: bool = Field(
@@ -392,7 +449,12 @@ class ServiceListItem(BaseModel):
 # API: POST /discover/services (discover.controller.ts)
 class DiscoverServicesResponse(BaseModel):
     services: list[ServiceListItem] = Field(
-        description='Discovered services matching the query. Returns an empty list if no matches. Example: [{"name":"github","type":"registry","source":"...","description":"...","hash":"...","enabled":false}].',
+        description=(
+            "Discovered services matching the query. Returns an empty list if no "
+            "matches. Example: "
+            '[{"name":"github","type":"registry","source":"...","description":'
+            '"...","hash":"...","enabled":false}].'
+        ),
     )
 
 
@@ -407,38 +469,56 @@ class ServiceDetails(BaseModel):
         min_length=1,
     )
     source: str = Field(
-        description='Stored install source URL for the service. Example: "https://registry.example.com/service.json".',
+        description=(
+            "Stored install source URL for the service."
+            'Example: "https://registry.example.com/service.json".'
+        ),
         min_length=1,
     )
     description: str = Field(
-        description='Human-readable service description. Example: "GitHub API integration".',
+        description=(
+            'Human-readable service description. Example: "GitHub API integration".'
+        ),
     )
     hash: str = Field(
-        description='Content hash for the installed manifest definition. Example: "sha256:...".',
+        description=(
+            'Content hash for the installed manifest definition. Example: "sha256:...".'
+        ),
         min_length=1,
     )
     enabled: bool = Field(
         description="Whether the service is enabled. Example: true.",
     )
     configSchema: dict[str, Any] = Field(
-        description='JSON Schema describing the service configuration shape. Example: {"type":"object", "properties": {}}.',
+        description=(
+            "JSON Schema describing the service configuration shape. Example: "
+            '{"type":"object", "properties": {}}.'
+        ),
     )
     secretsSchema: dict[str, Any] = Field(
-        description='JSON Schema describing the service secrets shape. Example: {"type":"object", "properties": {}}.',
+        description=(
+            "JSON Schema describing the service secrets shape. Example: "
+            '{"type":"object", "properties": {}}.'
+        ),
     )
 
 
 # API: GET /services/:serviceName/configuration (service.controller.ts)
 class ServiceConfigurationResponse(BaseModel):
     config: dict[str, Any] = Field(
-        description='Current service configuration object. Returns {} if none stored. Example: {"enabled": true}.',
+        description=(
+            "Current service configuration object. Returns {} if none stored. Example: "
+            '{"enabled": true}.'
+        ),
     )
 
 
 # API: GET /services/:serviceName/configuration/schema (service.controller.ts)
 class ServiceConfigurationSchemaResponse(BaseModel):
     configSchema: dict[str, Any] = Field(
-        description='JSON Schema for the service configuration. Example: {"type":"object"}.',
+        description=(
+            'JSON Schema for the service configuration. Example: {"type":"object"}.'
+        ),
     )
 
 
@@ -482,7 +562,10 @@ class ServiceUpdatedResponse(BaseModel):
         min_length=1,
     )
     updated: bool = Field(
-        description="Whether the stored manifest definition changed and was updated. Example: true.",
+        description=(
+            "Whether the stored manifest definition changed and was updated. "
+            "Example: true."
+        ),
     )
 
 
@@ -511,16 +594,27 @@ class ToolDetails(BaseModel):
         min_length=1,
     )
     description: str = Field(
-        description='Human-readable tool description. Example: "List issues for a repository".',
+        description=(
+            'Human-readable tool description. Example: "List issues for a repository".'
+        ),
     )
     enabled: bool = Field(
-        description="Whether the tool is enabled (includes service enabled state). Example: true.",
+        description=(
+            "Whether the tool is enabled (includes service enabled state). Example: "
+            "true."
+        ),
     )
     inputSchema: dict[str, Any] = Field(
-        description='JSON Schema describing the tool input parameters. Example: {"type":"object"}.',
+        description=(
+            "JSON Schema describing the tool input parameters. Example: "
+            '{"type":"object"}.'
+        ),
     )
     outputSchema: dict[str, Any] = Field(
-        description='JSON Schema describing the tool output payload. Example: {"type":"object"}.',
+        description=(
+            "JSON Schema describing the tool output payload. Example: "
+            '{"type":"object"}.'
+        ),
     )
 
 

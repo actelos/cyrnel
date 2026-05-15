@@ -3,10 +3,18 @@
   "vcs": {
     "enabled": false,
     "clientKind": "git",
-    "useIgnoreFile": false
+    "useIgnoreFile": true
   },
   "files": {
-    "ignoreUnknown": false
+    "ignoreUnknown": false,
+    "includes": [
+      "apps/api/**",
+      "apps/web/**",
+      "packages/**",
+      "!**/dist",
+      "!**/build",
+      "!**/node_modules"
+    ]
   },
   "formatter": {
     "enabled": true,
@@ -29,6 +37,11 @@
       "source": {
         "organizeImports": "on"
       }
+    }
+  },
+  "css": {
+    "parser": {
+      "tailwindDirectives": true
     }
   }
 }

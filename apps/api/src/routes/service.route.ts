@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { type Router as ExpressRouter, Router } from "express";
 
 import {
   createService,
@@ -17,7 +17,7 @@ import {
   updateService,
 } from "@/controllers/service.controller";
 
-export const serviceRouter = Router();
+export const serviceRouter: ExpressRouter = Router();
 
 serviceRouter.get("/", listServices);
 serviceRouter.get("/:serviceName", getService);

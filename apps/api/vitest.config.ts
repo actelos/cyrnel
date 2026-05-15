@@ -7,7 +7,7 @@ export default defineConfig({
     environment: "node",
     fileParallelism: false,
     include: ["src/**/*.test.ts", "tests/**/*.test.ts"],
-    setupFiles: ["./tests/setup-env.ts"],
+    setupFiles: ["./tests/setup.ts"],
   },
   resolve: {
     alias: {

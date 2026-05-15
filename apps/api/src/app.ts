@@ -13,7 +13,7 @@ import { EnvironmentPoolService } from "@/services/environment-pool.service";
 import { ManifestService } from "@/services/manifest.service";
 import { ProcessService } from "@/services/process.service";
 
-export function createApp() {
+export function createApp(): express.Express {
   const app = express();
 
   const adapterPoolService = new AdapterPoolService();

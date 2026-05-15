@@ -32,15 +32,15 @@ source with npm or pnpm.
 Install dependencies:
 
 ```bash
-cd app/api
-pnpm install
+pnpm install -r
+uv venv --directory apps/mcp
+uv pip install --python apps/mcp/.venv/bin/python -r apps/mcp/pyproject.toml
 ```
 
 ### Run the server
 
-Start the server with:
+Build and start with:
 
 ```bash
-cd app/api
-pnpm run start
+pnpm build start
 ```

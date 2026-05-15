@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { type Router as ExpressRouter, Router } from "express";
 
 import {
   createProcess,
@@ -13,7 +13,7 @@ import {
   runProcess,
 } from "@/controllers/process.controller";
 
-export const processRouter = Router();
+export const processRouter: ExpressRouter = Router();
 
 processRouter.get("/", listProcesses);
 processRouter.post("/", createProcess);
