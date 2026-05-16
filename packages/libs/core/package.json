@@ -1,0 +1,20 @@
+{
+  "name": "@mci/core",
+  "license": "MIT",
+  "version": "1.0.0",
+  "main": "./src/index.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "check": "biome check .",
+    "check:fix": "biome check --write .",
+    "typecheck": "tsc --noEmit"
+  },
+  "packageManager": "pnpm@10.30.3",
+  "devDependencies": {
+    "@biomejs/biome": "2.4.15",
+    "@types/node": "^25.8.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.6"
+  }
+}
