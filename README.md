@@ -22,7 +22,7 @@ powerful docking station that can connect to any port and communicate with any
 service. If your port isn’t on the existing docking station, just make an
 extension for it.
 
-[Docs](https://modelcontrolinterface.mintlify.app/server/introduction) · [FAQ](https://modelcontrolinterface.mintlify.app/server/faq)
+[Docs](https://modelcontrolinterface.mintlify.app/content/introduction) · [FAQ](https://modelcontrolinterface.mintlify.app/content/faq)
 
 ## Usage
 
