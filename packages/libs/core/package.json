@@ -1,5 +1,6 @@
 {
   "name": "@mci/core",
+  "type": "module",
   "license": "MIT",
   "version": "1.0.0",
   "main": "./src/index.ts",
@@ -11,6 +12,10 @@
     "typecheck": "tsc --noEmit"
   },
   "packageManager": "pnpm@10.30.3",
+  "dependencies": {
+    "@mci/sdk": "workspace:*",
+    "zod": "^4.4.3"
+  },
   "devDependencies": {
     "@biomejs/biome": "2.4.15",
     "@types/node": "^25.8.0",

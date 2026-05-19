@@ -1,5 +1,6 @@
 {
   "name": "@mci/sdk",
+  "type": "module",
   "license": "MIT",
   "version": "1.0.0",
   "main": "./src/index.ts",

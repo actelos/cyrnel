@@ -2,19 +2,9 @@ export type JSONSchema = Record<string, unknown>;
 
 // Base Module
 
-export type ModuleType = "environment" | "adapter";
-
-export interface ModuleManifest {
-  id: string;
-  name: string;
-  description: string;
-}
-
 export type ModuleSetupContext = object;
 
 export interface Module {
-  readonly type: ModuleType;
-  manifest: ModuleManifest;
   setup?(context: ModuleSetupContext): Promise<void>;
   teardown?(): Promise<void>;
 }
@@ -27,13 +17,13 @@ export interface DiscoverInput {
   enabled?: boolean | null;
 }
 
-export interface ServiceDiscoverItem {
+export interface DiscoverServiceItem {
   name: string;
   description: string;
   enabled: boolean;
 }
 
-export interface ToolDiscoverItem {
+export interface DiscoverToolItem {
   serviceName: string;
   name: string;
   description: string;
@@ -74,40 +64,46 @@ export interface InvokeInput {
   parameters: Record<string, unknown>;
 }
 
+export type ExecutionState = "idle" | "queued" | "running" | "terminating";
+
 export interface EnvironmentBindings {
-  discoverServices(input: DiscoverInput): Promise<ServiceDiscoverItem[]>;
-  discoverTools(input: DiscoverInput): Promise<ToolDiscoverItem[]>;
-  getService(input: GetServiceInput): Promise<ServiceDetails>;
-  getTool(input: GetToolInput): Promise<ToolDetails>;
-  invokeTool(input: InvokeInput): Promise<unknown>;
-  emitStdout(data: Buffer): Promise<void>;
-  emitStderr(data: Buffer): Promise<void>;
-  emitOutput(data: Record<string, unknown>): Promise<void>;
+  discoverServices(
+    eid: Number,
+    input: DiscoverInput,
+  ): Promise<DiscoverServiceItem[]>;
+  discoverTools(eid: Number, input: DiscoverInput): Promise<DiscoverToolItem[]>;
+  getService(eid: Number, input: GetServiceInput): Promise<ServiceDetails>;
+  getTool(eid: Number, input: GetToolInput): Promise<ToolDetails>;
+  emitInvoke(eid: Number, input: InvokeInput): Promise<unknown>;
+  setState(eid: Number, data: ExecutionState): Promise<void>;
+  emitStdout(eid: Number, data: Buffer): Promise<void>;
+  emitStderr(eid: Number, data: Buffer): Promise<void>;
+  emitOutput(eid: Number, data: Record<string, unknown>): Promise<void>;
 }
 
 export interface EnvironmentSetupContext extends ModuleSetupContext {
   bindings: EnvironmentBindings;
 }
 
-export type ExecutionStatus = "success" | "failed";
-
 export type EnvironmentHydrationPatch = Record<string, unknown>;
 
-export interface EnvironmentExecutionOptions {
+export interface ExecutionOptions {
   timeoutMs?: number | null;
 }
 
-export interface EnvironmentExecutionParams {
+export interface ExecutionParams {
+  eid: Number;
   code: string;
-  options: EnvironmentExecutionOptions;
+  options: ExecutionOptions;
 }
 
+export type ExecutionExitState = "failed" | "success" | "timeout" | "canceled";
+
 export interface EnvironmentModule extends Module {
-  readonly type: "environment";
   setup(context: EnvironmentSetupContext): Promise<void>;
   hydrate(patch: EnvironmentHydrationPatch): Promise<void>;
-  execute(input: EnvironmentExecutionParams): Promise<ExecutionStatus>;
-  kill(): Promise<void>;
+  execute(input: ExecutionParams): Promise<ExecutionExitState>;
+  kill(eid: Number): Promise<void>;
 }
 
 // Adapter Modules
@@ -132,7 +128,6 @@ export interface ServiceDefinition {
 export type AdapterHydrationPatch = Record<string, unknown>;
 
 export interface AdapterModule extends Module {
-  readonly type: "adapter";
   generateDefinition(input: string): Promise<ServiceDefinition>;
   hydrate(patch: AdapterHydrationPatch): Promise<void>;
   invoke(input: InvokeInput): Promise<unknown>;
