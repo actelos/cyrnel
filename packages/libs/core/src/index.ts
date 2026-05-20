@@ -233,14 +233,20 @@ export async function createModuleRegistry(
     }
 
     const instance = factory.instantiate() as EnvironmentModule;
-
-    await instance.setup?.(context);
-    environments.push({
+    const managed: ManagedEnvironment = {
       name,
       module: instance,
       status: "active",
       eids: new Set(),
-    });
+    };
+    environments.push(managed); // reserve active slot before await
+    try {
+      await instance.setup?.(context);
+    } catch (error) {
+      const index = environments.indexOf(managed);
+      if (index !== -1) environments.splice(index, 1);
+      throw error;
+    }
   };
 
   const deactivateEnvironment = async (name: string) => {
