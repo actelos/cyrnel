@@ -167,8 +167,13 @@ export async function createModuleRegistry(
     if (existing) return;
 
     const instance = factory.instantiate() as AdapterModule;
-    if (instance.setup) await instance.setup(context);
-    activeAdapters.set(name, instance);
+    activeAdapters.set(name, instance); // reserve slot before await
+    try {
+      if (instance.setup) await instance.setup(context);
+    } catch (error) {
+      activeAdapters.delete(name);
+      throw error;
+    }
   };
 
   const deactivateAdapter = async (name: string) => {
