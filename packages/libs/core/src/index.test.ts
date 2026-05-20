@@ -196,7 +196,17 @@ describe("createModuleRegistry", () => {
 
 describe("createModuleRegistry with builtins", () => {
   let dir: string | undefined;
-  const environmentBindings = {};
+  const environmentBindings = {
+    discoverServices: vi.fn(),
+    discoverTools: vi.fn(),
+    getService: vi.fn(),
+    getTool: vi.fn(),
+    invokeTool: vi.fn(),
+    setState: vi.fn(),
+    emitStdout: vi.fn(),
+    emitStderr: vi.fn(),
+    emitOutput: vi.fn(),
+  } satisfies import("@mci/sdk").EnvironmentBindings;
 
   afterEach(async () => {
     vi.resetModules();
