@@ -196,7 +196,7 @@ describe("createModuleRegistry", () => {
 
 describe("createModuleRegistry with builtins", () => {
   let dir: string | undefined;
-  const environmentBindings = {} as any;
+  const environmentBindings = {};
 
   afterEach(async () => {
     vi.resetModules();
@@ -272,7 +272,7 @@ describe("createModuleRegistry with builtins", () => {
     );
 
     const { createModuleRegistry } = await import("./index");
-    const registry = await createModuleRegistry(dir, { environmentBindings });
+    const registry = await createModuleRegistry(dir);
     expect(
       registry.listManifests({ isBuiltin: true }).map((m) => m.name),
     ).toEqual(["builtin-x"]);
@@ -305,9 +305,9 @@ describe("createModuleRegistry with builtins", () => {
     dir = await mkdtemp(join(tmpdir(), "mci-core-loader-"));
 
     const { createModuleRegistry } = await import("./index");
-    const registry = await createModuleRegistry(dir, { environmentBindings });
-    await registry.activate("builtin-x", {});
-    await registry.activate("builtin-x", {});
+    const registry = await createModuleRegistry(dir);
+    await registry.activateAdapter("builtin-x", {});
+    await registry.activateAdapter("builtin-x", {});
 
     expect(instantiations).toBe(1);
   });
@@ -378,17 +378,23 @@ describe("createModuleRegistry with builtins", () => {
     dir = await mkdtemp(join(tmpdir(), "mci-core-loader-"));
 
     const { createModuleRegistry } = await import("./index");
-    const registry = await createModuleRegistry(dir, { environmentBindings });
+    const registry = await createModuleRegistry(dir);
 
-    await registry.activate("adapter-a", {});
-    await registry.activate("adapter-b", {});
+    await registry.activateAdapter("adapter-a", {});
+    await registry.activateAdapter("adapter-b", {});
     expect(instantiated).toEqual(["adapter-a", "adapter-b"]);
 
-    await registry.activate("env-x", {});
-    await registry.activate("env-x", {});
+    await registry.activateEnvironment("env-x", {
+      bindings: environmentBindings,
+    });
+    await registry.activateEnvironment("env-x", {
+      bindings: environmentBindings,
+    });
     expect(instantiated).toEqual(["adapter-a", "adapter-b", "env-x"]);
 
-    await expect(registry.activate("env-y", {})).rejects.toThrow(/already active/i);
+    await expect(
+      registry.activateEnvironment("env-y", { bindings: environmentBindings }),
+    ).rejects.toThrow(/already active/i);
   });
 
   it("deactivates modules immediately and allows switching environments", async () => {
@@ -443,15 +449,19 @@ describe("createModuleRegistry with builtins", () => {
     dir = await mkdtemp(join(tmpdir(), "mci-core-loader-"));
 
     const { createModuleRegistry } = await import("./index");
-    const registry = await createModuleRegistry(dir, { environmentBindings });
+    const registry = await createModuleRegistry(dir);
 
-    await registry.activate("adapter-a", {});
-    await registry.deactivate("adapter-a");
-    await registry.activate("adapter-a", {});
+    await registry.activateAdapter("adapter-a", {});
+    await registry.deactivateAdapter("adapter-a");
+    await registry.activateAdapter("adapter-a", {});
 
-    await registry.activate("env-x", {});
-    await registry.deactivate("env-x");
-    await registry.activate("env-y", {});
+    await registry.activateEnvironment("env-x", {
+      bindings: environmentBindings,
+    });
+    await registry.deactivateEnvironment("env-x");
+    await registry.activateEnvironment("env-y", {
+      bindings: environmentBindings,
+    });
     expect(instantiated).toEqual(["adapter-a", "adapter-a", "env-x", "env-y"]);
   });
 
@@ -478,14 +488,14 @@ describe("createModuleRegistry with builtins", () => {
     dir = await mkdtemp(join(tmpdir(), "mci-core-loader-"));
 
     const { createModuleRegistry } = await import("./index");
-    const registry = await createModuleRegistry(dir, { environmentBindings });
+    const registry = await createModuleRegistry(dir);
 
     const context = { any: "context" };
-    await registry.activate("adapter-a", context);
+    await registry.activateAdapter("adapter-a", context);
     expect(setup).toHaveBeenCalledTimes(1);
     expect(setup).toHaveBeenCalledWith(context);
 
-    await registry.deactivate("adapter-a");
+    await registry.deactivateAdapter("adapter-a");
     expect(teardown).toHaveBeenCalledTimes(1);
   });
 
@@ -511,10 +521,10 @@ describe("createModuleRegistry with builtins", () => {
     dir = await mkdtemp(join(tmpdir(), "mci-core-loader-"));
 
     const { createModuleRegistry } = await import("./index");
-    const registry = await createModuleRegistry(dir, { environmentBindings });
+    const registry = await createModuleRegistry(dir);
 
-    await registry.activate("adapter-a", {});
-    await registry.activate("adapter-a", {});
+    await registry.activateAdapter("adapter-a", {});
+    await registry.activateAdapter("adapter-a", {});
     expect(setup).toHaveBeenCalledTimes(1);
   });
 
@@ -540,10 +550,157 @@ describe("createModuleRegistry with builtins", () => {
     dir = await mkdtemp(join(tmpdir(), "mci-core-loader-"));
 
     const { createModuleRegistry } = await import("./index");
-    const registry = await createModuleRegistry(dir, { environmentBindings });
+    const registry = await createModuleRegistry(dir);
 
     const context = { extra: "data" };
-    await registry.activate("env-x", context);
-    expect(setup).toHaveBeenCalledWith({ ...context, bindings: environmentBindings });
+    await registry.activateEnvironment("env-x", {
+      ...context,
+      bindings: environmentBindings,
+    });
+    expect(setup).toHaveBeenCalledWith({
+      ...context,
+      bindings: environmentBindings,
+    });
+  });
+
+  it("keeps draining environment loaded until executions finish", async () => {
+    const envXKill = vi.fn().mockResolvedValue(undefined);
+    const envYKIll = vi.fn().mockResolvedValue(undefined);
+
+    const envXTeardown = vi.fn().mockResolvedValue(undefined);
+    const envYTeardown = vi.fn().mockResolvedValue(undefined);
+
+    let finishExecution: (() => void) | undefined;
+    const envXExecute = vi.fn().mockImplementation(async () => {
+      await new Promise<void>((resolve) => {
+        finishExecution = resolve;
+      });
+      return "success";
+    });
+
+    const envYExecute = vi.fn().mockResolvedValue("success");
+
+    vi.doMock("./builtins", () => ({
+      builtinModules: [
+        {
+          manifest: {
+            name: "env-x",
+            version: "1.0.0",
+            description: "env x",
+            type: "environment",
+            main: "index.js",
+            isBuiltin: true,
+          },
+          instantiate: () => ({
+            execute: envXExecute,
+            kill: envXKill,
+            teardown: envXTeardown,
+            hydrate: vi.fn(),
+          }),
+        },
+        {
+          manifest: {
+            name: "env-y",
+            version: "1.0.0",
+            description: "env y",
+            type: "environment",
+            main: "index.js",
+            isBuiltin: true,
+          },
+          instantiate: () => ({
+            execute: envYExecute,
+            kill: envYKIll,
+            teardown: envYTeardown,
+            hydrate: vi.fn(),
+          }),
+        },
+      ],
+    }));
+
+    dir = await mkdtemp(join(tmpdir(), "mci-core-loader-"));
+
+    const { createModuleRegistry } = await import("./index");
+    const registry = await createModuleRegistry(dir);
+
+    await registry.activateEnvironment("env-x", {
+      bindings: environmentBindings,
+    });
+    const eid = 1;
+    void registry.execute(eid, "console.log('x')");
+
+    const deactivatePromise = registry.deactivateEnvironment("env-x");
+
+    await registry.activateEnvironment("env-y", {
+      bindings: environmentBindings,
+    });
+
+    await registry.kill(eid);
+    expect(envXKill).toHaveBeenCalledWith(eid);
+    expect(envYKIll).not.toHaveBeenCalled();
+
+    finishExecution?.();
+    await deactivatePromise;
+
+    expect(envXTeardown).toHaveBeenCalledTimes(1);
+  });
+
+  it("throws when trying to execute without an active environment", async () => {
+    vi.doMock("./builtins", () => ({ builtinModules: [] }));
+
+    dir = await mkdtemp(join(tmpdir(), "mci-core-loader-"));
+    const { createModuleRegistry } = await import("./index");
+    const registry = await createModuleRegistry(dir);
+
+    await expect(registry.execute(1, "nope")).rejects.toThrow(
+      /no environment is active/i,
+    );
+  });
+
+  it("rejects starting an execution with an in-flight eid", async () => {
+    let finishExecution: (() => void) | undefined;
+
+    const execute = vi.fn().mockImplementation(async () => {
+      await new Promise<void>((resolve) => {
+        finishExecution = resolve;
+      });
+      return "success";
+    });
+
+    vi.doMock("./builtins", () => ({
+      builtinModules: [
+        {
+          manifest: {
+            name: "env-x",
+            version: "1.0.0",
+            description: "env x",
+            type: "environment",
+            main: "index.js",
+            isBuiltin: true,
+          },
+          instantiate: () => ({
+            execute,
+            kill: vi.fn(),
+            teardown: vi.fn(),
+            hydrate: vi.fn(),
+          }),
+        },
+      ],
+    }));
+
+    dir = await mkdtemp(join(tmpdir(), "mci-core-loader-"));
+    const { createModuleRegistry } = await import("./index");
+    const registry = await createModuleRegistry(dir);
+
+    await registry.activateEnvironment("env-x", {
+      bindings: environmentBindings,
+    });
+
+    void registry.execute(123, "first");
+
+    await expect(registry.execute(123, "second")).rejects.toThrow(
+      /already running/i,
+    );
+
+    finishExecution?.();
   });
 });

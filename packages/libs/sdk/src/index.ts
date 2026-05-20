@@ -67,18 +67,15 @@ export interface InvokeInput {
 export type ExecutionState = "idle" | "queued" | "running" | "terminating";
 
 export interface EnvironmentBindings {
-  discoverServices(
-    eid: Number,
-    input: DiscoverInput,
-  ): Promise<DiscoverServiceItem[]>;
-  discoverTools(eid: Number, input: DiscoverInput): Promise<DiscoverToolItem[]>;
-  getService(eid: Number, input: GetServiceInput): Promise<ServiceDetails>;
-  getTool(eid: Number, input: GetToolInput): Promise<ToolDetails>;
-  emitInvoke(eid: Number, input: InvokeInput): Promise<unknown>;
-  setState(eid: Number, data: ExecutionState): Promise<void>;
-  emitStdout(eid: Number, data: Buffer): Promise<void>;
-  emitStderr(eid: Number, data: Buffer): Promise<void>;
-  emitOutput(eid: Number, data: Record<string, unknown>): Promise<void>;
+  discoverServices(input: DiscoverInput): Promise<DiscoverServiceItem[]>;
+  discoverTools(input: DiscoverInput): Promise<DiscoverToolItem[]>;
+  getService(input: GetServiceInput): Promise<ServiceDetails>;
+  getTool(input: GetToolInput): Promise<ToolDetails>;
+  invokeTool(input: InvokeInput): Promise<unknown>;
+  setState(eid: number, data: ExecutionState): Promise<void>;
+  emitStdout(eid: number, data: Buffer): Promise<void>;
+  emitStderr(eid: number, data: Buffer): Promise<void>;
+  emitOutput(eid: number, data: Record<string, unknown>): Promise<void>;
 }
 
 export interface EnvironmentSetupContext extends ModuleSetupContext {
@@ -92,7 +89,7 @@ export interface ExecutionOptions {
 }
 
 export interface ExecutionParams {
-  eid: Number;
+  eid: number;
   code: string;
   options: ExecutionOptions;
 }
@@ -103,7 +100,7 @@ export interface EnvironmentModule extends Module {
   setup(context: EnvironmentSetupContext): Promise<void>;
   hydrate(patch: EnvironmentHydrationPatch): Promise<void>;
   execute(input: ExecutionParams): Promise<ExecutionExitState>;
-  kill(eid: Number): Promise<void>;
+  kill(eid: number): Promise<void>;
 }
 
 // Adapter Modules

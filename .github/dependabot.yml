@@ -12,3 +12,17 @@ updates:
     directory: "/apps/mcp"
     schedule:
       interval: "weekly"
+
+  - package-ecosystem: "npm"
+    directory: "/packages/lib/core"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "npm"
+    directory: "/packages/lib/sdk"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "npm"
+    directory: "/packages/modules/typescript-ivm"
+    schedule:
+      interval: "weekly"
