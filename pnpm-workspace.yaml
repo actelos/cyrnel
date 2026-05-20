@@ -2,3 +2,8 @@ packages:
   - apps/*
   - packages/libs/*
   - packages/modules/*
+
+onlyBuiltDependencies:
+  - esbuild
+  - isolated-vm
+  - msw
