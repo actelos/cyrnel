@@ -207,7 +207,17 @@ importers:
         specifier: ^6.0.3
         version: 6.0.3
 
-  packages/modules/typescript-ivm: {}
+  packages/modules/typescript-ivm:
+    devDependencies:
+      '@biomejs/biome':
+        specifier: 2.4.15
+        version: 2.4.15
+      '@types/node':
+        specifier: ^25.8.0
+        version: 25.8.0
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
 
 packages:
 
