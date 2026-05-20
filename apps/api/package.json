@@ -1,5 +1,5 @@
 {
-  "name": "mci-api",
+  "name": "@mci/api",
   "license": "MIT",
   "version": "1.0.0",
   "scripts": {
@@ -20,6 +20,7 @@
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^8.5.0",
     "@libsql/client": "^0.17.3",
+    "@mci/core": "workspace:*",
     "ajv": "^8.20.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
