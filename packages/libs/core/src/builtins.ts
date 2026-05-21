@@ -1,4 +1,9 @@
-import type { Module } from "@mci/sdk";
-import type { ModuleFactory } from "@/model";
+import * as typescriptIvm from "@mci/typescript-ivm";
+import type { BuiltinModuleManifest, ModuleFactory } from "@/model";
 
-export const builtinModules: ModuleFactory<Module>[] = [];
+export const builtinModules: ModuleFactory<BuiltinModuleManifest>[] = [
+  {
+    manifest: { ...typescriptIvm.manifest, isBuiltin: true },
+    instantiate: typescriptIvm.instantiate,
+  },
+];

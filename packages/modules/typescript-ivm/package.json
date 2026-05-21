@@ -1,5 +1,5 @@
 {
-  "name": "@mci/core",
+  "name": "@mci/typescript-ivm",
   "type": "module",
   "license": "MIT",
   "version": "1.0.0",
@@ -7,8 +7,8 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
     }
   },
   "scripts": {
@@ -21,13 +21,12 @@
   "packageManager": "pnpm@10.30.3",
   "dependencies": {
     "@mci/sdk": "workspace:*",
-    "@mci/typescript-ivm": "workspace:*",
-    "zod": "^4.4.3"
+    "isolated-vm": "^6.1.2",
+    "typescript": "^6.0.3"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.15",
     "@types/node": "^25.8.0",
-    "typescript": "^6.0.3",
     "vitest": "^4.1.6"
   }
 }

@@ -5,8 +5,8 @@ export type JSONSchema = Record<string, unknown>;
 export type ModuleSetupContext = object;
 
 export interface Module {
-  setup?(context: ModuleSetupContext): Promise<void>;
-  teardown?(): Promise<void>;
+  setup(context: ModuleSetupContext): Promise<void>;
+  teardown(): Promise<void>;
 }
 
 // Environment Module
@@ -64,7 +64,7 @@ export interface InvokeInput {
   parameters: Record<string, unknown>;
 }
 
-export type ExecutionState = "idle" | "queued" | "running" | "terminating";
+export type ExecutionState = "queued" | "running";
 
 export interface EnvironmentBindings {
   discoverServices(input: DiscoverInput): Promise<DiscoverServiceItem[]>;
@@ -72,17 +72,15 @@ export interface EnvironmentBindings {
   getService(input: GetServiceInput): Promise<ServiceDetails>;
   getTool(input: GetToolInput): Promise<ToolDetails>;
   invokeTool(input: InvokeInput): Promise<unknown>;
-  setState(eid: number, data: ExecutionState): Promise<void>;
-  emitStdout(eid: number, data: Buffer): Promise<void>;
-  emitStderr(eid: number, data: Buffer): Promise<void>;
-  emitOutput(eid: number, data: Record<string, unknown>): Promise<void>;
+  setState(eid: number, data: ExecutionState): void;
+  emitStdout(eid: number, data: Buffer): void;
+  emitStderr(eid: number, data: Buffer): void;
+  emitOutput(eid: number, data: Record<string, unknown>): void;
 }
 
 export interface EnvironmentSetupContext extends ModuleSetupContext {
   bindings: EnvironmentBindings;
 }
-
-export type EnvironmentHydrationPatch = Record<string, unknown>;
 
 export interface ExecutionOptions {
   timeoutMs?: number | null;
@@ -98,7 +96,6 @@ export type ExecutionExitState = "failed" | "success" | "timeout" | "canceled";
 
 export interface EnvironmentModule extends Module {
   setup(context: EnvironmentSetupContext): Promise<void>;
-  hydrate(patch: EnvironmentHydrationPatch): Promise<void>;
   execute(input: ExecutionParams): Promise<ExecutionExitState>;
   kill(eid: number): Promise<void>;
 }
@@ -122,10 +119,7 @@ export interface ServiceDefinition {
   tools: ToolDefinition[];
 }
 
-export type AdapterHydrationPatch = Record<string, unknown>;
-
 export interface AdapterModule extends Module {
   generateDefinition(input: string): Promise<ServiceDefinition>;
-  hydrate(patch: AdapterHydrationPatch): Promise<void>;
   invoke(input: InvokeInput): Promise<unknown>;
 }

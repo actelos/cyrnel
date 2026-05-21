@@ -49,7 +49,7 @@ describe("createModuleRegistry", () => {
     const manifests = registry.listManifests();
 
     expect(manifests.map((m) => m.name).sort()).toEqual(
-      ["mod-one", "mod-two"].sort(),
+      ["mod-one", "mod-two", "typescript-ivm"].sort(),
     );
     expect(registry.getManifest("mod-one")?.isBuiltin).toBe(false);
     expect(registry.getManifest("mod-two")?.name).toBe("mod-two");
@@ -62,7 +62,9 @@ describe("createModuleRegistry", () => {
 
     const { createModuleRegistry } = await importIndex();
     const registry = await createModuleRegistry(dir);
-    expect(registry.listManifests()).toEqual([]);
+    expect(registry.listManifests().map((m) => m.name)).toEqual([
+      "typescript-ivm",
+    ]);
   });
 
   it("throws when module.json does not match schema", async () => {
@@ -151,7 +153,7 @@ describe("createModuleRegistry", () => {
     ).toEqual(["mod-one"]);
     expect(
       registry.listManifests({ type: "environment" }).map((m) => m.name),
-    ).toEqual(["mod-two"]);
+    ).toEqual(["typescript-ivm", "mod-two"]);
   });
 
   it("lists manifests filtered by query (name/description)", async () => {

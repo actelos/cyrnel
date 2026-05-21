@@ -6,17 +6,20 @@ import type {
   EnvironmentSetupContext,
   ExecutionExitState,
   ExecutionOptions,
-  Module,
   ModuleSetupContext,
 } from "@mci/sdk";
 import { z } from "zod";
 import { builtinModules } from "@/builtins";
 import type {
-  ModuleFactory as AnyModuleFactory,
-  LoadedManifest,
-  ManifestFilter,
-  ModuleManifest,
+  AnyModuleFactory,
+  BuiltinModuleManifest,
+  CustomModuleManifest,
+  ModuleType,
 } from "@/model";
+
+export type ModuleManifestResponse =
+  | BuiltinModuleManifest
+  | CustomModuleManifest;
 
 export type ModuleRegistry = {
   activateAdapter(name: string, context: ModuleSetupContext): Promise<void>;
@@ -35,9 +38,15 @@ export type ModuleRegistry = {
   ): Promise<ExecutionExitState>;
   kill(eid: number): Promise<void>;
 
-  getManifest(name: string): LoadedManifest | undefined;
-  listManifests(filter?: ManifestFilter): LoadedManifest[];
+  getManifest(name: string): ModuleManifestResponse | undefined;
+  listManifests(filter?: ManifestFilter): ModuleManifestResponse[];
 };
+
+export interface ManifestFilter {
+  query?: string;
+  isBuiltin?: boolean;
+  type?: ModuleType;
+}
 
 type ManagedEnvironment = {
   name: string;
@@ -56,15 +65,13 @@ const ModuleManifestSchema = z.object({
   main: z.string(),
 });
 
-type ModuleFactory<T extends Module = Module> = AnyModuleFactory<T>;
-
-async function readManifest(path: string): Promise<ModuleManifest | null> {
+async function readManifest(
+  path: string,
+): Promise<CustomModuleManifest | null> {
   try {
     const raw = await readFile(path, "utf8");
-    const parsed = ModuleManifestSchema.parse(JSON.parse(raw)) as z.infer<
-      typeof ModuleManifestSchema
-    >;
-    return parsed;
+    const parsed = ModuleManifestSchema.parse(JSON.parse(raw));
+    return { ...parsed, isBuiltin: false };
   } catch (error) {
     if (
       error &&
@@ -81,22 +88,18 @@ async function readManifest(path: string): Promise<ModuleManifest | null> {
 
 async function loadModuleFactories(
   modulesDir: string,
-): Promise<Record<string, ModuleFactory>> {
-  const factories = new Map<string, ModuleFactory>();
+): Promise<Map<string, AnyModuleFactory>> {
+  const factories = new Map<string, AnyModuleFactory>();
 
-  const addFactory = (factory: ModuleFactory) => {
+  const addFactory = (factory: AnyModuleFactory) => {
     if (factories.has(factory.manifest.name)) {
       throw new Error(`duplicate manifest name "${factory.manifest.name}"`);
     }
-
     factories.set(factory.manifest.name, factory);
   };
 
   for (const builtin of builtinModules) {
-    addFactory({
-      manifest: builtin.manifest,
-      instantiate: builtin.instantiate,
-    });
+    addFactory(builtin);
   }
 
   const entries = await readdir(modulesDir, { withFileTypes: true });
@@ -111,7 +114,7 @@ async function loadModuleFactories(
     if (!manifest) continue;
 
     addFactory({
-      manifest: { ...manifest, isBuiltin: false },
+      manifest,
       instantiate: () => {
         throw new Error(
           `module "${manifest.name}" cannot be instantiated (no factory registered)`,
@@ -120,7 +123,7 @@ async function loadModuleFactories(
     });
   }
 
-  return Object.fromEntries(factories);
+  return factories;
 }
 
 export async function createModuleRegistry(
@@ -129,14 +132,15 @@ export async function createModuleRegistry(
   const factories = await loadModuleFactories(modulesDir);
 
   const activeAdapters = new Map<string, AdapterModule>();
-
   const environments: ManagedEnvironment[] = [];
   const executionOwner = new Map<number, EnvironmentModule>();
 
-  const listManifests = (filter: ManifestFilter = {}): LoadedManifest[] => {
+  const listManifests = (
+    filter: ManifestFilter = {},
+  ): ModuleManifestResponse[] => {
     const query = filter.query?.trim().toLowerCase();
 
-    return Object.values(factories)
+    return [...factories.values()]
       .map((factory) => factory.manifest)
       .filter((manifest) => {
         if (
@@ -145,8 +149,9 @@ export async function createModuleRegistry(
         ) {
           return false;
         }
-        if (filter.type !== undefined && manifest.type !== filter.type)
+        if (filter.type !== undefined && manifest.type !== filter.type) {
           return false;
+        }
         if (query) {
           const haystack =
             `${manifest.name}\n${manifest.description}`.toLowerCase();
@@ -157,19 +162,18 @@ export async function createModuleRegistry(
   };
 
   const activateAdapter = async (name: string, context: ModuleSetupContext) => {
-    const factory = factories[name];
+    const factory = factories.get(name);
     if (!factory) throw new Error(`unknown module "${name}"`);
     if (factory.manifest.type !== "adapter") {
       throw new Error(`module "${name}" is not an adapter`);
     }
-
-    const existing = activeAdapters.get(name);
-    if (existing) return;
+    if (activeAdapters.has(name)) return;
 
     const instance = factory.instantiate() as AdapterModule;
-    activeAdapters.set(name, instance); // reserve slot before await
+
+    activeAdapters.set(name, instance);
     try {
-      if (instance.setup) await instance.setup(context);
+      await instance.setup?.(context);
     } catch (error) {
       activeAdapters.delete(name);
       throw error;
@@ -181,7 +185,7 @@ export async function createModuleRegistry(
     if (!adapter) return;
 
     try {
-      if (adapter.teardown) await adapter.teardown();
+      await adapter.teardown?.();
     } finally {
       activeAdapters.delete(name);
     }
@@ -220,7 +224,7 @@ export async function createModuleRegistry(
     name: string,
     context: EnvironmentSetupContext,
   ) => {
-    const factory = factories[name];
+    const factory = factories.get(name);
     if (!factory) throw new Error(`unknown module "${name}"`);
     if (factory.manifest.type !== "environment") {
       throw new Error(`module "${name}" is not an environment`);
@@ -233,13 +237,14 @@ export async function createModuleRegistry(
     }
 
     const instance = factory.instantiate() as EnvironmentModule;
+
     const managed: ManagedEnvironment = {
       name,
       module: instance,
       status: "active",
       eids: new Set(),
     };
-    environments.push(managed); // reserve active slot before await
+    environments.push(managed);
     try {
       await instance.setup?.(context);
     } catch (error) {
@@ -260,8 +265,8 @@ export async function createModuleRegistry(
   const execute = async (
     eid: number,
     code: string,
-    options: { timeoutMs?: number | null } = {},
-  ) => {
+    options: ExecutionOptions = {},
+  ): Promise<ExecutionExitState> => {
     const environment = getActiveEnvironment();
     if (!environment) throw new Error(`no environment is active`);
     if (executionOwner.has(eid)) {
@@ -296,7 +301,7 @@ export async function createModuleRegistry(
     deactivateEnvironment,
     execute,
     kill,
-    getManifest: (name) => factories[name]?.manifest,
+    getManifest: (name) => factories.get(name)?.manifest,
     listManifests,
   };
 }
