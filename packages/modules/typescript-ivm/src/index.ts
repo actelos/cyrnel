@@ -440,7 +440,7 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
   }
 
   private async runJob(worker: WorkerSlot, job: ExecutionJob): Promise<void> {
-    let result: ExecutionExitState = "failed";
+    let result: ExecutionExitState;
     const interrupt = createInterrupt();
     const running: RunningExecution = {
       eid: job.input.eid,
