@@ -174,7 +174,7 @@ function App() {
                       </div>
                     </li>
                     <li className="space-y-2">
-                      <p>Copy the MCI API key from and paste it too.</p>
+                      <p>Copy the MCI API key and paste it too.</p>
                       <div className="flex items-center gap-2">
                         <Input type="password" readOnly value={mciApiKey} />
                         <Button
