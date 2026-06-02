@@ -1,249 +1,191 @@
 # Repository Instructions
 
-This repository is a monorepo (Turbo + pnpm) with:
-- TypeScript apps & packages for API + Web + shared packages
-- A small Python MCP app under `apps/mcp`
+MCI is a Turbo + pnpm monorepo. Every workspace is TypeScript.
 
 ## Repo layout
 
-- `apps/api`: Express API (TypeScript) + Vitest tests
-- `apps/web`: Vite + React web app
-- `apps/mcp`: Python service (FastMCP)
-- `packages/libs/*`: shared TS libraries (`core`, `sdk`)
-- `packages/modules/*`: TS module(s) (`typescript-ivm`)
+- `apps/api` — Express API (`@mci/api`)
+- `apps/web` — Vite + React web app (`@mci/web`)
+- `apps/mcp` — MCP server built on `fastmcp` (`@mci/mcp-ts`)
+- `packages/libs/sdk` — shared TS SDK (`@mci/sdk`)
+- `packages/modules/openapi` — OpenAPI generator (`@mci/openapi`)
+- `packages/modules/typescript-ivm` — sandboxed TS runtime (`@mci/typescript-ivm`)
+
+Workspaces are declared in `pnpm-workspace.yaml`; the Turbo pipeline lives in
+`turbo.json`; lint/format config is `biome.json`.
 
 ## Tooling
 
 - Package manager: `pnpm`
-- Task runner: `turbo` (see `turbo.json`)
-- Lint/format: `biome` (see `biome.json`)
-- Tests: `vitest` (in TS packages with tests)
-- Python lint/format: `ruff` (configured in `apps/mcp/pyproject.toml`)
-- Python typecheck: `pyright` (dev dependency group)
+- Task runner: `turbo`
+- Lint/format: `biome`
+- Tests: `vitest`
+- TypeScript.
 
 ## Install
 
-### JavaScript/TypeScript
+From the repo root:
 
-From repo root:
+```bash
+pnpm i -r
+```
 
-- Install dependencies: `pnpm i -r`
+## Root commands
 
-Turbo tasks are run from the root (recommended), but you can also `pnpm -C <dir> <script>`
-inside a specific package.
+The root `package.json` proxies to Turbo across all workspaces:
 
-### Python (MCP)
+- `pnpm dev`
+- `pnpm build`
+- `pnpm start` (depends on build)
+- `pnpm test`
+- `pnpm check` / `pnpm check:fix`
+- `pnpm typecheck`
 
-From repo root (matches `README.md`):
+Every workspace implements the same script names, so the root commands fan out
+uniformly.
 
-- Create venv: `uv venv --directory apps/mcp`
-- Install deps:
-  - `uv pip install --python apps/mcp/.venv/bin/python -r apps/mcp/pyproject.toml`
+## Per-package commands
 
-(If you already have a Python env manager, keep it consistent; this repo expects `uv`.)
+Scope to a single workspace with `pnpm -C <dir> <script>`:
 
-## Common commands (root)
+- `pnpm -C apps/api test`
+- `pnpm -C apps/web dev`
+- `pnpm -C apps/mcp dev`
+- `pnpm -C packages/modules/openapi test`
 
-Scripts in `package.json`:
+Or filter via Turbo:
 
-- Build all: `pnpm build`
-- Start all (depends on build): `pnpm start`
-- Tests all: `pnpm test`
-- Lint/format check (all): `pnpm check`
-- Lint/format fix (all): `pnpm check:fix`
-- Typecheck all: `pnpm typecheck`
+- `pnpm turbo test --filter=@mci/api`
+- `pnpm turbo build --filter=./apps/mcp`
 
-Notes:
-- Turbo runs tasks across packages; if you only changed one area, prefer filtering.
+## App-specific scripts
 
-## Run a single package task
+### `apps/api`
 
-Use `pnpm -C` for a specific workspace package/app:
+- Dev: `pnpm -C apps/api dev`
+- DB (Drizzle): `db:generate`, `db:migrate`, `db:push`, `db:studio`
+- OpenAPI definition: `pnpm -C apps/api openapi:generate`
+- Env vars are documented in `apps/api/.example.env`.
 
-- API tests: `pnpm -C apps/api test`
-- API check (biome): `pnpm -C apps/api check`
-- Web check: `pnpm -C apps/web check`
-- Core tests: `pnpm -C packages/libs/core test`
+### `apps/web`
 
-## Turbo filtering (recommended)
+- Dev: `pnpm -C apps/web dev`
+- Preview built bundle: `pnpm -C apps/web start`
 
-Run tasks for a subset of packages using `--filter`:
+### `apps/mcp`
 
-- Build API only: `pnpm turbo build --filter=@mci/api`
-- Test API only: `pnpm turbo test --filter=@mci/api`
-- Check web only: `pnpm turbo check --filter=@mci/web`
-- Typecheck core only: `pnpm turbo typecheck --filter=@mci/core`
-
-You can also filter by directory:
-- `pnpm turbo test --filter=./apps/api`
+- Dev (watch via `tsx`): `pnpm -C apps/mcp dev`
+- Built server entry: `dist/server.js`
 
 ## Tests (Vitest)
 
-Most TS packages use `vitest run` and a common include pattern:
-- `src/**/*.test.ts`
-- `tests/**/*.test.ts`
+- Unit tests live next to code as `*.test.ts`.
+- Module packages (`packages/modules/*`) also have a `tests/**` folder for
+  broader/integration tests.
+- The `@mci/sdk` package currently has no tests.
 
-### Run all tests in a package
+Run a single file or filter by name:
 
-- `pnpm -C apps/api test`
-- `pnpm -C packages/libs/core test`
+```bash
+pnpm -C apps/api test src/middleware/auth.middleware.test.ts
+pnpm -C apps/api test -t "should reject"
+```
 
-### Run a single test file
+Watch mode (the `test` script uses `vitest run`):
 
-From the package directory:
-
-- `pnpm -C apps/api test -- src/middleware/auth.middleware.test.ts`
-
-From within the package:
-
-- `pnpm test -- src/middleware/auth.middleware.test.ts`
-
-### Run a single test by name
-
-- `pnpm -C apps/api test -- -t "auth"`
-- `pnpm -C apps/api test -- -t "should reject"`
-
-### Watch mode
-
-This repo’s scripts use `vitest run` by default; for watch, call vitest directly:
-
-- `pnpm -C apps/api vitest`
-- `pnpm -C apps/api vitest src/.../file.test.ts`
-- `pnpm -C apps/api vitest -t "test name"`
-
-(If `pnpm vitest` isn’t available, use `pnpm -C apps/api exec vitest ...`.)
-
-## API app dev commands
-
-From `apps/api/package.json`:
-
-- Dev server: `pnpm -C apps/api dev`
-- Build: `pnpm -C apps/api build`
-- Start built server: `pnpm -C apps/api start`
-- Database (Drizzle):
-  - `pnpm -C apps/api db:generate`
-  - `pnpm -C apps/api db:migrate`
-  - `pnpm -C apps/api db:push`
-  - `pnpm -C apps/api db:studio`
-- OpenAPI generation: `pnpm -C apps/api openapi:generate`
-
-## Web app dev commands
-
-From `apps/web/package.json`:
-
-- Dev: `pnpm -C apps/web dev`
-- Build: `pnpm -C apps/web build`
-- Preview: `pnpm -C apps/web start`
-
-## Python (apps/mcp) commands
-
-`apps/mcp/pyproject.toml` config:
-- Ruff line length: 88
-- Target Python: 3.12
-- Ruff lint selects: `E`, `F`, `I` (pycodestyle errors, pyflakes, isort)
-
-Suggested commands (run in repo root):
-
-- Ruff lint: `uv run --directory apps/mcp ruff check .`
-- Ruff fix: `uv run --directory apps/mcp ruff check --fix .`
-- Ruff format: `uv run --directory apps/mcp ruff format .`
-- Pyright typecheck: `uv run --directory apps/mcp pyright`
-
-If you need the venv python explicitly:
-- `apps/mcp/.venv/bin/python -m ruff check .`
-
-## Formatting & linting (Biome)
-
-Biome is configured at repo root (`biome.json`) and covers:
-- `apps/api/**`, `apps/web/**`, `packages/**`
-- excludes `**/dist`, `**/build`, `**/node_modules`
-
-Commands:
-- Check: `pnpm check` or `pnpm -C <pkg> check`
-- Fix: `pnpm check:fix` or `pnpm -C <pkg> check:fix`
-
-Biome also organizes imports (`assist.actions.source.organizeImports = "on"`).
+```bash
+pnpm -C apps/api exec vitest
+```
 
 ## TypeScript conventions
 
-TypeScript settings are generally:
-- `strict: true`
-- ESM modules (`"type": "module"` in libs)
-- `moduleResolution: "bundler"`
-- `target: ES2022`
-- Path alias: `@/*` maps to `src/*` (per-package)
+Per-package `tsconfig.json` settings are consistent:
 
-### Types
+- `strict: true`, ESM, `moduleResolution: "bundler"`, `target: ES2022`
+- Path alias: `@/*` → `src/*`
 
-- Prefer explicit types at module boundaries: exported functions/classes, public service APIs.
+Style:
+
+- Prefer explicit types at module boundaries.
 - Avoid `any`; prefer `unknown` + narrowing.
-- Prefer `type` for unions/intersections; use `interface` when you expect declaration merging
-  or class implementation.
+- `type` for unions/intersections; `interface` when declaration merging or
+  class `implements` is needed.
 - Use `import type { ... }` for type-only imports.
+- Node built-ins use the `node:` prefix.
+- Import groups (Biome will normalize): node built-ins → externals → workspace
+  (`@mci/*`, `@/...`) → relative.
 
-### Naming
+Naming: `kebab-case` files in `apps/api/src/**`, `camelCase` for
+functions/vars, `PascalCase` for classes/types, `SCREAMING_SNAKE_CASE` only
+for true constants, tests `*.test.ts`.
 
-- Files: `kebab-case` for multiword (common in `apps/api/src/...`), keep existing conventions.
-- Functions/variables: `camelCase`
-- Classes/types: `PascalCase`
-- Constants: `SCREAMING_SNAKE_CASE` only for true constants.
-- Tests: `*.test.ts` (this repo uses that pattern).
-
-### Imports
-
-Follow existing patterns:
-
-- Node built-ins use the `node:` prefix:
-  - `import path from "node:path";`
-  - `import { createHash } from "node:crypto";`
-- Keep import groups separated by a blank line (Biome will normalize):
-  1) Node built-ins
-  2) External deps
-  3) Workspace/internal (`@mci/*`, `@/...`)
-  4) Relative imports
-
-### Formatting
-
-- Let Biome handle formatting; do not fight it.
-- Quote style: double quotes (see `biome.json`).
-- Indentation: spaces.
+Formatting: let Biome handle it (double quotes, spaces).
 
 ## Error handling & logging
 
 - Prefer typed errors and explicit error pathways.
-- Avoid swallowing errors; when you catch, either:
-  - add relevant context and rethrow, or
-  - return a structured error result, or
-  - translate to HTTP errors (API) with consistent status codes.
+- Don't swallow errors — add context and rethrow, return a structured result,
+  or translate to a consistent HTTP error.
+- The API uses `pino` / `pino-http`. Use structured logs with stable keys
+  (`requestId`, `userId`, `adapterId`). Never log secrets.
 
-API uses `pino`/`pino-http`; prefer structured logs:
-- include stable keys (e.g. `requestId`, `userId`, `adapterId`)
-- avoid logging secrets (tokens, auth headers, credentials)
-
-## Testing guidelines
-
-- Prefer deterministic tests; avoid relying on timing.
-- Use `describe/it` naming that matches behavior.
-- For integration/e2e tests that start servers, ensure proper cleanup.
-- When adding a test, match existing placement:
-  - unit tests near code in `src/**.test.ts`
-  - broader tests in `tests/**`
+---
 
 ## Working as an agent
 
-- Minimize scope: change only what the request requires.
-- Keep edits consistent with existing code style and patterns.
-- If you add scripts/config, prefer repo-root shared config unless a package needs overrides.
-- Run the narrowest validation command that proves the change.
+### Do not hand-edit `package.json` for dependencies
 
-## Quick validation recipes
+If a CLI command can do it, use the CLI. **Never** hand-edit `dependencies`,
+`devDependencies`, `peerDependencies`, `scripts` you could add via `pnpm pkg
+set`, package names, versions, or workspace links — pnpm keeps the lockfile,
+the workspace graph, and `node_modules` in sync, and manual edits silently
+break that.
 
-For TS-only changes in API:
-- `pnpm -C apps/api check`
-- `pnpm -C apps/api typecheck`
-- `pnpm -C apps/api test -- src/path/to/file.test.ts`
+Use:
 
-For repo-wide sanity:
-- `pnpm check:fix`
-- `pnpm typecheck`
-- `pnpm test`
+- New workspace: `pnpm init` inside the directory
+- Add a dep to a workspace: `pnpm -C <dir> add <pkg>`
+- Add a dev dep: `pnpm -C <dir> add -D <pkg>`
+- Add a workspace dep: `pnpm -C <dir> add <pkg-name> --workspace`
+- Remove a dep: `pnpm -C <dir> remove <pkg>`
+- Bump versions: `pnpm up <pkg>` (optionally `--latest`, `-r` for recursive)
+- Set/unset fields scriptably: `pnpm pkg set scripts.foo="…"`
+- Run a script: `pnpm -C <dir> <script>` (don't add ad-hoc one-shot scripts)
+
+You **may** edit `package.json` directly only for changes pnpm has no command
+for: `engines`, `exports`/`main`/`types` maps, `private`, `type`, `files`,
+`packageManager`, custom metadata, or fixing up a `scripts` entry whose
+content is non-trivial (multi-flag commands, env prefixes, chained `&&`).
+When in doubt, prefer the CLI.
+
+After any dependency change, commit both `package.json` **and** the updated
+`pnpm-lock.yaml`.
+
+### Always validate after substantive changes
+
+After feature work, refactors, renames, or any change touching more than one
+file, run the full repo-wide gauntlet from the root:
+
+```bash
+pnpm check:fix
+pnpm typecheck
+pnpm test
+```
+
+Turbo's caching makes this cheap on a clean tree. Iterating? Use the scoped
+forms (`pnpm -C <pkg> ...` or `pnpm turbo … --filter=…`) while working, then
+run the repo-wide trio before declaring the task done. Trivial doc-only or
+single-file comment edits don't need it; anything that changes runtime
+behavior or types does.
+
+### Scope and style
+
+- Change only what the request requires.
+- Match existing patterns in the area you're editing — don't introduce a new
+  convention to fix a small bug.
+- Prefer shared root config (Biome, TS) over per-package overrides unless a
+  package genuinely needs one.
+- If something in the repo is ambiguous or contradicts these instructions,
+  **ask** rather than guess. Everything not covered here is in the repo —
+  read the relevant `package.json`, `tsconfig.json`, `vitest.config.ts`, or
+  source file.
