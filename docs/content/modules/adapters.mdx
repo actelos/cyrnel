@@ -1,0 +1,111 @@
+---
+title: "Adapter Modules"
+description: "Modules that connect MCI to end services"
+sidebarTitle: "Adapter Modules"
+---
+
+An **adapter module** is the part of MCI that knows how to talk to a
+specific kind of end service. It is responsible for:
+
+1. **Parsing definitions.** Turning whatever the user supplied at install
+   time (an OpenAPI document, a gRPC proto, a custom JSON descriptor, …)
+   into a `ServiceDefinition` MCI can store.
+2. **Holding runtime state.** Storing per-service config and secrets, and
+   any `adapterDomain` metadata produced at install time.
+3. **Invoking tools.** Translating a generic
+   `{ serviceId, toolId, parameters }` invocation into a real call to the
+   underlying service.
+
+Adapter modules implement the SDK [`AdapterModule`](/spec/adapter-module)
+interface.
+
+## Lifecycle
+
+```ts
+interface AdapterModule extends Module {
+  generateDefinition(input: string): Promise<ServiceDefinition>;
+  hydrateService(state: ServiceState): Promise<void>;
+  dehydrateService(id: string): Promise<void>;
+  invoke(input: InvokeInput): Promise<unknown>;
+}
+```
+
+1. **`setup({})`** — called once when the adapter is activated.
+2. **`generateDefinition(content)`** — called during `POST /services/install`
+   and `POST /services/:id/update`. Pure: given the same definition string,
+   should produce the same `ServiceDefinition`.
+3. **`hydrateService(state)`** — called whenever a service that targets this
+   adapter is enabled, has its config or secrets patched, or this adapter is
+   activated while the service is already enabled. Receives a snapshot:
+
+   ```ts
+   interface ServiceState {
+     id: string;
+     adapterDomain: Record<string, unknown>;
+     tools: Record<string, ToolState>;
+     config: Record<string, unknown>;
+     secrets: Record<string, unknown>;
+   }
+   ```
+
+   The adapter is expected to store this and use it on subsequent
+   `invoke` calls.
+4. **`dehydrateService(id)`** — called when a service is disabled, deleted,
+   or updated. The adapter should drop any state it kept for that service.
+5. **`invoke(input)`** — called once per tool call. Must throw for an
+   unknown `(serviceId, toolId)` pair or any transport-level failure.
+6. **`teardown()`** — called when the adapter is deactivated. Should release
+   any pooled resources.
+
+## Security Model
+
+Adapter modules are the **most security-sensitive** part of MCI. They:
+
+- Receive **decrypted secrets** via `ServiceState.secrets`.
+- Make **outbound network requests** (or open files, or send messages,
+  etc.) to end services on behalf of users.
+- Run in the **host Node.js process** with full host permissions — they are
+  not sandboxed.
+
+Concretely, the trust boundary is "the operator of the MCI server" decides
+which adapters to enable. Every enabled adapter can:
+
+- Read every secret of every service it owns.
+- Reach anything reachable from the host.
+- Persist or transmit anything it receives.
+
+### Implications
+
+- **Treat the contents of `$MCI_DATA_DIR/modules/` as code with full host
+  privileges.** Use the same review you would use for any other server
+  code. A malicious adapter trivially exfiltrates secrets.
+- **Don't enable adapters you can't read.** "Plug-and-play" is convenient
+  but not safe.
+- **Don't reuse `MCI_SECRETS_KEY` across environments.** A leaked key,
+  combined with a copy of `mci.db`, decrypts every secret of every service.
+- **Be careful with `adapterDomain`.** It is persisted in plaintext in the
+  `services` table. If the adapter places URLs, header templates, or other
+  identifying metadata there, treat that table as sensitive too.
+
+### What an adapter must not do
+
+- **Persist secrets outside `ServiceState`.** All secret retention must be
+  in-memory; if the process restarts, `hydrateService` is called again.
+  Writing them to disk silently breaks the encryption guarantee MCI is
+  trying to give the operator.
+- **Drop authentication on retry.** If a request fails, retry with the same
+  credentials, not without them.
+- **Hold per-service state in a way that survives `dehydrateService`.**
+
+See [Security](/content/security) for the broader picture.
+
+## Authoring
+
+See [Writing a custom module](/spec/writing-a-custom-module) for the file
+layout and registration mechanics, and [`AdapterModule`](/spec/adapter-module)
+for the interface in full.
+
+## Built-in
+
+- **[`openapi`](/content/builtins/openapi)** — turns an OpenAPI document
+  into a service whose tools correspond to operations.

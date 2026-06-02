@@ -1,0 +1,99 @@
+---
+title: "Environment Modules"
+description: "Modules that execute the code clients submit"
+sidebarTitle: "Environment Modules"
+---
+
+An **environment module** runs the code clients submit through
+`POST /processes`. It owns:
+
+1. **Code execution.** Transpiling, sandboxing, and running submitted code.
+2. **Runtime bindings.** Exposing the `mci.*` API (or whatever shape it
+   prefers) so user code can discover and invoke tools.
+3. **Output capture.** Streaming stdout, stderr, and structured output back
+   to the host through callbacks.
+4. **Cancellation and timeouts.** Honouring `kill(eid)` and respecting
+   `options.timeoutMs`.
+
+Environment modules implement the SDK
+[`EnvironmentModule`](/spec/environment-module) interface.
+
+## Lifecycle
+
+```ts
+interface EnvironmentModule extends Module {
+  setup(context: EnvironmentSetupContext): Promise<void>;
+  execute(input: ExecutionInput): Promise<ExecutionExitState>;
+  kill(eid: number): Promise<void>;
+  generateDocs(): Promise<string>;
+  generateToolDocs(input: ToolDocsInput): Promise<string>;
+  teardown(): Promise<void>;
+}
+```
+
+1. **`setup({ bindings })`** — called when the environment is activated.
+   `bindings` is the [`EnvironmentBindings`](/spec/bindings) callback
+   surface back into the host (discovery, invocation, state, output).
+2. **`execute(input)`** — called for each process. `input.eid` is the
+   process id; the environment must use it on every callback so the host
+   can route stdout/stderr/output to the right process.
+3. **`kill(eid)`** — interrupt a running or queued execution. Should
+   return promptly.
+4. **`generateDocs()`** — return a Markdown string describing the
+   environment's globals. Surfaced by `GET /environment/docs`.
+5. **`generateToolDocs(input)`** — return Markdown describing how to call a
+   single tool inside this environment. Surfaced by
+   `GET /tools/:serviceId/:toolId/docs`.
+6. **`teardown()`** — called when the environment is deactivated.
+
+## Active environment vs draining
+
+Only one environment is active at a time — the one whose `modules` row has
+`enabled = true`. Switching environments (or disabling the active one)
+moves it to a **draining** state: no new executions are dispatched to it,
+but in-flight ones run to completion. Once the last execution finishes, MCI
+calls `teardown()` on it.
+
+This means:
+
+- An environment's `execute` may be called after another environment is
+  active. Implementations must not assume "active" and "currently running
+  executions" are the same set.
+- `kill` may be called during draining. Honour it.
+
+## Security Model
+
+Environment modules own the security boundary user code runs inside. Their
+job, more than anything else, is to make sure user code **cannot do
+anything the environment didn't intend to expose**.
+
+For the bundled `typescript-ivm`:
+
+- Code runs in an `isolated-vm` isolate with a hard memory limit.
+- The isolate has **no module loader, no filesystem, no network, no Node
+  built-ins**. The only escape hatches are the references MCI installs.
+- Timeouts terminate the isolate; the worker slot is recreated rather than
+  reused.
+
+If you write a custom environment, the relevant questions are:
+
+- What can user code reach? (Network? Filesystem? Native code?)
+- Can a malicious process exhaust resources? (CPU loops, memory, file
+  descriptors.)
+- Can one execution affect another? (Shared globals, persisted state.)
+- How are credentials exposed? (Adapter modules see secrets; environments
+  should not.)
+
+See [Security](/content/security) for the broader picture.
+
+## Authoring
+
+See [Writing a custom module](/spec/writing-a-custom-module) for file
+layout and registration. See
+[`EnvironmentModule`](/spec/environment-module) for the interface and
+[`EnvironmentBindings`](/spec/bindings) for the callback surface.
+
+## Built-in
+
+- **[`typescript-ivm`](/content/builtins/typescript-ivm)** — TypeScript /
+  JavaScript runtime backed by `isolated-vm`.

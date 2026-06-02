@@ -1,114 +1,171 @@
 ---
 title: "Processes"
-description: "Creating and managing processes"
+description: "Creating, running, and inspecting processes"
 ---
 
-A process is a stateful execution unit in MCI. When a client submits code, MCI creates a process with a unique process ID (PID). Process execution does not block the client request unless blocking is explicitly requested.
-
-See [Architecture](/architecture) for how processes fit into the overall system: environments execute code, adapters perform service invocations, and pools manage module lifecycle.
+A process is a stateful execution unit in MCI. When a client submits code,
+MCI creates a process with a unique process id (`pid`), runs it on the active
+[environment module](/content/modules/environments), captures its output, and
+exposes those outputs by `pid`. Process execution does not block the client
+request unless `block: true` is set.
 
 ## Process Model
 
-Each process contains:
+Each process is an in-memory record with the following fields:
 
-- `pid`: unique process identifier
-- `ref`: optional reference label
-- `state`: lifecycle phase
-- `status`: execution outcome
+- `pid`: unique process identifier (integer, reused after deletion)
+- `ref`: optional reference label (trimmed; must be non-empty if present)
+- `state`: lifecycle phase (see below)
+- `exitState`: execution outcome (see below)
+- `error`: error message if the process failed, otherwise `null`
+- `code`: the submitted source
+- `options.timeoutMs`: per-process timeout in milliseconds, or `null` to disable
+- `output`: structured key/value payload emitted by `mci.output(...)`
+- `stdout`, `stderr`: captured byte buffers
 
-### Process States
+<Warning>
+  Process records are **in-memory only**. Restarting the API clears them.
+</Warning>
 
-- `idle`: not executing
-- `queued`: waiting for execution
-- `running`: currently executing
-- `terminating`: shutting down after a kill signal
+### Process states
 
-### Process Status Values
+| State | Meaning |
+| --- | --- |
+| `queued` | Waiting for the environment to pick it up. |
+| `running` | Currently executing inside the environment. |
+| `terminating` | A `kill` signal was issued; the runtime is winding it down. |
+| `idle` | Not executing. Either it hasn't been run yet, or it has finished. |
 
-- `null`: no outcome yet
-- `success`: execution completed successfully
-- `failed`: execution ended with an error
-- `timeout`: execution exceeded timeout limit
-- `canceled`: execution was canceled by a kill signal
+### Process exit states
+
+| Exit state | Meaning |
+| --- | --- |
+| `null` | No outcome yet. |
+| `success` | Code completed without throwing. |
+| `failed` | Code threw, or the environment reported failure. `error` is populated. |
+| `timeout` | Execution exceeded `options.timeoutMs`. |
+| `canceled` | A `kill` signal interrupted the execution. |
 
 ## Create a Process
 
-Endpoint: `POST /processes`
-
-Request body:
+`POST /processes`
 
 ```json
 {
-	"code": "string",
-	"ref": "optional string",
-	"timeout": 30000,
-	"block": false
+  "code": "string",
+  "ref": "optional string",
+  "block": false,
+  "options": {
+    "timeout": 30000
+  }
 }
 ```
 
 Rules:
 
-- `code` is required
-- `ref` is optional and trimmed
-- `timeout` must be a positive integer or `null`
-- `block` is optional and controls whether the request waits for completion
+- `code` is **required** and must be a string.
+- `ref` is optional, trimmed, and must be non-empty if present.
+- `options.timeout` is in milliseconds. Must be a **positive integer**, or
+  `null` to disable. Default: `30000`.
+- `block` defaults to `false`.
 
-Response when non-blocking:
+Response (`201`):
 
 ```json
 { "pid": 42 }
 ```
 
-## Blocking and Non-Blocking Behavior
+If `block: true`, MCI polls until `state === "idle"` before responding. The
+HTTP status is still `201`.
 
-- Non-blocking: create returns immediately with `pid`; client polls for result later.
-- Blocking (`block: true`): create waits until process returns to `idle` and then returns final process state.
+## Run an Existing Process
 
-Client-facing asynchronous behavior means the client request can return immediately while execution proceeds separately. Implementation note: the current `ProcessService` implementation schedules processes in a FIFO queue and executes them one at a time (single active execution). Clients may submit many processes concurrently, but they will be queued and executed serially by the server.
-
-## Timeout Behavior
-
-- Default timeout is 30000 ms if not provided.
-- `timeout: null` disables timeout.
-- If execution exceeds timeout, process status becomes `timeout`.
-
-Implementation note: the default timeout used by the runtime is 30_000ms unless overridden per-process or by server configuration.
-
-## Process Signals
-
-### Run signal
-
-Endpoint: `POST /processes/:pid/signals/run`
-
-Optional body:
+`POST /processes/:pid/signals/run`
 
 ```json
-{ "force": true, "block": false }
+{ "force": false, "block": false }
 ```
 
-- Process must be `idle` before run signal.
-- If process has existing outputs, `force: true` is required to overwrite.
-- `block: true` waits until process returns to `idle`.
+- The process must currently be `idle`.
+- If the process has stored outputs (any of `exitState`, `output`, `stdout`,
+  `stderr` is non-empty), `force: true` is required to overwrite them.
+- `block: true` waits until the run completes.
 
-### Kill signal
+Response (`200`): the process record.
 
-Endpoint: `POST /processes/:pid/signals/kill`
+## Kill a Process
 
-- If process is `queued`, it becomes `idle` with status `canceled`.
-- If process is `running`, it moves to `terminating`, then to `idle` with status `canceled`.
+`POST /processes/:pid/signals/kill`
 
-## Retrieve Process Data
+```json
+{}
+```
 
-- `GET /processes` list processes with optional filters: `state`, `status`, `ref`
-- `GET /processes/:pid` get process metadata
-- `GET /processes/:pid/code` get submitted code
-- `GET /processes/:pid/output` get structured output (only when `state = idle`)
-- `GET /processes/:pid/stdout` get stdout (only when `state = idle`)
-- `GET /processes/:pid/stderr` get stderr (only when `state = idle`)
+- If the process is `queued`, it transitions straight to `idle` with
+  `exitState = "canceled"`.
+- If `running`, it moves to `terminating` first, then to `idle` with
+  `exitState = "canceled"` once the environment confirms.
+- If already `idle`, the call returns `409`.
 
-## Minimal Flow Example
+Response (`200`): the process record.
 
-1. `POST /processes` with code
-2. Receive `{ "pid": ... }`
-3. Poll `GET /processes/:pid` until `state` is `idle`
-4. Fetch `GET /processes/:pid/output`, `stdout`, or `stderr`
+## Inspect a Process
+
+| Method | Path | Returns |
+| --- | --- | --- |
+| `GET` | `/processes` | `{ processes: ProcessRecord[] }` (filterable) |
+| `GET` | `/processes/:pid` | the process record |
+| `GET` | `/processes/:pid/code` | submitted source as `text/plain` |
+| `GET` | `/processes/:pid/output` | structured output as JSON |
+| `GET` | `/processes/:pid/stdout` | captured stdout as `text/plain` |
+| `GET` | `/processes/:pid/stderr` | captured stderr as `text/plain` |
+
+`/output`, `/stdout`, and `/stderr` return `409` unless the process is
+`idle`.
+
+### Filtering `/processes`
+
+Query parameters:
+
+- `state` — one of `idle | queued | running | terminating`
+- `status` — one of `success | failed | timeout | canceled | null`
+- `ref` — exact match (trimmed, non-empty)
+
+## Delete a Process
+
+`DELETE /processes/:pid`
+
+The process must be `idle`. The `pid` is recycled into the pool and reused
+by future creates.
+
+## Minimal Flow
+
+```bash
+# 1. submit code
+curl -X POST http://localhost:7687/processes \
+  -H 'content-type: application/json' \
+  -d '{"code":"mci.output({ hello: 42 });","block":true}'
+# { "pid": 1 }
+
+# 2. fetch outputs
+curl http://localhost:7687/processes/1/output
+# { "hello": 42 }
+```
+
+## Concurrency and Scheduling
+
+`ProcessService.create` starts an execution immediately and tracks it in an
+internal map. There is no API-level queue. The active environment module
+decides how many executions to run in parallel — the bundled
+[`typescript-ivm`](/content/builtins/typescript-ivm) maintains a small pool
+of isolates (default `2`) and queues anything beyond that internally.
+
+## Common Pitfalls
+
+- **`status` vs `exitState`** — the query parameter is `status`, but the
+  field on the record is `exitState`. The two map onto the same values.
+- **`timeout` is in milliseconds**, not seconds, and lives under `options`,
+  not at the top level.
+- **Output endpoints `409` while the process is non-idle**. Either poll
+  `GET /processes/:pid` until `state === "idle"` or use `block: true` on
+  create/run.

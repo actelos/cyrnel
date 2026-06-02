@@ -12,268 +12,18 @@
   ],
   "components": {
     "schemas": {
-      "ServiceInstallRequest": {
+      "ApiErrorResponse": {
         "type": "object",
         "properties": {
-          "type": {
+          "error": {
             "type": "string",
-            "minLength": 1,
-            "description": "Service adapter type to install, such as a registry or transport implementation."
-          },
-          "source": {
-            "anyOf": [
-              {
-                "type": "string",
-                "minLength": 1,
-                "description": "Direct URL to the service definition file."
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "file_url": {
-                    "type": "string",
-                    "description": "Primary definition URL for the service."
-                  },
-                  "metadata": {
-                    "type": "object",
-                    "properties": {
-                      "file_url": {
-                        "type": "string",
-                        "description": "Fallback definition URL stored in metadata."
-                      }
-                    },
-                    "description": "Optional metadata container used by some registries."
-                  }
-                },
-                "description": "Structured registry payload that may contain the definition URL in the root or metadata."
-              }
-            ],
-            "description": "Registry definition location. The controller normalizes this before downloading the manifest."
+            "description": "Human-readable error message returned by the API."
           }
         },
         "required": [
-          "type",
-          "source"
+          "error"
         ],
-        "description": "Request body used to install a service manifest from a registry definition file."
-      },
-      "ServiceListItem": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Normalized service name used as the manifest identifier."
-          },
-          "type": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Service adapter type declared by the manifest."
-          },
-          "source": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Normalized install source used to fetch the manifest definition."
-          },
-          "description": {
-            "type": "string",
-            "description": "Human-readable summary of the service manifest."
-          },
-          "hash": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Content hash of the currently installed manifest definition."
-          },
-          "enabled": {
-            "type": "boolean",
-            "description": "Whether the service is currently allowed to participate in staging and discovery."
-          }
-        },
-        "required": [
-          "name",
-          "type",
-          "source",
-          "description",
-          "hash",
-          "enabled"
-        ],
-        "description": "Compact service summary returned by list and discovery operations."
-      },
-      "ServiceDiscoverItem": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Normalized service name used for discovery results."
-          },
-          "description": {
-            "type": "string",
-            "description": "Short description of the service that helps users identify it."
-          },
-          "enabled": {
-            "type": "boolean",
-            "description": "Whether the service is currently enabled."
-          }
-        },
-        "required": [
-          "name",
-          "description",
-          "enabled"
-        ],
-        "description": "Service discovery entry used by higher-level search and browse flows."
-      },
-      "ServiceDetails": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Normalized service name used as the manifest identifier."
-          },
-          "type": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Service adapter type declared by the manifest."
-          },
-          "source": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Normalized source used to install or update the manifest."
-          },
-          "description": {
-            "type": "string",
-            "description": "Human-readable service description."
-          },
-          "hash": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Content hash of the installed manifest definition."
-          },
-          "enabled": {
-            "type": "boolean",
-            "description": "Whether the service is enabled for staging and execution."
-          },
-          "configSchema": {
-            "type": "object",
-            "additionalProperties": {
-              "nullable": true
-            },
-            "description": "JSON Schema describing the service configuration object."
-          },
-          "secretsSchema": {
-            "type": "object",
-            "additionalProperties": {
-              "nullable": true
-            },
-            "description": "JSON Schema describing the service secrets object."
-          }
-        },
-        "required": [
-          "name",
-          "type",
-          "source",
-          "description",
-          "hash",
-          "enabled",
-          "configSchema",
-          "secretsSchema"
-        ],
-        "description": "Complete service metadata payload returned by the service detail endpoint."
-      },
-      "ToolListItem": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Tool name as exposed by the service manifest."
-          },
-          "description": {
-            "type": "string",
-            "description": "Human-readable tool description."
-          },
-          "enabled": {
-            "type": "boolean",
-            "description": "Whether the tool is enabled for invocation."
-          }
-        },
-        "required": [
-          "name",
-          "description",
-          "enabled"
-        ],
-        "description": "Tool summary returned when listing tools for a service."
-      },
-      "ToolDiscoverItem": {
-        "type": "object",
-        "properties": {
-          "serviceName": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Owning service name for the discovered tool."
-          },
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Tool name as exposed by the service manifest."
-          },
-          "description": {
-            "type": "string",
-            "description": "Human-readable tool description."
-          },
-          "enabled": {
-            "type": "boolean",
-            "description": "Whether the tool is currently enabled and callable."
-          }
-        },
-        "required": [
-          "serviceName",
-          "name",
-          "description",
-          "enabled"
-        ],
-        "description": "Tool discovery entry used by search endpoints and discovery messages."
-      },
-      "ToolDetails": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Tool name as exposed by the service manifest."
-          },
-          "description": {
-            "type": "string",
-            "description": "Human-readable tool description."
-          },
-          "enabled": {
-            "type": "boolean",
-            "description": "Whether the tool is enabled after accounting for the parent service state."
-          },
-          "inputSchema": {
-            "type": "object",
-            "additionalProperties": {
-              "nullable": true
-            },
-            "description": "JSON Schema describing the tool input payload."
-          },
-          "outputSchema": {
-            "type": "object",
-            "additionalProperties": {
-              "nullable": true
-            },
-            "description": "JSON Schema describing the tool output payload."
-          }
-        },
-        "required": [
-          "name",
-          "description",
-          "enabled",
-          "inputSchema",
-          "outputSchema"
-        ],
-        "description": "Expanded tool metadata payload returned by the tool detail endpoint."
+        "description": "Standard error envelope returned by the HTTP error middleware."
       },
       "Process": {
         "type": "object",
@@ -287,19 +37,19 @@
           "ref": {
             "type": "string",
             "minLength": 1,
-            "description": "Optional caller-supplied reference string used to group related processes."
+            "description": "Optional caller-supplied reference string used to correlate related processes."
           },
           "state": {
             "type": "string",
             "enum": [
-              "idle",
               "queued",
               "running",
+              "idle",
               "terminating"
             ],
             "description": "Current lifecycle state of the process."
           },
-          "status": {
+          "exitState": {
             "type": "string",
             "nullable": true,
             "enum": [
@@ -309,15 +59,21 @@
               "canceled",
               null
             ],
-            "description": "Terminal outcome of the process when it reaches the idle state."
+            "description": "Terminal exit state of the process. Null until the process becomes idle."
+          },
+          "error": {
+            "type": "string",
+            "nullable": true,
+            "description": "Error message captured during execution, or null if no error occurred."
           }
         },
         "required": [
           "pid",
           "state",
-          "status"
+          "exitState",
+          "error"
         ],
-        "description": "Process status snapshot returned by process management endpoints."
+        "description": "Process snapshot returned by the process management endpoints."
       },
       "ProcessListResponse": {
         "type": "object",
@@ -327,7 +83,7 @@
             "items": {
               "$ref": "#/components/schemas/Process"
             },
-            "description": "Processes matching the provided query filters."
+            "description": "Processes that match the provided query filters."
           }
         },
         "required": [
@@ -340,7 +96,7 @@
         "properties": {
           "code": {
             "type": "string",
-            "description": "Executable source code or script body to stage and run in the process environment."
+            "description": "Executable source code to stage and run in the active environment."
           },
           "block": {
             "type": "boolean",
@@ -351,18 +107,24 @@
             "minLength": 1,
             "description": "Optional reference label used for filtering and correlation."
           },
-          "timeout": {
-            "type": "integer",
-            "nullable": true,
-            "minimum": 0,
-            "exclusiveMinimum": true,
-            "description": "Optional timeout in milliseconds. Null explicitly clears the timeout."
+          "options": {
+            "type": "object",
+            "properties": {
+              "timeout": {
+                "type": "integer",
+                "nullable": true,
+                "minimum": 0,
+                "exclusiveMinimum": true,
+                "description": "Execution timeout in milliseconds. Use null to explicitly clear the timeout."
+              }
+            },
+            "description": "Optional execution options for the process."
           }
         },
         "required": [
           "code"
         ],
-        "description": "Request body used to create a new process entry."
+        "description": "Request body used to create a new process."
       },
       "ProcessCreatedResponse": {
         "type": "object",
@@ -371,20 +133,20 @@
             "type": "integer",
             "minimum": 0,
             "exclusiveMinimum": true,
-            "description": "Numeric identifier assigned to the newly created process."
+            "description": "Identifier assigned to the newly created process."
           }
         },
         "required": [
           "pid"
         ],
-        "description": "Response returned when a process is created."
+        "description": "Response returned after a process is created."
       },
       "ProcessOutput": {
         "type": "object",
         "additionalProperties": {
           "nullable": true
         },
-        "description": "Structured output collected from the process execution environment."
+        "description": "Structured output emitted by the process during execution."
       },
       "RunSignalRequest": {
         "type": "object",
@@ -395,7 +157,7 @@
           },
           "block": {
             "type": "boolean",
-            "description": "When true, waits until execution completes before returning."
+            "description": "When true, waits until execution completes before responding."
           }
         },
         "description": "Request body used to dispatch a run signal to an existing process."
@@ -406,6 +168,85 @@
           "nullable": true
         },
         "description": "Any JSON object. The payload is ignored and only object-ness is validated."
+      },
+      "ServiceListItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Service identifier used as the manifest primary key."
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Display name declared by the service manifest."
+          },
+          "description": {
+            "type": "string",
+            "description": "Human-readable description of the service."
+          },
+          "hash": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Content hash of the installed manifest definition."
+          },
+          "source": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Install source used to fetch the manifest definition."
+          },
+          "adapter": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Adapter module identifier that owns the service."
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether the service is currently enabled."
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "description",
+          "hash",
+          "source",
+          "adapter",
+          "enabled"
+        ],
+        "description": "Compact service summary returned by service list and detail endpoints."
+      },
+      "ServiceDetails": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ServiceListItem"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "configSchema": {
+                "type": "object",
+                "additionalProperties": {
+                  "nullable": true
+                },
+                "description": "JSON Schema describing the service configuration object."
+              },
+              "secretsSchema": {
+                "type": "object",
+                "additionalProperties": {
+                  "nullable": true
+                },
+                "description": "JSON Schema describing the service secrets object."
+              }
+            },
+            "required": [
+              "configSchema",
+              "secretsSchema"
+            ]
+          }
+        ],
+        "description": "Service metadata including configuration and secrets schemas."
       },
       "ServiceListResponse": {
         "type": "object",
@@ -421,124 +262,87 @@
         "required": [
           "services"
         ],
-        "description": "Collection wrapper for service listings and discovery responses."
+        "description": "Collection wrapper for service listings."
       },
-      "ToolListResponse": {
+      "ServiceInstallRequest": {
         "type": "object",
         "properties": {
-          "tools": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ToolListItem"
-            },
-            "description": "Tools that belong to the requested service and match any filters."
-          }
-        },
-        "required": [
-          "tools"
-        ],
-        "description": "Collection wrapper for service tool listings."
-      },
-      "DiscoverToolsRequest": {
-        "type": "object",
-        "properties": {
-          "query": {
+          "id": {
             "type": "string",
-            "description": "Free-text query used to match tool names, descriptions, and service names."
+            "minLength": 1,
+            "description": "Identifier to assign to the new service. Must be a valid identifier matching /^[A-Za-z_$][A-Za-z0-9_$]*$/."
           },
-          "limit": {
-            "type": "integer",
-            "minimum": 0,
-            "exclusiveMinimum": true,
-            "description": "Maximum number of matching tools to return."
-          },
-          "enabled": {
-            "type": "boolean",
-            "nullable": true,
-            "description": "When set, returns only enabled tools, only disabled tools, or both when null."
-          }
-        },
-        "description": "Request body used to discover tools across all known services."
-      },
-      "DiscoverServicesRequest": {
-        "type": "object",
-        "properties": {
-          "query": {
+          "source": {
             "type": "string",
-            "description": "Free-text query used to match service names and descriptions."
+            "minLength": 1,
+            "description": "URL of the service definition file to download and install."
           },
-          "limit": {
-            "type": "integer",
-            "minimum": 0,
-            "exclusiveMinimum": true,
-            "description": "Maximum number of matching services to return."
-          },
-          "enabled": {
-            "type": "boolean",
-            "nullable": true,
-            "description": "When set, returns only enabled services, only disabled services, or both when null."
-          }
-        },
-        "description": "Request body used to discover services."
-      },
-      "DiscoverToolsResponse": {
-        "type": "object",
-        "properties": {
-          "tools": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ToolDiscoverItem"
-            },
-            "description": "Discovered tools that satisfy the supplied search query and enabled filter."
+          "adapter": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Adapter module identifier responsible for the service."
           }
         },
         "required": [
-          "tools"
+          "id",
+          "source",
+          "adapter"
         ],
-        "description": "Response body returned by the tool discovery endpoint."
+        "description": "Request body used to install a new service definition."
       },
-      "DiscoverServicesResponse": {
+      "ServiceCreatedResponse": {
         "type": "object",
         "properties": {
-          "services": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ServiceListItem"
-            },
-            "description": "Discovered services that satisfy the supplied search query and enabled filter."
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Identifier assigned to the newly installed service."
           }
         },
         "required": [
-          "services"
+          "id"
         ],
-        "description": "Response body returned by the service discovery endpoint."
+        "description": "Response returned after a service is installed."
       },
       "ServiceUpdateResponse": {
         "type": "object",
         "properties": {
-          "name": {
+          "id": {
             "type": "string",
             "minLength": 1,
-            "description": "Service name that was checked for updates."
+            "description": "Identifier of the service that was checked for updates."
           },
           "updated": {
             "type": "boolean",
-            "description": "Whether the service manifest changed and was rewritten."
+            "description": "Acknowledges that the update request was processed successfully."
           }
         },
         "required": [
-          "name",
+          "id",
           "updated"
         ],
         "description": "Response returned by the service update endpoint."
       },
+      "ServiceEnabledRequest": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Desired enabled state for the service."
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "description": "Request body used to toggle a service enabled state."
+      },
       "ServiceEnabledResponse": {
         "type": "object",
         "properties": {
-          "name": {
+          "id": {
             "type": "string",
             "minLength": 1,
-            "description": "Service name whose enabled state was updated."
+            "description": "Identifier of the service whose enabled state was updated."
           },
           "enabled": {
             "type": "boolean",
@@ -546,35 +350,10 @@
           }
         },
         "required": [
-          "name",
+          "id",
           "enabled"
         ],
         "description": "Response returned after toggling a service enabled state."
-      },
-      "ServiceToolEnabledResponse": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Tool name whose enabled state was updated."
-          },
-          "serviceName": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Owning service name for the tool."
-          },
-          "enabled": {
-            "type": "boolean",
-            "description": "The new enabled state stored for the tool."
-          }
-        },
-        "required": [
-          "name",
-          "serviceName",
-          "enabled"
-        ],
-        "description": "Response returned after toggling a tool enabled state."
       },
       "ServiceConfigurationResponse": {
         "type": "object",
@@ -584,7 +363,7 @@
             "additionalProperties": {
               "nullable": true
             },
-            "description": "Current normalized configuration payload for the service."
+            "description": "Current configuration payload stored for the service."
           }
         },
         "required": [
@@ -637,51 +416,113 @@
         ],
         "description": "Response returned after patching service secrets."
       },
-      "ServiceCreatedResponse": {
+      "ToolListItem": {
         "type": "object",
         "properties": {
+          "serviceId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Identifier of the service that owns the tool."
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Tool identifier exposed by the service manifest."
+          },
           "name": {
             "type": "string",
             "minLength": 1,
-            "description": "Normalized service name assigned to the installed manifest."
+            "description": "Display name declared by the tool definition."
           },
-          "type": {
+          "description": {
             "type": "string",
-            "minLength": 1,
-            "description": "Service adapter type selected during installation."
-          }
-        },
-        "required": [
-          "name",
-          "type"
-        ],
-        "description": "Response returned after successfully installing a new service."
-      },
-      "ApiErrorResponse": {
-        "type": "object",
-        "properties": {
-          "error": {
-            "type": "string",
-            "description": "Human-readable error message returned by the API."
-          }
-        },
-        "required": [
-          "error"
-        ],
-        "description": "Standard error envelope used by the HTTP error middleware."
-      },
-      "ServiceEnabledRequest": {
-        "type": "object",
-        "properties": {
+            "description": "Human-readable tool description."
+          },
           "enabled": {
             "type": "boolean",
-            "description": "Desired enabled state for the service."
+            "description": "Whether the tool is enabled at the manifest level."
+          },
+          "effectivelyEnabled": {
+            "type": "boolean",
+            "description": "Whether the tool is callable after accounting for its parent service state."
           }
         },
         "required": [
-          "enabled"
+          "serviceId",
+          "id",
+          "name",
+          "description",
+          "enabled",
+          "effectivelyEnabled"
         ],
-        "description": "Request body used to enable or disable a service."
+        "description": "Tool summary returned by the tool listing endpoint."
+      },
+      "ToolDetails": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Tool identifier exposed by the service manifest."
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Display name declared by the tool definition."
+          },
+          "description": {
+            "type": "string",
+            "description": "Human-readable tool description."
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether the tool is enabled at the manifest level."
+          },
+          "effectivelyEnabled": {
+            "type": "boolean",
+            "description": "Whether the tool is callable after accounting for its parent service state."
+          },
+          "inputSchema": {
+            "type": "object",
+            "additionalProperties": {
+              "nullable": true
+            },
+            "description": "JSON Schema describing the tool input payload."
+          },
+          "outputSchema": {
+            "type": "object",
+            "additionalProperties": {
+              "nullable": true
+            },
+            "description": "JSON Schema describing the tool output payload."
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "description",
+          "enabled",
+          "effectivelyEnabled",
+          "inputSchema",
+          "outputSchema"
+        ],
+        "description": "Detailed tool metadata returned by the tool detail endpoint."
+      },
+      "ToolListResponse": {
+        "type": "object",
+        "properties": {
+          "tools": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ToolListItem"
+            },
+            "description": "Tools that match the supplied filters."
+          }
+        },
+        "required": [
+          "tools"
+        ],
+        "description": "Collection wrapper for tool listings."
       },
       "ToolEnabledRequest": {
         "type": "object",
@@ -694,139 +535,122 @@
         "required": [
           "enabled"
         ],
-        "description": "Request body used to enable or disable a tool."
+        "description": "Request body used to toggle a tool enabled state."
+      },
+      "ToolEnabledResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Identifier of the tool whose enabled state was updated."
+          },
+          "serviceId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Identifier of the service that owns the tool."
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "The new enabled state stored for the tool."
+          }
+        },
+        "required": [
+          "id",
+          "serviceId",
+          "enabled"
+        ],
+        "description": "Response returned after toggling a tool enabled state."
+      },
+      "Module": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Module identifier."
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Module display name."
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "adapter",
+              "environment"
+            ],
+            "description": "Module type."
+          },
+          "description": {
+            "type": "string",
+            "description": "Human-readable description of the module."
+          },
+          "isBuiltin": {
+            "type": "boolean",
+            "description": "Whether the module is bundled with the API."
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether the module is currently enabled."
+          },
+          "orphaned": {
+            "type": "boolean",
+            "description": "Whether the module record exists without a matching factory."
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "type",
+          "description",
+          "isBuiltin",
+          "enabled",
+          "orphaned"
+        ],
+        "description": "Module manifest record returned by the modules endpoints."
+      },
+      "ModuleListResponse": {
+        "type": "object",
+        "properties": {
+          "modules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Module"
+            },
+            "description": "Modules that match the supplied query filters."
+          }
+        },
+        "required": [
+          "modules"
+        ],
+        "description": "Collection wrapper for module listings."
+      },
+      "ModuleEnabledRequest": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Desired enabled state for the module."
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "description": "Request body used to toggle a module enabled state."
       }
     },
     "parameters": {}
   },
   "paths": {
-    "/discover/tools": {
-      "post": {
-        "tags": [
-          "Discover"
-        ],
-        "summary": "Discover tools across all services",
-        "description": "Searches every known tool by name, description, and owning service name. If the request omits enabled, only enabled tools are returned by default. Set enabled to null to include both enabled and disabled tools.",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DiscoverToolsRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Tool discovery results.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DiscoverToolsResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "The request body was malformed or contained invalid filter values.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "A bearer token was required but missing or invalid.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "A database or discovery failure prevented the search from completing.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/discover/services": {
-      "post": {
-        "tags": [
-          "Discover"
-        ],
-        "summary": "Discover services",
-        "description": "Searches service manifests by name and description. If the request omits enabled, only enabled services are returned by default. Set enabled to null to include both enabled and disabled services.",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DiscoverServicesRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Service discovery results.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DiscoverServicesResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "The request body was malformed or contained invalid filter values.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "A bearer token was required but missing or invalid.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "A database or discovery failure prevented the search from completing.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/processes": {
       "get": {
         "tags": [
           "Processes"
         ],
         "summary": "List processes",
-        "description": "Returns process snapshots filtered by optional ref, state, and status query parameters. The status filter accepts success, failed, timeout, canceled, or null.",
+        "description": "Returns process snapshots filtered by optional ref, state, and status query parameters. The status filter accepts the terminal exit states (success, failed, timeout, canceled) or 'null' to match processes that have not finished.",
         "parameters": [
           {
             "schema": {
@@ -842,9 +666,9 @@
             "schema": {
               "type": "string",
               "enum": [
-                "idle",
                 "queued",
                 "running",
+                "idle",
                 "terminating"
               ],
               "description": "Current lifecycle state of a process."
@@ -864,10 +688,10 @@
                 "canceled",
                 "null"
               ],
-              "description": "Filter processes by terminal status; use null to include non-terminal processes."
+              "description": "Filter processes by terminal exit state. Use 'null' to match processes that have not finished."
             },
             "required": false,
-            "description": "Filter processes by terminal status; use null to include non-terminal processes.",
+            "description": "Filter processes by terminal exit state. Use 'null' to match processes that have not finished.",
             "name": "status",
             "in": "query"
           }
@@ -920,7 +744,7 @@
           "Processes"
         ],
         "summary": "Create a process",
-        "description": "Stages new code as a process. The optional block flag waits until execution is idle before the response is returned. The optional timeout is expressed in milliseconds and may be null to explicitly clear it.",
+        "description": "Stages new code as a process. The optional block flag waits until execution becomes idle before responding. The optional options.timeout is expressed in milliseconds and may be null to explicitly clear it.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -994,13 +818,11 @@
         "parameters": [
           {
             "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "exclusiveMinimum": true,
-              "description": "Numeric process identifier."
+              "type": "string",
+              "description": "Numeric process identifier serialized as a path parameter."
             },
             "required": true,
-            "description": "Numeric process identifier.",
+            "description": "Numeric process identifier serialized as a path parameter.",
             "name": "pid",
             "in": "path"
           }
@@ -1063,17 +885,15 @@
           "Processes"
         ],
         "summary": "Delete a process",
-        "description": "Deletes an idle process snapshot. Active processes must be stopped before deletion.",
+        "description": "Deletes an idle process snapshot. Active processes must be stopped before they can be deleted.",
         "parameters": [
           {
             "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "exclusiveMinimum": true,
-              "description": "Numeric process identifier."
+              "type": "string",
+              "description": "Numeric process identifier serialized as a path parameter."
             },
             "required": true,
-            "description": "Numeric process identifier.",
+            "description": "Numeric process identifier serialized as a path parameter.",
             "name": "pid",
             "in": "path"
           }
@@ -1148,17 +968,15 @@
           "Processes"
         ],
         "summary": "Get stored process code",
-        "description": "Returns the exact source code stored for a process as plain text. This is useful for debugging and auditing the code that produced the execution output.",
+        "description": "Returns the exact source code stored for the process as plain text. Useful for debugging and auditing the code that produced the execution output.",
         "parameters": [
           {
             "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "exclusiveMinimum": true,
-              "description": "Numeric process identifier."
+              "type": "string",
+              "description": "Numeric process identifier serialized as a path parameter."
             },
             "required": true,
-            "description": "Numeric process identifier.",
+            "description": "Numeric process identifier serialized as a path parameter.",
             "name": "pid",
             "in": "path"
           }
@@ -1224,17 +1042,15 @@
           "Processes"
         ],
         "summary": "Get process output",
-        "description": "Returns the collected structured output for a completed process. Output is only available once the process is idle.",
+        "description": "Returns the structured output collected during process execution. Output is only available once the process is idle.",
         "parameters": [
           {
             "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "exclusiveMinimum": true,
-              "description": "Numeric process identifier."
+              "type": "string",
+              "description": "Numeric process identifier serialized as a path parameter."
             },
             "required": true,
-            "description": "Numeric process identifier.",
+            "description": "Numeric process identifier serialized as a path parameter.",
             "name": "pid",
             "in": "path"
           }
@@ -1309,17 +1125,15 @@
           "Processes"
         ],
         "summary": "Get process stdout",
-        "description": "Returns the captured standard output for a completed process as plain text. Output is only available once the process is idle.",
+        "description": "Returns the captured standard output for the process as plain text. Output is only available once the process is idle.",
         "parameters": [
           {
             "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "exclusiveMinimum": true,
-              "description": "Numeric process identifier."
+              "type": "string",
+              "description": "Numeric process identifier serialized as a path parameter."
             },
             "required": true,
-            "description": "Numeric process identifier.",
+            "description": "Numeric process identifier serialized as a path parameter.",
             "name": "pid",
             "in": "path"
           }
@@ -1395,17 +1209,15 @@
           "Processes"
         ],
         "summary": "Get process stderr",
-        "description": "Returns the captured standard error for a completed process as plain text. Output is only available once the process is idle.",
+        "description": "Returns the captured standard error for the process as plain text. Output is only available once the process is idle.",
         "parameters": [
           {
             "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "exclusiveMinimum": true,
-              "description": "Numeric process identifier."
+              "type": "string",
+              "description": "Numeric process identifier serialized as a path parameter."
             },
             "required": true,
-            "description": "Numeric process identifier.",
+            "description": "Numeric process identifier serialized as a path parameter.",
             "name": "pid",
             "in": "path"
           }
@@ -1485,13 +1297,11 @@
         "parameters": [
           {
             "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "exclusiveMinimum": true,
-              "description": "Numeric process identifier."
+              "type": "string",
+              "description": "Numeric process identifier serialized as a path parameter."
             },
             "required": true,
-            "description": "Numeric process identifier.",
+            "description": "Numeric process identifier serialized as a path parameter.",
             "name": "pid",
             "in": "path"
           }
@@ -1517,7 +1327,7 @@
             }
           },
           "400": {
-            "description": "The pid path parameter or request body was invalid.",
+            "description": "The pid path parameter or request body was invalid, or the process has existing output and force was not set.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1585,17 +1395,15 @@
           "Processes"
         ],
         "summary": "Kill a process",
-        "description": "Signals an active process to terminate. The body is accepted only to validate that the request is a JSON object; its contents are ignored.",
+        "description": "Signals an active process to terminate. The body is only validated as a JSON object; its contents are ignored.",
         "parameters": [
           {
             "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "exclusiveMinimum": true,
-              "description": "Numeric process identifier."
+              "type": "string",
+              "description": "Numeric process identifier serialized as a path parameter."
             },
             "required": true,
-            "description": "Numeric process identifier.",
+            "description": "Numeric process identifier serialized as a path parameter.",
             "name": "pid",
             "in": "path"
           }
@@ -1679,15 +1487,15 @@
           "Services"
         ],
         "summary": "List services",
-        "description": "Returns the installed services. The query filter is trimmed before matching, and enabled accepts true, false, or null. Omit enabled to return all services.",
+        "description": "Returns the installed services. The query parameter is trimmed and matched against service id, name, and description. The enabled parameter accepts 'true' or 'false'; omit it to return all services.",
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "Free-text query used to match service names and descriptions."
+              "description": "Free-text query used to match service id, name, and description."
             },
             "required": false,
-            "description": "Free-text query used to match service names and descriptions.",
+            "description": "Free-text query used to match service id, name, and description.",
             "name": "query",
             "in": "query"
           },
@@ -1696,8 +1504,7 @@
               "type": "string",
               "enum": [
                 "true",
-                "false",
-                "null"
+                "false"
               ],
               "description": "Enabled-state filter. Omit to return all services."
             },
@@ -1751,23 +1558,23 @@
         }
       }
     },
-    "/services/{serviceName}": {
+    "/services/{serviceId}": {
       "get": {
         "tags": [
           "Services"
         ],
         "summary": "Get a service",
-        "description": "Returns the manifest metadata, hashes, and schema documents for the requested service.",
+        "description": "Returns full manifest metadata for a service, including configuration and secrets schemas.",
         "parameters": [
           {
             "schema": {
               "type": "string",
               "minLength": 1,
-              "description": "Normalized service name."
+              "description": "Service identifier matching the installed manifest id."
             },
             "required": true,
-            "description": "Normalized service name.",
-            "name": "serviceName",
+            "description": "Service identifier matching the installed manifest id.",
+            "name": "serviceId",
             "in": "path"
           }
         ],
@@ -1783,7 +1590,7 @@
             }
           },
           "400": {
-            "description": "The service name path parameter was invalid.",
+            "description": "The serviceId path parameter was invalid.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1803,7 +1610,7 @@
             }
           },
           "404": {
-            "description": "The service manifest could not be found.",
+            "description": "The service could not be found.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1829,17 +1636,17 @@
           "Services"
         ],
         "summary": "Delete a service",
-        "description": "Deletes a service manifest and its associated tool records. A restage is requested after deletion so the environment pool can refresh.",
+        "description": "Deletes a service manifest along with its tools, configuration, and secrets. The owning adapter is asked to dehydrate the service afterwards.",
         "parameters": [
           {
             "schema": {
               "type": "string",
               "minLength": 1,
-              "description": "Normalized service name."
+              "description": "Service identifier matching the installed manifest id."
             },
             "required": true,
-            "description": "Normalized service name.",
-            "name": "serviceName",
+            "description": "Service identifier matching the installed manifest id.",
+            "name": "serviceId",
             "in": "path"
           }
         ],
@@ -1848,7 +1655,7 @@
             "description": "The service was deleted successfully."
           },
           "400": {
-            "description": "The service name path parameter was invalid.",
+            "description": "The serviceId path parameter was invalid.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1868,7 +1675,7 @@
             }
           },
           "404": {
-            "description": "The service manifest could not be found.",
+            "description": "The service could not be found.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1896,7 +1703,7 @@
           "Services"
         ],
         "summary": "Install a service",
-        "description": "Downloads a registry definition, validates the manifest, and stores it as a new service. The source may be a direct URL or a structured object containing a file_url. Installation does not automatically enable the service.",
+        "description": "Downloads the definition file from the supplied source URL, validates the manifest, and stores it as a new service under the supplied id and adapter. Installation does not automatically enable the service.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -1918,7 +1725,7 @@
             }
           },
           "400": {
-            "description": "The install payload was invalid or the definition content failed validation.",
+            "description": "The install payload was invalid or the downloaded definition failed validation.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1938,7 +1745,7 @@
             }
           },
           "409": {
-            "description": "A manifest already exists for the requested service name.",
+            "description": "A service already exists with the requested id.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1948,7 +1755,7 @@
             }
           },
           "413": {
-            "description": "The downloaded manifest definition exceeded the configured size limit.",
+            "description": "The downloaded definition exceeded the configured size limit.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1968,7 +1775,7 @@
             }
           },
           "502": {
-            "description": "The definition could not be downloaded or the redirected URL was invalid.",
+            "description": "The definition file could not be downloaded.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1980,23 +1787,23 @@
         }
       }
     },
-    "/services/{serviceName}/update": {
+    "/services/{serviceId}/update": {
       "post": {
         "tags": [
           "Services"
         ],
         "summary": "Update a service manifest",
-        "description": "Re-downloads the stored definition source, compares hashes, and updates the manifest if the remote definition changed. If the hash is unchanged the response reports updated: false.",
+        "description": "Re-downloads the stored definition source and updates the manifest. Tool enabled flags are preserved by name where possible, and the service is disabled until it is explicitly re-enabled.",
         "parameters": [
           {
             "schema": {
               "type": "string",
               "minLength": 1,
-              "description": "Normalized service name."
+              "description": "Service identifier matching the installed manifest id."
             },
             "required": true,
-            "description": "Normalized service name.",
-            "name": "serviceName",
+            "description": "Service identifier matching the installed manifest id.",
+            "name": "serviceId",
             "in": "path"
           }
         ],
@@ -2012,7 +1819,7 @@
             }
           },
           "400": {
-            "description": "The service name or updated manifest content was invalid.",
+            "description": "The serviceId path parameter or downloaded definition was invalid.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2032,7 +1839,7 @@
             }
           },
           "404": {
-            "description": "The service manifest could not be found.",
+            "description": "The service could not be found.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2042,7 +1849,7 @@
             }
           },
           "409": {
-            "description": "The service cannot be updated automatically because no install source is stored, or the manifest name no longer matches.",
+            "description": "The service has no stored install source and cannot be updated automatically.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2052,7 +1859,7 @@
             }
           },
           "413": {
-            "description": "The downloaded manifest definition exceeded the configured size limit.",
+            "description": "The downloaded definition exceeded the configured size limit.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2072,7 +1879,7 @@
             }
           },
           "502": {
-            "description": "The definition could not be downloaded or the redirected URL was invalid.",
+            "description": "The definition file could not be downloaded.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2084,23 +1891,23 @@
         }
       }
     },
-    "/services/{serviceName}/enabled": {
+    "/services/{serviceId}/enabled": {
       "post": {
         "tags": [
           "Services"
         ],
         "summary": "Toggle a service",
-        "description": "Sets whether a service is enabled. When enabling, the stored configuration and secrets are validated against their schemas before the change is persisted.",
+        "description": "Sets whether a service is enabled. When enabling, the stored configuration and secrets are validated against their schemas before the change is persisted and the service is hydrated on its adapter.",
         "parameters": [
           {
             "schema": {
               "type": "string",
               "minLength": 1,
-              "description": "Normalized service name."
+              "description": "Service identifier matching the installed manifest id."
             },
             "required": true,
-            "description": "Normalized service name.",
-            "name": "serviceName",
+            "description": "Service identifier matching the installed manifest id.",
+            "name": "serviceId",
             "in": "path"
           }
         ],
@@ -2145,7 +1952,7 @@
             }
           },
           "404": {
-            "description": "The service manifest could not be found.",
+            "description": "The service could not be found.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2155,7 +1962,17 @@
             }
           },
           "500": {
-            "description": "The service could not be updated.",
+            "description": "The service enabled state could not be updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The service could not be hydrated on its adapter module.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2167,7 +1984,7 @@
         }
       }
     },
-    "/services/{serviceName}/configuration/schema": {
+    "/services/{serviceId}/config/schema": {
       "get": {
         "tags": [
           "Services"
@@ -2179,11 +1996,11 @@
             "schema": {
               "type": "string",
               "minLength": 1,
-              "description": "Normalized service name."
+              "description": "Service identifier matching the installed manifest id."
             },
             "required": true,
-            "description": "Normalized service name.",
-            "name": "serviceName",
+            "description": "Service identifier matching the installed manifest id.",
+            "name": "serviceId",
             "in": "path"
           }
         ],
@@ -2199,7 +2016,7 @@
             }
           },
           "400": {
-            "description": "The service name path parameter was invalid.",
+            "description": "The serviceId path parameter was invalid.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2219,7 +2036,7 @@
             }
           },
           "404": {
-            "description": "The service manifest could not be found.",
+            "description": "The service could not be found.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2241,23 +2058,23 @@
         }
       }
     },
-    "/services/{serviceName}/configuration": {
+    "/services/{serviceId}/config": {
       "get": {
         "tags": [
           "Services"
         ],
         "summary": "Get service configuration",
-        "description": "Returns the normalized configuration payload stored for the service. If no configuration exists yet, an empty object is returned.",
+        "description": "Returns the configuration payload stored for the service. If no configuration exists yet, an empty object is returned.",
         "parameters": [
           {
             "schema": {
               "type": "string",
               "minLength": 1,
-              "description": "Normalized service name."
+              "description": "Service identifier matching the installed manifest id."
             },
             "required": true,
-            "description": "Normalized service name.",
-            "name": "serviceName",
+            "description": "Service identifier matching the installed manifest id.",
+            "name": "serviceId",
             "in": "path"
           }
         ],
@@ -2273,7 +2090,7 @@
             }
           },
           "400": {
-            "description": "The service name path parameter was invalid.",
+            "description": "The serviceId path parameter was invalid.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2309,17 +2126,17 @@
           "Services"
         ],
         "summary": "Patch service configuration",
-        "description": "Applies a JSON Patch document to the stored configuration, validates the updated document against the schema, and persists the result. The patch body must be an array of RFC 6902 operations.",
+        "description": "Applies a JSON Patch document to the stored configuration, validates the result against the schema, persists it, and returns the resulting configuration payload. The patch body must be an array of RFC 6902 operations.",
         "parameters": [
           {
             "schema": {
               "type": "string",
               "minLength": 1,
-              "description": "Normalized service name."
+              "description": "Service identifier matching the installed manifest id."
             },
             "required": true,
-            "description": "Normalized service name.",
-            "name": "serviceName",
+            "description": "Service identifier matching the installed manifest id.",
+            "name": "serviceId",
             "in": "path"
           }
         ],
@@ -2519,7 +2336,7 @@
             }
           },
           "404": {
-            "description": "The service manifest could not be found.",
+            "description": "The service could not be found.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2541,7 +2358,7 @@
         }
       }
     },
-    "/services/{serviceName}/secrets/schema": {
+    "/services/{serviceId}/secrets/schema": {
       "get": {
         "tags": [
           "Services"
@@ -2553,11 +2370,11 @@
             "schema": {
               "type": "string",
               "minLength": 1,
-              "description": "Normalized service name."
+              "description": "Service identifier matching the installed manifest id."
             },
             "required": true,
-            "description": "Normalized service name.",
-            "name": "serviceName",
+            "description": "Service identifier matching the installed manifest id.",
+            "name": "serviceId",
             "in": "path"
           }
         ],
@@ -2573,7 +2390,7 @@
             }
           },
           "400": {
-            "description": "The service name path parameter was invalid.",
+            "description": "The serviceId path parameter was invalid.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2593,7 +2410,7 @@
             }
           },
           "404": {
-            "description": "The service manifest could not be found.",
+            "description": "The service could not be found.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2615,23 +2432,23 @@
         }
       }
     },
-    "/services/{serviceName}/secrets": {
+    "/services/{serviceId}/secrets": {
       "patch": {
         "tags": [
           "Services"
         ],
         "summary": "Patch service secrets",
-        "description": "Applies a JSON Patch document to the encrypted secrets payload, validates the result, and persists the updated secrets. The response only confirms success; secrets are not echoed back.",
+        "description": "Applies a JSON Patch document to the encrypted secrets payload, validates the result against the schema, and persists the updated secrets. The response only confirms success; secrets are never echoed back.",
         "parameters": [
           {
             "schema": {
               "type": "string",
               "minLength": 1,
-              "description": "Normalized service name."
+              "description": "Service identifier matching the installed manifest id."
             },
             "required": true,
-            "description": "Normalized service name.",
-            "name": "serviceName",
+            "description": "Service identifier matching the installed manifest id.",
+            "name": "serviceId",
             "in": "path"
           }
         ],
@@ -2831,7 +2648,7 @@
             }
           },
           "404": {
-            "description": "The service manifest could not be found.",
+            "description": "The service could not be found.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2853,24 +2670,23 @@
         }
       }
     },
-    "/services/{serviceName}/tools": {
+    "/tools": {
       "get": {
         "tags": [
-          "Services"
+          "Tools"
         ],
-        "summary": "List tools for a service",
-        "description": "Returns tools declared by the requested service. Query filtering is trimmed before matching. The enabled query accepts true, false, or null; omitting it returns all tools.",
+        "summary": "List tools",
+        "description": "Returns tools that match the supplied filters. The serviceId, query, limit, and enabled query parameters are all optional. The enabled filter accepts 'true' or 'false'.",
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "minLength": 1,
-              "description": "Normalized service name."
+              "description": "Optional service identifier used to scope tool results."
             },
-            "required": true,
-            "description": "Normalized service name.",
-            "name": "serviceName",
-            "in": "path"
+            "required": false,
+            "description": "Optional service identifier used to scope tool results.",
+            "name": "serviceId",
+            "in": "query"
           },
           {
             "schema": {
@@ -2885,10 +2701,19 @@
           {
             "schema": {
               "type": "string",
+              "description": "Maximum number of matching tools to return, as a positive integer string."
+            },
+            "required": false,
+            "description": "Maximum number of matching tools to return, as a positive integer string.",
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
               "enum": [
                 "true",
-                "false",
-                "null"
+                "false"
               ],
               "description": "Enabled-state filter. Omit to return all tools."
             },
@@ -2900,7 +2725,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Matching tools for the service.",
+            "description": "Matching tools.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2910,7 +2735,7 @@
             }
           },
           "400": {
-            "description": "The service name or query parameters were invalid.",
+            "description": "One or more query parameters could not be parsed.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2921,16 +2746,6 @@
           },
           "401": {
             "description": "A bearer token was required but missing or invalid.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "The service manifest could not be found.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2952,34 +2767,34 @@
         }
       }
     },
-    "/services/{serviceName}/tools/{toolName}": {
+    "/tools/{serviceId}/{toolId}": {
       "get": {
         "tags": [
-          "Services"
+          "Tools"
         ],
         "summary": "Get a tool",
-        "description": "Returns detailed metadata for a tool within a service, including the input and output schemas.",
+        "description": "Returns detailed metadata for a tool within a service, including input and output schemas.",
         "parameters": [
           {
             "schema": {
               "type": "string",
               "minLength": 1,
-              "description": "Normalized service name."
+              "description": "Service identifier matching the installed manifest id."
             },
             "required": true,
-            "description": "Normalized service name.",
-            "name": "serviceName",
+            "description": "Service identifier matching the installed manifest id.",
+            "name": "serviceId",
             "in": "path"
           },
           {
             "schema": {
               "type": "string",
               "minLength": 1,
-              "description": "Tool name within the service manifest."
+              "description": "Tool identifier exposed by the service manifest."
             },
             "required": true,
-            "description": "Tool name within the service manifest.",
-            "name": "toolName",
+            "description": "Tool identifier exposed by the service manifest.",
+            "name": "toolId",
             "in": "path"
           }
         ],
@@ -2995,7 +2810,7 @@
             }
           },
           "400": {
-            "description": "The service name or tool name path parameter was invalid.",
+            "description": "The serviceId or toolId path parameter was invalid.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3024,16 +2839,6 @@
               }
             }
           },
-          "409": {
-            "description": "The tool name is ambiguous across multiple services.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
           "500": {
             "description": "The tool details could not be loaded.",
             "content": {
@@ -3047,10 +2852,96 @@
         }
       }
     },
-    "/services/{serviceName}/tools/{toolName}/enabled": {
+    "/tools/{serviceId}/{toolId}/docs": {
+      "get": {
+        "tags": [
+          "Tools"
+        ],
+        "summary": "Get tool documentation",
+        "description": "Returns generated documentation for the tool as Markdown text. Documentation is produced by the active environment module.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Service identifier matching the installed manifest id."
+            },
+            "required": true,
+            "description": "Service identifier matching the installed manifest id.",
+            "name": "serviceId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Tool identifier exposed by the service manifest."
+            },
+            "required": true,
+            "description": "Tool identifier exposed by the service manifest.",
+            "name": "toolId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Markdown documentation for the tool.",
+            "content": {
+              "text/markdown": {
+                "schema": {
+                  "type": "string",
+                  "description": "Tool documentation rendered as Markdown."
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The serviceId or toolId path parameter was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A bearer token was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The service or tool could not be found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The tool documentation could not be generated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tools/{serviceId}/{toolId}/enabled": {
       "post": {
         "tags": [
-          "Services"
+          "Tools"
         ],
         "summary": "Toggle a tool",
         "description": "Sets whether a tool is enabled. The parent service can still disable the tool at runtime even if the stored tool flag is true.",
@@ -3059,22 +2950,22 @@
             "schema": {
               "type": "string",
               "minLength": 1,
-              "description": "Normalized service name."
+              "description": "Service identifier matching the installed manifest id."
             },
             "required": true,
-            "description": "Normalized service name.",
-            "name": "serviceName",
+            "description": "Service identifier matching the installed manifest id.",
+            "name": "serviceId",
             "in": "path"
           },
           {
             "schema": {
               "type": "string",
               "minLength": 1,
-              "description": "Tool name within the service manifest."
+              "description": "Tool identifier exposed by the service manifest."
             },
             "required": true,
-            "description": "Tool name within the service manifest.",
-            "name": "toolName",
+            "description": "Tool identifier exposed by the service manifest.",
+            "name": "toolId",
             "in": "path"
           }
         ],
@@ -3093,7 +2984,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ServiceToolEnabledResponse"
+                  "$ref": "#/components/schemas/ToolEnabledResponse"
                 }
               }
             }
@@ -3129,7 +3020,349 @@
             }
           },
           "500": {
-            "description": "The tool could not be updated.",
+            "description": "The tool enabled state could not be updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/modules": {
+      "get": {
+        "tags": [
+          "Modules"
+        ],
+        "summary": "List modules",
+        "description": "Returns module manifests filtered by optional query, type, isBuiltin, and enabled query parameters. The enabled filter accepts 'true', 'false', or 'null' to match orphaned modules.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Free-text query used to match module names and descriptions."
+            },
+            "required": false,
+            "description": "Free-text query used to match module names and descriptions.",
+            "name": "query",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "adapter",
+                "environment"
+              ],
+              "description": "Module type. Either 'adapter' or 'environment'."
+            },
+            "required": false,
+            "description": "Module type. Either 'adapter' or 'environment'.",
+            "name": "type",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "description": "Filter by whether the module is bundled with the API."
+            },
+            "required": false,
+            "description": "Filter by whether the module is bundled with the API.",
+            "name": "isBuiltin",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false",
+                "null"
+              ],
+              "description": "Enabled-state filter for modules."
+            },
+            "required": false,
+            "description": "Enabled-state filter for modules.",
+            "name": "enabled",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Matching modules.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "One or more query parameters could not be parsed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A bearer token was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The module list could not be loaded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/modules/reload": {
+      "post": {
+        "tags": [
+          "Modules"
+        ],
+        "summary": "Reload modules",
+        "description": "Reloads the on-disk module registry. The active environment is drained and the adapter pool is reconciled against the new manifests.",
+        "responses": {
+          "200": {
+            "description": "The module registry was reloaded successfully."
+          },
+          "401": {
+            "description": "A bearer token was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The modules could not be reloaded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/modules/{moduleId}": {
+      "get": {
+        "tags": [
+          "Modules"
+        ],
+        "summary": "Get a module",
+        "description": "Returns the module manifest record for the requested module id.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Module identifier."
+            },
+            "required": true,
+            "description": "Module identifier.",
+            "name": "moduleId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Module manifest record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Module"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The moduleId path parameter was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A bearer token was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The module could not be found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The module could not be loaded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/modules/{moduleId}/enabled": {
+      "post": {
+        "tags": [
+          "Modules"
+        ],
+        "summary": "Toggle a module",
+        "description": "Sets whether a module is enabled. Orphaned modules cannot be enabled.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Module identifier."
+            },
+            "required": true,
+            "description": "Module identifier.",
+            "name": "moduleId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModuleEnabledRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The module enabled state was updated."
+          },
+          "400": {
+            "description": "The request body or moduleId path parameter was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A bearer token was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The module could not be found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The module is orphaned and cannot be enabled.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The module enabled state could not be updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/environment/docs": {
+      "get": {
+        "tags": [
+          "Environment"
+        ],
+        "summary": "Get environment documentation",
+        "description": "Returns Markdown documentation generated by the active environment module describing the runtime and the available bindings.",
+        "responses": {
+          "200": {
+            "description": "Markdown documentation for the active environment.",
+            "content": {
+              "text/markdown": {
+                "schema": {
+                  "type": "string",
+                  "description": "Environment documentation rendered as Markdown."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A bearer token was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The environment documentation could not be generated.",
             "content": {
               "application/json": {
                 "schema": {

@@ -1,0 +1,147 @@
+---
+title: "Writing a Custom Module"
+description: "File layout, registration, and the end-to-end loop"
+sidebarTitle: "Writing a custom module"
+---
+
+This page covers the mechanics of adding a custom adapter or environment
+to a running MCI deployment. For the interfaces themselves, see
+[`AdapterModule`](/spec/adapter-module) and
+[`EnvironmentModule`](/spec/environment-module).
+
+## Where Modules Live
+
+Custom modules live under `$MCI_DATA_DIR/modules/<id>/`. Each directory
+must contain a `module.json`:
+
+```json
+{
+  "name": "my-adapter",
+  "type": "adapter",
+  "description": "Talks to my service",
+  "main": "./index.js"
+}
+```
+
+Fields:
+
+- `name` — used as both the human name and the module **id**. Must be
+  unique across built-in and custom modules.
+- `type` — `adapter` or `environment`.
+- `description` — surfaced in `GET /modules`.
+- `main` — path (relative to the module directory) to a JavaScript file
+  the host can `import()`. The file must export `instantiate()` and a
+  `manifest` constant.
+
+The host expects compiled JavaScript here, not TypeScript. The
+expectation is that you ship modules built ahead of time.
+
+## Skeleton
+
+`my-adapter/index.ts` (compile to `index.js` and ship that):
+
+```ts
+import type { AdapterModule, InvokeInput, ServiceDefinition, ServiceState } from "@mci/sdk";
+
+class MyAdapter implements AdapterModule {
+  async setup() {}
+  async teardown() {}
+
+  async generateDefinition(_input: string): Promise<ServiceDefinition> {
+    /* parse the input and return a ServiceDefinition */
+    return { /* ... */ } as ServiceDefinition;
+  }
+
+  async hydrateService(_state: ServiceState): Promise<void> { /* store snapshot */ }
+  async dehydrateService(_id: string): Promise<void> { /* drop snapshot */ }
+  async invoke(_input: InvokeInput): Promise<unknown> { /* perform the call */ }
+}
+
+export const manifest = {
+  name: "my-adapter",
+  version: "1.0.0",
+  description: "Talks to my service",
+  type: "adapter" as const,
+};
+
+export function instantiate(): AdapterModule {
+  return new MyAdapter();
+}
+```
+
+(Replace `AdapterModule` with `EnvironmentModule` for an environment.
+Type is `"environment" as const` in the manifest.)
+
+## Registering a Module
+
+1. Place the built directory at `$MCI_DATA_DIR/modules/my-adapter/`.
+2. Ensure it contains `module.json` and the file named in `main`.
+3. Either restart the API or call:
+
+   ```bash
+   curl -X POST http://localhost:7687/modules/reload
+   ```
+
+`reload` re-scans `$MCI_DATA_DIR/modules/`, registers any new directories,
+and reconciles the result against the `modules` table. A new module is
+inserted with `enabled: true, orphaned: false` by default.
+
+## Verifying
+
+```bash
+curl http://localhost:7687/modules
+```
+
+You should see your module alongside the built-ins, with
+`isBuiltin: false`.
+
+To explicitly enable / disable:
+
+```bash
+curl -X POST http://localhost:7687/modules/my-adapter/enabled \
+  -H 'content-type: application/json' \
+  -d '{"enabled":true}'
+```
+
+For adapters, enabling triggers `setup({})` and hydration of any enabled
+services that target it. For environments, enabling makes it the active
+environment and drains the previous one.
+
+## Removing a Module
+
+Stop the API, delete `$MCI_DATA_DIR/modules/<id>/`, and restart. Or
+delete the directory and `POST /modules/reload`.
+
+The `modules` row is **not** deleted — it's marked `orphaned: true,
+enabled: false`. This preserves any settings if the module reappears.
+Trying to enable an orphaned module returns `409`.
+
+## Module ID Collisions
+
+If a custom module declares a `name` that already exists (built-in or
+otherwise registered), the host keeps the first registration and skips
+the duplicate. Built-ins are registered first.
+
+## Iteration Workflow
+
+While developing:
+
+1. Build the module (`tsc`, `esbuild`, whatever).
+2. `cp -r dist $MCI_DATA_DIR/modules/<id>/`.
+3. `POST /modules/reload`.
+4. Disable + re-enable the module to force `teardown` / `setup`.
+
+The `reload` endpoint refreshes the registry but does not re-activate
+already-enabled modules. Toggle `enabled` to pick up code changes.
+
+## Packaging Notes
+
+- The host loads `main` with the native `import()` — it must be an ESM
+  file the Node runtime can resolve directly. Bundle into a single file
+  if your module has dependencies; the loader does not run `npm install`
+  for you.
+- `peerDependencies` are not honoured. If your module needs `@mci/sdk`
+  types, ship them as build-time `devDependencies` and bundle anything
+  you import.
+- Keep modules narrow. A single module that does many unrelated things
+  is harder to review than several small ones.

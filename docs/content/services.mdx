@@ -1,81 +1,179 @@
 ---
 title: "Services"
-description: "Service manifests, tools, configuration, and secrets"
+description: "Installed services, their tools, configuration, and secrets"
 ---
 
-This page documents how MCI models services, how manifests and tools are stored and used, and how configuration and secrets flow through the system.
+A **service** is an installed integration — a bundle of metadata, a set of
+tools, a configuration schema, a secrets schema, and the [adapter
+module](/content/modules/adapters) that knows how to talk to the underlying
+end service.
 
-## What is a Service
+Services are persistent: they live in SQLite (libSQL) along with their
+configuration and (encrypted) secrets.
 
-A service is a named, discoverable integration that exposes one or more tools. Each service has a manifest describing its metadata, tools, configuration schema, and secrets schema. Services are registered with MCI and staged for use by environment modules.
+## Service Shape
 
-## Service Manifest
+The canonical shape is `ServiceDefinition` from `@mci/sdk`:
 
-A service manifest describes the service and its available tools. The manifest structure used by the runtime is defined in `app/api/src/models/manifest.model.ts` and validated by `AdapterModule.parseServiceManifest`.
+```ts
+interface ServiceDefinition {
+  name: string;
+  description: string;
+  configSchema: JSONSchema;
+  secretsSchema: JSONSchema;
+  tools: ToolDefinition[];
+  adapterDomain: Record<string, unknown>;
+}
+```
 
-Typical manifest fields include:
+On disk, MCI extends that with:
 
-- `name`: service name
-- `description`: human-friendly description
-- `enabled`: whether the service is active
-- `configSchema`: JSON Schema that defines valid configuration for this service
-- `secretsSchema`: JSON Schema that defines required secret structure
-- `metadata`: arbitrary metadata consumed by adapters (e.g., adapter URL)
-- `tools`: an array of tool definitions (`name`, `description`, `inputSchema`, `outputSchema`, `metadata`, `enabled`)
+- `id`: the service identifier the client chose at install time. Must be a
+  valid TypeScript identifier (`[A-Za-z_$][A-Za-z0-9_$]*`).
+- `hash`: SHA-256 of the definition file used at install/update time.
+- `source`: the URL the definition was fetched from (used by
+  `POST /services/:id/update`).
+- `adapter`: the id of the [adapter module](/content/modules/adapters) that
+  parsed the definition and will handle invocations.
+- `enabled`: whether the service is active. Disabling a service hides its
+  tools from execution.
 
-The adapter is responsible for parsing a service definition (for example an `OpenAPI`-derived manifest) and returning a validated `ServiceManifestDefinition` to the system.
+`adapterDomain` is a free-form bag the adapter uses to carry
+adapter-specific state across hydration boundaries (e.g. the OpenAPI adapter
+stores base URLs and operation details here). Treat it as opaque from the
+outside.
 
-## Tools
+## Install a Service
 
-Tools are the callable operations provided by a service. Each tool has:
+`POST /services/install`
 
-- `name`: the tool identifier
-- `description`: what the tool does
-- `inputSchema`: JSON Schema for expected parameters
-- `outputSchema`: JSON Schema for returned value
-- `metadata`: adapter-level data such as route names or request kinds
+```json
+{
+  "id": "petstore",
+  "source": "https://example.com/petstore.openapi.json",
+  "adapter": "openapi"
+}
+```
 
-Tools are stored in the database and are discoverable via the manifest service APIs (`discoverTools`, `listTools`, `getTool`).
+Server-side flow:
 
-## Configuration and Secrets
+1. Validate the `id` is a TypeScript identifier.
+2. Fetch the URL in `source` (with size, timeout, and address-range guards —
+   see [Security](/content/security)).
+3. Hash the content (SHA-256).
+4. Call `adapter.generateDefinition(content)` to produce a
+   `ServiceDefinition`.
+5. Validate that every tool's `id` is also a TypeScript identifier.
+6. Insert the service and its tools in a single DB transaction. The service
+   starts **disabled**.
 
-Service configuration and secrets are stored separately:
+Response (`201`):
 
-- Configurations follow the `configSchema` declared in the manifest. Stored configuration values are validated and defaults are applied when loading the adapter snapshot.
-- Secrets are stored encrypted in the database. The system decrypts secrets when hydrating adapter snapshots. The `AdapterPoolService` calls `decryptSecrets` when building snapshots.
+```json
+{ "id": "petstore" }
+```
 
-Adapter pool staging loads a snapshot of configurations and secrets and applies them to the adapter instance using `AdapterModule.setServiceConfigs` and `AdapterModule.setServiceSecrets`.
+`409` on duplicate `id`.
 
-## Hydration and Staging
+## Update a Service
 
-Hydration is the process of loading manifest, configuration, and secrets into runtime modules.
+`POST /services/:serviceId/update`
 
-- The `ManifestService` composes staged manifests for all services and the `EnvironmentPoolService` uses `getAllStagedServiceManifests` to build environment bindings.
-- When manifests or configurations change, the system requests a restage: pools mark `pendingRestage` and will stage a fresh module when current leases allow.
+Re-fetches `source`, re-parses, and replaces the stored tools — preserving
+the previous per-tool `enabled` flag when a tool name carries over.
+Sets the service back to `enabled: false` and dehydrates it from the
+adapter; you'll need to re-enable it.
 
-## How Services are Used at Execution Time
+## Enable / Disable a Service
 
-- Environment modules expose generated bindings for each service/tool so process code can call `tools.discover`, `tools.get`, or `tools.invoke` directly.
-- When an environment invokes a tool, the environment uses the manifest-driven binding to call the MCI manager, which allocates an adapter and forwards the invocation to `AdapterModule.invoke`.
-- `AdapterModule.invoke` resolves adapter URLs and route names from tool and service metadata, sets request headers with configuration and secrets snapshots, and issues the remote request.
+`POST /services/:serviceId/enabled`
 
-## Generation of Manifests from Adapter Definitions
+```json
+{ "enabled": true }
+```
 
-Adapters can register services by parsing a given definition content (for example an OpenAPI document) via `AdapterModule.register`. The `ManifestService` uses this to validate and persist the canonical manifest for a service. When a new manifest is published, tooling updates the database and triggers staging/hydration.
+Enable validates configuration and secrets against their schemas (applying
+defaults), then calls `adapter.hydrateService(state)`. If hydration throws,
+the `enabled` flag is rolled back.
 
-## Administrative Actions
+Disable calls `adapter.dehydrateService(serviceId)` and best-efforts logs
+any failure.
 
-- Install a service: `POST /services/install` with `type` and `source` (source URL or definition reference).
-- Update service configuration: `PATCH /services/:serviceName/configuration`
-- Update service secrets: `PATCH /services/:serviceName/secrets`
-- Enable/disable services or individual tools via dedicated endpoints.
+## Delete a Service
 
-## Discovery
+`DELETE /services/:serviceId` → `204 No Content`
 
-The runtime exposes discovery endpoints for service and tool lookup. These are implemented by the `ManifestService` and surfaced through `discover` controllers.
+Deletes the row (cascading to tools, configuration, secrets) and calls
+`adapter.dehydrateService(serviceId)`.
 
-## Notes and Best Practices
+## List & Get
 
-- Use manifests to declare input/output schemas and metadata for reliable adapter invocation.
-- Keep secrets minimal and scope them per-service.
-- When updating manifests, expect a restage to occur; pools attempt to minimize disruption by retiring modules only after leases expire.
+| Method | Path | Notes |
+| --- | --- | --- |
+| `GET` | `/services` | Filterable by `query`, `limit`, `enabled` |
+| `GET` | `/services/:serviceId` | Full record (minus `adapterDomain`) |
+
+The list response strips `configSchema`, `secretsSchema`, `tools`, and
+`adapterDomain` — fetch a single service for those.
+
+## Configuration
+
+Per-service configuration is **JSON-Schema validated** (`configSchema` on
+the service) and stored as a JSON blob.
+
+| Method | Path | Returns |
+| --- | --- | --- |
+| `GET` | `/services/:serviceId/config/schema` | `{ configSchema }` |
+| `GET` | `/services/:serviceId/config` | `{ config }` |
+| `PATCH` | `/services/:serviceId/config` | Apply an RFC 6902 JSON Patch |
+
+`PATCH` body is an array of JSON Patch operations:
+
+```json
+[
+  { "op": "replace", "path": "/baseUrl", "value": "https://api.example.com" },
+  { "op": "add", "path": "/timeoutMs", "value": 15000 }
+]
+```
+
+The server applies the patch, validates the result against `configSchema`,
+fills in any missing defaults from the schema, and persists the merged
+object. If the service is currently enabled, MCI re-hydrates it on the
+adapter so the change takes effect immediately.
+
+## Secrets
+
+Per-service secrets behave like configuration, but the stored payload is
+encrypted with AES-256-GCM using `MCI_SECRETS_KEY`.
+
+| Method | Path | Returns |
+| --- | --- | --- |
+| `GET` | `/services/:serviceId/secrets/schema` | `{ secretsSchema }` |
+| `PATCH` | `/services/:serviceId/secrets` | Apply an RFC 6902 JSON Patch |
+
+There is **no `GET /services/:serviceId/secrets`** — secret values never
+leave the server in plaintext through the API. Patches operate against the
+decrypted document in memory; the result is re-encrypted before being
+written back.
+
+<Warning>
+  If `MCI_SECRETS_KEY` is missing or the wrong size, both reading and
+  writing secrets fail with `500`. See
+  [Security](/content/security#secrets).
+</Warning>
+
+## How Services Are Used at Execution Time
+
+When user code calls `mci.services[serviceId].tools[toolId].invoke(...)`:
+
+1. The environment forwards the call to the host as an `invokeTool` binding.
+2. The `ModuleService` joins the `services` and `tools` tables on
+   `(serviceId, toolId)`.
+3. It rejects the call if the service or the tool is missing (`404`), if
+   the service is disabled (`409`), or if the tool is disabled (`409`).
+4. Otherwise it looks up the adapter from `services.adapter` and calls
+   `adapter.invoke({ serviceId, toolId, parameters })`.
+
+The adapter is responsible for translating that into a real call to the end
+service using the `adapterDomain`, configuration, and secrets it received
+during hydration.
