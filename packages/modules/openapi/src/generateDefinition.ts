@@ -102,7 +102,7 @@ function parseDocument(input: string): { doc: Doc; openapi: string } {
   }
 
   const openapi = obj.openapi;
-  if (!/^3\.\d+(\.\d+)?/.test(openapi)) {
+  if (!/^3\.\d+(\.\d+)?$/.test(openapi)) {
     throw new Error(
       `Unsupported OpenAPI version "${openapi}". Only 3.x is supported.`,
     );
