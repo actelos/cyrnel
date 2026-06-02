@@ -13,7 +13,7 @@ const env = z
   .parse(process.env);
 
 export const api: KyInstance = ky.create({
-  prefix: env.MCI_API_URL,
+  prefixUrl: env.MCI_API_URL,
   timeout: env.MCI_API_TIMEOUT_MS,
   headers: env.MCI_API_KEY
     ? { Authorization: `Bearer ${env.MCI_API_KEY}` }
