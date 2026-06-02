@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   js:
-    name: JS checks
+    name: checks
     timeout-minutes: 15
     runs-on: ubuntu-latest
 
@@ -44,36 +44,3 @@ jobs:
 
       - name: Typecheck, test and build
         run: pnpm typecheck test build
-
-  python:
-    name: Python checks
-    timeout-minutes: 15
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/mcp
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-          cache-dependency-glob: apps/mcp/uv.lock
-
-      - name: Create lockfile
-        run: uv lock
-
-      - name: Install dependencies
-        run: uv sync --frozen
-
-      - name: Ruff lint
-        run: uv run ruff check .
-
-      - name: Ruff format
-        run: uv run ruff format --check .
-
-      - name: Pyright
-        run: uv run pyright

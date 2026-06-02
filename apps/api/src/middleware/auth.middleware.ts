@@ -1,39 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
-
 import type { NextFunction, Request, Response } from "express";
 
 import { HttpError } from "@/models/error.model";
-
-function extractBearerToken(
-  authorizationHeader: string | undefined,
-): string | null {
-  if (!authorizationHeader) {
-    return null;
-  }
-
-  const [scheme, token, ...rest] = authorizationHeader.trim().split(/\s+/);
-
-  if (rest.length > 0) {
-    return null;
-  }
-
-  if (scheme?.toLowerCase() !== "bearer") {
-    return null;
-  }
-
-  return token ?? null;
-}
-
-function isValidToken(providedToken: string, expectedToken: string): boolean {
-  const provided = Buffer.from(providedToken);
-  const expected = Buffer.from(expectedToken);
-
-  if (provided.byteLength !== expected.byteLength) {
-    return false;
-  }
-
-  return timingSafeEqual(provided, expected);
-}
 
 export function apiKeyMiddleware(
   req: Request,
@@ -41,15 +9,25 @@ export function apiKeyMiddleware(
   next: NextFunction,
 ): void {
   const expectedApiKey = process.env.MCI_API_KEY;
-
   if (!expectedApiKey) {
     next();
     return;
   }
 
-  const providedToken = extractBearerToken(req.header("authorization"));
+  const parts = req.header("authorization")?.trim().split(/\s+/);
+  const token =
+    parts?.length === 2 && parts[0].toLowerCase() === "bearer"
+      ? parts[1]
+      : null;
 
-  if (!providedToken || !isValidToken(providedToken, expectedApiKey)) {
+  if (!token) {
+    next(new HttpError(401, "Unauthorized"));
+    return;
+  }
+
+  const a = Buffer.from(token);
+  const b = Buffer.from(expectedApiKey);
+  if (a.byteLength !== b.byteLength || !timingSafeEqual(a, b)) {
     next(new HttpError(401, "Unauthorized"));
     return;
   }

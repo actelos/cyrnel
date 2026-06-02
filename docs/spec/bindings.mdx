@@ -1,0 +1,94 @@
+---
+title: "EnvironmentBindings"
+description: "Callbacks an environment module receives from the host"
+sidebarTitle: "EnvironmentBindings"
+---
+
+`EnvironmentBindings` is the callback surface MCI hands to an environment
+module at activation. The environment calls *into* these to talk to the
+host — there is no other channel back.
+
+```ts
+interface EnvironmentBindings {
+  discoverServices(input: ListServiceInput): Promise<ListServiceResult[]>;
+  discoverTools(input: ListToolInput): Promise<ListToolResult[]>;
+  getService(id: string): Promise<GetServiceResult>;
+  getTool(input: GetToolInput): Promise<GetToolResult>;
+  getToolDocs(input: GetToolInput): Promise<string>;
+  invokeTool(input: InvokeInput): Promise<unknown>;
+  setState(eid: number, data: ExecutionState): void;
+  setError(eid: number, data: string): void;
+  emitStdout(eid: number, data: Buffer): void;
+  emitStderr(eid: number, data: Buffer): void;
+  emitOutput(eid: number, data: Record<string, unknown>): void;
+}
+```
+
+## Discovery and Invocation
+
+These are the calls user code ultimately drives. The environment is
+expected to expose them in whatever surface the runtime uses
+(`mci.discoverServices(...)`, `mci.services[id].tools[t].invoke(...)`,
+etc.) and proxy them through.
+
+| Callback | What it returns |
+| --- | --- |
+| `discoverServices` | Filtered service summaries (id, name, description, enabled). |
+| `discoverTools` | Filtered tool summaries across services. |
+| `getService` | Single service definition (no `tools`, no `adapterDomain`). |
+| `getTool` | Single tool with `inputSchema` and `outputSchema`. |
+| `getToolDocs` | Markdown reference for one tool — usually produced by the active environment's own `generateToolDocs`. |
+| `invokeTool` | Whatever the adapter returns. Throws on disabled / missing service or tool. |
+
+The discovery callbacks are the same calls the HTTP API uses internally,
+so they apply the same `enabled` filters.
+
+## Execution Reporting
+
+The environment **must** report execution state via these callbacks. The
+host uses them to keep the process record in sync with what's actually
+happening.
+
+| Callback | When to call |
+| --- | --- |
+| `setState(eid, "queued")` | Execution accepted but not yet running. |
+| `setState(eid, "running")` | Execution started in the runtime. |
+| `setError(eid, message)` | Execution failed; supply a human-readable message. The host writes this to `process.error`. |
+| `emitStdout(eid, buf)` | User code wrote to stdout. The host append-decodes. |
+| `emitStderr(eid, buf)` | User code wrote to stderr. |
+| `emitOutput(eid, obj)` | User code emitted a structured output payload. The host `Object.assign`s into the running output. |
+
+`eid` always matches the process `pid` — it's the value the host passed
+in `ExecutionInput.eid`. Mixing up `eid` values silently mis-routes
+output between processes.
+
+## Buffers and Strings
+
+`emitStdout` and `emitStderr` take `Buffer`. The host owns the decode —
+it runs each stream through a `StringDecoder("utf8")` so multi-byte
+characters split across chunks are reassembled correctly. The
+environment should pass raw bytes; do not decode and re-encode.
+
+`emitOutput` takes a plain object. The host treats it as a partial patch
+(`Object.assign`), so subsequent emits with the same key overwrite, and
+new keys are appended.
+
+## Implementation Notes
+
+- **Idempotency**: `setState` calls are advisory. The host ignores
+  duplicate transitions (`running` → `running`) and rejects nonsensical
+  ones (`idle` → `running`). Don't rely on every call landing.
+- **Ordering**: callbacks happen in whatever order the environment
+  invokes them. The host does not buffer or reorder. If you need
+  ordering guarantees with respect to execution completion, finish the
+  callbacks before resolving `execute`.
+- **Thread safety**: these are plain functions on the host's event loop.
+  An environment using worker threads must marshal calls back through
+  references (the bundled `typescript-ivm` does this with
+  `ivm.Reference`).
+
+## Where this is implemented
+
+The host wires these in `apps/api/src/app.ts` against `ProcessService`,
+`ServicesService`, and `ModuleService`. Environment modules see only
+the interface — they never touch those services directly.

@@ -1,4 +1,4 @@
-import type { EnvironmentBindings, ExecutionParams } from "@mci/sdk";
+import type { EnvironmentBindings, ExecutionInput } from "@mci/sdk";
 import { describe, expect, it, vi } from "vitest";
 
 import { instantiate, toBuffer } from "./index";
@@ -70,10 +70,12 @@ describe("environment module", () => {
         discoverTools: vi.fn(),
         getService: vi.fn(),
         getTool: vi.fn(),
+        getToolDocs: vi.fn(),
         invokeTool: vi.fn(),
         emitStdout: vi.fn(),
         emitStderr: vi.fn(),
         emitOutput: vi.fn(),
+        setError: vi.fn(),
       } satisfies EnvironmentBindings,
       setState,
     };
@@ -88,8 +90,10 @@ describe("environment module", () => {
     const promise = environment.execute({
       eid: 42,
       code: "const answer = 40 + 2;",
-      options: {},
-    } satisfies ExecutionParams);
+      options: {
+        timeoutMs: 30_000,
+      },
+    } satisfies ExecutionInput);
 
     const result = await promise;
 
@@ -107,18 +111,24 @@ describe("environment module", () => {
     const exec1 = environment.execute({
       eid: 1,
       code: infiniteCode,
-      options: {},
-    } satisfies ExecutionParams);
+      options: {
+        timeoutMs: 30_000,
+      },
+    } satisfies ExecutionInput);
     const exec2 = environment.execute({
       eid: 2,
       code: infiniteCode,
-      options: {},
-    } satisfies ExecutionParams);
+      options: {
+        timeoutMs: 30_000,
+      },
+    } satisfies ExecutionInput);
     const exec3 = environment.execute({
       eid: 3,
       code: "const done = true;",
-      options: {},
-    } satisfies ExecutionParams);
+      options: {
+        timeoutMs: 30_000,
+      },
+    } satisfies ExecutionInput);
 
     await tick();
 
@@ -151,8 +161,10 @@ describe("environment module", () => {
     await environment.execute({
       eid: 4,
       code: busyCode,
-      options: {},
-    } satisfies ExecutionParams);
+      options: {
+        timeoutMs: 30_000,
+      },
+    } satisfies ExecutionInput);
 
     await environment.teardown();
 
@@ -161,8 +173,10 @@ describe("environment module", () => {
     const result = await environment.execute({
       eid: 5,
       code: "const ok = true;",
-      options: {},
-    } satisfies ExecutionParams);
+      options: {
+        timeoutMs: 30_000,
+      },
+    } satisfies ExecutionInput);
 
     expect(result).toBe("success");
   });
@@ -176,8 +190,10 @@ describe("environment module", () => {
     const result = await environment.execute({
       eid: 7,
       code: "throw new Error('boom');",
-      options: {},
-    } satisfies ExecutionParams);
+      options: {
+        timeoutMs: 30_000,
+      },
+    } satisfies ExecutionInput);
 
     expect(result).toBe("failed");
   });
@@ -191,8 +207,10 @@ describe("environment module", () => {
     const result = await environment.execute({
       eid: 8,
       code: "const =",
-      options: {},
-    } satisfies ExecutionParams);
+      options: {
+        timeoutMs: 30_000,
+      },
+    } satisfies ExecutionInput);
 
     expect(result).toBe("failed");
   });
@@ -206,18 +224,24 @@ describe("environment module", () => {
     const exec1 = environment.execute({
       eid: 1,
       code: longBusyCode,
-      options: {},
-    } satisfies ExecutionParams);
+      options: {
+        timeoutMs: 30_000,
+      },
+    } satisfies ExecutionInput);
     const exec2 = environment.execute({
       eid: 2,
       code: longBusyCode,
-      options: {},
-    } satisfies ExecutionParams);
+      options: {
+        timeoutMs: 30_000,
+      },
+    } satisfies ExecutionInput);
     const exec3 = environment.execute({
       eid: 3,
       code: "const queued = true;",
-      options: {},
-    } satisfies ExecutionParams);
+      options: {
+        timeoutMs: 30_000,
+      },
+    } satisfies ExecutionInput);
 
     await tick();
 
@@ -236,8 +260,8 @@ describe("environment module", () => {
     const promise = environment.execute({
       eid: 9,
       code: infiniteCode,
-      options: {},
-    } satisfies ExecutionParams);
+      options: { timeoutMs: 30_000 },
+    } satisfies ExecutionInput);
 
     await tick();
     await environment.kill(9);
@@ -256,8 +280,8 @@ describe("environment module", () => {
     const promise = environment.execute({
       eid: 10,
       code: infiniteCode,
-      options: {},
-    } satisfies ExecutionParams);
+      options: { timeoutMs: 30_000 },
+    } satisfies ExecutionInput);
 
     await tick();
     await environment.kill(10);
@@ -266,8 +290,8 @@ describe("environment module", () => {
     const followup = await environment.execute({
       eid: 11,
       code: "const ok = true;",
-      options: {},
-    } satisfies ExecutionParams);
+      options: { timeoutMs: 30_000 },
+    } satisfies ExecutionInput);
 
     expect(followup).toBe("success");
   }, 10_000);
@@ -282,7 +306,7 @@ describe("environment module", () => {
       eid: 12,
       code: infiniteCode,
       options: { timeoutMs: 5 },
-    } satisfies ExecutionParams);
+    } satisfies ExecutionInput);
 
     expect(result).toBe("timeout");
   });
@@ -296,25 +320,10 @@ describe("environment module", () => {
     const result = await environment.execute({
       eid: 13,
       code: "throw new Error('intentional failure');",
-      options: {},
-    } satisfies ExecutionParams);
+      options: { timeoutMs: 30_000 },
+    } satisfies ExecutionInput);
 
     expect(result).toBe("failed");
-  });
-
-  it("treats null timeout as indefinite", async () => {
-    const { bindings } = createBindings();
-    const environment = instantiate();
-
-    await environment.setup({ bindings });
-
-    const result = await environment.execute({
-      eid: 14,
-      code: busyCode,
-      options: { timeoutMs: null },
-    } satisfies ExecutionParams);
-
-    expect(result).toBe("success");
   });
 
   it("rejects duplicate execution IDs", async () => {
@@ -326,8 +335,8 @@ describe("environment module", () => {
     const promise = environment.execute({
       eid: 20,
       code: infiniteCode,
-      options: {},
-    } satisfies ExecutionParams);
+      options: { timeoutMs: 30_000 },
+    } satisfies ExecutionInput);
 
     await tick();
 
@@ -335,8 +344,8 @@ describe("environment module", () => {
       environment.execute({
         eid: 20,
         code: "const second = true;",
-        options: {},
-      } satisfies ExecutionParams),
+        options: { timeoutMs: 30_000 },
+      } satisfies ExecutionInput),
     ).rejects.toThrow(/already running/i);
 
     await environment.kill(20);
@@ -350,8 +359,8 @@ describe("environment module", () => {
       environment.execute({
         eid: 30,
         code: "const x = 1;",
-        options: {},
-      } satisfies ExecutionParams),
+        options: { timeoutMs: 30_000 },
+      } satisfies ExecutionInput),
     ).rejects.toThrow(/not setup/i);
   });
 
@@ -364,18 +373,20 @@ describe("environment module", () => {
     const exec1 = environment.execute({
       eid: 31,
       code: longBusyCode,
-      options: {},
-    } satisfies ExecutionParams);
+      options: { timeoutMs: 30_000 },
+    } satisfies ExecutionInput);
     const exec2 = environment.execute({
       eid: 32,
       code: longBusyCode,
-      options: {},
-    } satisfies ExecutionParams);
+      options: { timeoutMs: 30_000 },
+    } satisfies ExecutionInput);
     const exec3 = environment.execute({
       eid: 33,
       code: "const queued = true;",
-      options: {},
-    } satisfies ExecutionParams);
+      options: {
+        timeoutMs: 30_000,
+      },
+    } satisfies ExecutionInput);
 
     await tick();
 

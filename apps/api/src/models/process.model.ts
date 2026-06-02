@@ -1,62 +1,46 @@
+import { EXECUTION_EXIT_STATES, EXECUTION_STATES } from "@mci/sdk";
+
 export const PROCESS_STATES = [
+  ...EXECUTION_STATES,
   "idle",
-  "queued",
-  "running",
   "terminating",
 ] as const;
 
 export type ProcessState = (typeof PROCESS_STATES)[number];
 
-export const PROCESS_STATUSES = [
-  null,
-  "failed",
-  "success",
-  "timeout",
-  "canceled",
-] as const;
+export const PROCESS_EXIT_STATES = [...EXECUTION_EXIT_STATES, null] as const;
 
-export type ProcessStatus = (typeof PROCESS_STATUSES)[number];
+export type ProcessExitState = (typeof PROCESS_EXIT_STATES)[number];
 
-export interface Process {
+export interface ProcessRecord {
   pid: number;
   ref?: string;
   state: ProcessState;
-  status: ProcessStatus;
-}
-
-export interface ProcessList {
-  processes: Process[];
-}
-
-export interface CreateProcessRequest {
+  exitState: ProcessExitState;
+  error: string | null;
   code: string;
-  ref?: string;
-  timeout?: number | null;
+  options: {
+    timeoutMs?: number | null;
+  };
+  output: Record<string, unknown>;
+  stdout: Buffer;
+  stderr: Buffer;
 }
 
-export interface ProcessCreatedResponse {
-  pid: number;
-}
+export type CreateProcessInput = Omit<
+  ProcessRecord,
+  "pid" | "state" | "exitState" | "error" | "output" | "stdout" | "stderr"
+>;
 
-export type ProcessOutput = Record<string, unknown>;
-
-export type ProcessOutputResponse = ProcessOutput;
-
-export interface RunSignalRequest {
-  force?: boolean;
-}
-
-export interface ProcessQueryFilters {
+export interface FilterProcessInput {
   ref?: string;
   state?: ProcessState;
-  status?: ProcessStatus;
+  exitState?: ProcessExitState;
 }
 
-export interface StoredProcess {
-  process: Process;
-  code: string;
-  timeoutMs?: number | null;
-  output: ProcessOutput;
-  stdoutChunks: string[];
-  stderrChunks: string[];
-}
+export type ListProcessResult = Omit<
+  ProcessRecord,
+  "code" | "options" | "output" | "stdout" | "stderr"
+>;
+
+export type GetProcessResult = ListProcessResult;

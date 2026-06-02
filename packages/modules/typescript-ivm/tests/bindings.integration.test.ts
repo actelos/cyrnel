@@ -1,14 +1,12 @@
 import type {
-  DiscoverInput,
-  DiscoverServiceItem,
-  DiscoverToolItem,
   EnvironmentBindings,
-  ExecutionParams,
-  GetServiceInput,
-  GetToolInput,
-  InvokeInput,
-  ServiceDetails,
-  ToolDetails,
+  ExecutionInput,
+  GetServiceResult,
+  GetToolResult,
+  ListServiceInput,
+  ListServiceResult,
+  ListToolInput,
+  ListToolResult,
 } from "@mci/sdk";
 import { describe, expect, it, vi } from "vitest";
 
@@ -21,8 +19,10 @@ describe("bindings integration", () => {
       emitStdout: vi.fn<EnvironmentBindings["emitStdout"]>(),
       emitStderr: vi.fn<EnvironmentBindings["emitStderr"]>(),
       emitOutput: vi.fn<EnvironmentBindings["emitOutput"]>(),
+      setError: vi.fn<EnvironmentBindings["setError"]>(),
       getService: vi.fn<EnvironmentBindings["getService"]>(),
       getTool: vi.fn<EnvironmentBindings["getTool"]>(),
+      getToolDocs: vi.fn<EnvironmentBindings["getToolDocs"]>(),
       invokeTool: vi.fn<EnvironmentBindings["invokeTool"]>(),
       discoverTools: vi.fn<EnvironmentBindings["discoverTools"]>(),
       discoverServices: vi.fn<EnvironmentBindings["discoverServices"]>(),
@@ -34,19 +34,15 @@ describe("bindings integration", () => {
       const bindings = createBindings();
       const environment = instantiate();
 
-      // Mock the service and tool definitions
-      const serviceDetails: ServiceDetails = {
+      const serviceDetails: GetServiceResult = {
         name: "calculator",
-        type: "builtin",
-        source: "system",
         description: "Calculator service",
-        hash: "abc123",
         enabled: true,
         configSchema: {},
         secretsSchema: {},
       };
 
-      const toolDetails: ToolDetails = {
+      const toolDetails: GetToolResult = {
         name: "add",
         description: "Add two numbers",
         enabled: true,
@@ -87,22 +83,19 @@ describe("bindings integration", () => {
 
           mci.output({ computation: output });
         `,
-        options: {},
-      } satisfies ExecutionParams);
+      } satisfies ExecutionInput);
 
       expect(result).toBe("success");
-      expect(bindings.getService).toHaveBeenCalledWith({
-        serviceName: "calculator",
-      } satisfies GetServiceInput);
+      expect(bindings.getService).toHaveBeenCalledWith("calculator");
       expect(bindings.getTool).toHaveBeenCalledWith({
-        serviceName: "calculator",
-        toolName: "add",
-      } satisfies GetToolInput);
+        serviceId: "calculator",
+        toolId: "add",
+      });
       expect(bindings.invokeTool).toHaveBeenCalledWith({
-        serviceName: "calculator",
-        toolName: "add",
+        serviceId: "calculator",
+        toolId: "add",
         parameters: { a: 40, b: 2 },
-      } satisfies InvokeInput);
+      });
       expect(bindings.emitOutput).toHaveBeenCalledWith(1, {
         computation: { result: 42 },
       });
@@ -128,8 +121,7 @@ describe("bindings integration", () => {
             console.error("Caught error:", error.message);
           }
         `,
-        options: {},
-      } satisfies ExecutionParams);
+      } satisfies ExecutionInput);
 
       expect(result).toBe("success");
       expect(bindings.emitStderr).toHaveBeenCalled();
@@ -144,23 +136,32 @@ describe("bindings integration", () => {
       const bindings = createBindings();
       const environment = instantiate();
 
-      const services: DiscoverServiceItem[] = [
-        { name: "calc", description: "Calculator", enabled: true },
-        { name: "weather", description: "Weather API", enabled: true },
+      const services: ListServiceResult[] = [
+        { id: "calc", name: "calc", description: "Calculator", enabled: true },
+        {
+          id: "weather",
+          name: "weather",
+          description: "Weather API",
+          enabled: true,
+        },
       ];
 
-      const tools: DiscoverToolItem[] = [
+      const tools: ListToolResult[] = [
         {
-          serviceName: "calc",
+          serviceId: "calc",
+          id: "add",
           name: "add",
           description: "Add numbers",
           enabled: true,
+          effectivelyEnabled: true,
         },
         {
-          serviceName: "calc",
+          serviceId: "calc",
+          id: "multiply",
           name: "multiply",
           description: "Multiply numbers",
           enabled: true,
+          effectivelyEnabled: true,
         },
       ];
 
@@ -180,18 +181,17 @@ describe("bindings integration", () => {
 
           mci.output({ services, tools });
         `,
-        options: {},
-      } satisfies ExecutionParams);
+      } satisfies ExecutionInput);
 
       expect(result).toBe("success");
       expect(bindings.discoverServices).toHaveBeenCalledWith({
         query: "",
         limit: 10,
-      } satisfies DiscoverInput);
+      } satisfies ListServiceInput);
       expect(bindings.discoverTools).toHaveBeenCalledWith({
         query: "calc",
         limit: 10,
-      } satisfies DiscoverInput);
+      } satisfies ListToolInput);
       expect(bindings.emitOutput).toHaveBeenCalledWith(1, { services, tools });
     });
   });
@@ -210,8 +210,7 @@ describe("bindings integration", () => {
           console.error("Warning: This is a test");
           console.log("Process complete");
         `,
-        options: {},
-      } satisfies ExecutionParams);
+      } satisfies ExecutionInput);
 
       expect(bindings.emitStdout).toHaveBeenCalledTimes(2);
       expect(bindings.emitStderr).toHaveBeenCalledTimes(1);
@@ -241,8 +240,7 @@ describe("bindings integration", () => {
           };
           console.log("Data:", data);
         `,
-        options: {},
-      } satisfies ExecutionParams);
+      } satisfies ExecutionInput);
 
       const buffer = bindings.emitStdout.mock.calls[0][1];
       const message = buffer.toString("utf8");
@@ -267,12 +265,10 @@ describe("bindings integration", () => {
           obj.self = obj;
           console.log("Circular:", obj);
         `,
-        options: {},
-      } satisfies ExecutionParams);
+      } satisfies ExecutionInput);
 
       expect(result).toBe("success");
       expect(bindings.emitStdout).toHaveBeenCalled();
-      // Should not crash, will use String() fallback
     });
   });
 
@@ -283,27 +279,22 @@ describe("bindings integration", () => {
 
       await environment.setup({ bindings });
 
-      // Execute first script
       await environment.execute({
         eid: 100,
         code: `
           console.log("Execution 100");
           mci.output({ eid: 100 });
         `,
-        options: {},
-      } satisfies ExecutionParams);
+      } satisfies ExecutionInput);
 
-      // Execute second script
       await environment.execute({
         eid: 200,
         code: `
           console.log("Execution 200");
           mci.output({ eid: 200 });
         `,
-        options: {},
-      } satisfies ExecutionParams);
+      } satisfies ExecutionInput);
 
-      // Verify eid isolation
       expect(bindings.emitStdout).toHaveBeenNthCalledWith(
         1,
         100,
@@ -340,8 +331,7 @@ describe("bindings integration", () => {
           const result = await mci.services.async.tools.wait.invoke({});
           mci.output(result);
         `,
-        options: {},
-      } satisfies ExecutionParams);
+      } satisfies ExecutionInput);
 
       expect(result).toBe("success");
       expect(bindings.emitOutput).toHaveBeenCalledWith(1, { done: true });
@@ -365,8 +355,7 @@ describe("bindings integration", () => {
           ]);
           mci.output({ count: results.length });
         `,
-        options: {},
-      } satisfies ExecutionParams);
+      } satisfies ExecutionInput);
 
       expect(result).toBe("success");
       expect(bindings.invokeTool).toHaveBeenCalledTimes(3);
@@ -394,8 +383,7 @@ describe("bindings integration", () => {
             console.error("Error:", error.message);
           }
         `,
-        options: {},
-      } satisfies ExecutionParams);
+      } satisfies ExecutionInput);
 
       expect(result).toBe("success");
       expect(bindings.emitStderr).toHaveBeenCalled();
@@ -421,8 +409,7 @@ describe("bindings integration", () => {
           const data: Result = { value: 42 };
           mci.output(data);
         `,
-        options: {},
-      } satisfies ExecutionParams);
+      } satisfies ExecutionInput);
 
       expect(result).toBe("success");
       expect(bindings.emitOutput).toHaveBeenCalledWith(1, { value: 42 });
@@ -432,7 +419,7 @@ describe("bindings integration", () => {
       const bindings = createBindings();
       const environment = instantiate();
 
-      const toolDetails: ToolDetails = {
+      const toolDetails: GetToolResult = {
         name: "test",
         description: "Test tool",
         enabled: true,
@@ -451,8 +438,7 @@ describe("bindings integration", () => {
           const name: string = tool.name;
           console.log(name);
         `,
-        options: {},
-      } satisfies ExecutionParams);
+      } satisfies ExecutionInput);
 
       expect(result).toBe("success");
     });

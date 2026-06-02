@@ -1,0 +1,35 @@
+openapi: "3.0.3"
+info:
+  title: Petstore API (YAML)
+  description: A sample API in YAML format
+  version: "1.0.0"
+servers:
+  - url: https://petstore.example.com/api/v1
+paths:
+  /pets:
+    get:
+      operationId: listPets
+      summary: List all pets
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: A list of pets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Pet"
+components:
+  schemas:
+    Pet:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string

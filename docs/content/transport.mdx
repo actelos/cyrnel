@@ -1,14 +1,79 @@
 ---
 title: "Transport"
-description: "The data transport layers within MCI"
+description: "How data flows in and out of MCI"
 ---
+
+MCI has two distinct transport layers: the **external** API that clients use,
+and the **internal** channel between the runtime and its modules.
 
 ## External Transport
 
-The MCI server exposes an HTTP REST API for client interactions. Clients create processes, send process signals, and retrieve outputs through REST endpoints.
+The MCI server exposes a JSON-over-HTTP REST API. Clients use it to:
 
-MCI is protocol-agnostic at the end-service layer. Adapter modules handle communication to target services over their native protocols.
+- Create, inspect, signal, and delete processes (`/processes`)
+- Register, configure, enable/disable, update, and delete services
+  (`/services`)
+- List and toggle tools (`/tools`)
+- List and toggle modules, and reload the module registry from disk
+  (`/modules`)
+- Read the active environment's reference docs (`/environment/docs`)
+
+Default port: `7687` (override with `PORT`).
+
+Auth: optional bearer token (`MCI_API_KEY`). Unset means anonymous access.
+See the [README](https://github.com/actelos/mci#authentication) for how to
+set `MCI_API_KEY` and call the API.
+
+Error envelope: every non-2xx response is `{ "error": "<message>" }`.
 
 ## Internal Transport
 
-Internal runtime data flow such as tool invocations, module hydration, and invoke responses is handled through process messaging between runtime components.
+### Process service ⇄ environment
+
+The active environment module is invoked through the in-process
+`EnvironmentModule` interface (no IPC). Each `ProcessService.create` allocates
+a `pid`, which is also the **execution id** (`eid`) handed to the environment.
+The environment streams events back through the same in-process
+`EnvironmentBindings` callbacks (`setState`, `emitStdout`, `emitStderr`,
+`emitOutput`, `setError`).
+
+### Environment ⇄ user code
+
+The bundled `typescript-ivm` environment transpiles user code with TypeScript
+and runs it inside an `isolated-vm` isolate. Code runs in a fresh context per
+execution with **no module loader, no filesystem, no network, and no Node
+built-ins**. The only way out of the isolate is through references explicitly
+installed by MCI:
+
+- `__mci_emitStdout`, `__mci_emitStderr`, `__mci_emitOutput`
+- `__mci_getService`, `__mci_getTool`, `__mci_getToolDocs`
+- `__mci_invokeTool`
+- `__mci_discoverServices`, `__mci_discoverTools`
+
+A small prelude (`bindings.ts`) wraps those raw references into the
+ergonomic `mci.*` surface user code actually calls. See
+[Built-in: `typescript-ivm`](/content/builtins/typescript-ivm).
+
+### Environment ⇄ adapter
+
+When user code calls `mci.services[id].tools[toolName].invoke(parameters)`,
+the call returns to the host as an `__mci_invokeTool` reference invocation,
+which the `ModuleService` resolves to the correct adapter (based on the
+service's `adapter` column) and forwards as
+`adapter.invoke({ serviceId, toolId, parameters })`.
+
+### Adapter ⇄ end service
+
+Adapters speak whatever protocol the end service speaks. The bundled
+`openapi` adapter speaks HTTP based on the OpenAPI document supplied at
+install time. Custom adapters are free to dial gRPC, message queues,
+databases, hardware interfaces, etc.
+
+## Data Lifetime
+
+- **Process records** live in memory and are lost when the API restarts.
+- **Services, tools, configurations, secrets, and module enable-state** live
+  in SQLite (libSQL). Path defaults to `$MCI_DATA_DIR/mci.db`; override with
+  `MCI_DB_URL`.
+- **Secrets** are stored as AES-256-GCM ciphertext; the key comes from
+  `MCI_SECRETS_KEY`.

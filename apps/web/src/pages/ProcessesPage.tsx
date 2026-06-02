@@ -51,12 +51,19 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  apiFetch,
+  apiFetchJson,
+  apiFetchText,
+  buildUrl,
+  errorMessageFrom,
+} from "@/lib/api";
 import { copyToClipboard } from "@/lib/copy";
 import { cn } from "@/lib/utils";
 
 const processStateSchema = z.enum(["idle", "queued", "running", "terminating"]);
 
-const processStatusSchema = z.union([
+const processExitStateSchema = z.union([
   z.literal("failed"),
   z.literal("success"),
   z.literal("timeout"),
@@ -68,7 +75,8 @@ const processSchema = z.object({
   pid: z.number().int().positive(),
   ref: z.string().optional(),
   state: processStateSchema,
-  status: processStatusSchema,
+  exitState: processExitStateSchema,
+  error: z.string().nullable(),
 });
 
 const processListSchema = z.object({
@@ -114,48 +122,12 @@ const filterSchema = z.object({
 });
 
 type ProcessState = z.infer<typeof processStateSchema>;
-type ProcessStatus = z.infer<typeof processStatusSchema>;
+type ProcessExitState = z.infer<typeof processExitStateSchema>;
 type Process = z.infer<typeof processSchema>;
 
 type CreateProcessErrors = Partial<
   Record<"code" | "ref" | "timeout" | "form", string>
 >;
-
-const apiBase = import.meta.env.VITE_MCI_API_URL ?? "";
-
-const buildUrl = (
-  path: string,
-  params?: Record<string, string | undefined>,
-) => {
-  const base = apiBase.length > 0 ? apiBase : window.location.origin;
-  const url = new URL(path, base);
-  if (params) {
-    Object.entries(params).forEach(([key, value]) => {
-      if (value !== undefined) {
-        url.searchParams.set(key, value);
-      }
-    });
-  }
-  return url.toString();
-};
-
-const fetchJson = async <T,>(url: string, schema: z.ZodType<T>) => {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Request failed: ${response.status}`);
-  }
-  const data = await response.json();
-  return schema.parse(data);
-};
-
-const fetchText = async (url: string) => {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Request failed: ${response.status}`);
-  }
-  const data = await response.text();
-  return z.string().parse(data);
-};
 
 const stateBadgeVariant = (state: ProcessState) => {
   if (state === "running") return "default";
@@ -164,11 +136,11 @@ const stateBadgeVariant = (state: ProcessState) => {
   return "outline";
 };
 
-const statusBadgeVariant = (status: ProcessStatus) => {
-  if (status === "failed") return "destructive";
-  if (status === "success") return "default";
-  if (status === "timeout") return "secondary";
-  if (status === "canceled") return "outline";
+const exitStateBadgeVariant = (exitState: ProcessExitState) => {
+  if (exitState === "failed") return "destructive";
+  if (exitState === "success") return "default";
+  if (exitState === "timeout") return "secondary";
+  if (exitState === "canceled") return "outline";
   return "outline";
 };
 
@@ -219,7 +191,7 @@ export default function ProcessesPage() {
     data: processList,
     isLoading: isLoadingProcesses,
     error: processError,
-  } = useSWR(processesUrl, (url) => fetchJson(url, processListSchema), {
+  } = useSWR(processesUrl, (url) => apiFetchJson(url, processListSchema), {
     refreshInterval: 2000,
   });
 
@@ -258,26 +230,26 @@ export default function ProcessesPage() {
 
   const { data: outputData, error: outputError } = useSWR(
     outputKey,
-    (url) => fetchJson(url, z.record(z.string(), z.unknown())),
+    (url) => apiFetchJson(url, z.record(z.string(), z.unknown())),
     {
       refreshInterval: 2000,
     },
   );
   const { data: stdoutData, error: stdoutError } = useSWR(
     stdoutKey,
-    fetchText,
+    apiFetchText,
     {
       refreshInterval: 2000,
     },
   );
   const { data: stderrData, error: stderrError } = useSWR(
     stderrKey,
-    fetchText,
+    apiFetchText,
     {
       refreshInterval: 2000,
     },
   );
-  const { data: codeData } = useSWR(codeKey, fetchText, {
+  const { data: codeData } = useSWR(codeKey, apiFetchText, {
     refreshInterval: 4000,
   });
 
@@ -307,7 +279,7 @@ export default function ProcessesPage() {
   };
 
   const needsRestartConfirmation = (process: Process) => {
-    return process.state === "idle" && process.status !== null;
+    return process.state === "idle" && process.exitState !== null;
   };
 
   const handleCreateProcess = async () => {
@@ -332,21 +304,17 @@ export default function ProcessesPage() {
     setIsCreating(true);
 
     try {
-      const response = await fetch(buildUrl("/processes"), {
+      await apiFetch(buildUrl("/processes"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           code: parsed.data.code,
           ...(parsed.data.ref ? { ref: parsed.data.ref } : {}),
           ...(parsed.data.timeout !== undefined
-            ? { timeout: parsed.data.timeout }
+            ? { options: { timeout: parsed.data.timeout } }
             : {}),
         }),
       });
-
-      if (!response.ok) {
-        throw new Error(`Request failed: ${response.status}`);
-      }
 
       setCreateCode("");
       setCreateRef("");
@@ -355,8 +323,7 @@ export default function ProcessesPage() {
       await mutate(processesUrl);
     } catch (error) {
       setCreateErrors({
-        form:
-          error instanceof Error ? error.message : "Unable to create process.",
+        form: errorMessageFrom(error, "Unable to create process."),
       });
     } finally {
       setIsCreating(false);
@@ -366,48 +333,28 @@ export default function ProcessesPage() {
   const handleRunProcess = async (process: Process, force: boolean) => {
     setActionError(null);
     try {
-      const response = await fetch(
-        buildUrl(`/processes/${process.pid}/signals/run`),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ force }),
-        },
-      );
-
-      if (!response.ok) {
-        throw new Error(`Request failed: ${response.status}`);
-      }
-
+      await apiFetch(buildUrl(`/processes/${process.pid}/signals/run`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ force }),
+      });
       await mutate(processesUrl);
     } catch (error) {
-      setActionError(
-        error instanceof Error ? error.message : "Unable to restart process.",
-      );
+      setActionError(errorMessageFrom(error, "Unable to restart process."));
     }
   };
 
   const handleKillProcess = async (process: Process) => {
     setActionError(null);
     try {
-      const response = await fetch(
-        buildUrl(`/processes/${process.pid}/signals/kill`),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({}),
-        },
-      );
-
-      if (!response.ok) {
-        throw new Error(`Request failed: ${response.status}`);
-      }
-
+      await apiFetch(buildUrl(`/processes/${process.pid}/signals/kill`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
       await mutate(processesUrl);
     } catch (error) {
-      setActionError(
-        error instanceof Error ? error.message : "Unable to kill process.",
-      );
+      setActionError(errorMessageFrom(error, "Unable to kill process."));
     }
   };
 
@@ -627,9 +574,21 @@ export default function ProcessesPage() {
                           </Badge>
                         </TableCell>
                         <TableCell>
-                          <Badge variant={statusBadgeVariant(process.status)}>
-                            {process.status ?? "none"}
-                          </Badge>
+                          <div className="flex items-center gap-1.5">
+                            <Badge
+                              variant={exitStateBadgeVariant(process.exitState)}
+                            >
+                              {process.exitState ?? "none"}
+                            </Badge>
+                            {process.error ? (
+                              <span
+                                role="img"
+                                aria-label="Process has an error"
+                                className="h-1.5 w-1.5 rounded-full bg-destructive"
+                                title={process.error}
+                              />
+                            ) : null}
+                          </div>
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex items-center justify-end gap-1">
@@ -701,9 +660,38 @@ export default function ProcessesPage() {
                 <ScrollArea className="h-full">
                   <Accordion
                     type="multiple"
-                    defaultValue={["stdout"]}
+                    defaultValue={
+                      selectedProcess?.error ? ["error", "stdout"] : ["stdout"]
+                    }
                     className="w-full"
                   >
+                    {selectedProcess?.error ? (
+                      <AccordionItem value="error">
+                        <AccordionTrigger className="text-destructive">
+                          Error
+                        </AccordionTrigger>
+                        <AccordionContent>
+                          <div className="relative">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="absolute right-2 top-2 z-10 h-8 w-8 p-0"
+                              onClick={() =>
+                                void handleCopyText(selectedProcess.error ?? "")
+                              }
+                            >
+                              <Copy />
+                            </Button>
+                            <ScrollArea className="h-[160px] border border-destructive/40 bg-destructive/5 p-3 pr-12">
+                              <pre className="whitespace-pre-wrap text-xs font-mono text-destructive">
+                                {selectedProcess.error}
+                              </pre>
+                            </ScrollArea>
+                          </div>
+                        </AccordionContent>
+                      </AccordionItem>
+                    ) : null}
                     <AccordionItem value="code">
                       <AccordionTrigger>Code</AccordionTrigger>
                       <AccordionContent>

@@ -1,14 +1,17 @@
 import fs from "node:fs/promises";
 import type {
-  DiscoverInput,
   EnvironmentBindings,
   EnvironmentModule,
   EnvironmentSetupContext,
   ExecutionExitState,
-  ExecutionParams,
-  GetServiceInput,
+  ExecutionInput,
+  ExecutionOptions,
   GetToolInput,
   InvokeInput,
+  JSONSchema,
+  ListServiceInput,
+  ListToolInput,
+  ToolDocsInput,
 } from "@mci/sdk";
 import ivm from "isolated-vm";
 import ts from "typescript";
@@ -17,13 +20,68 @@ const DEFAULT_POOL_SIZE = 2;
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_MEMORY_LIMIT_MB = 128;
 
+const ENVIRONMENT_DOCS = `
+# TypeScript Environment (typescript-ivm)
+
+Code is transpiled with the TypeScript compiler and executed inside an
+\`isolated-vm\` isolate. Each execution runs inside an implicit async function,
+so top-level \`await\` is allowed. There is no filesystem, network, or Node
+built-ins — only the globals listed below.
+
+- **Language**: TypeScript / JavaScript, target ES2022, module ESNext.
+- **No \`import\`/\`require\`**: the isolate has no module loader. Write all
+  code inline.
+
+## Globals
+
+### \`mci.output(data)\`
+Emit a structured JSON payload for the caller. \`data\` must be a plain object.
+
+### \`mci.discoverServices(input)\`
+List installed services. Returns \`{ id, name, description, enabled }[]\`.
+\`input\`: \`{ query?: string; limit?: number; enabled?: boolean }\`.
+
+### \`mci.discoverTools(input)\`
+List tools across services. Returns
+\`{ serviceId, id, name, description, enabled }[]\`. \`input\`:
+\`{ serviceId?: string; query?: string; limit?: number; enabled?: boolean }\`.
+
+### \`mci.services[serviceId].getDefinition()\`
+Returns the service metadata, including \`configSchema\` and \`secretsSchema\`.
+
+### \`mci.services[serviceId].tools[toolId].getDefinition()\`
+Returns the tool metadata, including \`inputSchema\` and \`outputSchema\`.
+
+### \`mci.services[serviceId].tools[toolId].invoke(parameters)\`
+Invoke a tool. \`parameters\` must satisfy the tool's \`inputSchema\`. Returns
+whatever the tool produces.
+
+## Console
+
+- \`console.log(...args)\` writes to stdout.
+- \`console.error(...args)\` writes to stderr.
+
+Objects are pretty-printed as JSON; strings are passed through verbatim.
+
+## Example
+
+\`\`\`ts
+const tools = await mci.discoverTools({ query: "weather" });
+const [tool] = tools;
+const result = await mci.services[tool.serviceId].tools[tool.id].invoke({
+  city: "Accra",
+});
+mci.output({ result });
+\`\`\`
+`;
+
 type Interrupt = {
   promise: Promise<ExecutionExitState>;
   resolve: (state: ExecutionExitState) => void;
 };
 
 type ExecutionJob = {
-  input: ExecutionParams;
+  input: ExecutionInput;
   code: string;
   resolve: (state: ExecutionExitState) => void;
 };
@@ -33,6 +91,10 @@ type RunningExecution = {
   interrupt: Interrupt;
   timeoutHandle: ReturnType<typeof setTimeout> | null;
 };
+
+function getEffectiveTimeoutMs(options: ExecutionOptions | undefined): number {
+  return options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+}
 
 type TerminableIsolate = ivm.Isolate & {
   terminateExecution: () => Promise<void>;
@@ -99,7 +161,7 @@ export function toBuffer(data: unknown): Buffer {
   return Buffer.from(text, "utf8");
 }
 
-function createInterupt(): Interrupt {
+function createInterrupt(): Interrupt {
   let settled = false;
   let resolve!: (state: ExecutionExitState) => void;
   const promise = new Promise<ExecutionExitState>((r) => {
@@ -112,16 +174,134 @@ function createInterupt(): Interrupt {
   return { promise, resolve };
 }
 
-function getEffectiveTimeoutMs(
-  options: ExecutionParams["options"],
-): number | null {
-  if (options.timeoutMs === null) return null;
-  if (options.timeoutMs === undefined) return DEFAULT_TIMEOUT_MS;
-  return options.timeoutMs;
-}
-
 function buildWrappedCode(code: string): string {
   return `async function __mciMain__() {${code}}__mciMain__();`;
+}
+
+function schemaTypeLabel(schema: JSONSchema | undefined): string {
+  if (!schema || typeof schema !== "object") return "any";
+  const t = schema.type;
+  if (typeof t === "string") return t;
+  if (Array.isArray(t) && t.length > 0)
+    return t.filter((v) => typeof v === "string").join(" | ") || "any";
+  if (schema.enum && Array.isArray(schema.enum)) return "enum";
+  return "any";
+}
+
+function exampleValue(schema: JSONSchema | undefined): unknown {
+  if (!schema || typeof schema !== "object") return null;
+  if ("example" in schema && schema.example !== undefined)
+    return schema.example;
+  if (Array.isArray(schema.enum) && schema.enum.length > 0)
+    return schema.enum[0];
+  const t = Array.isArray(schema.type) ? schema.type[0] : schema.type;
+  switch (t) {
+    case "string":
+      return "string";
+    case "number":
+    case "integer":
+      return 0;
+    case "boolean":
+      return false;
+    case "array":
+      return [];
+    case "object": {
+      if (
+        schema.properties &&
+        typeof schema.properties === "object" &&
+        !Array.isArray(schema.properties)
+      ) {
+        const out: Record<string, unknown> = {};
+        for (const [name, prop] of Object.entries(
+          schema.properties as Record<string, JSONSchema>,
+        )) {
+          out[name] = exampleValue(prop);
+        }
+        return out;
+      }
+      return {};
+    }
+    case "null":
+      return null;
+    default:
+      return null;
+  }
+}
+
+function renderProperties(schema: JSONSchema | undefined): string {
+  if (
+    !schema ||
+    typeof schema !== "object" ||
+    !schema.properties ||
+    typeof schema.properties !== "object" ||
+    Array.isArray(schema.properties)
+  ) {
+    return "_(no parameters)_";
+  }
+
+  const required = new Set<string>(
+    Array.isArray(schema.required)
+      ? (schema.required as unknown[]).filter(
+          (v): v is string => typeof v === "string",
+        )
+      : [],
+  );
+
+  const entries = Object.entries(
+    schema.properties as Record<string, JSONSchema>,
+  );
+  if (entries.length === 0) return "_(no parameters)_";
+
+  return entries
+    .map(([name, prop]) => {
+      const type = schemaTypeLabel(prop);
+      const tag = required.has(name) ? "required" : "optional";
+      const description =
+        prop && typeof prop === "object" && typeof prop.description === "string"
+          ? ` — ${prop.description}`
+          : "";
+      return `- \`${name}\` (${type}, ${tag})${description}`;
+    })
+    .join("\n");
+}
+
+function renderToolDocs(input: ToolDocsInput): string {
+  const exampleInput = exampleValue(input.inputSchema) ?? {};
+  const exampleJson = JSON.stringify(exampleInput, null, 2);
+  const description = input.description.trim() || "_(no description)_";
+
+  return `
+  # Tool: \`${input.serviceId}.${input.toolId}\`
+
+  ${description}
+
+  ## Parameters
+
+  ${renderProperties(input.inputSchema)}
+
+  ## Returns
+
+  Shape (\`outputSchema.type\`): \`${schemaTypeLabel(input.outputSchema)}\`
+
+  ${renderProperties(input.outputSchema)}
+
+  ## Example
+
+  \`\`\`ts
+  const result = await mci.services.${input.serviceId}.tools.${input.toolId}.invoke(${exampleJson});
+  mci.output({ result });
+  \`\`\`
+  `;
+}
+
+function errorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err);
+  }
 }
 
 class TypescriptIvmEnvironment implements EnvironmentModule {
@@ -173,7 +353,7 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
     this.bindings = null;
   }
 
-  async execute(input: ExecutionParams): Promise<ExecutionExitState> {
+  async execute(input: ExecutionInput): Promise<ExecutionExitState> {
     if (!this.bindings) {
       throw new Error("Environment module is not setup");
     }
@@ -194,7 +374,8 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
 
     try {
       code = transpileTypeScript(input.code);
-    } catch {
+    } catch (err) {
+      this.bindings.setError(input.eid, errorMessage(err));
       return "failed";
     }
 
@@ -204,6 +385,14 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
       this.queue.push({ input, code, resolve });
       void this.pumpQueue();
     });
+  }
+
+  async generateDocs(): Promise<string> {
+    return ENVIRONMENT_DOCS;
+  }
+
+  async generateToolDocs(input: ToolDocsInput): Promise<string> {
+    return renderToolDocs(input);
   }
 
   async kill(eid: number): Promise<void> {
@@ -252,7 +441,7 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
 
   private async runJob(worker: WorkerSlot, job: ExecutionJob): Promise<void> {
     let result: ExecutionExitState = "failed";
-    const interrupt = createInterupt();
+    const interrupt = createInterrupt();
     const running: RunningExecution = {
       eid: job.input.eid,
       interrupt,
@@ -268,22 +457,22 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
       const effectiveTimeoutMs = getEffectiveTimeoutMs(job.input.options);
       const executionPromise = this.executeInIsolate(worker, job)
         .then(() => "success" as const)
-        .catch(() => "failed" as const);
+        .catch((err) => {
+          this.bindings?.setError(job.input.eid, errorMessage(err));
+          return "failed" as const;
+        });
 
-      const timeoutPromise =
-        effectiveTimeoutMs === null
-          ? null
-          : new Promise<ExecutionExitState>((resolve) => {
-              running.timeoutHandle = setTimeout(() => {
-                void this.terminateExecution(worker);
-                resolve("timeout");
-              }, effectiveTimeoutMs);
-            });
+      const timeoutPromise = new Promise<ExecutionExitState>((resolve) => {
+        running.timeoutHandle = setTimeout(() => {
+          void this.terminateExecution(worker);
+          resolve("timeout");
+        }, effectiveTimeoutMs);
+      });
 
       result = await Promise.race([
         executionPromise,
         interrupt.promise,
-        ...(timeoutPromise ? [timeoutPromise] : []),
+        timeoutPromise,
       ]);
     } catch {
       result = "failed";
@@ -341,8 +530,8 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
     await jail.set(
       "__mci_getService",
       new ivm.Reference(async (jsonInput: string) => {
-        const input = JSON.parse(jsonInput) as GetServiceInput;
-        const result = await bindings.getService(input);
+        const serviceId = JSON.parse(jsonInput) as string;
+        const result = await bindings.getService(serviceId);
         return JSON.stringify(result);
       }),
     );
@@ -353,6 +542,14 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
         const input = JSON.parse(jsonInput) as GetToolInput;
         const result = await bindings.getTool(input);
         return JSON.stringify(result);
+      }),
+    );
+
+    await jail.set(
+      "__mci_getToolDocs",
+      new ivm.Reference(async (jsonInput: string) => {
+        const input = JSON.parse(jsonInput) as GetToolInput;
+        return bindings.getToolDocs(input);
       }),
     );
 
@@ -368,7 +565,7 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
     await jail.set(
       "__mci_discoverTools",
       new ivm.Reference(async (jsonInput: string) => {
-        const input = JSON.parse(jsonInput) as DiscoverInput;
+        const input = JSON.parse(jsonInput) as ListToolInput;
         const result = await bindings.discoverTools(input);
         return JSON.stringify(result);
       }),
@@ -377,7 +574,7 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
     await jail.set(
       "__mci_discoverServices",
       new ivm.Reference(async (jsonInput: string) => {
-        const input = JSON.parse(jsonInput) as DiscoverInput;
+        const input = JSON.parse(jsonInput) as ListServiceInput;
         const result = await bindings.discoverServices(input);
         return JSON.stringify(result);
       }),
@@ -405,13 +602,10 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
   private async terminateExecution(worker: WorkerSlot): Promise<void> {
     try {
       worker.isolate.dispose();
-      // Create a new isolate for future use
       worker.isolate = new ivm.Isolate({
         memoryLimit: DEFAULT_MEMORY_LIMIT_MB,
       }) as TerminableIsolate;
-    } catch {
-      // Ignore disposal errors
-    }
+    } catch {}
   }
 }
 

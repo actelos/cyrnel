@@ -1,4 +1,4 @@
-import { Braces, Check, Copy, Plug, Server, X } from "lucide-react";
+import { Blocks, Braces, Check, Copy, Plug, Server, X } from "lucide-react";
 import { useState } from "react";
 import {
   Navigate,
@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { copyToClipboard } from "@/lib/copy";
 import LoginPage from "@/pages/LoginPage";
+import ModulesPage from "@/pages/ModulesPage";
 import ProcessesPage from "@/pages/ProcessesPage";
 import ServicesPage from "@/pages/ServicesPage";
 
@@ -26,6 +27,7 @@ function App() {
   const isProcessesRoute =
     location.pathname === "/processes" || location.pathname === "/";
   const isServicesRoute = location.pathname === "/services";
+  const isModulesRoute = location.pathname === "/modules";
 
   const mciApiUrl =
     import.meta.env.VITE_MCI_API_URL ??
@@ -89,6 +91,16 @@ function App() {
                 <Server />
               </NavLink>
             </Button>
+            <Button
+              aria-label="Open modules"
+              className="w-10 h-10 gap-2 justify-center"
+              variant={isModulesRoute ? "secondary" : "ghost"}
+              asChild
+            >
+              <NavLink end to="/modules">
+                <Blocks />
+              </NavLink>
+            </Button>
           </div>
           <div className="flex flex-col p-2">
             <Button
@@ -105,6 +117,7 @@ function App() {
           <Route path="/" element={<Navigate to="/processes" replace />} />
           <Route path="/processes" element={<ProcessesPage />} />
           <Route path="/services" element={<ServicesPage />} />
+          <Route path="/modules" element={<ModulesPage />} />
           <Route path="/login" element={<Navigate to="/processes" replace />} />
         </Routes>
       </main>

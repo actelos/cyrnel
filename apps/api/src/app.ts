@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import cors from "cors";
 import express from "express";
 import pinoHttp from "pino-http";
@@ -5,37 +7,95 @@ import pinoHttp from "pino-http";
 import { logger } from "@/logger";
 import { apiKeyMiddleware } from "@/middleware/auth.middleware";
 import { errorMiddleware } from "@/middleware/error.middleware";
-import { discoverRouter } from "@/routes/discover.route";
+import { environmentRouter } from "@/routes/environment.route";
+import { moduleRouter } from "@/routes/module.route";
 import { processRouter } from "@/routes/process.route";
 import { serviceRouter } from "@/routes/service.route";
-import { AdapterPoolService } from "@/services/adapter-pool.service";
-import { EnvironmentPoolService } from "@/services/environment-pool.service";
-import { ManifestService } from "@/services/manifest.service";
+import { toolRouter } from "@/routes/tool.route";
+import { ModuleService } from "@/services/modules.service";
 import { ProcessService } from "@/services/process.service";
+import { ServicesService } from "@/services/services.service";
 
-export function createApp(): express.Express {
-  const app = express();
+export class App {
+  readonly express: express.Express;
 
-  const adapterPoolService = new AdapterPoolService();
-  const environmentPoolService = new EnvironmentPoolService();
-  const manifestService = new ManifestService();
+  readonly moduleService: ModuleService;
+  readonly processService: ProcessService;
+  readonly servicesService: ServicesService;
 
-  app.locals.adapterPoolService = adapterPoolService;
-  app.locals.environmentPoolService = environmentPoolService;
-  app.locals.manifestService = manifestService;
-  app.locals.processService = new ProcessService(environmentPoolService, {
-    manifestService,
-    adapterPoolService,
-  });
+  constructor() {
+    this.moduleService = new ModuleService(
+      {
+        discoverServices: async (input) =>
+          this.servicesService.listServices(input),
+        getService: async (serviceId) =>
+          this.servicesService.getService(serviceId),
+        discoverTools: async (input) => this.servicesService.listTools(input),
+        getTool: async (input) => this.servicesService.getTool(input),
+        getToolDocs: (input) => this.servicesService.getToolDocs(input),
+        invokeTool: (input) => this.moduleService.invoke(input),
+        setState: (eid, data) => this.processService.recordState(eid, data),
+        emitStdout: (eid, data) => this.processService.recordStdout(eid, data),
+        emitStderr: (eid, data) => this.processService.recordStderr(eid, data),
+        emitOutput: (eid, data) => this.processService.recordOutput(eid, data),
+        setError: (eid, data) => this.processService.recordError(eid, data),
+      },
+      {
+        hydrateAdapter: (adapterId) =>
+          this.servicesService.hydrateAdapter(adapterId),
+      },
+    );
 
-  app.use(pinoHttp({ logger }));
-  app.use(cors());
-  app.use(express.json());
-  app.use(apiKeyMiddleware);
-  app.use("/discover", discoverRouter);
-  app.use("/processes", processRouter);
-  app.use("/services", serviceRouter);
-  app.use(errorMiddleware);
+    this.servicesService = new ServicesService({
+      generateDefinition: (input) =>
+        this.moduleService.generateDefinition(input),
+      hydrateService: (adapterId, state) =>
+        this.moduleService.hydrateService(adapterId, state),
+      dehydrateService: (adapterId, serviceId) =>
+        this.moduleService.dehydrateService(adapterId, serviceId),
+      generateToolDocs: (input) => this.moduleService.generateToolDocs(input),
+    });
 
-  return app;
+    this.processService = new ProcessService({
+      execute: (input) => this.moduleService.execute(input),
+      kill: (eid) => this.moduleService.kill(eid),
+    });
+
+    this.express = this.createExpressApp();
+  }
+
+  async setup(): Promise<void> {
+    const dataDir = process.env.MCI_DATA_DIR || ".";
+    await this.moduleService.initialize(path.join(dataDir, "modules"));
+  }
+
+  async shutdown(): Promise<void> {
+    await this.processService.shutdown();
+    try {
+      await this.moduleService.shutdown();
+    } catch (err) {
+      logger.warn({ err }, "Module service shutdown failed");
+    }
+  }
+
+  private createExpressApp(): express.Express {
+    const app = express();
+
+    app.locals.moduleService = this.moduleService;
+    app.locals.processService = this.processService;
+    app.locals.servicesService = this.servicesService;
+
+    app.use(pinoHttp({ logger }));
+    app.use(cors());
+    app.use(express.json());
+    app.use(apiKeyMiddleware);
+    app.use("/modules", moduleRouter);
+    app.use("/services", serviceRouter);
+    app.use("/tools", toolRouter);
+    app.use("/processes", processRouter);
+    app.use("/environment", environmentRouter);
+    app.use(errorMiddleware);
+
+    return app;
+  }
 }

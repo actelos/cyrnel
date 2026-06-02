@@ -4,11 +4,15 @@ description: "A high-level description of the inner workings of MCI"
 sidebarTitle: "Architecture Overview"
 ---
 
-This document provides a comprehensive overview of the **Model Control Interface (MCI)**, covering its operational scope, core concepts, and structural design.
+This document describes the runtime shape of the **Model Control Interface
+(MCI)** — its components, how they cooperate, and where work runs.
 
 ## System Architecture
 
-MCI utilizes a centralized **Client-Proxy-Server** model. By acting as a unified gateway, it eliminates the need for AI applications to manage multiple complex integrations.
+MCI is a single HTTP server that sits between AI applications (clients) and
+the services those applications want to act on. Clients submit code, MCI runs
+it inside a sandboxed environment, and tool invocations made from that code
+are translated by adapter modules into calls to the real services.
 
 ```mermaid
 graph LR
@@ -21,58 +25,91 @@ graph LR
     MCI[MCI Server Instance]
 
     subgraph End_Servers [Service Layer]
-        Sentry[Sentry]
-        DB[Databases]
-        Editor[Code Editors]
         REST[REST APIs]
+        DB[Databases]
         CLI[CLI Commands]
+        Other[...]
     end
 
     C1 --- MCI
     C2 --- MCI
     C3 --- MCI
 
-    MCI --- Sentry
-    MCI --- DB
-    MCI --- Editor
     MCI --- REST
+    MCI --- DB
     MCI --- CLI
+    MCI --- Other
 ```
 
 ## Core Components
 
-### The Client (AI Application)
+The MCI server is composed of three cooperating services.
 
-Clients are the consumers of the architecture. An MCI client can be any interface, ranging from mobile apps to serverless functions, capable of receiving model output and executing HTTP requests.
+### `Processes`
 
-### The Server (The Proxy)
+Owns process lifecycle — creating a process from submitted code, scheduling
+its execution, tracking state and exit state, and capturing stdout, stderr,
+and structured output. Processes have a `pid` and are addressable by clients
+through the `/processes` HTTP routes.
 
-The MCI Server is the central intelligence of the system. It acts as a proxy, managing authentication, request transformation, and communication between the client and the external environment.
+See [Processes](/content/processes) for the full process model.
 
-### The Services (The Providers)
+### `Services`
 
-These are the functional targets that perform specific tasks or store data.
+Owns the registry of installed services and their tools — manifest storage,
+JSON-Schema-validated configuration, AES-256-GCM-encrypted secrets, install/
+update/delete, and enable/disable. Surfaces the `/services` and `/tools`
+routes.
 
-- **REST Servers:** Traditional web services.
-- **Database Engines:** Direct data persistence layers.
-- **Execution Environments:** CLI tools, code editors, or message consumers.
+See [Services](/content/services) and [Tools](/content/tools).
 
-## Runtime Building Blocks
+### `Modules`
 
-MCI coordinates two module types:
+Owns the **module registry** and runtime activation. Registers built-in
+modules and any custom modules dropped into `$MCI_DATA_DIR/modules/`.
+Reconciles the registry with the database (inserting new entries, marking
+missing ones as `orphaned`, restoring them when they reappear), and activates
+the modules currently enabled.
 
-1. **Environment Modules:** Isolated runtimes where process code executes.
-2. **Adapter Modules:** Protocol bridge modules that connect MCI to end services.
+See [Modules](/content/modules).
 
-For module types, pooling, hydration, and lifecycle, see [Modules](/modules).
+### Modules
 
-For process creation, lifecycle, timeout behavior, blocking and non-blocking execution, and retrieval endpoints, see [Processes](/processes).
+- **Adapter modules** translate environment tool invocations into the right
+  call to the right end service (HTTP, RPC, whatever the service speaks),
+  and hold the per-service config and secret snapshots needed to do so.
+- **Environment modules** execute submitted code in an isolated runtime and
+  expose generated bindings so that code can discover services, fetch tool
+  metadata, and invoke tools.
 
-## Asynchronous Client Interaction
+See [Adapter Modules](/content/modules/adapters) and
+[Environment Modules](/content/modules/environments).
 
-From the client perspective, process execution is asynchronous. Clients can create processes and continue without blocking, then retrieve state and outputs later by process ID.
+## Module Activation Model
 
-## Sequence Diagram
+MCI does not maintain a pool of independent module instances. Instead:
+
+- **Adapters**: every enabled adapter is activated on startup. When a service
+  is enabled, MCI builds a `ServiceState` snapshot (manifest +
+  `adapterDomain` + config + decrypted secrets) and calls
+  `adapter.hydrateService(state)`. Disabling or updating the service calls
+  `dehydrateService(serviceId)`.
+- **Environments**: at most **one** environment is active at any time. When
+  the active environment is replaced (or disabled), it is marked **draining**
+  — no new executions are scheduled on it, but in-flight executions finish.
+  Once it has no executions left, the runtime tears it down.
+
+This model keeps the running surface small and deterministic: a single source
+of truth for "which environment runs new code", plus a known set of adapters
+for outbound calls.
+
+## Process Lifecycle
+
+From the client's perspective, process execution is asynchronous. The client
+creates a process and either gets a `pid` back immediately, or — with
+`block: true` — waits until the process reaches `idle`. Outputs are retrieved
+by `pid` from the `/processes/:pid/{output,stdout,stderr}` routes once the
+process is idle.
 
 ```mermaid
 sequenceDiagram
@@ -80,41 +117,57 @@ sequenceDiagram
 
     participant Client
 
-    box MCI Runtime
-        participant Manager as MCI Manager
-        participant EnvPool as Environment Pool
-        participant AdapterPool as Adapter Pool
-        participant Env as Environment
-        participant Adapter
+    box MCI Server
+        participant API as HTTP API
+        participant PS as ProcessService
+        participant MS as ModuleService
+        participant SS as ServicesService
+        participant Env as Environment Module
+        participant Adapter as Adapter Module
     end
 
     participant Service as End Service
 
-    Note over Manager,AdapterPool: System Initialization
-    Manager->>EnvPool: Initialize Pool
-    Manager->>AdapterPool: Initialize Pool
-    Manager->>Env: Hydrate with Service Definitions
-    Env-->>EnvPool: Ready
-    Manager->>Adapter: Hydrate with Configurations
-    Adapter-->>AdapterPool: Ready
+    Note over API,Adapter: Process Execution
+    Client->>API: POST /processes (code, options)
+    API->>PS: create({ code, options })
+    PS-->>API: pid
+    API-->>Client: { pid }
 
-    Note over Client,Service: Process Execution
-    Client->>Manager: Create Process (Code)
-    Manager-->>Client: Process ID
-    Manager->>EnvPool: Allocate Environment
-    EnvPool-->>Manager: Environment Available
-    Manager->>Env: Execute Code
-    Env->>Manager: invoke(serviceName, toolName, parameters)
-    Manager->>AdapterPool: Allocate Adapter
-    AdapterPool-->>Manager: Adapter Available
-    Manager->>Adapter: Forward Request
-    Adapter->>Service: Call Service
-    Service-->>Adapter: Response
-    Adapter-->>Manager: Response
-    Manager-->>Env: Result
-    Env-->>Manager: Execution Complete
-    Manager->>EnvPool: Release Environment
-    EnvPool-->>Manager: Ready for Reuse
-    Client->>Manager: Get Process Result
-    Manager-->>Client: Result
+    PS->>MS: execute({ eid: pid, code, options })
+    MS->>Env: execute(input)
+    Env-->>PS: emit stdout / stderr / output / state
+
+    Env->>MS: invokeTool({ serviceId, toolId, parameters })
+    MS->>SS: lookup service & tool (enabled?)
+    SS-->>MS: adapter id
+    MS->>Adapter: invoke({ serviceId, toolId, parameters })
+    Adapter->>Service: native protocol call
+    Service-->>Adapter: response
+    Adapter-->>MS: result
+    MS-->>Env: result
+
+    Env-->>MS: ExecutionExitState (success / failed / timeout / canceled)
+    MS-->>PS: exitState
+    PS->>PS: state = idle, exitState = <value>
+
+    Client->>API: GET /processes/:pid
+    API-->>Client: process record
+    Client->>API: GET /processes/:pid/output
+    API-->>Client: structured output
 ```
+
+## What Runs Where
+
+| Concern | Owner | Notes |
+| --- | --- | --- |
+| HTTP, auth, routing | `App` + Express middleware | API key via `Authorization: Bearer …` when `MCI_API_KEY` is set. |
+| Process records & I/O capture | `ProcessService` | In-memory. State, exitState, code, output, stdout, stderr. |
+| Service / tool registry | `ServicesService` + SQLite (libSQL) | Persistent. Tools are unique by `(serviceId, toolId)`. |
+| Module registry & activation | `ModuleService` | Reconciles built-ins and `$MCI_DATA_DIR/modules/` against the DB. |
+| Code execution | Active environment module | Default: `typescript-ivm` (`isolated-vm`). |
+| Outbound calls to end services | Adapter modules | Default: `openapi`. |
+| Secret storage | DB column, AES-256-GCM | Requires `MCI_SECRETS_KEY` (32 bytes, base64). |
+
+For the transport between these pieces — HTTP at the edge, isolate-host
+references inside the worker — see [Transport](/content/transport).

@@ -1,0 +1,9 @@
+{
+  "scripts": {
+    "dev": "mint dev"
+  },
+  "packageManager": "pnpm@10.30.3",
+  "dependencies": {
+    "mint": "^4.2.588"
+  }
+}

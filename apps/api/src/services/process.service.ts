@@ -1,131 +1,95 @@
 import { StringDecoder } from "node:string_decoder";
 
+import type {
+  ExecutionExitState,
+  ExecutionInput,
+  ExecutionState,
+} from "@mci/sdk";
+
 import { logger } from "@/logger";
 import { HttpError } from "@/models/error.model";
 import type {
-  Process,
-  ProcessOutput,
-  ProcessQueryFilters,
+  CreateProcessInput,
+  FilterProcessInput,
+  GetProcessResult,
+  ProcessRecord,
   ProcessState,
-  StoredProcess,
 } from "@/models/process.model";
-import type {
-  EnvironmentBuiltins,
-  EnvironmentInvokeInput,
-  EnvironmentModule,
-  EnvironmentOutputPatch,
-  ExecutionStatus,
-} from "@/modules/environment.module";
-import { AdapterPoolService } from "@/services/adapter-pool.service";
-import type { EnvironmentPoolService } from "@/services/environment-pool.service";
-import type { ManifestService } from "@/services/manifest.service";
 
-class ProcessExecutionTimeoutError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "ProcessExecutionTimeoutError";
-  }
+const DEFAULT_EXECUTION_TIMEOUT_MS = 30_000;
+
+interface ExecutionContext {
+  stdoutDecoder: StringDecoder;
+  stderrDecoder: StringDecoder;
+  promise: Promise<void>;
 }
 
-type EnvironmentPoolRecycleApi = {
-  recycleEnvironment?: (module: EnvironmentModule) => void;
-  destroy?: (module: EnvironmentModule) => void;
-};
+interface EnvironmentController {
+  execute(input: ExecutionInput): Promise<ExecutionExitState>;
+  kill(eid: number): Promise<void>;
+}
 
-type EnvironmentHealthInspectable = {
-  status?: unknown;
-  isHealthy?: () => boolean;
-  isValid?: () => boolean;
-};
+interface RunExecutionInput {
+  process: {
+    pid: number;
+    code: string;
+    options: {
+      timeoutMs: number;
+    };
+  };
+  context: ExecutionContext;
+}
 
 export class ProcessService {
-  private readonly processes = new Map<number, StoredProcess>();
+  private readonly executions = new Map<number, ExecutionContext>();
+  private readonly processes = new Map<number, ProcessRecord>();
   private readonly pidPool: number[] = [];
-  private readonly queuedPids: number[] = [];
-  private currentPid: number | null = null;
-  private currentEnvironmentModule: EnvironmentModule | null = null;
-  private currentExecutionPromise: Promise<void> | null = null;
   private isShuttingDown = false;
   private nextId = 1;
 
-  constructor(
-    private readonly environmentPoolService: EnvironmentPoolService,
-    private readonly options: {
-      executeTimeoutMs?: number;
-      manifestService?: Pick<
-        ManifestService,
-        "discoverServices" | "discoverTools" | "getTool" | "getService"
-      >;
-      adapterPoolService?: Pick<AdapterPoolService, "allocate" | "release">;
-    } = {},
-  ) {
-    this.adapterPoolService =
-      options.adapterPoolService ?? new AdapterPoolService();
+  constructor(private readonly controller: EnvironmentController) {}
+
+  list(filters: FilterProcessInput): GetProcessResult[] {
+    return Array.from(this.processes.values())
+      .filter(
+        (process) =>
+          (!filters.state || process.state === filters.state) &&
+          (filters.exitState === undefined ||
+            process.exitState === filters.exitState) &&
+          (filters.ref === undefined || process.ref === filters.ref),
+      )
+      .map((p) => this.project(p));
   }
 
-  private readonly adapterPoolService: Pick<
-    AdapterPoolService,
-    "allocate" | "release"
-  >;
-
-  list(filters: ProcessQueryFilters): Process[] {
-    const all = Array.from(this.processes.values(), ({ process }) => process);
-
-    return all.filter((item) => {
-      if (filters.state && item.state !== filters.state) {
-        return false;
-      }
-
-      if (filters.status !== undefined && item.status !== filters.status) {
-        return false;
-      }
-
-      if (filters.ref !== undefined && item.ref !== filters.ref) {
-        return false;
-      }
-
-      return true;
-    });
-  }
-
-  create(code: string, ref?: string, timeoutMs?: number | null): number {
+  create(input: CreateProcessInput): number {
     if (this.isShuttingDown) {
       throw new HttpError(503, "Service is shutting down.");
-    }
-
-    if (!this.environmentPoolService.hasReadyEnvironment()) {
-      throw new HttpError(503, "No staged environment is currently available.");
     }
 
     const pid = this.createPid();
 
     this.processes.set(pid, {
-      process: {
-        pid,
-        state: "queued",
-        status: null,
-        ...(ref !== undefined ? { ref } : {}),
-      },
-      code,
-      timeoutMs,
+      ...input,
+      pid,
+      state: "queued",
+      exitState: null,
+      error: null,
       output: {},
-      stdoutChunks: [],
-      stderrChunks: [],
+      stdout: Buffer.alloc(0),
+      stderr: Buffer.alloc(0),
     });
-
-    this.enqueue(pid);
-    this.drainQueue();
+    this.startExecution(pid);
 
     return pid;
   }
 
-  get(pid: number): Process {
-    return this.getStored(pid).process;
+  get(pid: number): GetProcessResult {
+    return this.project(this.getStored(pid));
   }
 
-  getOutput(pid: number): ProcessOutput {
+  getOutput(pid: number): Record<string, unknown> {
     const stored = this.getStored(pid);
-    this.assertIdle(stored.process.state);
+    this.assertIdle(stored.state);
     return stored.output;
   }
 
@@ -136,117 +100,72 @@ export class ProcessService {
 
   getStdout(pid: number): string {
     const stored = this.getStored(pid);
-    this.assertIdle(stored.process.state);
-    return stored.stdoutChunks.join("");
+    this.assertIdle(stored.state);
+    return stored.stdout.toString("utf8");
   }
 
   getStderr(pid: number): string {
     const stored = this.getStored(pid);
-    this.assertIdle(stored.process.state);
-    return stored.stderrChunks.join("");
+    this.assertIdle(stored.state);
+    return stored.stderr.toString("utf8");
   }
 
-  kill(pid: number): Process {
+  kill(pid: number): GetProcessResult {
     const stored = this.getStored(pid);
 
-    if (stored.process.state === "idle") {
+    if (stored.state === "idle")
       throw new HttpError(409, "Process is already idle.");
-    }
+    if (stored.state === "terminating") return this.project(stored);
 
-    if (stored.process.state === "terminating") {
-      return stored.process;
-    }
+    stored.state = "terminating";
 
-    if (stored.process.state === "queued") {
-      stored.process.state = "idle";
-      stored.process.status = "canceled";
-      this.removeFromQueue(pid);
-      return stored.process;
-    }
+    this.controller.kill(pid).catch((err) => {
+      logger.warn({ err, pid }, "Failed to send kill signal");
+    });
 
-    if (stored.process.state === "running" && this.currentPid === pid) {
-      stored.process.state = "terminating";
-
-      if (this.currentEnvironmentModule === null) {
-        const environmentModule = this.environmentPoolService.allocate();
-
-        void environmentModule
-          .kill()
-          .finally(() => {
-            try {
-              this.environmentPoolService.release(environmentModule);
-            } catch (err) {
-              logger.error(
-                { err, pid },
-                "Failed to release environment module back to pool",
-              );
-            }
-          })
-          .catch((err: unknown) => {
-            logger.warn({ err, pid }, "Failed to send kill signal to module");
-          });
-      } else {
-        void this.currentEnvironmentModule.kill().catch((err: unknown) => {
-          logger.warn({ err, pid }, "Failed to send kill signal to module");
-        });
-      }
-
-      return stored.process;
-    }
-
-    stored.process.state = "idle";
-    stored.process.status = "canceled";
-
-    return stored.process;
+    return this.project(stored);
   }
 
-  run(pid: number, force: boolean): Process {
-    if (this.isShuttingDown) {
+  run(pid: number, force: boolean): GetProcessResult {
+    if (this.isShuttingDown)
       throw new HttpError(503, "Service is shutting down.");
-    }
-
-    if (!this.environmentPoolService.hasReadyEnvironment()) {
-      throw new HttpError(503, "No staged environment is currently available.");
-    }
 
     const stored = this.getStored(pid);
 
-    if (stored.process.state !== "idle") {
+    if (stored.state !== "idle")
       throw new HttpError(409, "Process must be idle to accept a run signal.");
-    }
 
     const hasExistingOutputs =
-      stored.process.status !== null ||
+      stored.exitState !== null ||
       Object.keys(stored.output).length > 0 ||
-      stored.stdoutChunks.length > 0 ||
-      stored.stderrChunks.length > 0;
+      stored.stdout.length > 0 ||
+      stored.stderr.length > 0;
 
-    if (hasExistingOutputs && !force) {
+    if (hasExistingOutputs && !force)
       throw new HttpError(
         400,
         "Process has existing outputs. Set force: true to overwrite.",
       );
-    }
 
-    stored.process.state = "queued";
-    stored.process.status = null;
+    stored.state = "queued";
+    stored.exitState = null;
+    stored.error = null;
 
     if (force) {
       stored.output = {};
-      stored.stdoutChunks = [];
-      stored.stderrChunks = [];
+      stored.stdout = Buffer.alloc(0);
+      stored.stderr = Buffer.alloc(0);
     }
 
-    this.enqueue(pid);
-    this.drainQueue();
+    this.startExecution(pid);
 
-    return stored.process;
+    return this.project(stored);
   }
 
-  delete(pid: number): Process {
+  delete(pid: number): GetProcessResult {
     const stored = this.getStored(pid);
 
-    if (stored.process.state !== "idle") {
+    if (stored.state !== "idle") {
       throw new HttpError(
         409,
         "Process must be idle before it can be deleted.",
@@ -256,16 +175,28 @@ export class ProcessService {
     this.processes.delete(pid);
     this.pidPool.push(pid);
 
-    return stored.process;
+    return this.project(stored);
   }
 
-  async waitForIdle(pid: number, pollIntervalMs = 100): Promise<Process> {
+  async waitForIdle(
+    pid: number,
+    pollIntervalMs = 100,
+    maxWaitMs?: number,
+  ): Promise<GetProcessResult> {
+    const initial = this.getStored(pid);
+    const effectiveTimeoutMs =
+      initial.options.timeoutMs ?? DEFAULT_EXECUTION_TIMEOUT_MS;
+    const deadline = Date.now() + (maxWaitMs ?? effectiveTimeoutMs * 2 + 1_000);
+
     while (true) {
       const stored = this.getStored(pid);
-      if (stored.process.state === "idle") {
-        return stored.process;
+      if (stored.state === "idle") return this.project(stored);
+      if (Date.now() >= deadline) {
+        throw new HttpError(
+          504,
+          `Process ${pid} did not become idle within the configured wait window.`,
+        );
       }
-
       await this.sleep(pollIntervalMs);
     }
   }
@@ -273,69 +204,148 @@ export class ProcessService {
   async shutdown(): Promise<void> {
     this.isShuttingDown = true;
 
-    const queued = this.queuedPids.splice(0);
-    for (const pid of queued) {
-      const stored = this.processes.get(pid);
-      if (!stored || stored.process.state !== "queued") {
-        continue;
-      }
-
-      stored.process.state = "idle";
-      stored.process.status = "canceled";
+    for (const pid of this.executions.keys()) {
+      try {
+        await this.controller.kill(pid);
+      } catch {}
     }
 
-    if (this.currentPid !== null) {
-      const running = this.processes.get(this.currentPid);
-      if (
-        running &&
-        (running.process.state === "running" ||
-          running.process.state === "terminating")
-      ) {
-        running.process.state = "terminating";
-
-        if (this.currentEnvironmentModule) {
-          try {
-            await this.currentEnvironmentModule.kill();
-          } catch (err) {
-            logger.warn(
-              { err, pid: running.process.pid },
-              "Failed to kill running process during shutdown",
-            );
-          }
-        }
-      }
-    }
-
-    if (this.currentExecutionPromise) {
-      await this.currentExecutionPromise;
-    }
+    const pending = Array.from(this.executions.values(), (ctx) => ctx.promise);
+    await Promise.allSettled(pending);
   }
 
-  private getStored(pid: number): StoredProcess {
-    const found = this.processes.get(pid);
+  recordState(eid: number, state: ExecutionState): void {
+    const stored = this.processes.get(eid);
 
-    if (!found) {
-      throw new HttpError(404, "Process not found.");
+    if (!stored || stored.state === "terminating" || stored.state === "idle")
+      return;
+
+    stored.state = state === "running" ? "running" : "queued";
+  }
+
+  recordStdout(eid: number, data: Buffer): void {
+    const stored = this.processes.get(eid);
+    const context = this.executions.get(eid);
+
+    if (!stored || !context) return;
+
+    stored.stdout = Buffer.concat([
+      stored.stdout,
+      Buffer.from(context.stdoutDecoder.write(data)),
+    ]);
+  }
+
+  recordStderr(eid: number, data: Buffer): void {
+    const stored = this.processes.get(eid);
+    const context = this.executions.get(eid);
+
+    if (!stored || !context) return;
+
+    stored.stderr = Buffer.concat([
+      stored.stderr,
+      Buffer.from(context.stderrDecoder.write(data)),
+    ]);
+  }
+
+  recordOutput(eid: number, data: Record<string, unknown>): void {
+    const stored = this.processes.get(eid);
+
+    if (!stored) return;
+
+    Object.assign(stored.output, data);
+  }
+
+  recordError(eid: number, message: string): void {
+    const stored = this.processes.get(eid);
+
+    if (!stored) return;
+
+    stored.error = message;
+  }
+
+  private startExecution(pid: number): void {
+    const stored = this.processes.get(pid);
+
+    if (!stored) return;
+
+    const context: ExecutionContext = {
+      stdoutDecoder: new StringDecoder("utf8"),
+      stderrDecoder: new StringDecoder("utf8"),
+      promise: Promise.resolve(),
+    };
+    const timeoutMs = stored.options.timeoutMs ?? DEFAULT_EXECUTION_TIMEOUT_MS;
+
+    context.promise = this.runExecution({
+      process: { pid, code: stored.code, options: { timeoutMs } },
+      context,
+    });
+
+    this.executions.set(pid, context);
+  }
+
+  private async runExecution(input: RunExecutionInput): Promise<void> {
+    const { pid, ...rest } = input.process;
+
+    let exitState: ExecutionExitState;
+
+    try {
+      exitState = await this.controller.execute({ eid: pid, ...rest });
+    } catch (err) {
+      if (this.processes.get(pid)?.state === "terminating") {
+        exitState = "canceled";
+      } else {
+        this.recordError(pid, errorMessage(err));
+        exitState = "failed";
+      }
     }
 
+    const stored = this.processes.get(pid);
+    if (!stored) {
+      this.executions.delete(pid);
+      return;
+    }
+
+    const flushDecoder = (decoder: StringDecoder, buf: Buffer) => {
+      const remainder = decoder.end();
+      return remainder.length > 0
+        ? Buffer.concat([buf, Buffer.from(remainder)])
+        : buf;
+    };
+
+    stored.stdout = flushDecoder(input.context.stdoutDecoder, stored.stdout);
+    stored.stderr = flushDecoder(input.context.stderrDecoder, stored.stderr);
+    stored.state = "idle";
+    stored.exitState = exitState;
+
+    this.executions.delete(pid);
+  }
+
+  private getStored(pid: number): ProcessRecord {
+    const found = this.processes.get(pid);
+    if (!found) throw new HttpError(404, "Process not found.");
     return found;
   }
 
+  private project({
+    code: _code,
+    options: _options,
+    output: _output,
+    stdout: _stdout,
+    stderr: _stderr,
+    ...rest
+  }: ProcessRecord): GetProcessResult {
+    return rest;
+  }
+
   private assertIdle(state: ProcessState): void {
-    if (state !== "idle") {
+    if (state !== "idle")
       throw new HttpError(409, "Process output is not yet available.");
-    }
   }
 
   private createPid(): number {
-    const pooled = this.pidPool.shift();
-    if (pooled !== undefined) {
-      return pooled;
-    }
-
-    const pid = this.nextId;
-    this.nextId += 1;
-    return pid;
+    const recycled = this.pidPool.shift();
+    if (recycled !== undefined) return recycled;
+    return this.nextId++;
   }
 
   private sleep(durationMs: number): Promise<void> {
@@ -343,413 +353,14 @@ export class ProcessService {
       setTimeout(resolve, durationMs);
     });
   }
+}
 
-  private enqueue(pid: number): void {
-    if (!this.queuedPids.includes(pid)) {
-      this.queuedPids.push(pid);
-    }
-  }
-
-  private removeFromQueue(pid: number): void {
-    const index = this.queuedPids.indexOf(pid);
-    if (index >= 0) {
-      this.queuedPids.splice(index, 1);
-    }
-  }
-
-  private drainQueue(): void {
-    if (this.isShuttingDown) {
-      return;
-    }
-
-    if (this.currentPid !== null) {
-      return;
-    }
-
-    while (this.queuedPids.length > 0) {
-      const pid = this.queuedPids.shift();
-      if (pid === undefined) {
-        return;
-      }
-
-      const stored = this.processes.get(pid);
-      if (!stored || stored.process.state !== "queued") {
-        continue;
-      }
-
-      this.currentPid = pid;
-      const execution = this.executeProcess(pid).finally(() => {
-        if (this.currentPid === pid) {
-          this.currentPid = null;
-        }
-
-        if (this.currentExecutionPromise === execution) {
-          this.currentExecutionPromise = null;
-        }
-
-        this.drainQueue();
-      });
-      this.currentExecutionPromise = execution;
-      return;
-    }
-  }
-
-  private async executeProcess(pid: number): Promise<void> {
-    let onStdout: ((chunk: Buffer) => void) | null = null;
-    let onStderr: ((chunk: Buffer) => void) | null = null;
-    let onOutput: ((data: EnvironmentOutputPatch) => void) | null = null;
-    let environmentModule: EnvironmentModule | null = null;
-    let executionErrored = false;
-    let executionTimedOut = false;
-
-    const stdoutDecoder = new StringDecoder("utf8");
-    const stderrDecoder = new StringDecoder("utf8");
-
-    try {
-      const queued = this.processes.get(pid);
-      if (!queued || queued.process.state !== "queued") {
-        return;
-      }
-
-      const stored = this.processes.get(pid);
-      if (!stored || stored.process.state !== "queued") {
-        return;
-      }
-
-      stored.process.state = "running";
-      stored.process.status = null;
-
-      onStdout = (chunk: Buffer) => {
-        const current = this.processes.get(pid);
-        if (!current) {
-          return;
-        }
-
-        current.stdoutChunks.push(stdoutDecoder.write(chunk));
-      };
-
-      onStderr = (chunk: Buffer) => {
-        const current = this.processes.get(pid);
-        if (!current) {
-          return;
-        }
-
-        current.stderrChunks.push(stderrDecoder.write(chunk));
-      };
-
-      onOutput = (data: EnvironmentOutputPatch) => {
-        const current = this.processes.get(pid);
-        if (!current) {
-          return;
-        }
-
-        current.output[data.key] = data.value;
-      };
-
-      environmentModule = this.environmentPoolService.allocate();
-      this.currentEnvironmentModule = environmentModule;
-
-      environmentModule.on("stdout", onStdout);
-      environmentModule.on("stderr", onStderr);
-      environmentModule.on("output", onOutput);
-
-      const defaultTimeoutMs = this.options.executeTimeoutMs ?? 30_000;
-      const timeoutMs =
-        stored.timeoutMs === undefined ? defaultTimeoutMs : stored.timeoutMs;
-
-      const builtins = this.createEnvironmentBuiltins();
-
-      const execution = environmentModule.execute(stored.code, {
-        timeoutMs,
-        ...(builtins ? { builtins } : {}),
-      });
-      const status =
-        timeoutMs === null
-          ? await execution
-          : await this.executeWithTimeout(execution, timeoutMs);
-
-      const current = this.processes.get(pid);
-      if (current) {
-        const stdoutRemainder = stdoutDecoder.end();
-        if (stdoutRemainder.length > 0) {
-          current.stdoutChunks.push(stdoutRemainder);
-        }
-
-        const stderrRemainder = stderrDecoder.end();
-        if (stderrRemainder.length > 0) {
-          current.stderrChunks.push(stderrRemainder);
-        }
-
-        current.process.state = "idle";
-        current.process.status = status;
-      }
-    } catch (err) {
-      executionErrored = true;
-      executionTimedOut = err instanceof ProcessExecutionTimeoutError;
-
-      const current = this.processes.get(pid);
-
-      if (current) {
-        const wasTerminating = current.process.state === "terminating";
-        current.process.state = "idle";
-        current.process.status = wasTerminating
-          ? "canceled"
-          : err instanceof ProcessExecutionTimeoutError
-            ? "timeout"
-            : "failed";
-
-        if (err instanceof ProcessExecutionTimeoutError) {
-          logger.warn({ err, pid }, "Process execution timed out");
-        } else if (!wasTerminating) {
-          logger.error({ err, pid }, "Process execution failed");
-        } else {
-          logger.warn(
-            { err, pid },
-            "Module threw during kill; treating as canceled",
-          );
-        }
-      } else {
-        logger.error({ err, pid }, "Process execution failed");
-      }
-    } finally {
-      if (environmentModule && onStdout) {
-        environmentModule.off("stdout", onStdout);
-      }
-
-      if (environmentModule && onStderr) {
-        environmentModule.off("stderr", onStderr);
-      }
-
-      if (environmentModule && onOutput) {
-        environmentModule.off("output", onOutput);
-      }
-
-      if (this.currentEnvironmentModule === environmentModule) {
-        this.currentEnvironmentModule = null;
-      }
-
-      if (environmentModule) {
-        const shouldRecycle =
-          executionTimedOut ||
-          executionErrored ||
-          !this.isEnvironmentModuleHealthy(environmentModule, pid);
-
-        if (shouldRecycle) {
-          this.recycleEnvironmentModule(environmentModule, pid);
-        } else {
-          try {
-            this.environmentPoolService.release(environmentModule);
-          } catch (err) {
-            logger.error(
-              { err, pid },
-              "Failed to release environment module back to pool",
-            );
-          }
-        }
-      }
-    }
-  }
-
-  private recycleEnvironmentModule(
-    environmentModule: EnvironmentModule,
-    pid: number,
-  ): void {
-    const poolWithRecycle = this
-      .environmentPoolService as EnvironmentPoolService &
-      EnvironmentPoolRecycleApi;
-
-    try {
-      if (typeof poolWithRecycle.recycleEnvironment === "function") {
-        poolWithRecycle.recycleEnvironment(environmentModule);
-        return;
-      }
-
-      if (typeof poolWithRecycle.destroy === "function") {
-        poolWithRecycle.destroy(environmentModule);
-        return;
-      }
-
-      void environmentModule.kill().catch((err: unknown) => {
-        logger.warn(
-          { err, pid },
-          "Failed to kill unhealthy environment module before release",
-        );
-      });
-
-      this.environmentPoolService.release(environmentModule);
-    } catch (err) {
-      logger.error(
-        { err, pid },
-        "Failed to recycle environment module in pool",
-      );
-    }
-  }
-
-  private isEnvironmentModuleHealthy(
-    environmentModule: EnvironmentModule,
-    pid: number,
-  ): boolean {
-    const inspectable = environmentModule as EnvironmentModule &
-      EnvironmentHealthInspectable;
-
-    if (typeof inspectable.isHealthy === "function") {
-      try {
-        if (!inspectable.isHealthy()) {
-          return false;
-        }
-      } catch (err) {
-        logger.warn({ err, pid }, "Environment module isHealthy() check threw");
-        return false;
-      }
-    }
-
-    if (typeof inspectable.isValid === "function") {
-      try {
-        if (!inspectable.isValid()) {
-          return false;
-        }
-      } catch (err) {
-        logger.warn({ err, pid }, "Environment module isValid() check threw");
-        return false;
-      }
-    }
-
-    if (typeof inspectable.status === "string") {
-      const status = inspectable.status.toLowerCase();
-      if (
-        status === "timeout" ||
-        status === "timed_out" ||
-        status === "error" ||
-        status === "failed" ||
-        status === "unhealthy" ||
-        status === "invalid"
-      ) {
-        return false;
-      }
-    }
-
-    return true;
-  }
-
-  private async executeWithTimeout(
-    execution: Promise<ExecutionStatus>,
-    timeoutMs: number,
-  ): Promise<ExecutionStatus> {
-    if (timeoutMs <= 0) {
-      return execution;
-    }
-
-    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
-
-    try {
-      return await Promise.race([
-        execution,
-        new Promise<never>((_, reject) => {
-          timeoutHandle = setTimeout(() => {
-            reject(
-              new ProcessExecutionTimeoutError(
-                `Execution exceeded timeout of ${timeoutMs}ms`,
-              ),
-            );
-          }, timeoutMs);
-        }),
-      ]);
-    } finally {
-      if (timeoutHandle) {
-        clearTimeout(timeoutHandle);
-      }
-    }
-  }
-
-  private createEnvironmentBuiltins(): EnvironmentBuiltins | undefined {
-    if (!this.options.manifestService) {
-      return undefined;
-    }
-
-    const { manifestService } = this.options;
-
-    return {
-      tools: {
-        discover: ({ query, limit, enabled }) =>
-          enabled === undefined
-            ? manifestService.discoverTools(query, limit)
-            : manifestService.discoverTools(query, limit, enabled),
-        get: ({ serviceName, toolName }) =>
-          manifestService.getTool(serviceName, toolName),
-        invoke: (input) => this.invokeToolFromManifest(input),
-      },
-      services: {
-        discover: ({ query, limit, enabled }) =>
-          enabled === undefined
-            ? manifestService.discoverServices(query, limit).then((services) =>
-                services.map((service) => ({
-                  name: service.name,
-                  description: service.description,
-                  enabled: service.enabled,
-                })),
-              )
-            : manifestService
-                .discoverServices(query, limit, enabled)
-                .then((services) =>
-                  services.map((service) => ({
-                    name: service.name,
-                    description: service.description,
-                    enabled: service.enabled,
-                  })),
-                ),
-        get: ({ serviceName }) =>
-          manifestService.getService(serviceName).then((service) => ({
-            name: service.name,
-            type: service.type,
-            description: service.description,
-            enabled: service.enabled,
-            configSchema: service.configSchema,
-            secretsSchema: service.secretsSchema,
-          })),
-      },
-    };
-  }
-
-  private async invokeToolFromManifest(
-    input: EnvironmentInvokeInput,
-  ): Promise<unknown> {
-    const manifestService = this.options.manifestService;
-
-    if (!manifestService) {
-      throw new Error("Manifest service is not configured.");
-    }
-
-    const tool = await manifestService.getTool(
-      input.serviceName,
-      input.toolName,
-    );
-
-    if (!tool.serviceEnabled) {
-      throw new Error(
-        `Service '${input.serviceName}' is disabled and cannot be invoked.`,
-      );
-    }
-
-    if (!tool.tool.enabled) {
-      throw new Error(
-        `Tool '${input.toolName}' in service '${input.serviceName}' is disabled and cannot be invoked.`,
-      );
-    }
-
-    const adapter = this.adapterPoolService.allocate();
-
-    try {
-      return await adapter.invoke(
-        input.serviceName,
-        input.toolName,
-        input.parameters,
-        {
-          serviceMetadata: tool.serviceMetadata,
-          toolMetadata: tool.tool.metadata,
-        },
-      );
-    } finally {
-      this.adapterPoolService.release(adapter);
-    }
+function errorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err);
   }
 }

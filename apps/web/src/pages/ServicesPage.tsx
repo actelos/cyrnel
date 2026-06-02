@@ -30,14 +30,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { apiFetch, apiFetchJson, buildUrl, errorMessageFrom } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 const serviceSchema = z.object({
+  id: z.string(),
   name: z.string(),
-  type: z.string(),
-  source: z.string(),
   description: z.string(),
   hash: z.string(),
+  source: z.string(),
+  adapter: z.string(),
   enabled: z.boolean(),
 });
 
@@ -58,62 +60,56 @@ const serviceConfigSchemaSchema = z.object({
   configSchema: z.record(z.string(), z.unknown()),
 });
 
-const serviceSecretsSchema = z.object({
-  secrets: z.record(z.string(), z.unknown()),
-});
-
 const serviceSecretsSchemaSchema = z.object({
   secretsSchema: z.record(z.string(), z.unknown()),
 });
 
 const toolSchema = z.object({
+  id: z.string(),
   name: z.string(),
   description: z.string(),
+  serviceId: z.string(),
   enabled: z.boolean(),
+  effectivelyEnabled: z.boolean(),
 });
 
 const toolListSchema = z.object({
   tools: z.array(toolSchema),
 });
 
+const moduleSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  type: z.enum(["adapter", "environment"]),
+  description: z.string(),
+  isBuiltin: z.boolean(),
+  enabled: z.boolean(),
+  orphaned: z.boolean(),
+});
+
+const moduleListSchema = z.object({
+  modules: z.array(moduleSchema),
+});
+
 const installServiceSchema = z.object({
-  type: z.string().trim().min(1, { message: "Type is required." }),
+  id: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z_$][A-Za-z0-9_$]*$/, {
+      message: "Id must be a valid TypeScript identifier.",
+    }),
   source: z
     .string()
     .trim()
     .url({ message: "Definition URL must be a valid URL." }),
+  adapter: z.string().trim().min(1, { message: "Adapter is required." }),
 });
 
 type Service = z.infer<typeof serviceSchema>;
 
-type InstallServiceErrors = Partial<Record<"type" | "source" | "form", string>>;
-
-const apiBase = import.meta.env.VITE_MCI_API_URL ?? "";
-
-const buildUrl = (
-  path: string,
-  params?: Record<string, string | undefined>,
-) => {
-  const base = apiBase.length > 0 ? apiBase : window.location.origin;
-  const url = new URL(path, base);
-  if (params) {
-    Object.entries(params).forEach(([key, value]) => {
-      if (value !== undefined) {
-        url.searchParams.set(key, value);
-      }
-    });
-  }
-  return url.toString();
-};
-
-const fetchJson = async <T,>(url: string, schema: z.ZodType<T>) => {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Request failed: ${response.status}`);
-  }
-  const data = await response.json();
-  return schema.parse(data);
-};
+type InstallServiceErrors = Partial<
+  Record<"id" | "source" | "adapter" | "form", string>
+>;
 
 export default function ServicesPage() {
   const { mutate } = useSWRConfig();
@@ -121,12 +117,13 @@ export default function ServicesPage() {
   const [enabledFilter, setEnabledFilter] = useState<
     "all" | "enabled" | "disabled"
   >("all");
-  const [selectedServiceName, setSelectedServiceName] = useState<string | null>(
+  const [selectedServiceId, setSelectedServiceId] = useState<string | null>(
     null,
   );
   const [isInstallOpen, setIsInstallOpen] = useState(false);
-  const [installType, setInstallType] = useState("registry");
+  const [installId, setInstallId] = useState("");
   const [installSource, setInstallSource] = useState("");
+  const [installAdapter, setInstallAdapter] = useState("");
   const [installErrors, setInstallErrors] = useState<InstallServiceErrors>({});
   const [isInstalling, setIsInstalling] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -157,64 +154,71 @@ export default function ServicesPage() {
     });
   }, [normalizedQuery, enabledParam]);
 
+  const adaptersUrl = useMemo(
+    () => buildUrl("/modules", { type: "adapter", enabled: "true" }),
+    [],
+  );
+
   const {
     data: serviceList,
     error: servicesError,
     isLoading: isLoadingServices,
-  } = useSWR(servicesUrl, (url) => fetchJson(url, serviceListSchema), {
+  } = useSWR(servicesUrl, (url) => apiFetchJson(url, serviceListSchema), {
     refreshInterval: 8000,
   });
+
+  const { data: adapterList } = useSWR(
+    adaptersUrl,
+    (url) => apiFetchJson(url, moduleListSchema),
+    { refreshInterval: 30000 },
+  );
+
+  const adapters = adapterList?.modules ?? [];
 
   const apiServices = serviceList?.services ?? [];
   const services = useMemo(() => apiServices, [apiServices]);
 
   useEffect(() => {
     if (services.length === 0) {
-      setSelectedServiceName(null);
+      setSelectedServiceId(null);
       return;
     }
 
     if (
-      selectedServiceName === null ||
-      !services.some((service) => service.name === selectedServiceName)
+      selectedServiceId === null ||
+      !services.some((service) => service.id === selectedServiceId)
     ) {
-      setSelectedServiceName(services[0]?.name ?? null);
+      setSelectedServiceId(services[0]?.id ?? null);
     }
-  }, [services, selectedServiceName]);
+  }, [services, selectedServiceId]);
 
   const selectedService = useMemo(() => {
-    return (
-      services.find((service) => service.name === selectedServiceName) ?? null
-    );
-  }, [services, selectedServiceName]);
+    return services.find((service) => service.id === selectedServiceId) ?? null;
+  }, [services, selectedServiceId]);
 
-  const serviceDetailsUrl = selectedServiceName
-    ? buildUrl(`/services/${selectedServiceName}`)
+  const serviceDetailsUrl = selectedServiceId
+    ? buildUrl(`/services/${selectedServiceId}`)
     : null;
 
-  const toolsUrl = selectedServiceName
-    ? buildUrl(`/services/${selectedServiceName}/tools`)
+  const toolsUrl = selectedServiceId
+    ? buildUrl("/tools", { serviceId: selectedServiceId })
     : null;
 
-  const configUrl = selectedServiceName
-    ? buildUrl(`/services/${selectedServiceName}/configuration`)
+  const configUrl = selectedServiceId
+    ? buildUrl(`/services/${selectedServiceId}/config`)
     : null;
 
-  const configSchemaUrl = selectedServiceName
-    ? buildUrl(`/services/${selectedServiceName}/configuration/schema`)
+  const configSchemaUrl = selectedServiceId
+    ? buildUrl(`/services/${selectedServiceId}/config/schema`)
     : null;
 
-  const secretsUrl = selectedServiceName
-    ? buildUrl(`/services/${selectedServiceName}/secrets`)
-    : null;
-
-  const secretsSchemaUrl = selectedServiceName
-    ? buildUrl(`/services/${selectedServiceName}/secrets/schema`)
+  const secretsSchemaUrl = selectedServiceId
+    ? buildUrl(`/services/${selectedServiceId}/secrets/schema`)
     : null;
 
   const { data: serviceDetails, error: detailsError } = useSWR(
     serviceDetailsUrl,
-    (url) => fetchJson(url, serviceDetailsSchema),
+    (url) => apiFetchJson(url, serviceDetailsSchema),
     {
       refreshInterval: 8000,
     },
@@ -224,7 +228,7 @@ export default function ServicesPage() {
     data: toolList,
     error: toolsError,
     isLoading: isLoadingTools,
-  } = useSWR(toolsUrl, (url) => fetchJson(url, toolListSchema), {
+  } = useSWR(toolsUrl, (url) => apiFetchJson(url, toolListSchema), {
     refreshInterval: 8000,
   });
 
@@ -234,25 +238,19 @@ export default function ServicesPage() {
 
   const { data: serviceConfig } = useSWR(
     configUrl,
-    (url) => fetchJson(url, serviceConfigSchema),
+    (url) => apiFetchJson(url, serviceConfigSchema),
     { refreshInterval: 8000 },
   );
 
   const { data: serviceConfigSchemaPayload } = useSWR(
     configSchemaUrl,
-    (url) => fetchJson(url, serviceConfigSchemaSchema),
-    { refreshInterval: 8000 },
-  );
-
-  const { data: serviceSecrets } = useSWR(
-    secretsUrl,
-    (url) => fetchJson(url, serviceSecretsSchema),
+    (url) => apiFetchJson(url, serviceConfigSchemaSchema),
     { refreshInterval: 8000 },
   );
 
   const { data: serviceSecretsSchemaPayload } = useSWR(
     secretsSchemaUrl,
-    (url) => fetchJson(url, serviceSecretsSchemaSchema),
+    (url) => apiFetchJson(url, serviceSecretsSchemaSchema),
     { refreshInterval: 8000 },
   );
 
@@ -263,29 +261,28 @@ export default function ServicesPage() {
   );
 
   useEffect(() => {
-    if (!selectedServiceName) {
+    if (!selectedServiceId) {
       return;
     }
 
     setConfigDraftError(null);
     const normalized = JSON.stringify(serviceConfig?.config ?? {}, null, 2);
     setConfigDraft(normalized);
-  }, [selectedServiceName, serviceConfig?.config]);
+  }, [selectedServiceId, serviceConfig?.config]);
 
   useEffect(() => {
-    if (!selectedServiceName) {
+    if (!selectedServiceId) {
       return;
     }
 
     setSecretsDraftError(null);
-    const normalized = JSON.stringify(serviceSecrets?.secrets ?? {}, null, 2);
-    setSecretsDraft(normalized);
-  }, [selectedServiceName, serviceSecrets?.secrets]);
+    setSecretsDraft("{\n  \n}");
+  }, [selectedServiceId]);
 
   const escapeJsonPointer = (value: string) =>
     value.replace(/~/g, "~0").replace(/\//g, "~1");
 
-  const handleSaveConfiguration = async (serviceName: string) => {
+  const handleSaveConfiguration = async (serviceId: string) => {
     setActionError(null);
     setConfigDraftError(null);
 
@@ -336,37 +333,23 @@ export default function ServicesPage() {
 
     setIsSavingConfig(true);
     try {
-      const response = await fetch(
-        buildUrl(`/services/${serviceName}/configuration`),
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(patch),
-        },
-      );
-
-      if (!response.ok) {
-        const text = await response.text().catch(() => "");
-        throw new Error(
-          text.trim().length > 0 ? text : `Request failed: ${response.status}`,
-        );
-      }
+      await apiFetch(buildUrl(`/services/${serviceId}/config`), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
 
       if (configUrl) {
         await mutate(configUrl);
       }
     } catch (error) {
-      setActionError(
-        error instanceof Error
-          ? error.message
-          : "Unable to save configuration.",
-      );
+      setActionError(errorMessageFrom(error, "Unable to save configuration."));
     } finally {
       setIsSavingConfig(false);
     }
   };
 
-  const handleSaveSecrets = async (serviceName: string) => {
+  const handleSaveSecrets = async (serviceId: string) => {
     setActionError(null);
     setSecretsDraftError(null);
 
@@ -392,55 +375,28 @@ export default function ServicesPage() {
         return;
       }
 
-      const currentSecrets = (serviceSecrets?.secrets ?? {}) as Record<
-        string,
-        unknown
-      >;
       const nextSecrets = desiredSecrets as Record<string, unknown>;
 
-      for (const key of Object.keys(currentSecrets)) {
-        if (!Object.hasOwn(nextSecrets, key)) {
-          patch.push({ op: "remove", path: `/${escapeJsonPointer(key)}` });
-        }
-      }
-
       for (const [key, value] of Object.entries(nextSecrets)) {
-        const op = Object.hasOwn(currentSecrets, key) ? "replace" : "add";
-        if (
-          Object.hasOwn(currentSecrets, key) &&
-          currentSecrets[key] === value
-        ) {
-          continue;
-        }
-        patch.push({ op, path: `/${escapeJsonPointer(key)}`, value });
+        patch.push({
+          op: "add",
+          path: `/${escapeJsonPointer(key)}`,
+          value,
+        });
       }
     }
 
     setIsSavingSecrets(true);
     try {
-      const response = await fetch(
-        buildUrl(`/services/${serviceName}/secrets`),
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(patch),
-        },
-      );
+      await apiFetch(buildUrl(`/services/${serviceId}/secrets`), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
 
-      if (!response.ok) {
-        const text = await response.text().catch(() => "");
-        throw new Error(
-          text.trim().length > 0 ? text : `Request failed: ${response.status}`,
-        );
-      }
-
-      if (secretsUrl) {
-        await mutate(secretsUrl);
-      }
+      setSecretsDraft("{\n  \n}");
     } catch (error) {
-      setActionError(
-        error instanceof Error ? error.message : "Unable to save secrets.",
-      );
+      setActionError(errorMessageFrom(error, "Unable to save secrets."));
     } finally {
       setIsSavingSecrets(false);
     }
@@ -450,61 +406,52 @@ export default function ServicesPage() {
     setInstallErrors({});
 
     const parsed = installServiceSchema.safeParse({
-      type: installType,
+      id: installId,
       source: installSource,
+      adapter: installAdapter,
     });
 
     if (!parsed.success) {
       const fieldErrors = parsed.error.flatten().fieldErrors;
       setInstallErrors({
-        type: fieldErrors.type?.[0],
+        id: fieldErrors.id?.[0],
         source: fieldErrors.source?.[0],
+        adapter: fieldErrors.adapter?.[0],
       });
       return;
     }
 
     setIsInstalling(true);
     try {
-      const response = await fetch(buildUrl("/services/install"), {
+      await apiFetch(buildUrl("/services/install"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(parsed.data),
       });
 
-      if (!response.ok) {
-        throw new Error(`Request failed: ${response.status}`);
-      }
-
+      setInstallId("");
       setInstallSource("");
-      setInstallType("registry");
+      setInstallAdapter("");
       setIsInstallOpen(false);
       await mutate(servicesUrl);
     } catch (error) {
       setInstallErrors({
-        form:
-          error instanceof Error ? error.message : "Unable to install service.",
+        form: errorMessageFrom(error, "Unable to install service."),
       });
     } finally {
       setIsInstalling(false);
     }
   };
 
-  const handleUpdateService = async (serviceName: string) => {
+  const handleUpdateService = async (serviceId: string) => {
     setActionError(null);
     setIsUpdating(true);
     try {
-      const response = await fetch(
-        buildUrl(`/services/${serviceName}/update`),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({}),
-        },
-      );
-
-      if (!response.ok) {
-        throw new Error(`Request failed: ${response.status}`);
-      }
+      await apiFetch(buildUrl(`/services/${serviceId}/update`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
 
       await mutate(servicesUrl);
       if (serviceDetailsUrl) {
@@ -514,32 +461,23 @@ export default function ServicesPage() {
         await mutate(toolsUrl);
       }
     } catch (error) {
-      setActionError(
-        error instanceof Error ? error.message : "Unable to update service.",
-      );
+      setActionError(errorMessageFrom(error, "Unable to update service."));
     } finally {
       setIsUpdating(false);
     }
   };
 
   const handleSetServiceEnabled = async (
-    serviceName: string,
+    serviceId: string,
     enabled: boolean,
   ) => {
     setActionError(null);
     try {
-      const response = await fetch(
-        buildUrl(`/services/${serviceName}/enabled`),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ enabled }),
-        },
-      );
-
-      if (!response.ok) {
-        throw new Error(`Request failed: ${response.status}`);
-      }
+      await apiFetch(buildUrl(`/services/${serviceId}/enabled`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled }),
+      });
 
       await mutate(servicesUrl);
       if (serviceDetailsUrl) {
@@ -550,56 +488,41 @@ export default function ServicesPage() {
       }
     } catch (error) {
       setActionError(
-        error instanceof Error
-          ? error.message
-          : "Unable to update service state.",
+        errorMessageFrom(error, "Unable to update service state."),
       );
     }
   };
 
   const handleSetToolEnabled = async (
-    serviceName: string,
-    toolName: string,
+    serviceId: string,
+    toolId: string,
     enabled: boolean,
   ) => {
     setActionError(null);
     try {
-      const response = await fetch(
-        buildUrl(`/services/${serviceName}/tools/${toolName}/enabled`),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ enabled }),
-        },
-      );
-
-      if (!response.ok) {
-        throw new Error(`Request failed: ${response.status}`);
-      }
+      await apiFetch(buildUrl(`/tools/${serviceId}/${toolId}/enabled`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled }),
+      });
 
       if (toolsUrl) {
         await mutate(toolsUrl);
       }
       await mutate(servicesUrl);
     } catch (error) {
-      setActionError(
-        error instanceof Error ? error.message : "Unable to update tool state.",
-      );
+      setActionError(errorMessageFrom(error, "Unable to update tool state."));
     }
   };
 
-  const handleDeleteService = async (serviceName: string) => {
+  const handleDeleteService = async (serviceId: string) => {
     setActionError(null);
     try {
-      const response = await fetch(buildUrl(`/services/${serviceName}`), {
+      await apiFetch(buildUrl(`/services/${serviceId}`), {
         method: "DELETE",
       });
 
-      if (!response.ok && response.status !== 204) {
-        throw new Error(`Request failed: ${response.status}`);
-      }
-
-      setSelectedServiceName(null);
+      setSelectedServiceId(null);
       await mutate(servicesUrl);
       if (serviceDetailsUrl) {
         await mutate(serviceDetailsUrl);
@@ -608,13 +531,11 @@ export default function ServicesPage() {
         await mutate(toolsUrl);
       }
     } catch (error) {
-      setActionError(
-        error instanceof Error ? error.message : "Unable to delete service.",
-      );
+      setActionError(errorMessageFrom(error, "Unable to delete service."));
     }
   };
 
-  const hasDetailPanel = selectedServiceName !== null;
+  const hasDetailPanel = selectedServiceId !== null;
 
   return (
     <>
@@ -640,23 +561,21 @@ export default function ServicesPage() {
                     <div className="space-y-1">
                       <h3 className="text-sm font-medium">Install service</h3>
                       <p className="text-muted-foreground text-xs">
-                        Provide service definition URL.
+                        Provide a service id, definition URL, and adapter.
                       </p>
                     </div>
                     <div className="space-y-3">
                       <div className="space-y-2">
-                        <Label htmlFor="service-type">Type</Label>
+                        <Label htmlFor="service-id">Id</Label>
                         <Input
-                          id="service-type"
-                          onChange={(event) =>
-                            setInstallType(event.target.value)
-                          }
-                          placeholder="registry"
-                          value={installType}
+                          id="service-id"
+                          onChange={(event) => setInstallId(event.target.value)}
+                          placeholder="myService"
+                          value={installId}
                         />
-                        {installErrors.type ? (
+                        {installErrors.id ? (
                           <p className="text-xs text-destructive">
-                            {installErrors.type}
+                            {installErrors.id}
                           </p>
                         ) : null}
                       </div>
@@ -673,6 +592,40 @@ export default function ServicesPage() {
                         {installErrors.source ? (
                           <p className="text-xs text-destructive">
                             {installErrors.source}
+                          </p>
+                        ) : null}
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="service-adapter">Adapter</Label>
+                        {adapters.length > 0 ? (
+                          <Select
+                            onValueChange={setInstallAdapter}
+                            value={installAdapter}
+                          >
+                            <SelectTrigger id="service-adapter">
+                              <SelectValue placeholder="Select an adapter" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {adapters.map((adapter) => (
+                                <SelectItem key={adapter.id} value={adapter.id}>
+                                  {adapter.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <Input
+                            id="service-adapter"
+                            onChange={(event) =>
+                              setInstallAdapter(event.target.value)
+                            }
+                            placeholder="openapi"
+                            value={installAdapter}
+                          />
+                        )}
+                        {installErrors.adapter ? (
+                          <p className="text-xs text-destructive">
+                            {installErrors.adapter}
                           </p>
                         ) : null}
                       </div>
@@ -759,14 +712,14 @@ export default function ServicesPage() {
                 >
                   {services.map((service) => (
                     <button
-                      key={service.name}
+                      key={service.id}
                       type="button"
-                      onClick={() => setSelectedServiceName(service.name)}
+                      onClick={() => setSelectedServiceId(service.id)}
                       className={cn(
                         "text-left",
                         "border bg-card p-4",
                         "hover:bg-muted",
-                        selectedServiceName === service.name
+                        selectedServiceId === service.id
                           ? "border-primary"
                           : "border-border",
                       )}
@@ -777,6 +730,9 @@ export default function ServicesPage() {
                             <h3 className="text-sm font-semibold">
                               {service.name}
                             </h3>
+                            <span className="text-muted-foreground text-xs">
+                              {service.id}
+                            </span>
                           </div>
                           <p className="text-muted-foreground text-xs">
                             {service.description || "No description"}
@@ -815,6 +771,10 @@ export default function ServicesPage() {
                             <h2 className="text-lg font-semibold">
                               {detailService.name}
                             </h2>
+                            <p className="text-muted-foreground text-xs font-mono">
+                              {detailService.id} · adapter:{" "}
+                              {detailService.adapter}
+                            </p>
                             <p className="text-muted-foreground text-sm">
                               {detailService.description || "No description"}
                             </p>
@@ -827,7 +787,7 @@ export default function ServicesPage() {
                               }
                               onClick={() =>
                                 void handleSetServiceEnabled(
-                                  detailService.name,
+                                  detailService.id,
                                   !detailService.enabled,
                                 )
                               }
@@ -839,7 +799,7 @@ export default function ServicesPage() {
                               variant="outline"
                               disabled={isUpdating}
                               onClick={() =>
-                                void handleUpdateService(detailService.name)
+                                void handleUpdateService(detailService.id)
                               }
                             >
                               <RotateCcw />
@@ -888,7 +848,7 @@ export default function ServicesPage() {
                           <div className="space-y-3">
                             {tools.map((tool) => (
                               <div
-                                key={tool.name}
+                                key={tool.id}
                                 className="border bg-background p-4"
                               >
                                 <div className="flex flex-wrap items-center justify-between gap-3">
@@ -899,6 +859,12 @@ export default function ServicesPage() {
                                     <p className="text-muted-foreground text-xs">
                                       {tool.description || "No description"}
                                     </p>
+                                    {!tool.effectivelyEnabled &&
+                                    tool.enabled ? (
+                                      <p className="text-xs text-amber-600">
+                                        Tool is enabled but service is disabled.
+                                      </p>
+                                    ) : null}
                                   </div>
                                   <button
                                     type="button"
@@ -913,7 +879,7 @@ export default function ServicesPage() {
                                         return;
                                       }
                                       void handleSetToolEnabled(
-                                        detailService.name,
+                                        detailService.id,
                                         tool.name,
                                         !tool.enabled,
                                       );
@@ -947,9 +913,7 @@ export default function ServicesPage() {
                                 if (!detailService) {
                                   return;
                                 }
-                                void handleSaveConfiguration(
-                                  detailService.name,
-                                );
+                                void handleSaveConfiguration(detailService.id);
                               }}
                             >
                               {isSavingConfig ? "Saving" : "Save"}
@@ -994,7 +958,7 @@ export default function ServicesPage() {
                                 if (!detailService) {
                                   return;
                                 }
-                                void handleSaveSecrets(detailService.name);
+                                void handleSaveSecrets(detailService.id);
                               }}
                             >
                               {isSavingSecrets ? "Saving" : "Save"}
@@ -1006,6 +970,12 @@ export default function ServicesPage() {
                               {secretsDraftError}
                             </p>
                           ) : null}
+
+                          <p className="text-xs text-muted-foreground">
+                            Stored secrets are write-only. Provide a JSON object
+                            (or JSON Patch array) with the values to set. They
+                            will be encrypted at rest.
+                          </p>
 
                           <ConfigEditor
                             idPrefix="secrets"
@@ -1065,7 +1035,7 @@ export default function ServicesPage() {
                 if (!deleteCandidate) {
                   return;
                 }
-                void handleDeleteService(deleteCandidate.name);
+                void handleDeleteService(deleteCandidate.id);
                 setIsDeleteDialogOpen(false);
                 setDeleteCandidate(null);
               }}

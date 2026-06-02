@@ -1,3 +1,5 @@
-.turbo
+.claude
 .direnv
+.turbo
+.pnpm-store
 node_modules

@@ -1,96 +1,108 @@
 ---
 title: "Modules"
-description: "Runtime modules, environments and adapters"
+description: "Runtime modules — adapters and environments"
 ---
 
-MCI uses modules to execute code and communicate with end services.
+MCI coordinates two kinds of modules:
 
-## Module Types
+- **[Adapter modules](/content/modules/adapters)** translate environment
+  invocations into calls to end services.
+- **[Environment modules](/content/modules/environments)** execute the code
+  clients submit.
 
-MCI coordinates two module types:
+Both implement the base `Module` interface from `@mci/sdk` (`setup`,
+`teardown`); each adds its own contract on top.
 
-1. **Environment modules**
-	- Execute process code in an isolated runtime.
-	- Expose generated bindings for available services and tools.
-	- Stream stdout, stderr, and structured output updates.
+## The Module Registry
 
-2. **Adapter modules**
-	- Receive invocation requests from environments.
-	- Translate those requests to target protocols and service contracts.
-	- Return normalized results back to the environment.
+Modules are registered with the `ModuleService` at startup. There are two
+sources:
 
-Adapter modules are what make MCI protocol-agnostic at the end-service level. MCI itself exposes an HTTP REST API, while adapters can connect to end services over different protocols and standards.
+1. **Built-in modules**, shipped as workspace packages. The current set:
+   - `openapi` — adapter, in `packages/modules/openapi`
+   - `typescript-ivm` — environment, in `packages/modules/typescript-ivm`
+2. **Custom modules**, loaded from `$MCI_DATA_DIR/modules/<name>/`. Each
+   directory must contain a `module.json`:
 
-### Adapter responsibilities (implementation details)
+   ```json
+   {
+     "name": "my-adapter",
+     "type": "adapter",
+     "description": "Talks to my service",
+     "main": "./index.js"
+   }
+   ```
 
-- Parse and register service definitions (see `AdapterModule.register`).
-- Maintain per-service configuration and secret snapshots via `setServiceConfig` / `setServiceSecret`.
-- Translate environment invoke calls into HTTP requests (or other protocols) and normalize responses (`invoke`).
-- Emit errors with structured payloads that the server inspects and surfaces to callers.
+   `main` is an ES module exporting `instantiate(): AdapterModule` or
+   `EnvironmentModule`. See
+   [Writing a custom module](/spec/writing-a-custom-module).
 
-Adapter modules are typically implemented as small shim layers that translate between a service manifest and the runtime protocol used by the target service. In this repository `AdapterModule` implements JSON manifest parsing, endpoint resolution, and `POST`-style invocation semantics.
+The registry is reflected to the `modules` table. Three things can happen
+during reconciliation:
 
-## Pooling
+- **Insert** — a registered module that isn't in the DB yet. Default
+  `enabled: true`, `orphaned: false`.
+- **Orphan** — a row in the DB whose module is no longer registered (e.g.
+  the custom folder was removed). Set `orphaned: true, enabled: false`. The
+  row stays so its config/enablement is preserved if the module reappears.
+- **Restore** — an orphaned row whose module is registered again. Clear
+  `orphaned: false`.
 
-Modules are managed by pools to avoid repeated cold starts and reduce execution overhead.
+`POST /modules/reload` re-scans `$MCI_DATA_DIR/modules/` and reruns
+reconciliation. Use it after dropping a new custom module into the directory.
 
-- Environment pool: allocates and releases staged environment modules.
-- Adapter pool: allocates and releases adapter modules with current service configuration and secrets.
+## Activation
 
-At runtime, modules are leased to executions and released back to their pool after use.
+Activation = "this module is now ready to take work". It is per-module-type:
 
-Pools in the implementation do not create many independent instances by default. Instead they maintain a staged active module and use lease counting to manage concurrent access. When a staged module is replaced, the previous module is retired and cleaned up once its leases drop to zero.
+- **Adapters** activate eagerly. On startup MCI activates every adapter row
+  with `enabled = true, orphaned = false`, runs `setup({})`, then hydrates
+  every enabled service that targets it.
+- **Environments** activate one-at-a-time. Only the environment whose row is
+  enabled gets activated. Enabling a different environment disables the
+  previously-enabled one in the DB and swaps the active reference.
 
-## Hydration
+### Draining environments
 
-Hydration loads runtime data into modules so they can execute correctly.
+When the active environment is replaced or disabled, it doesn't disappear —
+it becomes **draining**. New executions go to the newly-active environment
+(or fail with `503` if none). The draining environment keeps running its
+in-flight executions; once all of them finish, MCI tears it down. This means
+a `POST /modules/:envId/enabled` with `enabled: false` returns immediately,
+but the actual teardown may happen seconds later.
 
-### Environment hydration
+## Module API
 
-- Loads staged service and tool definitions.
-- Generates service/tool bindings that process code can call.
+| Method | Path | Notes |
+| --- | --- | --- |
+| `GET` | `/modules` | Filterable by `query`, `type`, `isBuiltin`, `enabled` |
+| `GET` | `/modules/:moduleId` | Single module |
+| `POST` | `/modules/:moduleId/enabled` | Toggle `{ enabled: boolean }` |
+| `POST` | `/modules/reload` | Re-scan custom modules from disk |
 
-Environment hydration applies staged service manifests into the environment runtime so code executed inside the environment can call tools via generated bindings.
+Enabling an orphaned module returns `409`.
 
-Environment modules expose generated bindings using `setServiceManifestBindings` and `updateServiceManifestBindings`. These bindings are visible to transpiled code running in the environment and map tool invocations to runtime-built `invoke` calls.
+A module record:
 
-Environment modules also provide runtime events and outputs that the host listens to:
+```ts
+interface ModuleManifestRecord {
+  id: string;
+  name: string;
+  description: string;
+  type: "adapter" | "environment";
+  isBuiltin: boolean;
+  enabled: boolean;
+  orphaned: boolean;
+}
+```
 
-- `stdout`: emitted when the environment worker writes to stdout
-- `stderr`: emitted when the environment worker writes to stderr
-- `output`: emitted when the environment sends structured output patches (key/value)
+## Picking the Right Module Type
 
-The environment execution is driven by a worker-thread process. The environment's `execute(code, options)` method runs transpiled code in the worker, wires up stream handling, enforces timeouts, and returns an execution status (`success` or `failed`). The environment provides `kill()` to forcibly terminate a running worker.
+- If you need to **let user code reach a new kind of end service**, write an
+  **adapter**.
+- If you need to **change how code is executed** (different language,
+  different sandbox, different permission model), write an **environment**.
 
-### Adapter hydration
-
-- Loads service configuration snapshots.
-- Loads service secret snapshots.
-- Applies updated configuration and secrets during restage.
-
-Adapter pool staging loads a snapshot of configurations and secrets from the database and applies them to a new `AdapterModule` instance via `setServiceConfigs` and `setServiceSecrets`.
-
-## Module Lifecycle
-
-1. **Instantiate** module
-2. **Hydrate** module with current definitions and runtime data
-3. **Stage** module in pool as ready
-4. **Allocate** module for execution
-5. **Release** module back to pool
-6. **Recycle/Retire** module when unhealthy or outdated
-
-### Lifecycle notes (implementation)
-
-- Staging is guarded by a `stagingPromise` to avoid concurrent staging attempts.
-- When a new staged module replaces the active one, the previous module is retired and either killed immediately if it has no leases or left to be killed after active leases finish.
-- If staging fails, the pool records the failure state and keeps the previously staged module (if any) available.
-
-## Failure Handling
-
-If a module execution fails, times out, or health checks fail, the module is recycled or retired and replaced by a newly staged module.
-
-Module health checks and recycling are implemented in the process execution path. When an execution finishes or errors, the runtime inspects module health (e.g., `isHealthy` / `isValid` hooks) and either returns the module to the pool or recycles/destroys it.
-
-### Environment health and recycling
-
-After process execution, the runtime evaluates the environment module's health. Implementations may provide `isHealthy` or `isValid` hooks and a `status` field. If an environment is unhealthy or reported `timeout`/`failed`, the pool will recycle or destroy that module and stage a replacement to keep the pool ready.
+Most extension work in the wild is adapter work. Environment modules are a
+heavier commitment because they own the security boundary user code runs
+inside.

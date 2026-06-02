@@ -1,3 +1,4 @@
+import type { JSONSchema } from "@mci/sdk";
 import {
   index,
   integer,
@@ -6,51 +7,45 @@ import {
   text,
 } from "drizzle-orm/sqlite-core";
 
-import type {
-  JSONSchema,
-  ManifestMetadata,
-  ServiceToolDefinition,
-  ServiceType,
-} from "@/models/manifest.model";
+import type { ModuleType } from "@/models/modules.model";
 import type { EncryptedSecretsPayload } from "@/models/secrets.model";
 
-export const manifests = sqliteTable(
-  "services",
-  {
-    id: text("id").primaryKey(),
-    type: text("type").$type<ServiceType>().notNull(),
-    source: text("source").notNull().default(""),
-    description: text("description").notNull().default(""),
-    hash: text("hash").notNull(),
-    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
-    metadata: text("metadata", { mode: "json" })
-      .$type<ManifestMetadata>()
-      .notNull(),
-    configSchema: text("config_schema", { mode: "json" })
-      .$type<JSONSchema>()
-      .notNull(),
-    secretsSchema: text("secrets_schema", { mode: "json" })
-      .$type<JSONSchema>()
-      .notNull(),
-  },
-  (table) => [index("services_type_idx").on(table.type)],
-);
+export const services = sqliteTable("services", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description").notNull().default(""),
+  hash: text("hash").notNull(),
+  source: text("source").notNull().default(""),
+  adapter: text("adapter")
+    .notNull()
+    .references(() => modules.id, { onDelete: "cascade" }),
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+  configSchema: text("config_schema", { mode: "json" })
+    .$type<JSONSchema>()
+    .notNull(),
+  secretsSchema: text("secrets_schema", { mode: "json" })
+    .$type<JSONSchema>()
+    .notNull(),
+  adapterDomain: text("adapter_domain", { mode: "json" })
+    .$type<Record<string, unknown>>()
+    .notNull(),
+});
 
-export const configurations = sqliteTable("configurations", {
-  serviceName: text("service_name")
+export const serviceConfigurations = sqliteTable("service_configurations", {
+  serviceId: text("service_id")
     .primaryKey()
-    .references(() => manifests.id, { onDelete: "cascade" }),
-  config: text("config", { mode: "json" })
+    .references(() => services.id, { onDelete: "cascade" }),
+  payload: text("payload", { mode: "json" })
     .$type<Record<string, unknown>>()
     .notNull()
     .default({}),
   updatedAt: integer("updated_at").notNull(),
 });
 
-export const secrets = sqliteTable("secrets", {
-  serviceName: text("service_name")
+export const serviceSecrets = sqliteTable("service_secrets", {
+  serviceId: text("service_id")
     .primaryKey()
-    .references(() => manifests.id, { onDelete: "cascade" }),
+    .references(() => services.id, { onDelete: "cascade" }),
   payload: text("payload", { mode: "json" })
     .$type<EncryptedSecretsPayload>()
     .notNull(),
@@ -60,35 +55,55 @@ export const secrets = sqliteTable("secrets", {
 export const tools = sqliteTable(
   "tools",
   {
-    serviceName: text("service_id")
+    serviceId: text("service_id")
       .notNull()
-      .references(() => manifests.id, {
-        onDelete: "cascade",
-      }),
+      .references(() => services.id, { onDelete: "cascade" }),
+    id: text("id").notNull(),
     name: text("name").notNull(),
     description: text("description").notNull().default(""),
     enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
     inputSchema: text("input_schema", { mode: "json" })
-      .$type<ServiceToolDefinition["inputSchema"]>()
+      .$type<JSONSchema>()
       .notNull(),
     outputSchema: text("output_schema", { mode: "json" })
-      .$type<ServiceToolDefinition["outputSchema"]>()
+      .$type<JSONSchema>()
       .notNull(),
-    metadata: text("metadata", { mode: "json" })
-      .$type<ServiceToolDefinition["metadata"]>()
+    adapterDomain: text("adapter_domain", { mode: "json" })
+      .$type<Record<string, unknown>>()
       .notNull(),
   },
   (table) => [
-    primaryKey({ columns: [table.serviceName, table.name] }),
+    primaryKey({ columns: [table.serviceId, table.id] }),
     index("tools_name_idx").on(table.name),
   ],
 );
 
-export type ManifestRecord = typeof manifests.$inferSelect;
-export type NewManifestRecord = typeof manifests.$inferInsert;
-export type ConfigurationRecord = typeof configurations.$inferSelect;
-export type NewConfigurationRecord = typeof configurations.$inferInsert;
-export type SecretsRecord = typeof secrets.$inferSelect;
-export type NewSecretsRecord = typeof secrets.$inferInsert;
+export const modules = sqliteTable(
+  "modules",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    type: text("type").$type<ModuleType>().notNull(),
+    description: text("description").notNull().default(""),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    orphaned: integer("orphaned", { mode: "boolean" }).notNull().default(false),
+  },
+  (table) => [index("modules_type_idx").on(table.type)],
+);
+
+export type ServiceRecord = typeof services.$inferSelect;
+export type NewServiceRecord = typeof services.$inferInsert;
+
+export type ServiceConfigurationRecord =
+  typeof serviceConfigurations.$inferSelect;
+export type NewServiceConfigurationRecord =
+  typeof serviceConfigurations.$inferInsert;
+
+export type ServiceSecretsRecord = typeof serviceSecrets.$inferSelect;
+export type NewServiceSecretsRecord = typeof serviceSecrets.$inferInsert;
+
 export type ToolRecord = typeof tools.$inferSelect;
 export type NewToolRecord = typeof tools.$inferInsert;
+
+export type ModuleRecord = typeof modules.$inferSelect;
+export type NewModuleRecord = typeof modules.$inferInsert;

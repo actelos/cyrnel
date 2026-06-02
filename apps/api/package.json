@@ -1,11 +1,11 @@
 {
   "name": "@mci/api",
-  "license": "MIT",
-  "version": "1.0.0",
+  "private": true,
+  "type": "module",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
+    "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/server.js",
+    "start": "node dist/index.js",
     "test": "vitest run",
     "check": "biome check .",
     "check:fix": "biome check --write .",
@@ -14,13 +14,15 @@
     "db:studio": "drizzle-kit studio",
     "db:migrate": "drizzle-kit migrate",
     "db:generate": "drizzle-kit generate",
-    "openapi:generate": "tsx src/scripts/generate-openapi.ts"
+    "openapi:generate": "tsx scripts/generate-definition.ts"
   },
   "packageManager": "pnpm@10.30.3",
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^8.5.0",
     "@libsql/client": "^0.17.3",
-    "@mci/core": "workspace:*",
+    "@mci/openapi": "workspace:*",
+    "@mci/sdk": "workspace:*",
+    "@mci/typescript-ivm": "workspace:*",
     "ajv": "^8.20.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",

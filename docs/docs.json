@@ -26,25 +26,66 @@
                 ]
               },
               {
-                "group": "About MCI",
+                "group": "Architecture",
                 "pages": [
                   "content/architecture",
-                  "content/transport"
+                  "content/transport",
+                  "content/security"
                 ]
               },
               {
-                "group": "Core Concepts",
+                "group": "Concepts",
                 "pages": [
                   "content/processes",
                   "content/services",
-                  "content/modules"
+                  "content/tools",
+                  {
+                    "group": "Modules",
+                    "pages": [
+                      "content/modules",
+                      "content/modules/adapters",
+                      "content/modules/environments"
+                    ]
+                  }
+                ]
+              },
+              {
+                "group": "Built-in Modules",
+                "pages": [
+                  "content/builtins/openapi",
+                  "content/builtins/typescript-ivm"
                 ]
               }
             ]
           },
           {
+            "tab": "Specification",
+            "groups": [
+              {
+                "group": "Overview",
+                "pages": ["spec/overview", "spec/types"]
+              },
+              {
+                "group": "Module Interfaces",
+                "pages": [
+                  "spec/module",
+                  "spec/adapter-module",
+                  "spec/environment-module"
+                ]
+              },
+              {
+                "group": "Runtime Contracts",
+                "pages": ["spec/bindings", "spec/execution"]
+              },
+              {
+                "group": "Authoring",
+                "pages": ["spec/writing-a-custom-module"]
+              }
+            ]
+          },
+          {
             "tab": "API Reference",
-            "openapi": "https://modelcontrolinterface.mintlify.app/openapi.json"
+            "openapi": "./openapi.json"
           }
         ]
       },

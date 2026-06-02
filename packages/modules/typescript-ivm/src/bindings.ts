@@ -10,6 +10,7 @@
     __mci_emitOutput: IvmReference;
     __mci_getService: IvmReference;
     __mci_getTool: IvmReference;
+    __mci_getToolDocs: IvmReference;
     __mci_invokeTool: IvmReference;
     __mci_discoverTools: IvmReference;
     __mci_discoverServices: IvmReference;
@@ -22,47 +23,50 @@
   const __mci_emitOutput = mciGlobals.__mci_emitOutput;
   const __mci_getService = mciGlobals.__mci_getService;
   const __mci_getTool = mciGlobals.__mci_getTool;
+  const __mci_getToolDocs = mciGlobals.__mci_getToolDocs;
   const __mci_invokeTool = mciGlobals.__mci_invokeTool;
   const __mci_discoverTools = mciGlobals.__mci_discoverTools;
   const __mci_discoverServices = mciGlobals.__mci_discoverServices;
 
-  type DiscoverInput = {
-    query: string;
+  type ListServiceInput = {
+    query?: string;
     limit?: number;
-    enabled?: boolean | null;
+    enabled?: boolean;
   };
 
-  type DiscoverServiceItem = {
+  type ListToolInput = {
+    serviceId?: string;
+    query?: string;
+    limit?: number;
+    enabled?: boolean;
+  };
+
+  type ListServiceResult = {
+    id: string;
     name: string;
     description: string;
     enabled: boolean;
   };
 
-  type DiscoverToolItem = {
-    serviceName: string;
+  type ListToolResult = {
+    serviceId: string;
+    id: string;
     name: string;
     description: string;
     enabled: boolean;
-  };
-
-  type GetServiceInput = {
-    serviceName: string;
   };
 
   type ServiceDetails = {
     name: string;
-    type: string;
-    source: string;
     description: string;
-    hash: string;
     enabled: boolean;
     configSchema: Record<string, unknown>;
     secretsSchema: Record<string, unknown>;
   };
 
   type GetToolInput = {
-    serviceName: string;
-    toolName: string;
+    serviceId: string;
+    toolId: string;
   };
 
   type ToolDetails = {
@@ -74,8 +78,8 @@
   };
 
   type InvokeInput = {
-    serviceName: string;
-    toolName: string;
+    serviceId: string;
+    toolId: string;
     parameters: Record<string, unknown>;
   };
 
@@ -113,6 +117,15 @@
     return JSON.parse(jsonResult as string) as T;
   };
 
+  const callAsyncText = async (
+    ref: IvmReference,
+    input: unknown,
+  ): Promise<string> => {
+    const jsonInput = JSON.stringify(input);
+    const result = await ref.applySyncPromise(undefined, [jsonInput]);
+    return result as string;
+  };
+
   const mci = {
     output(data: Record<string, unknown>): void {
       __mci_emitOutput.applyIgnored(undefined, [JSON.stringify(data)]);
@@ -127,21 +140,21 @@
             string,
             {
               getDefinition: () => Promise<ToolDetails>;
+              getDocs: () => Promise<string>;
               invoke: (parameters: Record<string, unknown>) => Promise<unknown>;
             }
           >;
         }
       >,
       {
-        get(_target, serviceName: string | symbol) {
-          if (typeof serviceName !== "string") {
-            throw new TypeError("Service name must be a string");
+        get(_target, serviceId: string | symbol) {
+          if (typeof serviceId !== "string") {
+            throw new TypeError("Service id must be a string");
           }
 
           return {
             async getDefinition(): Promise<ServiceDetails> {
-              const input = { serviceName } satisfies GetServiceInput;
-              return callAsync<ServiceDetails>(__mci_getService, input);
+              return callAsync<ServiceDetails>(__mci_getService, serviceId);
             },
 
             tools: new Proxy(
@@ -149,31 +162,39 @@
                 string,
                 {
                   getDefinition: () => Promise<ToolDetails>;
+                  getDocs: () => Promise<string>;
                   invoke: (
                     parameters: Record<string, unknown>,
                   ) => Promise<unknown>;
                 }
               >,
               {
-                get(_target, toolName: string | symbol) {
-                  if (typeof toolName !== "string") {
-                    throw new TypeError("Tool name must be a string");
+                get(_target, toolId: string | symbol) {
+                  if (typeof toolId !== "string") {
+                    throw new TypeError("Tool id must be a string");
                   }
 
                   return {
                     async getDefinition(): Promise<ToolDetails> {
                       const input = {
-                        serviceName,
-                        toolName,
+                        serviceId,
+                        toolId,
                       } satisfies GetToolInput;
                       return callAsync<ToolDetails>(__mci_getTool, input);
+                    },
+                    async getDocs(): Promise<string> {
+                      const input = {
+                        serviceId,
+                        toolId,
+                      } satisfies GetToolInput;
+                      return callAsyncText(__mci_getToolDocs, input);
                     },
                     async invoke(
                       parameters: Record<string, unknown>,
                     ): Promise<unknown> {
                       const input = {
-                        serviceName,
-                        toolName,
+                        serviceId,
+                        toolId,
                         parameters,
                       } satisfies InvokeInput;
                       return callAsync<unknown>(__mci_invokeTool, input);
@@ -187,14 +208,14 @@
       },
     ),
 
-    async discoverTools(input: DiscoverInput): Promise<DiscoverToolItem[]> {
-      return callAsync<DiscoverToolItem[]>(__mci_discoverTools, input);
+    async discoverTools(input: ListToolInput): Promise<ListToolResult[]> {
+      return callAsync<ListToolResult[]>(__mci_discoverTools, input);
     },
 
     async discoverServices(
-      input: DiscoverInput,
-    ): Promise<DiscoverServiceItem[]> {
-      return callAsync<DiscoverServiceItem[]>(__mci_discoverServices, input);
+      input: ListServiceInput,
+    ): Promise<ListServiceResult[]> {
+      return callAsync<ListServiceResult[]>(__mci_discoverServices, input);
     },
   };
 
