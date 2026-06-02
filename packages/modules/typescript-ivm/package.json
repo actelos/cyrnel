@@ -20,7 +20,7 @@
   "packageManager": "pnpm@10.30.3",
   "dependencies": {
     "@mci/sdk": "workspace:*",
-    "isolated-vm": "^6.1.2",
+    "isolated-vm": "^7.0.0",
     "typescript": "^6.0.3"
   },
   "devDependencies": {
