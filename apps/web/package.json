@@ -18,7 +18,7 @@
     "clsx": "^2.1.1",
     "lucide-react": "^1.16.0",
     "radix-ui": "^1.4.3",
-    "react": "^19.2.6",
+    "react": "^19.2.7",
     "react-dom": "^19.2.6",
     "react-router-dom": "^7.15.1",
     "shadcn": "^4.7.0",
@@ -31,7 +31,7 @@
   "devDependencies": {
     "@biomejs/biome": "2.4.15",
     "@types/node": "^25.8.0",
-    "@types/react": "^19.2.14",
+    "@types/react": "^19.2.16",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.2",
     "typescript": "~6.0.3",
