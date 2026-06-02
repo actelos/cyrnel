@@ -91,6 +91,27 @@ export const modules = sqliteTable(
   (table) => [index("modules_type_idx").on(table.type)],
 );
 
+export const moduleConfigurations = sqliteTable("module_configurations", {
+  moduleId: text("module_id")
+    .primaryKey()
+    .references(() => modules.id, { onDelete: "cascade" }),
+  payload: text("payload", { mode: "json" })
+    .$type<Record<string, unknown>>()
+    .notNull()
+    .default({}),
+  updatedAt: integer("updated_at").notNull(),
+});
+
+export const moduleSecrets = sqliteTable("module_secrets", {
+  moduleId: text("module_id")
+    .primaryKey()
+    .references(() => modules.id, { onDelete: "cascade" }),
+  payload: text("payload", { mode: "json" })
+    .$type<EncryptedSecretsPayload>()
+    .notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
 export type ServiceRecord = typeof services.$inferSelect;
 export type NewServiceRecord = typeof services.$inferInsert;
 
@@ -107,3 +128,11 @@ export type NewToolRecord = typeof tools.$inferInsert;
 
 export type ModuleRecord = typeof modules.$inferSelect;
 export type NewModuleRecord = typeof modules.$inferInsert;
+
+export type ModuleConfigurationRecord =
+  typeof moduleConfigurations.$inferSelect;
+export type NewModuleConfigurationRecord =
+  typeof moduleConfigurations.$inferInsert;
+
+export type ModuleSecretsRecord = typeof moduleSecrets.$inferSelect;
+export type NewModuleSecretsRecord = typeof moduleSecrets.$inferInsert;

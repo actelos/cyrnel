@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -15,6 +16,7 @@ import type {
 } from "@mci/sdk";
 import { sql } from "drizzle-orm";
 import {
+  afterAll,
   afterEach,
   beforeAll,
   beforeEach,
@@ -23,6 +25,9 @@ import {
   it,
   vi,
 } from "vitest";
+
+const SECRETS_KEY = crypto.randomBytes(32).toString("base64");
+const ORIGINAL_SECRETS_KEY = process.env.MCI_SECRETS_KEY;
 
 const { adapterInstances, envInstances, FakeAdapter, FakeEnvironment } =
   vi.hoisted(() => {
@@ -111,6 +116,16 @@ vi.mock("@mci/openapi", () => ({
     version: "1.0.0",
     description: "Fake openapi adapter",
     type: "adapter" as const,
+    configSchema: {
+      type: "object",
+      properties: { baseUrl: { type: "string" } },
+      additionalProperties: false,
+    },
+    secretsSchema: {
+      type: "object",
+      properties: { apiKey: { type: "string" } },
+      additionalProperties: false,
+    },
   },
   instantiate: () => {
     const instance = new FakeAdapter();
@@ -125,6 +140,16 @@ vi.mock("@mci/typescript-ivm", () => ({
     version: "1.0.0",
     description: "Fake TS environment",
     type: "environment" as const,
+    configSchema: {
+      type: "object",
+      properties: { poolSize: { type: "number" } },
+      additionalProperties: false,
+    },
+    secretsSchema: {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    },
   },
   instantiate: () => {
     const instance = new FakeEnvironment();
@@ -138,19 +163,21 @@ const { db } = await import("@/db/client");
 const { ModuleService } = await import("@/services/modules.service");
 const { HttpError } = await import("@/models/error.model");
 
-const MIGRATION = path.resolve(
-  import.meta.dirname,
-  "../../drizzle/0000_wealthy_lester.sql",
-);
+const MIGRATIONS_DIR = path.resolve(import.meta.dirname, "../../drizzle");
 
 async function applyMigrations(): Promise<void> {
-  const file = await fs.readFile(MIGRATION, "utf8");
-  const statements = file
-    .split("--> statement-breakpoint")
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
-  for (const stmt of statements) {
-    await db.run(sql.raw(stmt));
+  const entries = (await fs.readdir(MIGRATIONS_DIR))
+    .filter((name) => name.endsWith(".sql"))
+    .sort();
+  for (const name of entries) {
+    const file = await fs.readFile(path.join(MIGRATIONS_DIR, name), "utf8");
+    const statements = file
+      .split("--> statement-breakpoint")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+    for (const stmt of statements) {
+      await db.run(sql.raw(stmt));
+    }
   }
 }
 
@@ -167,6 +194,8 @@ async function resetDb(): Promise<void> {
   await db.run(sql.raw("DELETE FROM service_secrets"));
   await db.run(sql.raw("DELETE FROM service_configurations"));
   await db.run(sql.raw("DELETE FROM services"));
+  await db.run(sql.raw("DELETE FROM module_secrets"));
+  await db.run(sql.raw("DELETE FROM module_configurations"));
   await db.run(sql.raw("DELETE FROM modules"));
   await db.run(sql.raw("PRAGMA foreign_keys = ON"));
 }
@@ -201,7 +230,16 @@ const MISSING_PATH = path.join(os.tmpdir(), "mci-no-such-modules-dir");
 
 describe("ModuleService", () => {
   beforeAll(async () => {
+    process.env.MCI_SECRETS_KEY = SECRETS_KEY;
     await applyMigrations();
+  });
+
+  afterAll(() => {
+    if (ORIGINAL_SECRETS_KEY === undefined) {
+      delete process.env.MCI_SECRETS_KEY;
+    } else {
+      process.env.MCI_SECRETS_KEY = ORIGINAL_SECRETS_KEY;
+    }
   });
 
   beforeEach(async () => {
@@ -755,6 +793,31 @@ describe("ModuleService", () => {
       await service.initialize(MISSING_PATH);
       expect(await service.get("ghost")).toBeUndefined();
     });
+
+    it("get() includes config and secrets schemas", async () => {
+      const service = new ModuleService(makeBindings(), makeLifecycle());
+      await service.initialize(MISSING_PATH);
+
+      const record = unwrap(await service.get("openapi"), "module 'openapi'");
+      expect(record.configSchema).toMatchObject({
+        type: "object",
+        properties: { baseUrl: { type: "string" } },
+      });
+      expect(record.secretsSchema).toMatchObject({
+        type: "object",
+        properties: { apiKey: { type: "string" } },
+      });
+    });
+
+    it("list() omits config and secrets schemas", async () => {
+      const service = new ModuleService(makeBindings(), makeLifecycle());
+      await service.initialize(MISSING_PATH);
+
+      for (const row of await service.list()) {
+        expect(row).not.toHaveProperty("configSchema");
+        expect(row).not.toHaveProperty("secretsSchema");
+      }
+    });
   });
 
   // ----------------------------------------------------------------------
@@ -1008,6 +1071,246 @@ describe("ModuleService", () => {
       // Give the dispose chain a tick to settle.
       await new Promise((resolve) => setImmediate(resolve));
       expect(env.teardownCalls.length).toBeGreaterThan(0);
+    });
+  });
+
+  // ----------------------------------------------------------------------
+  // config / secrets
+  // ----------------------------------------------------------------------
+  describe("config & secrets", () => {
+    it("passes empty config and secrets to setup by default", async () => {
+      const service = new ModuleService(makeBindings(), makeLifecycle());
+      await service.initialize(MISSING_PATH);
+
+      const adapter = unwrap(adapterInstances[0], "adapter");
+      const env = unwrap(envInstances[0], "environment");
+
+      expect(adapter.setupCalls[0]).toMatchObject({
+        config: {},
+        secrets: {},
+      });
+      expect(env.setupCalls[0]).toMatchObject({
+        config: {},
+        secrets: {},
+        bindings: expect.any(Object),
+      });
+    });
+
+    it("exposes config and secrets schemas from manifests", async () => {
+      const service = new ModuleService(makeBindings(), makeLifecycle());
+      await service.initialize(MISSING_PATH);
+
+      expect(service.getConfigSchema("openapi")).toMatchObject({
+        type: "object",
+        properties: { baseUrl: { type: "string" } },
+      });
+      expect(service.getSecretsSchema("openapi")).toMatchObject({
+        type: "object",
+        properties: { apiKey: { type: "string" } },
+      });
+    });
+
+    it("throws 404 for schemas of unknown modules", async () => {
+      const service = new ModuleService(makeBindings(), makeLifecycle());
+      await service.initialize(MISSING_PATH);
+
+      expect(() => service.getConfigSchema("ghost")).toThrow(HttpError);
+      expect(() => service.getSecretsSchema("ghost")).toThrow(HttpError);
+    });
+
+    it("getConfig returns empty by default", async () => {
+      const service = new ModuleService(makeBindings(), makeLifecycle());
+      await service.initialize(MISSING_PATH);
+
+      expect(await service.getConfig("openapi")).toEqual({});
+    });
+
+    it("patchConfig persists JSON Patch results", async () => {
+      const service = new ModuleService(makeBindings(), makeLifecycle());
+      await service.initialize(MISSING_PATH);
+
+      await service.patchConfig({
+        id: "openapi",
+        patch: [{ op: "add", path: "/baseUrl", value: "https://api.example" }],
+      });
+
+      expect(await service.getConfig("openapi")).toEqual({
+        baseUrl: "https://api.example",
+      });
+    });
+
+    it("patchConfig rejects values that violate the schema", async () => {
+      const service = new ModuleService(makeBindings(), makeLifecycle());
+      await service.initialize(MISSING_PATH);
+
+      await expect(
+        service.patchConfig({
+          id: "openapi",
+          patch: [{ op: "add", path: "/unknown", value: "x" }],
+        }),
+      ).rejects.toBeInstanceOf(HttpError);
+    });
+
+    it("patchConfig rejects non-object resulting payloads", async () => {
+      const service = new ModuleService(makeBindings(), makeLifecycle());
+      await service.initialize(MISSING_PATH);
+
+      await expect(
+        service.patchConfig({
+          id: "openapi",
+          patch: [{ op: "replace", path: "", value: [1, 2, 3] }],
+        }),
+      ).rejects.toBeInstanceOf(HttpError);
+    });
+
+    it("patchConfig reloads an active adapter (teardown + new setup with new context)", async () => {
+      const service = new ModuleService(makeBindings(), makeLifecycle());
+      await service.initialize(MISSING_PATH);
+
+      const firstAdapter = unwrap(adapterInstances[0], "adapter");
+      await service.patchConfig({
+        id: "openapi",
+        patch: [{ op: "add", path: "/baseUrl", value: "https://x" }],
+      });
+
+      expect(firstAdapter.teardownCalls.length).toBeGreaterThan(0);
+      // A second instance should have been created with the new config.
+      expect(adapterInstances).toHaveLength(2);
+      const secondAdapter = unwrap(
+        adapterInstances[1],
+        "adapter (post-reload)",
+      );
+      expect(secondAdapter.setupCalls[0]).toMatchObject({
+        config: { baseUrl: "https://x" },
+        secrets: {},
+      });
+    });
+
+    it("patchConfig does NOT reload when adapter is disabled", async () => {
+      const service = new ModuleService(makeBindings(), makeLifecycle());
+      await db.run(
+        sql`INSERT INTO modules (id, name, type, description, enabled, orphaned)
+            VALUES ('openapi', 'openapi', 'adapter', '', 0, 0),
+                   ('typescript-ivm', 'typescript-ivm', 'environment', '', 0, 0)`,
+      );
+      await service.initialize(MISSING_PATH);
+
+      expect(adapterInstances).toHaveLength(0);
+
+      await service.patchConfig({
+        id: "openapi",
+        patch: [{ op: "add", path: "/baseUrl", value: "https://x" }],
+      });
+
+      expect(adapterInstances).toHaveLength(0);
+      expect(await service.getConfig("openapi")).toEqual({
+        baseUrl: "https://x",
+      });
+    });
+
+    it("patchConfig reloads the active environment swap-style", async () => {
+      const service = new ModuleService(makeBindings(), makeLifecycle());
+      await service.initialize(MISSING_PATH);
+
+      const firstEnv = unwrap(envInstances[0], "environment");
+
+      await service.patchConfig({
+        id: "typescript-ivm",
+        patch: [{ op: "add", path: "/poolSize", value: 4 }],
+      });
+
+      // New environment instance created with updated config.
+      expect(envInstances).toHaveLength(2);
+      const secondEnv = unwrap(envInstances[1], "environment (post-reload)");
+      expect(secondEnv.setupCalls[0]).toMatchObject({
+        config: { poolSize: 4 },
+        secrets: {},
+      });
+
+      // Old env drains then tears down.
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(firstEnv.teardownCalls.length).toBeGreaterThan(0);
+    });
+
+    it("patchSecrets persists encrypted secrets and reloads", async () => {
+      const service = new ModuleService(makeBindings(), makeLifecycle());
+      await service.initialize(MISSING_PATH);
+
+      await service.patchSecrets({
+        id: "openapi",
+        patch: [{ op: "add", path: "/apiKey", value: "sekret" }],
+      });
+
+      // The stored payload should be the encrypted blob, not the plaintext.
+      const stored = await db.run(
+        sql`SELECT payload FROM module_secrets WHERE module_id = 'openapi'`,
+      );
+      const rows = stored.rows as unknown as { payload: string }[];
+      const payload = rows[0]?.payload ?? "";
+      expect(payload).not.toContain("sekret");
+
+      // Reload should have provided the new secrets to the new adapter.
+      const reloaded = unwrap(
+        adapterInstances[1],
+        "adapter (post-secrets-reload)",
+      );
+      expect(reloaded.setupCalls[0]).toMatchObject({
+        secrets: { apiKey: "sekret" },
+      });
+    });
+
+    it("patchSecrets rejects payloads that violate the schema", async () => {
+      const service = new ModuleService(makeBindings(), makeLifecycle());
+      await service.initialize(MISSING_PATH);
+
+      await expect(
+        service.patchSecrets({
+          id: "openapi",
+          patch: [{ op: "add", path: "/ghost", value: "x" }],
+        }),
+      ).rejects.toBeInstanceOf(HttpError);
+    });
+
+    it("setEnabled refuses to enable when config is invalid", async () => {
+      const service = new ModuleService(makeBindings(), makeLifecycle());
+      await db.run(
+        sql`INSERT INTO modules (id, name, type, description, enabled, orphaned)
+            VALUES ('openapi', 'openapi', 'adapter', '', 0, 0)`,
+      );
+      await service.initialize(MISSING_PATH);
+
+      // Seed a bad config (an unknown property) directly in the DB so that
+      // the validation in setEnabled rejects it.
+      await db.run(
+        sql`INSERT INTO module_configurations (module_id, payload, updated_at)
+            VALUES ('openapi', '{"unknown":1}', 0)`,
+      );
+
+      await expect(
+        service.setEnabled({ id: "openapi", enabled: true }),
+      ).rejects.toBeInstanceOf(HttpError);
+      // Activation should not have happened.
+      expect(adapterInstances).toHaveLength(0);
+    });
+
+    it("config/secrets survive reload() and are still applied on next enable", async () => {
+      const service = new ModuleService(makeBindings(), makeLifecycle());
+      await service.initialize(MISSING_PATH);
+
+      await service.patchConfig({
+        id: "openapi",
+        patch: [{ op: "add", path: "/baseUrl", value: "https://kept" }],
+      });
+
+      // Disable and re-enable should pass the persisted config through.
+      await service.setEnabled({ id: "openapi", enabled: false });
+      adapterInstances.length = 0;
+      await service.setEnabled({ id: "openapi", enabled: true });
+
+      const adapter = unwrap(adapterInstances[0], "adapter");
+      expect(adapter.setupCalls[0]).toMatchObject({
+        config: { baseUrl: "https://kept" },
+      });
     });
   });
 });

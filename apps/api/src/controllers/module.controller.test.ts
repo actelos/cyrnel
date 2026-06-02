@@ -3,7 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   getModule,
+  getModuleConfiguration,
+  getModuleConfigurationSchema,
+  getModuleSecretsSchema,
   listModules,
+  patchModuleConfiguration,
+  patchModuleSecrets,
   reloadModules,
   setModuleEnabled,
 } from "@/controllers/module.controller";
@@ -14,6 +19,11 @@ const moduleService = {
   get: vi.fn(),
   setEnabled: vi.fn(),
   reload: vi.fn(),
+  getConfig: vi.fn(),
+  getConfigSchema: vi.fn(),
+  getSecretsSchema: vi.fn(),
+  patchConfig: vi.fn(),
+  patchSecrets: vi.fn(),
 };
 
 interface MockResponse {
@@ -341,6 +351,161 @@ describe("module.controller", () => {
       await expect(reloadModules(makeReq(), cast(res))).rejects.toMatchObject({
         statusCode: 503,
       });
+    });
+  });
+
+  describe("getModuleConfiguration", () => {
+    it("wraps the config under { config }", async () => {
+      const res = makeRes();
+      moduleService.getConfig.mockResolvedValue({ foo: "bar" });
+
+      await getModuleConfiguration(
+        makeReq({ params: { moduleId: "m1" } }),
+        cast(res),
+      );
+
+      expect(moduleService.getConfig).toHaveBeenCalledWith("m1");
+      expect(res.json).toHaveBeenCalledWith({ config: { foo: "bar" } });
+    });
+
+    it("rejects an empty moduleId", async () => {
+      const res = makeRes();
+      await expect(
+        getModuleConfiguration(
+          makeReq({ params: { moduleId: "   " } }),
+          cast(res),
+        ),
+      ).rejects.toBeInstanceOf(HttpError);
+    });
+  });
+
+  describe("getModuleConfigurationSchema", () => {
+    it("wraps the schema under { configSchema }", async () => {
+      const res = makeRes();
+      moduleService.getConfigSchema.mockReturnValue({ type: "object" });
+
+      await getModuleConfigurationSchema(
+        makeReq({ params: { moduleId: "m1" } }),
+        cast(res),
+      );
+
+      expect(res.json).toHaveBeenCalledWith({
+        configSchema: { type: "object" },
+      });
+    });
+
+    it("propagates 404 from the service", async () => {
+      const res = makeRes();
+      moduleService.getConfigSchema.mockImplementation(() => {
+        throw new HttpError(404, "Module 'ghost' is not registered.");
+      });
+
+      await expect(
+        getModuleConfigurationSchema(
+          makeReq({ params: { moduleId: "ghost" } }),
+          cast(res),
+        ),
+      ).rejects.toMatchObject({ statusCode: 404 });
+    });
+  });
+
+  describe("getModuleSecretsSchema", () => {
+    it("wraps the schema under { secretsSchema }", async () => {
+      const res = makeRes();
+      moduleService.getSecretsSchema.mockReturnValue({ type: "object" });
+
+      await getModuleSecretsSchema(
+        makeReq({ params: { moduleId: "m1" } }),
+        cast(res),
+      );
+
+      expect(res.json).toHaveBeenCalledWith({
+        secretsSchema: { type: "object" },
+      });
+    });
+  });
+
+  describe("patchModuleConfiguration", () => {
+    it("applies a JSON Patch and returns the resulting config", async () => {
+      const res = makeRes();
+      const patch = [{ op: "replace", path: "/foo", value: "bar" }] as const;
+      moduleService.patchConfig.mockResolvedValue(undefined);
+      moduleService.getConfig.mockResolvedValue({ foo: "bar" });
+
+      await patchModuleConfiguration(
+        makeReq({ params: { moduleId: "m1" }, body: patch }),
+        cast(res),
+      );
+
+      expect(moduleService.patchConfig).toHaveBeenCalledWith({
+        id: "m1",
+        patch,
+      });
+      expect(moduleService.getConfig).toHaveBeenCalledWith("m1");
+      expect(res.json).toHaveBeenCalledWith({ config: { foo: "bar" } });
+    });
+
+    it.each([
+      [{ body: {}, why: "body not an array" }],
+      [{ body: [{ op: "unknown", path: "/x" }], why: "unknown op" }],
+      [{ body: [{ op: "add", value: 1 }], why: "add missing path" }],
+      [{ body: [{ op: "remove" }], why: "remove missing path" }],
+      [{ body: [{ op: "move", path: "/x" }], why: "move missing from" }],
+      [{ body: [{ op: "add", path: "", value: 1 }], why: "empty path" }],
+    ])("rejects $why", async ({ body }) => {
+      const res = makeRes();
+      await expect(
+        patchModuleConfiguration(
+          makeReq({ params: { moduleId: "m1" }, body }),
+          cast(res),
+        ),
+      ).rejects.toBeInstanceOf(HttpError);
+    });
+  });
+
+  describe("patchModuleSecrets", () => {
+    it("applies the patch and returns updated:true", async () => {
+      const res = makeRes();
+      const patch = [{ op: "add", path: "/token", value: "x" }];
+      moduleService.patchSecrets.mockResolvedValue(undefined);
+
+      await patchModuleSecrets(
+        makeReq({ params: { moduleId: "m1" }, body: patch }),
+        cast(res),
+      );
+
+      expect(moduleService.patchSecrets).toHaveBeenCalledWith({
+        id: "m1",
+        patch,
+      });
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith({ updated: true });
+    });
+
+    it("does not return the secret contents", async () => {
+      const res = makeRes();
+      moduleService.patchSecrets.mockResolvedValue(undefined);
+
+      await patchModuleSecrets(
+        makeReq({
+          params: { moduleId: "m1" },
+          body: [{ op: "add", path: "/k", value: "v" }],
+        }),
+        cast(res),
+      );
+
+      const responseBody = res.json.mock.calls.at(-1)?.[0];
+      expect(JSON.stringify(responseBody)).not.toContain("v");
+    });
+
+    it("rejects non-array bodies", async () => {
+      const res = makeRes();
+      await expect(
+        patchModuleSecrets(
+          makeReq({ params: { moduleId: "m1" }, body: {} }),
+          cast(res),
+        ),
+      ).rejects.toBeInstanceOf(HttpError);
     });
   });
 });

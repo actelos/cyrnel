@@ -1,7 +1,23 @@
 import type { EnvironmentBindings, ExecutionInput } from "@mci/sdk";
 import { describe, expect, it, vi } from "vitest";
 
-import { instantiate, toBuffer } from "./index";
+import { instantiate, manifest, toBuffer } from "./index";
+
+describe("typescript-ivm manifest", () => {
+  it("declares an empty object configSchema", () => {
+    expect(manifest.configSchema).toMatchObject({
+      type: "object",
+      additionalProperties: false,
+    });
+  });
+
+  it("declares an empty object secretsSchema", () => {
+    expect(manifest.secretsSchema).toMatchObject({
+      type: "object",
+      additionalProperties: false,
+    });
+  });
+});
 
 describe("toBuffer", () => {
   it("returns buffer inputs unchanged", () => {
@@ -85,7 +101,7 @@ describe("environment module", () => {
     const { bindings, setState } = createBindings();
     const environment = instantiate();
 
-    await environment.setup({ bindings });
+    await environment.setup({ bindings, config: {}, secrets: {} });
 
     const promise = environment.execute({
       eid: 42,
@@ -106,7 +122,7 @@ describe("environment module", () => {
     const { bindings, setState } = createBindings();
     const environment = instantiate();
 
-    await environment.setup({ bindings });
+    await environment.setup({ bindings, config: {}, secrets: {} });
 
     const exec1 = environment.execute({
       eid: 1,
@@ -156,7 +172,7 @@ describe("environment module", () => {
     const { bindings } = createBindings();
     const environment = instantiate();
 
-    await environment.setup({ bindings });
+    await environment.setup({ bindings, config: {}, secrets: {} });
 
     await environment.execute({
       eid: 4,
@@ -168,7 +184,7 @@ describe("environment module", () => {
 
     await environment.teardown();
 
-    await environment.setup({ bindings });
+    await environment.setup({ bindings, config: {}, secrets: {} });
 
     const result = await environment.execute({
       eid: 5,
@@ -185,7 +201,7 @@ describe("environment module", () => {
     const { bindings } = createBindings();
     const environment = instantiate();
 
-    await environment.setup({ bindings });
+    await environment.setup({ bindings, config: {}, secrets: {} });
 
     const result = await environment.execute({
       eid: 7,
@@ -202,7 +218,7 @@ describe("environment module", () => {
     const { bindings } = createBindings();
     const environment = instantiate();
 
-    await environment.setup({ bindings });
+    await environment.setup({ bindings, config: {}, secrets: {} });
 
     const result = await environment.execute({
       eid: 8,
@@ -219,7 +235,7 @@ describe("environment module", () => {
     const { bindings } = createBindings();
     const environment = instantiate();
 
-    await environment.setup({ bindings });
+    await environment.setup({ bindings, config: {}, secrets: {} });
 
     const exec1 = environment.execute({
       eid: 1,
@@ -255,7 +271,7 @@ describe("environment module", () => {
     const { bindings } = createBindings();
     const environment = instantiate();
 
-    await environment.setup({ bindings });
+    await environment.setup({ bindings, config: {}, secrets: {} });
 
     const promise = environment.execute({
       eid: 9,
@@ -275,7 +291,7 @@ describe("environment module", () => {
     const { bindings } = createBindings();
     const environment = instantiate();
 
-    await environment.setup({ bindings });
+    await environment.setup({ bindings, config: {}, secrets: {} });
 
     const promise = environment.execute({
       eid: 10,
@@ -300,7 +316,7 @@ describe("environment module", () => {
     const { bindings } = createBindings();
     const environment = instantiate();
 
-    await environment.setup({ bindings });
+    await environment.setup({ bindings, config: {}, secrets: {} });
 
     const result = await environment.execute({
       eid: 12,
@@ -315,7 +331,7 @@ describe("environment module", () => {
     const { bindings } = createBindings();
     const environment = instantiate();
 
-    await environment.setup({ bindings });
+    await environment.setup({ bindings, config: {}, secrets: {} });
 
     const result = await environment.execute({
       eid: 13,
@@ -330,7 +346,7 @@ describe("environment module", () => {
     const { bindings } = createBindings();
     const environment = instantiate();
 
-    await environment.setup({ bindings });
+    await environment.setup({ bindings, config: {}, secrets: {} });
 
     const promise = environment.execute({
       eid: 20,
@@ -368,7 +384,7 @@ describe("environment module", () => {
     const { bindings } = createBindings();
     const environment = instantiate();
 
-    await environment.setup({ bindings });
+    await environment.setup({ bindings, config: {}, secrets: {} });
 
     const exec1 = environment.execute({
       eid: 31,

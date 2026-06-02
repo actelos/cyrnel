@@ -29,22 +29,24 @@ import {
 } from "@/services/services.service";
 import { encryptSecrets } from "@/utils/secrets.util";
 
-const MIGRATION = path.resolve(
-  import.meta.dirname,
-  "../../drizzle/0000_wealthy_lester.sql",
-);
+const MIGRATIONS_DIR = path.resolve(import.meta.dirname, "../../drizzle");
 
 const SECRETS_KEY = crypto.randomBytes(32).toString("base64");
 const originalSecretsKey = process.env.MCI_SECRETS_KEY;
 
 async function applyMigrations(): Promise<void> {
-  const file = await fs.readFile(MIGRATION, "utf8");
-  const statements = file
-    .split("--> statement-breakpoint")
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
-  for (const stmt of statements) {
-    await db.run(sql.raw(stmt));
+  const entries = (await fs.readdir(MIGRATIONS_DIR))
+    .filter((name) => name.endsWith(".sql"))
+    .sort();
+  for (const name of entries) {
+    const file = await fs.readFile(path.join(MIGRATIONS_DIR, name), "utf8");
+    const statements = file
+      .split("--> statement-breakpoint")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+    for (const stmt of statements) {
+      await db.run(sql.raw(stmt));
+    }
   }
 }
 
@@ -54,6 +56,8 @@ async function resetDb(): Promise<void> {
   await db.run(sql.raw("DELETE FROM service_secrets"));
   await db.run(sql.raw("DELETE FROM service_configurations"));
   await db.run(sql.raw("DELETE FROM services"));
+  await db.run(sql.raw("DELETE FROM module_secrets"));
+  await db.run(sql.raw("DELETE FROM module_configurations"));
   await db.run(sql.raw("DELETE FROM modules"));
   await db.run(sql.raw("PRAGMA foreign_keys = ON"));
 }

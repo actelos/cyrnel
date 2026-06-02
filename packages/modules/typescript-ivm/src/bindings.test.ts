@@ -56,7 +56,7 @@ describe("bindings", () => {
       const { bindings, emitStdout } = createBindings();
       const environment = instantiate();
 
-      await environment.setup({ bindings });
+      await environment.setup({ bindings, config: {}, secrets: {} });
 
       await environment.execute({
         eid: 1,
@@ -74,7 +74,7 @@ describe("bindings", () => {
       const { bindings, emitStderr } = createBindings();
       const environment = instantiate();
 
-      await environment.setup({ bindings });
+      await environment.setup({ bindings, config: {}, secrets: {} });
 
       await environment.execute({
         eid: 1,
@@ -92,7 +92,7 @@ describe("bindings", () => {
       const { bindings, emitStdout } = createBindings();
       const environment = instantiate();
 
-      await environment.setup({ bindings });
+      await environment.setup({ bindings, config: {}, secrets: {} });
 
       await environment.execute({
         eid: 1,
@@ -113,7 +113,7 @@ describe("bindings", () => {
       const { bindings, emitStdout } = createBindings();
       const environment = instantiate();
 
-      await environment.setup({ bindings });
+      await environment.setup({ bindings, config: {}, secrets: {} });
 
       await environment.execute({
         eid: 1,
@@ -133,7 +133,7 @@ describe("bindings", () => {
       const { bindings, emitOutput } = createBindings();
       const environment = instantiate();
 
-      await environment.setup({ bindings });
+      await environment.setup({ bindings, config: {}, secrets: {} });
 
       await environment.execute({
         eid: 1,
@@ -151,7 +151,7 @@ describe("bindings", () => {
       const { bindings, emitOutput } = createBindings();
       const environment = instantiate();
 
-      await environment.setup({ bindings });
+      await environment.setup({ bindings, config: {}, secrets: {} });
 
       await environment.execute({
         eid: 99,
@@ -178,7 +178,7 @@ describe("bindings", () => {
 
       getService.mockResolvedValue(mockServiceDetails);
 
-      await environment.setup({ bindings });
+      await environment.setup({ bindings, config: {}, secrets: {} });
 
       await environment.execute({
         eid: 1,
@@ -202,7 +202,7 @@ describe("bindings", () => {
 
       getTool.mockResolvedValue(mockToolDetails);
 
-      await environment.setup({ bindings });
+      await environment.setup({ bindings, config: {}, secrets: {} });
 
       await environment.execute({
         eid: 1,
@@ -221,7 +221,7 @@ describe("bindings", () => {
 
       invokeTool.mockResolvedValue({ result: "success" });
 
-      await environment.setup({ bindings });
+      await environment.setup({ bindings, config: {}, secrets: {} });
 
       await environment.execute({
         eid: 1,
@@ -239,7 +239,7 @@ describe("bindings", () => {
       const { bindings } = createBindings();
       const environment = instantiate();
 
-      await environment.setup({ bindings });
+      await environment.setup({ bindings, config: {}, secrets: {} });
 
       const result = await environment.execute({
         eid: 1,
@@ -253,7 +253,7 @@ describe("bindings", () => {
       const { bindings } = createBindings();
       const environment = instantiate();
 
-      await environment.setup({ bindings });
+      await environment.setup({ bindings, config: {}, secrets: {} });
 
       const result = await environment.execute({
         eid: 1,
@@ -290,7 +290,7 @@ describe("bindings", () => {
 
       discoverTools.mockResolvedValue(mockTools);
 
-      await environment.setup({ bindings });
+      await environment.setup({ bindings, config: {}, secrets: {} });
 
       await environment.execute({
         eid: 1,
@@ -309,7 +309,7 @@ describe("bindings", () => {
 
       discoverTools.mockResolvedValue([]);
 
-      await environment.setup({ bindings });
+      await environment.setup({ bindings, config: {}, secrets: {} });
 
       await environment.execute({
         eid: 1,
@@ -327,7 +327,7 @@ describe("bindings", () => {
 
       discoverTools.mockResolvedValue([]);
 
-      await environment.setup({ bindings });
+      await environment.setup({ bindings, config: {}, secrets: {} });
 
       await environment.execute({
         eid: 1,
@@ -363,7 +363,7 @@ describe("bindings", () => {
 
       discoverServices.mockResolvedValue(mockServices);
 
-      await environment.setup({ bindings });
+      await environment.setup({ bindings, config: {}, secrets: {} });
 
       await environment.execute({
         eid: 1,
@@ -382,7 +382,7 @@ describe("bindings", () => {
 
       discoverServices.mockResolvedValue([]);
 
-      await environment.setup({ bindings });
+      await environment.setup({ bindings, config: {}, secrets: {} });
 
       await environment.execute({
         eid: 1,
@@ -401,7 +401,7 @@ describe("bindings", () => {
       const { bindings, emitStdout } = createBindings();
       const environment = instantiate();
 
-      await environment.setup({ bindings });
+      await environment.setup({ bindings, config: {}, secrets: {} });
 
       await environment.execute({
         eid: 10,
@@ -431,7 +431,7 @@ describe("bindings", () => {
       const { bindings, emitStdout, emitOutput } = createBindings();
       const environment = instantiate();
 
-      await environment.setup({ bindings });
+      await environment.setup({ bindings, config: {}, secrets: {} });
 
       await environment.execute({
         eid: 42,
@@ -460,7 +460,7 @@ describe("bindings", () => {
       const { bindings } = createBindings();
       const environment = instantiate();
 
-      await environment.setup({ bindings });
+      await environment.setup({ bindings, config: {}, secrets: {} });
 
       const result = await environment.execute({
         eid: 1,
@@ -482,7 +482,7 @@ describe("bindings", () => {
       const { bindings } = createBindings();
       const environment = instantiate();
 
-      await environment.setup({ bindings });
+      await environment.setup({ bindings, config: {}, secrets: {} });
 
       const result = await environment.execute({
         eid: 1,
@@ -504,7 +504,7 @@ describe("bindings", () => {
       const { bindings, emitStdout } = createBindings();
       const environment = instantiate();
 
-      await environment.setup({ bindings });
+      await environment.setup({ bindings, config: {}, secrets: {} });
 
       await environment.execute({
         eid: 1,
