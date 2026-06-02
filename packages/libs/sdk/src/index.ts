@@ -1,5 +1,23 @@
 export type JSONSchema = Record<string, unknown>;
 
+export interface ToolDefinition {
+  id: string;
+  name: string;
+  description: string;
+  inputSchema: JSONSchema;
+  outputSchema: JSONSchema;
+  adapterDomain: Record<string, unknown>;
+}
+
+export interface ServiceDefinition {
+  name: string;
+  description: string;
+  configSchema: JSONSchema;
+  secretsSchema: JSONSchema;
+  tools: ToolDefinition[];
+  adapterDomain: Record<string, unknown>;
+}
+
 // Base Module
 
 export type ModuleSetupContext = object;
@@ -11,68 +29,72 @@ export interface Module {
 
 // Environment Module
 
-export interface DiscoverInput {
-  query: string;
+export interface ListServiceInput {
+  query?: string;
   limit?: number;
-  enabled?: boolean | null;
+  enabled?: boolean;
 }
 
-export interface DiscoverServiceItem {
-  name: string;
-  description: string;
+export interface ListServiceResult
+  extends Omit<
+    ServiceDefinition,
+    "configSchema" | "secretsSchema" | "tools" | "adapterDomain"
+  > {
+  id: string;
   enabled: boolean;
 }
 
-export interface DiscoverToolItem {
-  serviceName: string;
-  name: string;
-  description: string;
-  enabled: boolean;
+export interface ListToolInput {
+  serviceId?: string;
+  query?: string;
+  limit?: number;
+  enabled?: boolean;
 }
 
-export interface GetServiceInput {
-  serviceName: string;
+export interface ListToolResult
+  extends Omit<
+    ToolDefinition,
+    "inputSchema" | "outputSchema" | "adapterDomain"
+  > {
+  serviceId: string;
+  enabled: boolean;
+  effectivelyEnabled: boolean;
 }
 
-export interface ServiceDetails {
-  name: string;
-  type: string;
-  source: string;
-  description: string;
-  hash: string;
+export interface GetServiceResult
+  extends Omit<ServiceDefinition, "tools" | "adapterDomain"> {
   enabled: boolean;
-  configSchema: JSONSchema;
-  secretsSchema: JSONSchema;
 }
 
 export interface GetToolInput {
-  serviceName: string;
-  toolName: string;
+  serviceId: string;
+  toolId: string;
 }
 
-export interface ToolDetails {
-  name: string;
-  description: string;
+export interface GetToolResult
+  extends Omit<ToolDefinition, "id" | "adapterDomain"> {
   enabled: boolean;
-  inputSchema: JSONSchema;
-  outputSchema: JSONSchema;
 }
 
 export interface InvokeInput {
-  serviceName: string;
-  toolName: string;
+  serviceId: string;
+  toolId: string;
   parameters: Record<string, unknown>;
 }
 
-export type ExecutionState = "queued" | "running";
+export const EXECUTION_STATES = ["queued", "running"] as const;
+
+export type ExecutionState = (typeof EXECUTION_STATES)[number];
 
 export interface EnvironmentBindings {
-  discoverServices(input: DiscoverInput): Promise<DiscoverServiceItem[]>;
-  discoverTools(input: DiscoverInput): Promise<DiscoverToolItem[]>;
-  getService(input: GetServiceInput): Promise<ServiceDetails>;
-  getTool(input: GetToolInput): Promise<ToolDetails>;
+  discoverServices(input: ListServiceInput): Promise<ListServiceResult[]>;
+  discoverTools(input: ListToolInput): Promise<ListToolResult[]>;
+  getService(id: string): Promise<GetServiceResult>;
+  getTool(input: GetToolInput): Promise<GetToolResult>;
+  getToolDocs(input: GetToolInput): Promise<string>;
   invokeTool(input: InvokeInput): Promise<unknown>;
   setState(eid: number, data: ExecutionState): void;
+  setError(eid: number, data: string): void;
   emitStdout(eid: number, data: Buffer): void;
   emitStderr(eid: number, data: Buffer): void;
   emitOutput(eid: number, data: Record<string, unknown>): void;
@@ -83,43 +105,61 @@ export interface EnvironmentSetupContext extends ModuleSetupContext {
 }
 
 export interface ExecutionOptions {
-  timeoutMs?: number | null;
+  timeoutMs: number;
 }
 
-export interface ExecutionParams {
+export interface ExecutionInput {
   eid: number;
   code: string;
-  options: ExecutionOptions;
+  options?: ExecutionOptions;
 }
 
-export type ExecutionExitState = "failed" | "success" | "timeout" | "canceled";
+export const EXECUTION_EXIT_STATES = [
+  "failed",
+  "success",
+  "timeout",
+  "canceled",
+] as const;
+
+export type ExecutionExitState = (typeof EXECUTION_EXIT_STATES)[number];
+
+export interface ToolDocsInput {
+  serviceId: string;
+  toolId: string;
+  description: string;
+  inputSchema: JSONSchema;
+  outputSchema: JSONSchema;
+}
 
 export interface EnvironmentModule extends Module {
   setup(context: EnvironmentSetupContext): Promise<void>;
-  execute(input: ExecutionParams): Promise<ExecutionExitState>;
+  execute(input: ExecutionInput): Promise<ExecutionExitState>;
   kill(eid: number): Promise<void>;
+  generateDocs(): Promise<string>;
+  generateToolDocs(input: ToolDocsInput): Promise<string>;
 }
 
 // Adapter Modules
 
-export interface ToolDefinition {
-  name: string;
-  description: string;
-  inputSchema: JSONSchema;
-  outputSchema: JSONSchema;
-  metadata: Record<string, unknown>;
-}
+export type ToolState = Omit<
+  ToolDefinition,
+  "id" | "name" | "description" | "inputSchema" | "outputSchema"
+>;
 
-export interface ServiceDefinition {
-  name: string;
-  description: string;
-  configSchema: JSONSchema;
-  secretsSchema: JSONSchema;
-  metadata: Record<string, unknown>;
-  tools: ToolDefinition[];
+export interface ServiceState
+  extends Omit<
+    ServiceDefinition,
+    "name" | "description" | "configSchema" | "secretsSchema" | "tools"
+  > {
+  id: string;
+  tools: Record<string, ToolState>;
+  config: Record<string, unknown>;
+  secrets: Record<string, unknown>;
 }
 
 export interface AdapterModule extends Module {
   generateDefinition(input: string): Promise<ServiceDefinition>;
+  hydrateService(state: ServiceState): Promise<void>;
+  dehydrateService(id: string): Promise<void>;
   invoke(input: InvokeInput): Promise<unknown>;
 }

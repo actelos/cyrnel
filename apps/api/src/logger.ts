@@ -1,20 +1,22 @@
 import pino from "pino";
 
-const env = process.env.NODE_ENV;
+const { NODE_ENV, LOG_LEVEL } = process.env;
+
+const devTransport = {
+  transport: {
+    target: "pino-pretty",
+    options: {
+      colorize: true,
+      translateTime: "SYS:standard",
+      ignore: "pid,hostname",
+    },
+  },
+};
 
 export const logger = pino(
-  env === "test"
+  NODE_ENV === "test"
     ? { level: "silent" }
-    : env === "production"
-      ? {}
-      : {
-          transport: {
-            target: "pino-pretty",
-            options: {
-              colorize: true,
-              translateTime: "SYS:standard",
-              ignore: "pid,hostname",
-            },
-          },
-        },
+    : NODE_ENV === "production"
+      ? { level: LOG_LEVEL ?? "info" }
+      : { ...devTransport, level: LOG_LEVEL ?? "debug" },
 );

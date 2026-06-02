@@ -1,5 +1,0 @@
-process.env.NODE_ENV = "test";
-process.env.MCI_SECRETS_KEY =
-  process.env.MCI_SECRETS_KEY ?? "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=";
-process.env.MCI_SECRETS_KEY =
-  process.env.MCI_SECRETS_KEY ?? "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";

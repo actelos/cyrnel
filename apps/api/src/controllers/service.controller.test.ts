@@ -8,17 +8,15 @@ import {
   getServiceConfiguration,
   getServiceConfigurationSchema,
   getServiceSecretsSchema,
-  getServiceTool,
   listServices,
-  listServiceTools,
   patchServiceConfiguration,
   patchServiceSecrets,
   setServiceEnabled,
-  setServiceToolEnabled,
   updateService,
 } from "@/controllers/service.controller";
+import { HttpError } from "@/models/error.model";
 
-const manifestService = {
+const servicesService = {
   listServices: vi.fn(),
   getService: vi.fn(),
   getServiceConfig: vi.fn(),
@@ -30,471 +28,420 @@ const manifestService = {
   updateService: vi.fn(),
   setServiceEnabled: vi.fn(),
   deleteService: vi.fn(),
-  listTools: vi.fn(),
-  getToolWithServiceInfo: vi.fn(),
-  setToolEnabled: vi.fn(),
 };
 
-const environmentPoolService = {
-  requestRestage: vi.fn(),
-};
-
-const adapterPoolService = {
-  requestRestage: vi.fn(),
-  updateServiceConfig: vi.fn(),
-  updateServiceSecrets: vi.fn(),
-};
-
-type MockResponse = {
+interface MockResponse {
   status: ReturnType<typeof vi.fn>;
   json: ReturnType<typeof vi.fn>;
   send: ReturnType<typeof vi.fn>;
-};
+  type: ReturnType<typeof vi.fn>;
+}
 
-const makeRes = () => {
+const makeRes = (): MockResponse => {
   const res = {} as MockResponse;
   res.status = vi.fn().mockReturnValue(res);
   res.json = vi.fn().mockReturnValue(res);
   res.send = vi.fn().mockReturnValue(res);
+  res.type = vi.fn().mockReturnValue(res);
   return res;
 };
 
-const makeReq = (overrides: Record<string, unknown> = {}) =>
+const makeReq = (overrides: Record<string, unknown> = {}): Request =>
   ({
-    app: {
-      locals: { manifestService, environmentPoolService, adapterPoolService },
-    },
+    app: { locals: { servicesService } },
     params: {},
+    query: {},
+    body: {},
     ...overrides,
   }) as unknown as Request;
+
+const cast = (res: MockResponse) => res as unknown as Response;
 
 describe("service.controller", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("lists services", async () => {
-    const res = makeRes();
-    const req = makeReq();
-    manifestService.listServices.mockResolvedValue([
-      {
-        name: "service-a",
-        type: "foo",
-        source: "https://registry.example.com/service-a.json",
-        hash: "hash-a",
+  describe("locals wiring", () => {
+    it("throws if servicesService is missing from app.locals", async () => {
+      const res = makeRes();
+      const req = {
+        app: { locals: {} },
+        params: {},
+        query: {},
+        body: {},
+      } as unknown as Request;
+
+      await expect(listServices(req, cast(res))).rejects.toThrow(
+        /ServicesService not configured/,
+      );
+    });
+  });
+
+  describe("listServices", () => {
+    it("calls listServices with undefined filters by default", async () => {
+      const res = makeRes();
+      servicesService.listServices.mockResolvedValue([]);
+
+      await listServices(makeReq(), cast(res));
+
+      expect(servicesService.listServices).toHaveBeenCalledWith({
+        query: undefined,
+        enabled: undefined,
+      });
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith({ services: [] });
+    });
+
+    it("trims the query param", async () => {
+      const res = makeRes();
+      servicesService.listServices.mockResolvedValue([{ id: "svc" }]);
+
+      await listServices(makeReq({ query: { query: "  svc " } }), cast(res));
+
+      expect(servicesService.listServices).toHaveBeenCalledWith({
+        query: "svc",
+        enabled: undefined,
+      });
+    });
+
+    it("treats an all-whitespace query as undefined", async () => {
+      const res = makeRes();
+      servicesService.listServices.mockResolvedValue([]);
+
+      await listServices(makeReq({ query: { query: "   " } }), cast(res));
+
+      expect(servicesService.listServices).toHaveBeenCalledWith({
+        query: undefined,
+        enabled: undefined,
+      });
+    });
+
+    it.each([
+      ["true", true],
+      ["false", false],
+      ["TRUE", true],
+      ["  False  ", false],
+    ])("coerces enabled=%s -> %s", async (raw, expected) => {
+      const res = makeRes();
+      servicesService.listServices.mockResolvedValue([]);
+
+      await listServices(makeReq({ query: { enabled: raw } }), cast(res));
+
+      expect(servicesService.listServices).toHaveBeenCalledWith({
+        query: undefined,
+        enabled: expected,
+      });
+    });
+
+    it("rejects invalid enabled value", async () => {
+      const res = makeRes();
+      await expect(
+        listServices(makeReq({ query: { enabled: "maybe" } }), cast(res)),
+      ).rejects.toBeInstanceOf(HttpError);
+    });
+  });
+
+  describe("getService", () => {
+    it("returns the service body for a valid id", async () => {
+      const res = makeRes();
+      servicesService.getService.mockResolvedValue({
+        id: "svc",
         enabled: true,
-      },
-      {
-        name: "service-b",
-        type: "foo",
-        source: "https://registry.example.com/service-b.json",
-        hash: "hash-b",
-        enabled: false,
-      },
-    ]);
+      });
 
-    await listServices(req, res as unknown as Response);
+      await getService(makeReq({ params: { serviceId: "svc" } }), cast(res));
 
-    expect(manifestService.listServices).toHaveBeenCalledWith(undefined, null);
-    expect(res.status).toHaveBeenCalledWith(200);
-    expect(res.json).toHaveBeenCalledWith({
-      services: [
-        {
-          name: "service-a",
-          type: "foo",
-          source: "https://registry.example.com/service-a.json",
-          hash: "hash-a",
-          enabled: true,
-        },
-        {
-          name: "service-b",
-          type: "foo",
-          source: "https://registry.example.com/service-b.json",
-          hash: "hash-b",
-          enabled: false,
-        },
-      ],
+      expect(servicesService.getService).toHaveBeenCalledWith("svc");
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith({ id: "svc", enabled: true });
+    });
+
+    it("rejects when serviceId is missing", async () => {
+      const res = makeRes();
+      await expect(
+        getService(makeReq({ params: {} }), cast(res)),
+      ).rejects.toBeInstanceOf(HttpError);
     });
   });
 
-  it("lists services with parsed query", async () => {
-    const res = makeRes();
-    const req = makeReq({ query: { query: "  svc " } });
-    manifestService.listServices.mockResolvedValue([
-      {
-        name: "svc-1",
-        type: "foo",
-        source: "https://registry.example.com/svc-1.json",
-        hash: "hash-1",
-        enabled: true,
-      },
-    ]);
+  describe("getServiceConfiguration", () => {
+    it("wraps the config under { config }", async () => {
+      const res = makeRes();
+      servicesService.getServiceConfig.mockResolvedValue({ foo: "bar" });
 
-    await listServices(req, res as unknown as Response);
+      await getServiceConfiguration(
+        makeReq({ params: { serviceId: "svc" } }),
+        cast(res),
+      );
 
-    expect(manifestService.listServices).toHaveBeenCalledWith("svc", null);
-    expect(res.status).toHaveBeenCalledWith(200);
-    expect(res.json).toHaveBeenCalledWith({
-      services: [
-        {
-          name: "svc-1",
-          type: "foo",
-          source: "https://registry.example.com/svc-1.json",
-          hash: "hash-1",
-          enabled: true,
-        },
-      ],
+      expect(servicesService.getServiceConfig).toHaveBeenCalledWith("svc");
+      expect(res.json).toHaveBeenCalledWith({ config: { foo: "bar" } });
     });
   });
 
-  it("lists services with enabled query filter", async () => {
-    const res = makeRes();
-    const req = makeReq({ query: { enabled: "false" } });
-    manifestService.listServices.mockResolvedValue([
-      {
-        name: "svc-disabled",
-        type: "foo",
-        source: "https://registry.example.com/svc-disabled.json",
-        hash: "hash-disabled",
-        enabled: false,
-      },
-    ]);
+  describe("getServiceConfigurationSchema", () => {
+    it("wraps the schema under { configSchema }", async () => {
+      const res = makeRes();
+      servicesService.getServiceConfigSchema.mockResolvedValue({
+        type: "object",
+      });
 
-    await listServices(req, res as unknown as Response);
+      await getServiceConfigurationSchema(
+        makeReq({ params: { serviceId: "svc" } }),
+        cast(res),
+      );
 
-    expect(manifestService.listServices).toHaveBeenCalledWith(undefined, false);
-    expect(res.status).toHaveBeenCalledWith(200);
-    expect(res.json).toHaveBeenCalledWith({
-      services: [
-        {
-          name: "svc-disabled",
-          type: "foo",
-          source: "https://registry.example.com/svc-disabled.json",
-          hash: "hash-disabled",
-          enabled: false,
-        },
-      ],
+      expect(res.json).toHaveBeenCalledWith({
+        configSchema: { type: "object" },
+      });
     });
   });
 
-  it("gets a single service", async () => {
-    const res = makeRes();
-    const req = makeReq({ params: { serviceName: "svc-1" } });
-    manifestService.getService.mockResolvedValue({
-      name: "svc-1",
-      type: "foo",
-      source: "https://registry.example.com/svc-1.json",
-      description: "Service description",
-      hash: "hash-1",
-      enabled: true,
-      configSchema: { type: "object" },
-      secretsSchema: { type: "object" },
-      metadata: { serverUrl: "http://127.0.0.1:9999" },
-      tools: [
-        {
-          name: "echo",
-          metadata: {},
-          inputSchema: { type: "object" },
-          outputSchema: { type: "string" },
-        },
-      ],
-    });
+  describe("getServiceSecretsSchema", () => {
+    it("wraps the schema under { secretsSchema }", async () => {
+      const res = makeRes();
+      servicesService.getServiceSecretsSchema.mockResolvedValue({
+        type: "object",
+      });
 
-    await getService(req, res as unknown as Response);
+      await getServiceSecretsSchema(
+        makeReq({ params: { serviceId: "svc" } }),
+        cast(res),
+      );
 
-    expect(manifestService.getService).toHaveBeenCalledWith("svc-1");
-    expect(res.status).toHaveBeenCalledWith(200);
-    expect(res.json).toHaveBeenCalledWith({
-      name: "svc-1",
-      type: "foo",
-      source: "https://registry.example.com/svc-1.json",
-      description: "Service description",
-      hash: "hash-1",
-      enabled: true,
-      configSchema: { type: "object" },
-      secretsSchema: { type: "object" },
+      expect(res.json).toHaveBeenCalledWith({
+        secretsSchema: { type: "object" },
+      });
     });
   });
 
-  it("gets service configuration", async () => {
-    const res = makeRes();
-    const req = makeReq({ params: { serviceName: "svc-1" } });
+  describe("patchServiceConfiguration", () => {
+    it("applies a JSON Patch and returns the resulting config", async () => {
+      const res = makeRes();
+      const patch = [{ op: "replace", path: "/foo", value: "bar" }] as const;
+      servicesService.patchServiceConfig.mockResolvedValue(undefined);
+      servicesService.getServiceConfig.mockResolvedValue({ foo: "bar" });
 
-    manifestService.getServiceConfig.mockResolvedValue({});
+      await patchServiceConfiguration(
+        makeReq({ params: { serviceId: "svc" }, body: patch }),
+        cast(res),
+      );
 
-    await getServiceConfiguration(req, res as unknown as Response);
+      expect(servicesService.patchServiceConfig).toHaveBeenCalledWith({
+        id: "svc",
+        patch,
+      });
+      expect(servicesService.getServiceConfig).toHaveBeenCalledWith("svc");
+      expect(res.json).toHaveBeenCalledWith({ config: { foo: "bar" } });
+    });
 
-    expect(manifestService.getServiceConfig).toHaveBeenCalledWith("svc-1");
-    expect(res.status).toHaveBeenCalledWith(200);
-    expect(res.json).toHaveBeenCalledWith({ config: {} });
+    it.each([
+      [{ op: "add", path: "/x", value: 1 }],
+      [{ op: "remove", path: "/x" }],
+      [{ op: "replace", path: "/x", value: 2 }],
+      [{ op: "move", path: "/x", from: "/y" }],
+      [{ op: "copy", path: "/x", from: "/y" }],
+      [{ op: "test", path: "/x", value: 3 }],
+    ])("accepts %j operation", async (operation) => {
+      const res = makeRes();
+      servicesService.patchServiceConfig.mockResolvedValue(undefined);
+      servicesService.getServiceConfig.mockResolvedValue({});
+
+      await patchServiceConfiguration(
+        makeReq({ params: { serviceId: "svc" }, body: [operation] }),
+        cast(res),
+      );
+
+      expect(servicesService.patchServiceConfig).toHaveBeenCalledWith({
+        id: "svc",
+        patch: [operation],
+      });
+    });
+
+    it.each([
+      [{ body: {}, why: "body not an array" }],
+      [{ body: [{ op: "unknown", path: "/x" }], why: "unknown op" }],
+      [{ body: [{ op: "add", value: 1 }], why: "add missing path" }],
+      [{ body: [{ op: "remove" }], why: "remove missing path" }],
+      [{ body: [{ op: "move", path: "/x" }], why: "move missing from" }],
+      [{ body: [{ op: "add", path: "", value: 1 }], why: "empty path" }],
+    ])("rejects $why", async ({ body }) => {
+      const res = makeRes();
+      await expect(
+        patchServiceConfiguration(
+          makeReq({ params: { serviceId: "svc" }, body }),
+          cast(res),
+        ),
+      ).rejects.toBeInstanceOf(HttpError);
+    });
   });
 
-  it("gets service configuration schema", async () => {
-    const res = makeRes();
-    const req = makeReq({ params: { serviceName: "svc-1" } });
+  describe("patchServiceSecrets", () => {
+    it("applies the patch and returns updated:true", async () => {
+      const res = makeRes();
+      const patch = [{ op: "add", path: "/token", value: "x" }];
+      servicesService.patchServiceSecrets.mockResolvedValue(undefined);
 
-    manifestService.getServiceConfigSchema.mockResolvedValue({
-      type: "object",
+      await patchServiceSecrets(
+        makeReq({ params: { serviceId: "svc" }, body: patch }),
+        cast(res),
+      );
+
+      expect(servicesService.patchServiceSecrets).toHaveBeenCalledWith({
+        id: "svc",
+        patch,
+      });
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith({ updated: true });
     });
 
-    await getServiceConfigurationSchema(req, res as unknown as Response);
+    it("does not return the secret contents", async () => {
+      const res = makeRes();
+      servicesService.patchServiceSecrets.mockResolvedValue(undefined);
 
-    expect(manifestService.getServiceConfigSchema).toHaveBeenCalledWith(
-      "svc-1",
-    );
-    expect(res.status).toHaveBeenCalledWith(200);
-    expect(res.json).toHaveBeenCalledWith({ configSchema: { type: "object" } });
+      await patchServiceSecrets(
+        makeReq({
+          params: { serviceId: "svc" },
+          body: [{ op: "add", path: "/k", value: "v" }],
+        }),
+        cast(res),
+      );
+
+      const responseBody = res.json.mock.calls.at(-1)?.[0];
+      expect(JSON.stringify(responseBody)).not.toContain("v");
+    });
+
+    it("rejects non-array bodies", async () => {
+      const res = makeRes();
+      await expect(
+        patchServiceSecrets(
+          makeReq({ params: { serviceId: "svc" }, body: {} }),
+          cast(res),
+        ),
+      ).rejects.toBeInstanceOf(HttpError);
+    });
   });
 
-  it("gets service secrets schema", async () => {
-    const res = makeRes();
-    const req = makeReq({ params: { serviceName: "svc-1" } });
+  describe("createService", () => {
+    it("creates a service and returns 201 { id }", async () => {
+      const res = makeRes();
+      const body = {
+        id: "svc",
+        source: "https://example.com/svc.json",
+        adapter: "adapter-a",
+      };
+      servicesService.createService.mockResolvedValue(undefined);
 
-    manifestService.getServiceSecretsSchema.mockResolvedValue({
-      type: "object",
+      await createService(makeReq({ body }), cast(res));
+
+      expect(servicesService.createService).toHaveBeenCalledWith(body);
+      expect(res.status).toHaveBeenCalledWith(201);
+      expect(res.json).toHaveBeenCalledWith({ id: "svc" });
     });
 
-    await getServiceSecretsSchema(req, res as unknown as Response);
+    it("trims whitespace from id/source/adapter", async () => {
+      const res = makeRes();
+      servicesService.createService.mockResolvedValue(undefined);
 
-    expect(manifestService.getServiceSecretsSchema).toHaveBeenCalledWith(
-      "svc-1",
-    );
-    expect(res.status).toHaveBeenCalledWith(200);
-    expect(res.json).toHaveBeenCalledWith({
-      secretsSchema: { type: "object" },
-    });
-  });
-
-  it("patches service configuration and updates adapters", async () => {
-    const res = makeRes();
-    const req = makeReq({
-      params: { serviceName: "svc-1" },
-      body: [{ op: "add", path: "/enabled", value: true }],
-    });
-
-    manifestService.patchServiceConfig.mockResolvedValue({ enabled: true });
-
-    await patchServiceConfiguration(req, res as unknown as Response);
-
-    expect(manifestService.patchServiceConfig).toHaveBeenCalledWith("svc-1", [
-      { op: "add", path: "/enabled", value: true },
-    ]);
-    expect(adapterPoolService.updateServiceConfig).toHaveBeenCalledWith(
-      "svc-1",
-      {
-        enabled: true,
-      },
-    );
-    expect(adapterPoolService.requestRestage).toHaveBeenCalled();
-    expect(environmentPoolService.requestRestage).not.toHaveBeenCalled();
-    expect(res.status).toHaveBeenCalledWith(200);
-    expect(res.json).toHaveBeenCalledWith({ config: { enabled: true } });
-  });
-
-  it("patches service secrets and restages adapters", async () => {
-    const res = makeRes();
-    const req = makeReq({
-      params: { serviceName: "svc-1" },
-      body: [{ op: "add", path: "/token", value: "secret" }],
-    });
-
-    manifestService.patchServiceSecrets.mockResolvedValue({
-      token: "secret",
-    });
-
-    await patchServiceSecrets(req, res as unknown as Response);
-
-    expect(manifestService.patchServiceSecrets).toHaveBeenCalledWith("svc-1", [
-      { op: "add", path: "/token", value: "secret" },
-    ]);
-    expect(adapterPoolService.updateServiceSecrets).toHaveBeenCalledWith(
-      "svc-1",
-      {
-        token: "secret",
-      },
-    );
-    expect(adapterPoolService.requestRestage).toHaveBeenCalled();
-    expect(res.status).toHaveBeenCalledWith(200);
-    expect(res.json).toHaveBeenCalledWith({ updated: true });
-  });
-
-  it("creates a service", async () => {
-    const res = makeRes();
-    const req = makeReq({
-      body: {
-        type: "foo",
-        source: {
-          metadata: {
-            file_url: "https://registry.example.com/definition.json",
+      await createService(
+        makeReq({
+          body: {
+            id: "  svc  ",
+            source: "  https://example.com  ",
+            adapter: "  a  ",
           },
-        },
-      },
-    });
-    manifestService.createService.mockResolvedValue({
-      name: "svc-1",
-      type: "foo",
+        }),
+        cast(res),
+      );
+
+      expect(servicesService.createService).toHaveBeenCalledWith({
+        id: "svc",
+        source: "https://example.com",
+        adapter: "a",
+      });
+      expect(res.json).toHaveBeenCalledWith({ id: "svc" });
     });
 
-    await createService(req, res as unknown as Response);
-
-    expect(manifestService.createService).toHaveBeenCalledWith({
-      type: "foo",
-      source: "https://registry.example.com/definition.json",
+    it.each([
+      { body: {}, why: "missing all fields" },
+      { body: { id: "svc" }, why: "missing source and adapter" },
+      { body: { id: "", source: "s", adapter: "a" }, why: "empty id" },
+      { body: { id: "svc", source: "  ", adapter: "a" }, why: "blank source" },
+      { body: { id: "svc", source: "s", adapter: "" }, why: "empty adapter" },
+      { body: { id: 1, source: "s", adapter: "a" }, why: "non-string id" },
+      { body: "not-an-object", why: "non-object body" },
+    ])("rejects $why", async ({ body }) => {
+      const res = makeRes();
+      await expect(
+        createService(makeReq({ body }), cast(res)),
+      ).rejects.toBeInstanceOf(HttpError);
     });
-    expect(environmentPoolService.requestRestage).toHaveBeenCalledTimes(1);
-    expect(res.status).toHaveBeenCalledWith(201);
-    expect(res.json).toHaveBeenCalledWith({ name: "svc-1", type: "foo" });
   });
 
-  it("updates a service without request body params", async () => {
-    const res = makeRes();
-    const req = makeReq({ params: { serviceName: "svc-1" } });
-    manifestService.updateService.mockResolvedValue(true);
+  describe("updateService", () => {
+    it("triggers update and returns { id, updated: true }", async () => {
+      const res = makeRes();
+      servicesService.updateService.mockResolvedValue(undefined);
 
-    await updateService(req, res as unknown as Response);
+      await updateService(makeReq({ params: { serviceId: "svc" } }), cast(res));
 
-    expect(manifestService.updateService).toHaveBeenCalledWith("svc-1");
-    expect(environmentPoolService.requestRestage).toHaveBeenCalledTimes(1);
-    expect(res.status).toHaveBeenCalledWith(200);
-    expect(res.json).toHaveBeenCalledWith({ name: "svc-1", updated: true });
-  });
-
-  it("does not request restage when update reports no change", async () => {
-    const res = makeRes();
-    const req = makeReq({ params: { serviceName: "svc-1" } });
-    manifestService.updateService.mockResolvedValue(false);
-
-    await updateService(req, res as unknown as Response);
-
-    expect(environmentPoolService.requestRestage).not.toHaveBeenCalled();
-    expect(res.status).toHaveBeenCalledWith(200);
-    expect(res.json).toHaveBeenCalledWith({ name: "svc-1", updated: false });
-  });
-
-  it("deletes a service", async () => {
-    const res = makeRes();
-    const req = makeReq({ params: { serviceName: "svc-1" } });
-    manifestService.deleteService.mockResolvedValue(undefined);
-
-    await deleteService(req, res as unknown as Response);
-
-    expect(manifestService.deleteService).toHaveBeenCalledWith("svc-1");
-    expect(environmentPoolService.requestRestage).toHaveBeenCalledTimes(1);
-    expect(res.status).toHaveBeenCalledWith(204);
-    expect(res.send).toHaveBeenCalledWith();
-  });
-
-  it("sets service enabled state", async () => {
-    const res = makeRes();
-    const req = makeReq({
-      params: { serviceName: "svc-1" },
-      body: {
-        enabled: false,
-      },
+      expect(servicesService.updateService).toHaveBeenCalledWith("svc");
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith({ id: "svc", updated: true });
     });
-    manifestService.setServiceEnabled.mockResolvedValue(undefined);
+  });
 
-    await setServiceEnabled(req, res as unknown as Response);
-
-    expect(manifestService.setServiceEnabled).toHaveBeenCalledWith(
-      "svc-1",
+  describe("setServiceEnabled", () => {
+    it.each([
+      true,
       false,
-    );
-    expect(environmentPoolService.requestRestage).not.toHaveBeenCalled();
-    expect(res.status).toHaveBeenCalledWith(200);
-    expect(res.json).toHaveBeenCalledWith({ name: "svc-1", enabled: false });
-  });
+    ])("forwards enabled=%s and echoes it back", async (enabled) => {
+      const res = makeRes();
+      servicesService.setServiceEnabled.mockResolvedValue(undefined);
 
-  it("lists tools within a service using URL params", async () => {
-    const res = makeRes();
-    const req = makeReq({
-      params: { serviceName: "svc-1" },
-      query: { query: "  echo ", enabled: "null" },
+      await setServiceEnabled(
+        makeReq({
+          params: { serviceId: "svc" },
+          body: { enabled },
+        }),
+        cast(res),
+      );
+
+      expect(servicesService.setServiceEnabled).toHaveBeenCalledWith({
+        id: "svc",
+        enabled,
+      });
+      expect(res.json).toHaveBeenCalledWith({ id: "svc", enabled });
     });
 
-    manifestService.listTools.mockResolvedValueOnce([
-      {
-        name: "echo",
-        description: "Echo",
-        enabled: true,
-      },
-    ]);
-
-    await listServiceTools(req, res as unknown as Response);
-
-    expect(manifestService.listTools).toHaveBeenCalledWith(
-      "svc-1",
-      "echo",
-      null,
-    );
-    expect(res.status).toHaveBeenCalledWith(200);
-    expect(res.json).toHaveBeenCalledWith({
-      tools: [
-        {
-          name: "echo",
-          description: "Echo",
-          enabled: true,
-        },
-      ],
+    it.each([
+      { body: {}, why: "missing enabled" },
+      { body: { enabled: "true" }, why: "string enabled" },
+      { body: { enabled: 1 }, why: "numeric enabled" },
+      { body: "nope", why: "non-object body" },
+    ])("rejects $why", async ({ body }) => {
+      const res = makeRes();
+      await expect(
+        setServiceEnabled(
+          makeReq({ params: { serviceId: "svc" }, body }),
+          cast(res),
+        ),
+      ).rejects.toBeInstanceOf(HttpError);
     });
   });
 
-  it("gets a tool by name within a service using URL params", async () => {
-    const res = makeRes();
-    const req = makeReq({
-      params: { serviceName: "svc-1", toolName: "echo" },
-    });
+  describe("deleteService", () => {
+    it("returns 204 with no body", async () => {
+      const res = makeRes();
+      servicesService.deleteService.mockResolvedValue(undefined);
 
-    manifestService.getToolWithServiceInfo.mockResolvedValueOnce({
-      serviceName: "svc-1",
-      serviceDescription: "Service 1",
-      tool: {
-        name: "echo",
-        description: "Echo",
-        enabled: true,
-        metadata: { route: "invoke/echo" },
-        inputSchema: { type: "object" },
-        outputSchema: { type: "string" },
-      },
-      serviceMetadata: { serverUrl: "http://127.0.0.1:9999" },
-      serviceEnabled: true,
-    });
+      await deleteService(makeReq({ params: { serviceId: "svc" } }), cast(res));
 
-    await getServiceTool(req, res as unknown as Response);
-
-    expect(manifestService.getToolWithServiceInfo).toHaveBeenCalledWith(
-      "svc-1",
-      "echo",
-    );
-    expect(res.status).toHaveBeenCalledWith(200);
-    expect(res.json).toHaveBeenCalledWith({
-      name: "echo",
-      description: "Echo",
-      enabled: true,
-      inputSchema: { type: "object" },
-      outputSchema: { type: "string" },
-    });
-  });
-
-  it("sets a tool enabled state using URL params", async () => {
-    const res = makeRes();
-    const req = makeReq({
-      params: { serviceName: "svc-1", toolName: "echo" },
-      body: { enabled: false },
-    });
-
-    await setServiceToolEnabled(req, res as unknown as Response);
-
-    expect(manifestService.setToolEnabled).toHaveBeenCalledWith(
-      "svc-1",
-      "echo",
-      false,
-    );
-    expect(res.status).toHaveBeenCalledWith(200);
-    expect(res.json).toHaveBeenCalledWith({
-      name: "echo",
-      serviceName: "svc-1",
-      enabled: false,
+      expect(servicesService.deleteService).toHaveBeenCalledWith("svc");
+      expect(res.status).toHaveBeenCalledWith(204);
+      expect(res.send).toHaveBeenCalledWith();
+      expect(res.json).not.toHaveBeenCalled();
     });
   });
 });

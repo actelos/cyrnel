@@ -1,21 +1,82 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "0dcbfffe-d30c-4c76-b46d-09f456c7997a",
+  "id": "857be926-8054-42c1-b985-f43037e95081",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
-    "configurations": {
-      "name": "configurations",
+    "modules": {
+      "name": "modules",
       "columns": {
-        "service_name": {
-          "name": "service_name",
+        "id": {
+          "name": "id",
           "type": "text",
           "primaryKey": true,
           "notNull": true,
           "autoincrement": false
         },
-        "config": {
-          "name": "config",
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "enabled": {
+          "name": "enabled",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": true
+        },
+        "orphaned": {
+          "name": "orphaned",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        }
+      },
+      "indexes": {
+        "modules_type_idx": {
+          "name": "modules_type_idx",
+          "columns": ["type"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "service_configurations": {
+      "name": "service_configurations",
+      "columns": {
+        "service_id": {
+          "name": "service_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "payload": {
+          "name": "payload",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -32,11 +93,11 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "configurations_service_name_services_id_fk": {
-          "name": "configurations_service_name_services_id_fk",
-          "tableFrom": "configurations",
+        "service_configurations_service_id_services_id_fk": {
+          "name": "service_configurations_service_id_services_id_fk",
+          "tableFrom": "service_configurations",
           "tableTo": "services",
-          "columnsFrom": ["service_name"],
+          "columnsFrom": ["service_id"],
           "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
@@ -46,93 +107,11 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "services": {
-      "name": "services",
+    "service_secrets": {
+      "name": "service_secrets",
       "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "type": {
-          "name": "type",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "source": {
-          "name": "source",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "''"
-        },
-        "description": {
-          "name": "description",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "''"
-        },
-        "hash": {
-          "name": "hash",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "enabled": {
-          "name": "enabled",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": true
-        },
-        "metadata": {
-          "name": "metadata",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "config_schema": {
-          "name": "config_schema",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "secrets_schema": {
-          "name": "secrets_schema",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "services_type_idx": {
-          "name": "services_type_idx",
-          "columns": ["type"],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "secrets": {
-      "name": "secrets",
-      "columns": {
-        "service_name": {
-          "name": "service_name",
+        "service_id": {
+          "name": "service_id",
           "type": "text",
           "primaryKey": true,
           "notNull": true,
@@ -155,11 +134,104 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "secrets_service_name_services_id_fk": {
-          "name": "secrets_service_name_services_id_fk",
-          "tableFrom": "secrets",
+        "service_secrets_service_id_services_id_fk": {
+          "name": "service_secrets_service_id_services_id_fk",
+          "tableFrom": "service_secrets",
           "tableTo": "services",
-          "columnsFrom": ["service_name"],
+          "columnsFrom": ["service_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "services": {
+      "name": "services",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "hash": {
+          "name": "hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "adapter": {
+          "name": "adapter",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "enabled": {
+          "name": "enabled",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": true
+        },
+        "config_schema": {
+          "name": "config_schema",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "secrets_schema": {
+          "name": "secrets_schema",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "adapter_domain": {
+          "name": "adapter_domain",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "services_adapter_modules_id_fk": {
+          "name": "services_adapter_modules_id_fk",
+          "tableFrom": "services",
+          "tableTo": "modules",
+          "columnsFrom": ["adapter"],
           "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
@@ -174,6 +246,13 @@
       "columns": {
         "service_id": {
           "name": "service_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "id": {
+          "name": "id",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -216,8 +295,8 @@
           "notNull": true,
           "autoincrement": false
         },
-        "metadata": {
-          "name": "metadata",
+        "adapter_domain": {
+          "name": "adapter_domain",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -243,9 +322,9 @@
         }
       },
       "compositePrimaryKeys": {
-        "tools_service_id_name_pk": {
-          "columns": ["service_id", "name"],
-          "name": "tools_service_id_name_pk"
+        "tools_service_id_id_pk": {
+          "columns": ["service_id", "id"],
+          "name": "tools_service_id_id_pk"
         }
       },
       "uniqueConstraints": {},

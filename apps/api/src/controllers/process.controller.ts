@@ -1,16 +1,14 @@
 import type { Request, Response } from "express";
 import { z } from "zod";
 import {
+  type FilterProcessInput,
+  PROCESS_EXIT_STATES,
   PROCESS_STATES,
-  PROCESS_STATUSES,
-  type ProcessQueryFilters,
+  type ProcessExitState,
   type ProcessState,
-  type ProcessStatus,
 } from "@/models/process.model";
 import type { ProcessService } from "@/services/process.service";
 import { parseOrHttpError } from "@/utils/validation.util";
-
-const processBodySchema = z.record(z.string(), z.unknown());
 
 const createProcessBodySchema = z
   .object({
@@ -20,34 +18,42 @@ const createProcessBodySchema = z
     block: z.boolean({ error: "Field 'block' must be a boolean." }).optional(),
     ref: z
       .string({ error: "Field 'ref' in body must be a string." })
-      .transform((value) => value.trim())
-      .refine((value) => value.length > 0, {
-        error: "Field 'ref' must not be empty.",
-      })
+      .transform((v) => v.trim())
+      .refine((v) => v.length > 0, { error: "Field 'ref' must not be empty." })
       .optional(),
-    timeout: z
-      .number({ error: "Field 'timeout' must be a positive integer or null." })
-      .int({ error: "Field 'timeout' must be a positive integer or null." })
-      .positive({
-        error: "Field 'timeout' must be a positive integer or null.",
+    options: z
+      .object({
+        timeout: z
+          .number({
+            error:
+              "Field 'options.timeout' must be a positive integer or null.",
+          })
+          .int({
+            error:
+              "Field 'options.timeout' must be a positive integer or null.",
+          })
+          .positive({
+            error:
+              "Field 'options.timeout' must be a positive integer or null.",
+          })
+          .nullable()
+          .optional(),
       })
-      .nullable()
       .optional(),
   })
-  .superRefine((value, context) => {
-    if (value.code === undefined) {
-      context.addIssue({
+  .superRefine((value, ctx) => {
+    if (value.code === undefined)
+      ctx.addIssue({
         code: "custom",
         message: "Missing required field: code",
         path: ["code"],
       });
-    }
   })
   .transform((value) => ({
     code: value.code as string,
     block: value.block,
     ref: value.ref,
-    timeout: value.timeout,
+    options: value.options,
   }));
 
 const forceBodySchema = z.object({
@@ -58,8 +64,7 @@ const forceBodySchema = z.object({
 const stateSchema = z
   .string()
   .refine(
-    (value): value is ProcessState =>
-      PROCESS_STATES.includes(value as ProcessState),
+    (v): v is ProcessState => PROCESS_STATES.includes(v as ProcessState),
     {
       error: `Invalid value for 'state': must be one of ${PROCESS_STATES.join(", ")}.`,
     },
@@ -68,57 +73,56 @@ const stateSchema = z
 const statusSchema = z
   .string()
   .refine(
-    (value) =>
-      value === "null" ||
-      PROCESS_STATUSES.filter(
-        (item): item is Exclude<ProcessStatus, null> => item !== null,
-      ).includes(value as Exclude<ProcessStatus, null>),
+    (v) =>
+      v === "null" ||
+      PROCESS_EXIT_STATES.filter(
+        (s): s is Exclude<ProcessExitState, null> => s !== null,
+      ).includes(v as Exclude<ProcessExitState, null>),
     {
       error:
         "Invalid value for 'status': must be one of success, failed, timeout, canceled, null.",
     },
   )
   .transform(
-    (value): ProcessStatus =>
-      value === "null" ? null : (value as Exclude<ProcessStatus, null>),
+    (v): ProcessExitState =>
+      v === "null" ? null : (v as Exclude<ProcessExitState, null>),
   );
 
-const refSchemaBySource = {
-  body: z
-    .string({ error: "Field 'ref' in body must be a string." })
-    .transform((value) => value.trim())
-    .refine((value) => value.length > 0, {
-      error: "Field 'ref' must not be empty.",
-    }),
-  query: z
-    .string({ error: "Field 'ref' in query must be a string." })
-    .transform((value) => value.trim())
-    .refine((value) => value.length > 0, {
-      error: "Field 'ref' must not be empty.",
-    }),
-} as const;
+const refSchema = (source: "body" | "query") =>
+  z
+    .string({ error: `Field 'ref' in ${source} must be a string.` })
+    .transform((v) => v.trim())
+    .refine((v) => v.length > 0, { error: "Field 'ref' must not be empty." });
 
-const pidSchema = z
-  .string({ error: "Field 'pid' must be a string." })
-  .transform((value) => Number.parseInt(value, 10))
-  .refine((value) => Number.isInteger(value) && value > 0, {
-    error: "Field 'pid' must be a positive integer.",
-  });
+function parseOptional<T>(schema: z.ZodType<T>, raw: unknown): T | undefined {
+  return raw === undefined ? undefined : parseOrHttpError(schema, raw);
+}
+
+function getProcessService(req: Request): ProcessService {
+  const service = req.app.locals.processService as ProcessService | undefined;
+  if (!service) throw new Error("ProcessService not configured in app.locals");
+  return service;
+}
+
+function parsePid(req: Request): number {
+  return parseOrHttpError(
+    z
+      .string({ error: "Field 'pid' must be a string." })
+      .transform((v) => Number.parseInt(v, 10))
+      .refine((v) => Number.isInteger(v) && v > 0, {
+        error: "Field 'pid' must be a positive integer.",
+      }),
+    req.params.pid,
+  );
+}
 
 export function listProcesses(req: Request, res: Response): void {
-  const processService = getProcessService(req);
-  const state = parseState(req.query.state);
-  const status = parseStatus(req.query.status);
-  const ref = parseRef(req.query.ref, "query");
-
-  const filters: ProcessQueryFilters = {
-    ref,
-    state,
-    status,
+  const filters: FilterProcessInput = {
+    ref: parseOptional(refSchema("query"), req.query.ref),
+    state: parseOptional(stateSchema, req.query.state),
+    exitState: parseOptional(statusSchema, req.query.status),
   };
-
-  const processes = processService.list(filters);
-  res.status(200).json({ processes });
+  res.status(200).json({ processes: getProcessService(req).list(filters) });
 }
 
 export async function createProcess(
@@ -131,71 +135,53 @@ export async function createProcess(
     req.body,
     "Request body must be an object.",
   );
-  const ref = parseRef(body.ref, "body");
-  const timeout = parseTimeout(body.timeout);
-  const block = parseBlock(body.block);
-  const pid = processService.create(body.code, ref, timeout);
-
-  if (block) {
-    await processService.waitForIdle(pid);
+  const pid = processService.create({
+    ref: parseOptional(refSchema("body"), body.ref),
+    code: body.code,
+    options: { timeoutMs: body.options?.timeout },
+  });
+  if (body.block) {
+    res.status(201).json(await processService.waitForIdle(pid));
+    return;
   }
-
   res.status(201).json({ pid });
 }
 
 export function getProcess(req: Request, res: Response): void {
-  const processService = getProcessService(req);
-  const pid = parsePid(req.params.pid);
-  const process = processService.get(pid);
-  res.status(200).json(process);
+  res.status(200).json(getProcessService(req).get(parsePid(req)));
 }
 
 export function getProcessOutput(req: Request, res: Response): void {
-  const processService = getProcessService(req);
-  const pid = parsePid(req.params.pid);
-  const output = processService.getOutput(pid);
-  res.status(200).json(output);
+  res.status(200).json(getProcessService(req).getOutput(parsePid(req)));
 }
 
 export function getProcessCode(req: Request, res: Response): void {
-  const processService = getProcessService(req);
-  const pid = parsePid(req.params.pid);
-  const code = processService.getCode(pid);
-  res.status(200).type("text/plain").send(code);
+  res
+    .status(200)
+    .type("text/plain")
+    .send(getProcessService(req).getCode(parsePid(req)));
 }
 
 export function getProcessStdout(req: Request, res: Response): void {
-  const processService = getProcessService(req);
-  const pid = parsePid(req.params.pid);
-  const stdout = processService.getStdout(pid);
-  res.status(200).type("text/plain").send(stdout);
+  res
+    .status(200)
+    .type("text/plain")
+    .send(getProcessService(req).getStdout(parsePid(req)));
 }
 
 export function getProcessStderr(req: Request, res: Response): void {
-  const processService = getProcessService(req);
-  const pid = parsePid(req.params.pid);
-  const stderr = processService.getStderr(pid);
-  res.status(200).type("text/plain").send(stderr);
+  res
+    .status(200)
+    .type("text/plain")
+    .send(getProcessService(req).getStderr(parsePid(req)));
 }
 
 export function killProcess(req: Request, res: Response): void {
-  const processService = getProcessService(req);
-  parseOrHttpError(
-    processBodySchema,
-    req.body,
-    "Request body must be an object.",
-  );
-
-  const pid = parsePid(req.params.pid);
-  const process = processService.kill(pid);
-  res.status(200).json(process);
+  res.status(200).json(getProcessService(req).kill(parsePid(req)));
 }
 
 export function deleteProcess(req: Request, res: Response): void {
-  const processService = getProcessService(req);
-  const pid = parsePid(req.params.pid);
-  const process = processService.delete(pid);
-  res.status(200).json(process);
+  res.status(200).json(getProcessService(req).delete(parsePid(req)));
 }
 
 export async function runProcess(req: Request, res: Response): Promise<void> {
@@ -205,93 +191,11 @@ export async function runProcess(req: Request, res: Response): Promise<void> {
     req.body,
     "Request body must be an object.",
   );
-  const force = parseForce(body.force);
-  const block = parseBlock(body.block);
-  const pid = parsePid(req.params.pid);
-  const process = processService.run(pid, force);
-
-  if (block) {
-    const completed = await processService.waitForIdle(pid);
-    res.status(200).json(completed);
+  const pid = parsePid(req);
+  const process = processService.run(pid, body.force ?? false);
+  if (body.block) {
+    res.status(200).json(await processService.waitForIdle(pid));
     return;
   }
-
   res.status(200).json(process);
-}
-
-function getProcessService(req: Request): ProcessService {
-  const service = req.app.locals.processService as ProcessService | undefined;
-
-  if (!service) {
-    throw new Error("ProcessService not configured in app.locals");
-  }
-
-  return service;
-}
-
-function parseState(raw: unknown): ProcessState | undefined {
-  if (raw === undefined) {
-    return undefined;
-  }
-
-  return parseOrHttpError(stateSchema, raw);
-}
-
-function parseStatus(raw: unknown): ProcessStatus | undefined {
-  if (raw === undefined) {
-    return undefined;
-  }
-
-  return parseOrHttpError(statusSchema, raw);
-}
-
-function parseForce(raw: unknown): boolean {
-  if (raw === undefined) {
-    return false;
-  }
-
-  return parseOrHttpError(
-    z.boolean({ error: "Field 'force' must be a boolean." }),
-    raw,
-  );
-}
-
-function parseBlock(raw: unknown): boolean {
-  if (raw === undefined) {
-    return false;
-  }
-
-  return parseOrHttpError(
-    z.boolean({ error: "Field 'block' must be a boolean." }),
-    raw,
-  );
-}
-
-function parseRef(raw: unknown, source: "body" | "query"): string | undefined {
-  if (raw === undefined) {
-    return undefined;
-  }
-
-  return parseOrHttpError(refSchemaBySource[source], raw);
-}
-
-function parseTimeout(raw: unknown): number | null | undefined {
-  if (raw === undefined) {
-    return undefined;
-  }
-
-  return parseOrHttpError(
-    z
-      .number({ error: "Field 'timeout' must be a positive integer or null." })
-      .int({ error: "Field 'timeout' must be a positive integer or null." })
-      .positive({
-        error: "Field 'timeout' must be a positive integer or null.",
-      })
-      .nullable(),
-    raw,
-  );
-}
-
-function parsePid(raw: unknown): number {
-  return parseOrHttpError(pidSchema, raw);
 }

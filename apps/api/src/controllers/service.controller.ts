@@ -2,14 +2,7 @@ import type { Request, Response } from "express";
 import type { Operation } from "fast-json-patch";
 import { z } from "zod";
 
-import { logger } from "@/logger";
-import type {
-  ServiceInstallRequest,
-  ToolDetails,
-} from "@/models/manifest.model";
-import type { AdapterPoolService } from "@/services/adapter-pool.service";
-import type { EnvironmentPoolService } from "@/services/environment-pool.service";
-import type { ManifestService } from "@/services/manifest.service";
+import type { ServicesService } from "@/services/services.service";
 import { parseOrHttpError } from "@/utils/validation.util";
 
 const nonEmptyTrimmedString = (fieldName: string) =>
@@ -20,12 +13,8 @@ const nonEmptyTrimmedString = (fieldName: string) =>
       error: `Field '${fieldName}' must not be empty.`,
     });
 
-const serviceNameSchema = z.string({
-  error: "Field 'serviceName' must be a string.",
-});
-
-const toolNameSchema = z.string({
-  error: "Field 'toolName' must be a string.",
+const serviceIdSchema = z.string({
+  error: "Field 'serviceId' must be a string.",
 });
 
 const querySchema = z
@@ -34,9 +23,9 @@ const querySchema = z
   .transform((value) => (value.length > 0 ? value : undefined));
 
 const enabledQuerySchema = z
-  .union([z.boolean(), z.null(), z.string()])
-  .transform((value, context): boolean | null => {
-    if (typeof value === "boolean" || value === null) {
+  .union([z.boolean(), z.string()])
+  .transform((value, context): boolean | undefined => {
+    if (typeof value === "boolean") {
       return value;
     }
 
@@ -50,98 +39,21 @@ const enabledQuerySchema = z
       return false;
     }
 
-    if (normalized === "null") {
-      return null;
-    }
-
     context.addIssue({
       code: "custom",
-      message: "Field 'enabled' must be true, false, or null.",
+      message: "Field 'enabled' must be true or false.",
     });
 
     return z.NEVER;
   });
 
-const installSourceSchema = z
-  .union([
-    z
-      .string({
-        error: "Field 'source' is required and must be a string or object.",
-      })
-      .transform((value, context) => {
-        const normalized = value.trim();
-
-        if (!normalized) {
-          context.addIssue({
-            code: "custom",
-            message: "Field 'source' must not be empty.",
-          });
-          return z.NEVER;
-        }
-
-        return normalized;
-      }),
-    z
-      .object({
-        file_url: z.string().optional(),
-        metadata: z
-          .object({
-            file_url: z.string().optional(),
-          })
-          .optional(),
-      })
-      .transform((value, context) => {
-        const fromRoot = value.file_url?.trim();
-        if (fromRoot) {
-          return fromRoot;
-        }
-
-        const fromMetadata = value.metadata?.file_url?.trim();
-        if (fromMetadata) {
-          return fromMetadata;
-        }
-
-        context.addIssue({
-          code: "custom",
-          message:
-            "Field 'source.file_url' or 'source.metadata.file_url' is required.",
-        });
-        return z.NEVER;
-      }),
-  ])
-  .or(
-    z.any().transform((_value, context) => {
-      context.addIssue({
-        code: "custom",
-        message: "Field 'source' is required and must be a string or object.",
-      });
-      return z.NEVER;
-    }),
-  );
-
-const installPayloadSchema = z
-  .object({
-    type: nonEmptyTrimmedString("type").or(
-      z.any().transform((_value, context) => {
-        context.addIssue({
-          code: "custom",
-          message: "Field 'type' is required and must be a string.",
-        });
-        return z.NEVER;
-      }),
-    ),
-    source: installSourceSchema,
-  })
-  .transform((value) => ({
-    type: value.type,
-    source: value.source,
-  }));
-
-const enabledBodySchema = z.object({
-  enabled: z.boolean({ error: "Field 'enabled' must be a boolean." }),
+const installPayloadSchema = z.object({
+  id: nonEmptyTrimmedString("id"),
+  source: nonEmptyTrimmedString("source"),
+  adapter: nonEmptyTrimmedString("adapter"),
 });
 
-const toolEnabledBodySchema = z.object({
+const enabledBodySchema = z.object({
   enabled: z.boolean({ error: "Field 'enabled' must be a boolean." }),
 });
 
@@ -182,38 +94,29 @@ const jsonPatchBodySchema: z.ZodType<Operation[]> = z.array(
 );
 
 export async function listServices(req: Request, res: Response): Promise<void> {
-  const manifestService = getManifestService(req);
+  const servicesService = getServicesService(req);
   const query = parseQueryParam(req.query?.query);
   const enabled = parseEnabledQueryParam(req.query?.enabled);
-  const services = await manifestService.listServices(query, enabled);
+  const services = await servicesService.listServices({ query, enabled });
 
   res.status(200).json({ services });
 }
 
 export async function getService(req: Request, res: Response): Promise<void> {
-  const manifestService = getManifestService(req);
-  const serviceName = parseServiceName(req.params.serviceName);
-  const service = await manifestService.getService(serviceName);
+  const servicesService = getServicesService(req);
+  const serviceId = parseServiceId(req.params.serviceId);
+  const service = await servicesService.getService(serviceId);
 
-  res.status(200).json({
-    name: service.name,
-    type: service.type,
-    source: service.source,
-    description: service.description,
-    hash: service.hash,
-    enabled: service.enabled,
-    configSchema: service.configSchema,
-    secretsSchema: service.secretsSchema,
-  });
+  res.status(200).json(service);
 }
 
 export async function getServiceConfiguration(
   req: Request,
   res: Response,
 ): Promise<void> {
-  const manifestService = getManifestService(req);
-  const serviceName = parseServiceName(req.params.serviceName);
-  const config = await manifestService.getServiceConfig(serviceName);
+  const servicesService = getServicesService(req);
+  const serviceId = parseServiceId(req.params.serviceId);
+  const config = await servicesService.getServiceConfig(serviceId);
 
   res.status(200).json({ config });
 }
@@ -222,10 +125,9 @@ export async function getServiceConfigurationSchema(
   req: Request,
   res: Response,
 ): Promise<void> {
-  const manifestService = getManifestService(req);
-  const serviceName = parseServiceName(req.params.serviceName);
-  const configSchema =
-    await manifestService.getServiceConfigSchema(serviceName);
+  const servicesService = getServicesService(req);
+  const serviceId = parseServiceId(req.params.serviceId);
+  const configSchema = await servicesService.getServiceConfigSchema(serviceId);
 
   res.status(200).json({ configSchema });
 }
@@ -234,10 +136,10 @@ export async function getServiceSecretsSchema(
   req: Request,
   res: Response,
 ): Promise<void> {
-  const manifestService = getManifestService(req);
-  const serviceName = parseServiceName(req.params.serviceName);
+  const servicesService = getServicesService(req);
+  const serviceId = parseServiceId(req.params.serviceId);
   const secretsSchema =
-    await manifestService.getServiceSecretsSchema(serviceName);
+    await servicesService.getServiceSecretsSchema(serviceId);
 
   res.status(200).json({ secretsSchema });
 }
@@ -246,28 +148,16 @@ export async function patchServiceConfiguration(
   req: Request,
   res: Response,
 ): Promise<void> {
-  const manifestService = getManifestService(req);
-  const adapterPoolService = getAdapterPoolService(req);
-  const serviceName = parseServiceName(req.params.serviceName);
+  const servicesService = getServicesService(req);
+  const serviceId = parseServiceId(req.params.serviceId);
   const patch = parseOrHttpError(
     jsonPatchBodySchema,
     req.body,
     "Request body must be a JSON Patch array.",
   );
 
-  const config = await manifestService.patchServiceConfig(serviceName, patch);
-
-  try {
-    adapterPoolService.updateServiceConfig(serviceName, config);
-  } catch (error) {
-    logger.warn({ err: error }, "Failed to update adapter configuration");
-  }
-
-  try {
-    adapterPoolService.requestRestage();
-  } catch (error) {
-    logger.warn({ err: error }, "Failed to queue adapter restage");
-  }
+  await servicesService.patchServiceConfig({ id: serviceId, patch });
+  const config = await servicesService.getServiceConfig(serviceId);
 
   res.status(200).json({ config });
 }
@@ -276,28 +166,15 @@ export async function patchServiceSecrets(
   req: Request,
   res: Response,
 ): Promise<void> {
-  const manifestService = getManifestService(req);
-  const adapterPoolService = getAdapterPoolService(req);
-  const serviceName = parseServiceName(req.params.serviceName);
+  const servicesService = getServicesService(req);
+  const serviceId = parseServiceId(req.params.serviceId);
   const patch = parseOrHttpError(
     jsonPatchBodySchema,
     req.body,
     "Request body must be a JSON Patch array.",
   );
 
-  const secrets = await manifestService.patchServiceSecrets(serviceName, patch);
-
-  try {
-    adapterPoolService.updateServiceSecrets(serviceName, secrets);
-  } catch (error) {
-    logger.warn({ err: error }, "Failed to update adapter secrets");
-  }
-
-  try {
-    adapterPoolService.requestRestage();
-  } catch (error) {
-    logger.warn({ err: error }, "Failed to queue adapter restage");
-  }
+  await servicesService.patchServiceSecrets({ id: serviceId, patch });
 
   res.status(200).json({ updated: true });
 }
@@ -306,132 +183,60 @@ export async function createService(
   req: Request,
   res: Response,
 ): Promise<void> {
-  const manifestService = getManifestService(req);
-  const environmentPoolService = getEnvironmentPoolService(req);
-  const payload = parseInstallServicePayload(req.body);
-  const service = await manifestService.createService(payload);
+  const servicesService = getServicesService(req);
+  const payload = parseOrHttpError(
+    installPayloadSchema,
+    req.body,
+    "Request body must be an object.",
+  );
 
-  try {
-    environmentPoolService.requestRestage();
-  } catch (error) {
-    logger.warn({ err: error }, "Failed to queue environment restage");
-  }
+  await servicesService.createService(payload);
 
-  res.status(201).json(service);
+  res.status(201).json({ id: payload.id });
 }
 
 export async function updateService(
   req: Request,
   res: Response,
 ): Promise<void> {
-  const manifestService = getManifestService(req);
-  const environmentPoolService = getEnvironmentPoolService(req);
-  const serviceName = parseServiceName(req.params.serviceName);
+  const servicesService = getServicesService(req);
+  const serviceId = parseServiceId(req.params.serviceId);
 
-  const updated = await manifestService.updateService(serviceName);
+  await servicesService.updateService(serviceId);
 
-  if (updated) {
-    try {
-      environmentPoolService.requestRestage();
-    } catch (error) {
-      logger.warn({ err: error }, "Failed to queue environment restage");
-    }
-  }
-
-  res.status(200).json({ name: serviceName, updated });
+  res.status(200).json({ id: serviceId, updated: true });
 }
 
 export async function setServiceEnabled(
   req: Request,
   res: Response,
 ): Promise<void> {
-  const manifestService = getManifestService(req);
-  const serviceName = parseServiceName(req.params.serviceName);
-  const enabled = parseEnabled(req.body);
+  const servicesService = getServicesService(req);
+  const serviceId = parseServiceId(req.params.serviceId);
+  const { enabled } = parseOrHttpError(
+    enabledBodySchema,
+    req.body,
+    "Request body must be an object.",
+  );
 
-  await manifestService.setServiceEnabled(serviceName, enabled);
-  res.status(200).json({ name: serviceName, enabled });
+  await servicesService.setServiceEnabled({ id: serviceId, enabled });
+  res.status(200).json({ id: serviceId, enabled });
 }
 
 export async function deleteService(
   req: Request,
   res: Response,
 ): Promise<void> {
-  const manifestService = getManifestService(req);
-  const environmentPoolService = getEnvironmentPoolService(req);
-  const serviceName = parseServiceName(req.params.serviceName);
+  const servicesService = getServicesService(req);
+  const serviceId = parseServiceId(req.params.serviceId);
 
-  await manifestService.deleteService(serviceName);
-
-  try {
-    environmentPoolService.requestRestage();
-  } catch (error) {
-    logger.warn({ err: error }, "Failed to queue environment restage");
-  }
+  await servicesService.deleteService(serviceId);
 
   res.status(204).send();
 }
 
-export async function listServiceTools(
-  req: Request,
-  res: Response,
-): Promise<void> {
-  const manifestService = getManifestService(req);
-  const serviceName = parseServiceName(req.params.serviceName);
-  const query = parseQueryParam(req.query?.query);
-  const enabled = parseEnabledQueryParam(req.query?.enabled);
-
-  const tools = await manifestService.listTools(serviceName, query, enabled);
-  res.status(200).json({ tools });
-}
-
-export async function getServiceTool(
-  req: Request,
-  res: Response,
-): Promise<void> {
-  const manifestService = getManifestService(req);
-  const serviceName = parseServiceName(req.params.serviceName);
-  const toolName = parseToolName(req.params.toolName);
-
-  const resolved = await manifestService.getToolWithServiceInfo(
-    serviceName,
-    toolName,
-  );
-
-  const response: ToolDetails = {
-    name: resolved.tool.name,
-    description: resolved.tool.description,
-    enabled: resolved.serviceEnabled && resolved.tool.enabled,
-    inputSchema: resolved.tool.inputSchema,
-    outputSchema: resolved.tool.outputSchema,
-  };
-
-  res.status(200).json(response);
-}
-
-export async function setServiceToolEnabled(
-  req: Request,
-  res: Response,
-): Promise<void> {
-  const manifestService = getManifestService(req);
-  const serviceName = parseServiceName(req.params.serviceName);
-  const toolName = parseToolName(req.params.toolName);
-  const { enabled } = parseOrHttpError(
-    toolEnabledBodySchema,
-    req.body,
-    "Request body must be an object.",
-  );
-
-  await manifestService.setToolEnabled(serviceName, toolName, enabled);
-  res.status(200).json({ name: toolName, serviceName, enabled });
-}
-
-function parseServiceName(raw: unknown): string {
-  return parseOrHttpError(serviceNameSchema, raw);
-}
-
-function parseToolName(raw: unknown): string {
-  return parseOrHttpError(toolNameSchema, raw);
+function parseServiceId(raw: unknown): string {
+  return parseOrHttpError(serviceIdSchema, raw);
 }
 
 function parseQueryParam(raw: unknown): string | undefined {
@@ -442,61 +247,19 @@ function parseQueryParam(raw: unknown): string | undefined {
   return parseOrHttpError(querySchema, raw);
 }
 
-function parseEnabledQueryParam(raw: unknown): boolean | null {
+function parseEnabledQueryParam(raw: unknown): boolean | undefined {
   if (raw === undefined) {
-    return null;
+    return undefined;
   }
 
   return parseOrHttpError(enabledQuerySchema, raw);
 }
 
-function parseInstallServicePayload(rawBody: unknown): ServiceInstallRequest {
-  return parseOrHttpError(
-    installPayloadSchema,
-    rawBody,
-    "Request body must be an object.",
-  );
-}
-
-function parseEnabled(rawBody: unknown): boolean {
-  const parsed = parseOrHttpError(
-    enabledBodySchema,
-    rawBody,
-    "Request body must be an object.",
-  );
-
-  return parsed.enabled;
-}
-
-function getManifestService(req: Request): ManifestService {
-  const service = req.app.locals.manifestService as ManifestService | undefined;
+function getServicesService(req: Request): ServicesService {
+  const service = req.app.locals.servicesService as ServicesService | undefined;
 
   if (!service) {
-    throw new Error("ManifestService not configured in app.locals");
-  }
-
-  return service;
-}
-
-function getEnvironmentPoolService(req: Request): EnvironmentPoolService {
-  const service = req.app.locals.environmentPoolService as
-    | EnvironmentPoolService
-    | undefined;
-
-  if (!service) {
-    throw new Error("EnvironmentPoolService not configured in app.locals");
-  }
-
-  return service;
-}
-
-function getAdapterPoolService(req: Request): AdapterPoolService {
-  const service = req.app.locals.adapterPoolService as
-    | AdapterPoolService
-    | undefined;
-
-  if (!service) {
-    throw new Error("AdapterPoolService not configured in app.locals");
+    throw new Error("ServicesService not configured in app.locals");
   }
 
   return service;

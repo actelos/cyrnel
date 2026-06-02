@@ -1,4 +1,4 @@
-import type { EnvironmentBindings, ExecutionParams } from "@mci/sdk";
+import type { EnvironmentBindings, ExecutionInput } from "@mci/sdk";
 import { instantiate } from "@mci/typescript-ivm";
 import { describe, expect, it, vi } from "vitest";
 
@@ -13,10 +13,12 @@ describe("typescript-ivm integration", () => {
       discoverTools: vi.fn(),
       getService: vi.fn(),
       getTool: vi.fn(),
+      getToolDocs: vi.fn(),
       invokeTool: vi.fn(),
       emitStdout: vi.fn(),
       emitStderr: vi.fn(),
       emitOutput: vi.fn(),
+      setError: vi.fn(),
     }) satisfies EnvironmentBindings;
 
   it("executes via the public entrypoint", async () => {
@@ -28,8 +30,10 @@ describe("typescript-ivm integration", () => {
     const result = await environment.execute({
       eid: 100,
       code: "const value = 1 + 1;",
-      options: {},
-    } satisfies ExecutionParams);
+      options: {
+        timeoutMs: 30_000,
+      },
+    } satisfies ExecutionInput);
 
     expect(result).toBe("success");
   });
@@ -43,8 +47,10 @@ describe("typescript-ivm integration", () => {
     const promise = environment.execute({
       eid: 101,
       code: infiniteCode,
-      options: {},
-    } satisfies ExecutionParams);
+      options: {
+        timeoutMs: 30_000,
+      },
+    } satisfies ExecutionInput);
 
     await tick();
     await environment.kill(101);

@@ -1,14 +1,14 @@
 import type {
-  DiscoverInput,
-  DiscoverServiceItem,
-  DiscoverToolItem,
   EnvironmentBindings,
-  ExecutionParams,
-  GetServiceInput,
+  ExecutionInput,
+  GetServiceResult,
   GetToolInput,
+  GetToolResult,
   InvokeInput,
-  ServiceDetails,
-  ToolDetails,
+  ListServiceInput,
+  ListServiceResult,
+  ListToolInput,
+  ListToolResult,
 } from "@mci/sdk";
 import { describe, expect, it, vi } from "vitest";
 
@@ -21,6 +21,7 @@ describe("bindings", () => {
     const emitOutput = vi.fn<EnvironmentBindings["emitOutput"]>();
     const getService = vi.fn<EnvironmentBindings["getService"]>();
     const getTool = vi.fn<EnvironmentBindings["getTool"]>();
+    const getToolDocs = vi.fn<EnvironmentBindings["getToolDocs"]>();
     const invokeTool = vi.fn<EnvironmentBindings["invokeTool"]>();
     const discoverTools = vi.fn<EnvironmentBindings["discoverTools"]>();
     const discoverServices = vi.fn<EnvironmentBindings["discoverServices"]>();
@@ -31,8 +32,10 @@ describe("bindings", () => {
         emitStdout,
         emitStderr,
         emitOutput,
+        setError: vi.fn(),
         getService,
         getTool,
+        getToolDocs,
         invokeTool,
         discoverTools,
         discoverServices,
@@ -58,8 +61,8 @@ describe("bindings", () => {
       await environment.execute({
         eid: 1,
         code: 'console.log("Hello, world!");',
-        options: {},
-      } satisfies ExecutionParams);
+        options: { timeoutMs: 30_000 },
+      } satisfies ExecutionInput);
 
       expect(emitStdout).toHaveBeenCalledWith(
         1,
@@ -76,8 +79,8 @@ describe("bindings", () => {
       await environment.execute({
         eid: 1,
         code: 'console.error("Error occurred");',
-        options: {},
-      } satisfies ExecutionParams);
+        options: { timeoutMs: 30_000 },
+      } satisfies ExecutionInput);
 
       expect(emitStderr).toHaveBeenCalledWith(
         1,
@@ -94,8 +97,8 @@ describe("bindings", () => {
       await environment.execute({
         eid: 1,
         code: 'console.log("Count:", 42, { foo: "bar" });',
-        options: {},
-      } satisfies ExecutionParams);
+        options: { timeoutMs: 30_000 },
+      } satisfies ExecutionInput);
 
       expect(emitStdout).toHaveBeenCalledOnce();
       const buffer = emitStdout.mock.calls[0][1];
@@ -115,8 +118,8 @@ describe("bindings", () => {
       await environment.execute({
         eid: 1,
         code: "console.log(null, undefined);",
-        options: {},
-      } satisfies ExecutionParams);
+        options: { timeoutMs: 30_000 },
+      } satisfies ExecutionInput);
 
       expect(emitStdout).toHaveBeenCalledWith(
         1,
@@ -135,8 +138,8 @@ describe("bindings", () => {
       await environment.execute({
         eid: 1,
         code: 'mci.output({ result: "success", count: 42 });',
-        options: {},
-      } satisfies ExecutionParams);
+        options: { timeoutMs: 30_000 },
+      } satisfies ExecutionInput);
 
       expect(emitOutput).toHaveBeenCalledWith(1, {
         result: "success",
@@ -153,8 +156,8 @@ describe("bindings", () => {
       await environment.execute({
         eid: 99,
         code: 'mci.output({ data: "test" });',
-        options: {},
-      } satisfies ExecutionParams);
+        options: { timeoutMs: 30_000 },
+      } satisfies ExecutionInput);
 
       expect(emitOutput).toHaveBeenCalledWith(99, { data: "test" });
     });
@@ -165,12 +168,9 @@ describe("bindings", () => {
       const { bindings, getService } = createBindings();
       const environment = instantiate();
 
-      const mockServiceDetails: ServiceDetails = {
+      const mockServiceDetails: GetServiceResult = {
         name: "testService",
-        type: "test",
-        source: "builtin",
         description: "Test service",
-        hash: "abc123",
         enabled: true,
         configSchema: {},
         secretsSchema: {},
@@ -183,19 +183,16 @@ describe("bindings", () => {
       await environment.execute({
         eid: 1,
         code: "const def = await mci.services.testService.getDefinition(); console.log(JSON.stringify(def));",
-        options: {},
-      } satisfies ExecutionParams);
+      } satisfies ExecutionInput);
 
-      expect(getService).toHaveBeenCalledWith({
-        serviceName: "testService",
-      } satisfies GetServiceInput);
+      expect(getService).toHaveBeenCalledWith("testService");
     });
 
     it("calls getTool with correct input", async () => {
       const { bindings, getTool } = createBindings();
       const environment = instantiate();
 
-      const mockToolDetails: ToolDetails = {
+      const mockToolDetails: GetToolResult = {
         name: "testTool",
         description: "Test tool",
         enabled: true,
@@ -210,12 +207,11 @@ describe("bindings", () => {
       await environment.execute({
         eid: 1,
         code: "const def = await mci.services.myService.tools.testTool.getDefinition(); console.log(JSON.stringify(def));",
-        options: {},
-      } satisfies ExecutionParams);
+      } satisfies ExecutionInput);
 
       expect(getTool).toHaveBeenCalledWith({
-        serviceName: "myService",
-        toolName: "testTool",
+        serviceId: "myService",
+        toolId: "testTool",
       } satisfies GetToolInput);
     });
 
@@ -230,17 +226,16 @@ describe("bindings", () => {
       await environment.execute({
         eid: 1,
         code: "const result = await mci.services.calc.tools.add.invoke({ a: 1, b: 2 }); console.log(JSON.stringify(result));",
-        options: {},
-      } satisfies ExecutionParams);
+      } satisfies ExecutionInput);
 
       expect(invokeTool).toHaveBeenCalledWith({
-        serviceName: "calc",
-        toolName: "add",
+        serviceId: "calc",
+        toolId: "add",
         parameters: { a: 1, b: 2 },
       } satisfies InvokeInput);
     });
 
-    it("throws TypeError when service name is a symbol", async () => {
+    it("throws TypeError when service id is a symbol", async () => {
       const { bindings } = createBindings();
       const environment = instantiate();
 
@@ -249,13 +244,12 @@ describe("bindings", () => {
       const result = await environment.execute({
         eid: 1,
         code: 'try { mci.services[Symbol("test")]; } catch(e) { console.error(e.message); }',
-        options: {},
-      } satisfies ExecutionParams);
+      } satisfies ExecutionInput);
 
       expect(result).toBe("success");
     });
 
-    it("throws TypeError when tool name is a symbol", async () => {
+    it("throws TypeError when tool id is a symbol", async () => {
       const { bindings } = createBindings();
       const environment = instantiate();
 
@@ -264,8 +258,7 @@ describe("bindings", () => {
       const result = await environment.execute({
         eid: 1,
         code: 'try { mci.services.test.tools[Symbol("tool")]; } catch(e) { console.error(e.message); }',
-        options: {},
-      } satisfies ExecutionParams);
+      } satisfies ExecutionInput);
 
       expect(result).toBe("success");
     });
@@ -276,18 +269,22 @@ describe("bindings", () => {
       const { bindings, discoverTools } = createBindings();
       const environment = instantiate();
 
-      const mockTools: DiscoverToolItem[] = [
+      const mockTools: ListToolResult[] = [
         {
-          serviceName: "calc",
+          serviceId: "calc",
+          id: "add",
           name: "add",
           description: "Add two numbers",
           enabled: true,
+          effectivelyEnabled: true,
         },
         {
-          serviceName: "calc",
+          serviceId: "calc",
+          id: "subtract",
           name: "subtract",
           description: "Subtract two numbers",
           enabled: true,
+          effectivelyEnabled: true,
         },
       ];
 
@@ -298,13 +295,12 @@ describe("bindings", () => {
       await environment.execute({
         eid: 1,
         code: 'const tools = await mci.discoverTools({ query: "math", limit: 10 }); console.log(JSON.stringify(tools));',
-        options: {},
-      } satisfies ExecutionParams);
+      } satisfies ExecutionInput);
 
       expect(discoverTools).toHaveBeenCalledWith({
         query: "math",
         limit: 10,
-      } satisfies DiscoverInput);
+      } satisfies ListToolInput);
     });
 
     it("supports optional parameters in discoverTools", async () => {
@@ -318,12 +314,11 @@ describe("bindings", () => {
       await environment.execute({
         eid: 1,
         code: 'await mci.discoverTools({ query: "test" });',
-        options: {},
-      } satisfies ExecutionParams);
+      } satisfies ExecutionInput);
 
       expect(discoverTools).toHaveBeenCalledWith({
         query: "test",
-      } satisfies DiscoverInput);
+      } satisfies ListToolInput);
     });
 
     it("supports enabled filter in discoverTools", async () => {
@@ -337,13 +332,12 @@ describe("bindings", () => {
       await environment.execute({
         eid: 1,
         code: 'await mci.discoverTools({ query: "test", enabled: true });',
-        options: {},
-      } satisfies ExecutionParams);
+      } satisfies ExecutionInput);
 
       expect(discoverTools).toHaveBeenCalledWith({
         query: "test",
         enabled: true,
-      } satisfies DiscoverInput);
+      } satisfies ListToolInput);
     });
   });
 
@@ -352,13 +346,15 @@ describe("bindings", () => {
       const { bindings, discoverServices } = createBindings();
       const environment = instantiate();
 
-      const mockServices: DiscoverServiceItem[] = [
+      const mockServices: ListServiceResult[] = [
         {
+          id: "calc",
           name: "calc",
           description: "Calculator service",
           enabled: true,
         },
         {
+          id: "weather",
           name: "weather",
           description: "Weather service",
           enabled: false,
@@ -372,16 +368,15 @@ describe("bindings", () => {
       await environment.execute({
         eid: 1,
         code: 'const services = await mci.discoverServices({ query: "api", limit: 5 }); console.log(JSON.stringify(services));',
-        options: {},
-      } satisfies ExecutionParams);
+      } satisfies ExecutionInput);
 
       expect(discoverServices).toHaveBeenCalledWith({
         query: "api",
         limit: 5,
-      } satisfies DiscoverInput);
+      } satisfies ListServiceInput);
     });
 
-    it("supports null enabled filter in discoverServices", async () => {
+    it("supports enabled filter in discoverServices", async () => {
       const { bindings, discoverServices } = createBindings();
       const environment = instantiate();
 
@@ -391,14 +386,13 @@ describe("bindings", () => {
 
       await environment.execute({
         eid: 1,
-        code: 'await mci.discoverServices({ query: "test", enabled: null });',
-        options: {},
-      } satisfies ExecutionParams);
+        code: 'await mci.discoverServices({ query: "test", enabled: false });',
+      } satisfies ExecutionInput);
 
       expect(discoverServices).toHaveBeenCalledWith({
         query: "test",
-        enabled: null,
-      } satisfies DiscoverInput);
+        enabled: false,
+      } satisfies ListServiceInput);
     });
   });
 
@@ -412,14 +406,14 @@ describe("bindings", () => {
       await environment.execute({
         eid: 10,
         code: 'console.log("first");',
-        options: {},
-      } satisfies ExecutionParams);
+        options: { timeoutMs: 30_000 },
+      } satisfies ExecutionInput);
 
       await environment.execute({
         eid: 20,
         code: 'console.log("second");',
-        options: {},
-      } satisfies ExecutionParams);
+        options: { timeoutMs: 30_000 },
+      } satisfies ExecutionInput);
 
       expect(emitStdout).toHaveBeenNthCalledWith(
         1,
@@ -446,8 +440,8 @@ describe("bindings", () => {
           mci.output({ data: "result" });
           console.log("done");
         `,
-        options: {},
-      } satisfies ExecutionParams);
+        options: { timeoutMs: 30_000 },
+      } satisfies ExecutionInput);
 
       expect(emitStdout).toHaveBeenCalledWith(
         42,
@@ -478,8 +472,8 @@ describe("bindings", () => {
             console.log("PASS: Modification prevented");
           }
         `,
-        options: {},
-      } satisfies ExecutionParams);
+        options: { timeoutMs: 30_000 },
+      } satisfies ExecutionInput);
 
       expect(result).toBe("success");
     });
@@ -500,8 +494,8 @@ describe("bindings", () => {
             console.log("PASS: Reassignment prevented");
           }
         `,
-        options: {},
-      } satisfies ExecutionParams);
+        options: { timeoutMs: 30_000 },
+      } satisfies ExecutionInput);
 
       expect(result).toBe("success");
     });
@@ -515,8 +509,8 @@ describe("bindings", () => {
       await environment.execute({
         eid: 1,
         code: 'console.log("mci" in globalThis);',
-        options: {},
-      } satisfies ExecutionParams);
+        options: { timeoutMs: 30_000 },
+      } satisfies ExecutionInput);
 
       expect(emitStdout).toHaveBeenCalledWith(1, Buffer.from("true\n", "utf8"));
     });
