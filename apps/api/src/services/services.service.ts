@@ -44,6 +44,7 @@ import {
 
 const DEFINITION_DOWNLOAD_TIMEOUT_MS = 10_000;
 const MAX_DEFINITION_DOWNLOAD_BYTES = 2_048_576;
+const MAX_DEFINITION_DOWNLOAD_REDIRECTS = 5;
 const IDENTIFIER_SCHEMA = z.string().regex(/^[A-Za-z_$][A-Za-z0-9_$]*$/);
 
 export interface AdapterController {
@@ -617,6 +618,7 @@ export class ServicesService {
         throw new HttpError(400, "Secrets payload must be a JSON object.");
       })();
     } catch (err) {
+      if (err instanceof HttpError) throw err;
       throw new HttpError(
         400,
         err instanceof Error ? err.message : "Invalid JSON Patch payload.",
@@ -759,8 +761,6 @@ export class ServicesService {
   }
 
   private async downloadDefinition(fileUrl: string): Promise<string> {
-    await assertRegistryAddressAllowed(fileUrl);
-
     const controller = new AbortController();
     const timeout = setTimeout(
       () => controller.abort(),
@@ -769,22 +769,67 @@ export class ServicesService {
 
     let response: Response;
     try {
-      response = await fetch(fileUrl, {
-        method: "GET",
-        headers: {
-          accept: "application/json, text/plain, application/octet-stream",
-        },
-        signal: controller.signal,
-      });
-    } catch {
-      clearTimeout(timeout);
-      if (controller.signal.aborted)
-        throw new HttpError(502, "Definition download timed out.");
-      throw new HttpError(502, "Failed to download definition file.");
-    }
+      let currentUrl = fileUrl;
+      for (let hop = 0; ; hop++) {
+        await assertRegistryAddressAllowed(currentUrl);
 
-    clearTimeout(timeout);
-    await assertRegistryAddressAllowed(response.url || fileUrl);
+        let hopResponse: Response;
+        try {
+          hopResponse = await fetch(currentUrl, {
+            method: "GET",
+            headers: {
+              accept: "application/json, text/plain, application/octet-stream",
+            },
+            signal: controller.signal,
+            redirect: "manual",
+          });
+        } catch {
+          if (controller.signal.aborted)
+            throw new HttpError(502, "Definition download timed out.");
+          throw new HttpError(502, "Failed to download definition file.");
+        }
+
+        const isRedirect =
+          hopResponse.status >= 300 &&
+          hopResponse.status < 400 &&
+          hopResponse.status !== 304;
+
+        if (!isRedirect) {
+          response = hopResponse;
+          break;
+        }
+
+        if (hop >= MAX_DEFINITION_DOWNLOAD_REDIRECTS) {
+          throw new HttpError(
+            502,
+            "Definition download exceeded maximum redirect count.",
+          );
+        }
+
+        const location = hopResponse.headers.get("location");
+        if (!location) {
+          throw new HttpError(
+            502,
+            "Definition download redirect was missing a Location header.",
+          );
+        }
+
+        let nextUrl: string;
+        try {
+          nextUrl = new URL(location, currentUrl).toString();
+        } catch {
+          throw new HttpError(
+            502,
+            "Definition download redirected to an invalid URL.",
+          );
+        }
+
+        await hopResponse.body?.cancel().catch(() => {});
+        currentUrl = nextUrl;
+      }
+    } finally {
+      clearTimeout(timeout);
+    }
 
     if (!response.ok) {
       throw new HttpError(

@@ -110,15 +110,6 @@ export async function setModuleEnabled(
     "Request body must be an object.",
   );
 
-  const existing = await moduleService.get(moduleId);
-  if (!existing) throw new HttpError(404, `Module '${moduleId}' not found.`);
-  if (enabled && existing.orphaned) {
-    throw new HttpError(
-      409,
-      `Module '${moduleId}' is orphaned and cannot be enabled.`,
-    );
-  }
-
   await moduleService.setEnabled({ id: moduleId, enabled });
   res.status(200).end();
 }

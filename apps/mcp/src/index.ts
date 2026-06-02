@@ -3,6 +3,7 @@ import "dotenv/config";
 import { z } from "zod";
 
 import { App, type Transport } from "@/app.js";
+import { logger } from "@/logger.js";
 
 const { MCP_TRANSPORT, MCP_HTTP_HOST, MCP_HTTP_PORT } = z
   .object({
@@ -20,6 +21,8 @@ const transport: Transport =
 const app = new App();
 await app.start(transport);
 
+logger.info({ transport }, "MCP server started");
+
 let shuttingDown = false;
 
 const shutdown = async () => {
@@ -27,11 +30,11 @@ const shutdown = async () => {
   shuttingDown = true;
 
   try {
-    console.error(`Shutting down`);
+    logger.info("Shutting down");
     await app.shutdown();
     process.exit(0);
   } catch (err) {
-    console.error(`Shutdown failed: ${String(err)}`);
+    logger.error({ err }, "Shutdown failed");
     process.exit(1);
   }
 };

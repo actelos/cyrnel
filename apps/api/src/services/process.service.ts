@@ -181,10 +181,22 @@ export class ProcessService {
   async waitForIdle(
     pid: number,
     pollIntervalMs = 100,
+    maxWaitMs?: number,
   ): Promise<GetProcessResult> {
+    const initial = this.getStored(pid);
+    const effectiveTimeoutMs =
+      initial.options.timeoutMs ?? DEFAULT_EXECUTION_TIMEOUT_MS;
+    const deadline = Date.now() + (maxWaitMs ?? effectiveTimeoutMs * 2 + 1_000);
+
     while (true) {
       const stored = this.getStored(pid);
       if (stored.state === "idle") return this.project(stored);
+      if (Date.now() >= deadline) {
+        throw new HttpError(
+          504,
+          `Process ${pid} did not become idle within the configured wait window.`,
+        );
+      }
       await this.sleep(pollIntervalMs);
     }
   }
@@ -314,13 +326,14 @@ export class ProcessService {
     return found;
   }
 
-  private project(record: ProcessRecord): GetProcessResult {
-    const { code, options, output, stdout, stderr, ...rest } = record;
-    void code;
-    void options;
-    void output;
-    void stdout;
-    void stderr;
+  private project({
+    code: _code,
+    options: _options,
+    output: _output,
+    stdout: _stdout,
+    stderr: _stderr,
+    ...rest
+  }: ProcessRecord): GetProcessResult {
     return rest;
   }
 

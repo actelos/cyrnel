@@ -243,12 +243,8 @@ describe("module.controller", () => {
   });
 
   describe("setModuleEnabled", () => {
-    it("toggles enabled=true on a non-orphaned module and responds 200", async () => {
+    it("forwards enabled=true to the service and responds 200", async () => {
       const res = makeRes();
-      moduleService.get.mockResolvedValue({
-        id: "m1",
-        orphaned: false,
-      });
       moduleService.setEnabled.mockResolvedValue(undefined);
 
       await setModuleEnabled(
@@ -267,12 +263,8 @@ describe("module.controller", () => {
       expect(res.end).toHaveBeenCalled();
     });
 
-    it("allows disabling an orphaned module", async () => {
+    it("forwards enabled=false to the service and responds 200", async () => {
       const res = makeRes();
-      moduleService.get.mockResolvedValue({
-        id: "m1",
-        orphaned: true,
-      });
       moduleService.setEnabled.mockResolvedValue(undefined);
 
       await setModuleEnabled(
@@ -291,12 +283,11 @@ describe("module.controller", () => {
       expect(res.end).toHaveBeenCalled();
     });
 
-    it("throws 409 when enabling an orphaned module", async () => {
+    it("propagates errors thrown by setEnabled", async () => {
       const res = makeRes();
-      moduleService.get.mockResolvedValue({
-        id: "m1",
-        orphaned: true,
-      });
+      moduleService.setEnabled.mockRejectedValue(
+        new HttpError(409, "Module 'm1' is orphaned and cannot be enabled."),
+      );
 
       await expect(
         setModuleEnabled(
@@ -310,26 +301,6 @@ describe("module.controller", () => {
         statusCode: 409,
         message: "Module 'm1' is orphaned and cannot be enabled.",
       });
-      expect(moduleService.setEnabled).not.toHaveBeenCalled();
-    });
-
-    it("throws 404 when the module does not exist", async () => {
-      const res = makeRes();
-      moduleService.get.mockResolvedValue(undefined);
-
-      await expect(
-        setModuleEnabled(
-          makeReq({
-            params: { moduleId: "missing" },
-            body: { enabled: true },
-          }),
-          cast(res),
-        ),
-      ).rejects.toMatchObject({
-        statusCode: 404,
-        message: "Module 'missing' not found.",
-      });
-      expect(moduleService.setEnabled).not.toHaveBeenCalled();
     });
 
     it.each([
@@ -339,13 +310,13 @@ describe("module.controller", () => {
       { body: null, why: "null body" },
     ])("rejects $why", async ({ body }) => {
       const res = makeRes();
-      moduleService.get.mockResolvedValue({ id: "m1", orphaned: false });
       await expect(
         setModuleEnabled(
           makeReq({ params: { moduleId: "m1" }, body }),
           cast(res),
         ),
       ).rejects.toBeInstanceOf(HttpError);
+      expect(moduleService.setEnabled).not.toHaveBeenCalled();
     });
   });
 

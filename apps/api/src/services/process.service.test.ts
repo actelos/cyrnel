@@ -531,6 +531,37 @@ describe("ProcessService", () => {
       const result = await waited;
       expect(result.state).toBe("idle");
     });
+
+    it("throws 504 when the process does not become idle within maxWaitMs", async () => {
+      const controller = makeController();
+      controller.executeImpl = () => new Promise(() => {});
+      const { service } = makeService(controller);
+
+      const pid = service.create(BASE_CREATE_INPUT);
+
+      await expect(service.waitForIdle(pid, 5, 30)).rejects.toMatchObject({
+        statusCode: 504,
+      });
+    });
+
+    it("derives a default deadline from the configured execution timeout", async () => {
+      const controller = makeController();
+      controller.executeImpl = () => new Promise(() => {});
+      const { service } = makeService(controller);
+
+      // timeoutMs is 1ms so the derived window is ~1002ms; the wait must
+      // resolve as an HttpError rather than hanging forever.
+      const pid = service.create({
+        code: "x",
+        options: { timeoutMs: 1 },
+      });
+
+      const err = (await service.waitForIdle(pid, 5).catch((e) => e)) as
+        | HttpError
+        | undefined;
+      expect(err).toBeInstanceOf(HttpError);
+      expect(err?.statusCode).toBe(504);
+    });
   });
 
   describe("shutdown()", () => {

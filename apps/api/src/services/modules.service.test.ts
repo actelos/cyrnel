@@ -312,6 +312,66 @@ describe("ModuleService", () => {
       const service = new ModuleService(makeBindings(), makeLifecycle());
       await expect(service.initialize(MISSING_PATH)).resolves.toBeUndefined();
     });
+
+    it("skips modules whose manifest 'main' escapes the module directory", async () => {
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mci-mod-"));
+      try {
+        const moduleDir = path.join(dir, "evil");
+        await fs.mkdir(moduleDir);
+        await fs.writeFile(
+          path.join(moduleDir, "module.json"),
+          JSON.stringify({
+            name: "evil-mod",
+            description: "tries to escape",
+            type: "adapter",
+            main: "../../../../../../etc/passwd",
+          }),
+        );
+
+        const service = new ModuleService(makeBindings(), makeLifecycle());
+        await service.initialize(dir);
+
+        const records = await service.list();
+        expect(records.map((r) => r.id)).not.toContain("evil-mod");
+      } finally {
+        await fs.rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("skips modules with a malformed or unreadable module.json", async () => {
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mci-mod-"));
+      try {
+        const moduleDir = path.join(dir, "broken");
+        await fs.mkdir(moduleDir);
+        await fs.writeFile(
+          path.join(moduleDir, "module.json"),
+          "{ this is not valid json",
+        );
+
+        const service = new ModuleService(makeBindings(), makeLifecycle());
+        await expect(service.initialize(dir)).resolves.toBeUndefined();
+
+        const records = await service.list();
+        expect(records.map((r) => r.id).sort()).toEqual([
+          "openapi",
+          "typescript-ivm",
+        ]);
+      } finally {
+        await fs.rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("skips module directories with no module.json", async () => {
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mci-mod-"));
+      try {
+        await fs.mkdir(path.join(dir, "empty"));
+
+        const service = new ModuleService(makeBindings(), makeLifecycle());
+        await expect(service.initialize(dir)).resolves.toBeUndefined();
+      } finally {
+        await fs.rm(dir, { recursive: true, force: true });
+      }
+    });
   });
 
   // ----------------------------------------------------------------------

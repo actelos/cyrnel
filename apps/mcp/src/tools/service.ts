@@ -81,7 +81,7 @@ export const serviceTools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
         .describe(
           "Unique service identifier. Must be a valid TypeScript identifier.",
         ),
-      source: z.string().min(1).describe("Manifest definition source URL.."),
+      source: z.string().min(1).describe("Manifest definition source URL."),
       adapter: z
         .string()
         .min(1)

@@ -1261,6 +1261,137 @@ describe("ServicesService", () => {
         }),
       ).resolves.toBeUndefined();
     });
+
+    it("blocks a redirect from a public host to a loopback IP", async () => {
+      const fetchMock = vi.fn(async (input: string | URL) => {
+        const url = typeof input === "string" ? input : input.toString();
+        if (url === "https://example.com/def.json") {
+          return new Response(null, {
+            status: 302,
+            headers: { location: "http://127.0.0.1/secret" },
+          });
+        }
+        return new Response("payload", { status: 200 });
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      const svc = new ServicesService(makeController());
+
+      await expect(
+        svc.createService({
+          id: "alpha",
+          source: "https://example.com/def.json",
+          adapter: "test-adapter",
+        }),
+      ).rejects.toMatchObject({ statusCode: 502 });
+
+      const calls = fetchMock.mock.calls.map((c) =>
+        typeof c[0] === "string" ? c[0] : c[0].toString(),
+      );
+      expect(calls).toContain("https://example.com/def.json");
+      expect(calls).not.toContain("http://127.0.0.1/secret");
+    });
+
+    it("blocks a redirect that resolves to a private IP via DNS", async () => {
+      vi.spyOn(dns, "lookup").mockImplementation(async (host) => {
+        if (host === "evil.example.com") {
+          return [{ address: "10.0.0.5", family: 4 }] as never;
+        }
+        return [{ address: "93.184.216.34", family: 4 }] as never;
+      });
+
+      const fetchMock = vi.fn(async (input: string | URL) => {
+        const url = typeof input === "string" ? input : input.toString();
+        if (url === "https://example.com/def.json") {
+          return new Response(null, {
+            status: 302,
+            headers: { location: "https://evil.example.com/secret" },
+          });
+        }
+        return new Response("payload", { status: 200 });
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      const svc = new ServicesService(makeController());
+
+      await expect(
+        svc.createService({
+          id: "alpha",
+          source: "https://example.com/def.json",
+          adapter: "test-adapter",
+        }),
+      ).rejects.toMatchObject({ statusCode: 502 });
+
+      const calls = fetchMock.mock.calls.map((c) =>
+        typeof c[0] === "string" ? c[0] : c[0].toString(),
+      );
+      expect(calls).not.toContain("https://evil.example.com/secret");
+    });
+
+    it("follows a redirect to a public host and downloads from the final URL", async () => {
+      const fetchMock = vi.fn(async (input: string | URL) => {
+        const url = typeof input === "string" ? input : input.toString();
+        if (url === "https://example.com/def.json") {
+          return new Response(null, {
+            status: 302,
+            headers: { location: "https://example.com/final.json" },
+          });
+        }
+        return new Response("payload", { status: 200 });
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      const svc = new ServicesService(makeController());
+
+      await expect(
+        svc.createService({
+          id: "alpha",
+          source: "https://example.com/def.json",
+          adapter: "test-adapter",
+        }),
+      ).resolves.toBeUndefined();
+
+      const calls = fetchMock.mock.calls.map((c) =>
+        typeof c[0] === "string" ? c[0] : c[0].toString(),
+      );
+      expect(calls).toContain("https://example.com/def.json");
+      expect(calls).toContain("https://example.com/final.json");
+    });
+
+    it("rejects redirect chains that exceed the maximum hop count", async () => {
+      const fetchMock = vi.fn(async (input: string | URL) => {
+        const url = typeof input === "string" ? input : input.toString();
+        const match = url.match(/redirect-(\d+)\.json$/);
+        const n = match ? Number(match[1]) : 0;
+        return new Response(null, {
+          status: 302,
+          headers: { location: `https://example.com/redirect-${n + 1}.json` },
+        });
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      const svc = new ServicesService(makeController());
+
+      await expect(
+        svc.createService({
+          id: "alpha",
+          source: "https://example.com/redirect-0.json",
+          adapter: "test-adapter",
+        }),
+      ).rejects.toMatchObject({ statusCode: 502 });
+    });
+
+    it("rejects a redirect that has no Location header", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response(null, { status: 302 })),
+      );
+      const svc = new ServicesService(makeController());
+
+      await expect(
+        svc.createService({
+          id: "alpha",
+          source: "https://example.com/def.json",
+          adapter: "test-adapter",
+        }),
+      ).rejects.toMatchObject({ statusCode: 502 });
+    });
   });
 
   // ------------------------------------------------------------------

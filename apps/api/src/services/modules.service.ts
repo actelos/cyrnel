@@ -1,6 +1,6 @@
 import type { Dirent } from "node:fs";
 import fs from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve, sep } from "node:path";
 import * as oapi from "@mci/openapi";
 import type {
   AdapterModule,
@@ -24,6 +24,7 @@ import {
   services as servicesTable,
   tools as toolsTable,
 } from "@/db/schema";
+import { logger } from "@/logger";
 import { HttpError } from "@/models/error.model";
 import type {
   FilterModuleManifestInput,
@@ -103,14 +104,21 @@ export class ModuleService {
     await Promise.all(
       draining.flatMap((instance) =>
         Array.from(instance.executions).map((eid) =>
-          instance.module.kill(eid).catch(() => {}),
+          instance.module.kill(eid).catch((err) => {
+            logger.warn(
+              { err, environmentId: instance.id, eid },
+              "Failed to kill execution during shutdown",
+            );
+          }),
         ),
       ),
     );
     await Promise.all(draining.map((i) => i.disposed ?? Promise.resolve()));
     await Promise.all(
-      Array.from(this.adapters.values()).map((a) =>
-        a.teardown().catch(() => {}),
+      Array.from(this.adapters.entries()).map(([id, a]) =>
+        a.teardown().catch((err) => {
+          logger.warn({ err, adapterId: id }, "Adapter teardown failed");
+        }),
       ),
     );
 
@@ -379,7 +387,9 @@ export class ModuleService {
     this.adapters.delete(id);
     try {
       await instance.teardown();
-    } catch {}
+    } catch (err) {
+      logger.warn({ err, adapterId: id }, "Adapter teardown failed");
+    }
   }
 
   private async activateEnvironment(id: string): Promise<void> {
@@ -432,7 +442,12 @@ export class ModuleService {
     this.drainingEnvironments.delete(instance);
     try {
       await instance.module.teardown();
-    } catch {}
+    } catch (err) {
+      logger.warn(
+        { err, environmentId: instance.id },
+        "Environment teardown failed",
+      );
+    }
   }
 
   private requireActiveEnvironment(): EnvironmentInstance {
@@ -502,19 +517,38 @@ export class ModuleService {
       if (!entry.isDirectory()) continue;
 
       const dir = join(path, entry.name);
-      const manifest = JSON.parse(
-        await fs.readFile(join(dir, "module.json"), "utf8"),
-      ) as {
+      const manifestPath = join(dir, "module.json");
+
+      let manifest: {
         name: string;
         description: string;
         type: ModuleType;
         main: string;
       };
+      try {
+        manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
+      } catch (err) {
+        logger.warn(
+          { err, manifestPath },
+          "Skipping module: failed to read or parse module.json",
+        );
+        continue;
+      }
 
       const id = manifest.name;
       if (this.factories.has(id)) continue;
 
-      const imported = (await import(join(dir, manifest.main))) as {
+      const dirRoot = resolve(dir);
+      const mainPath = resolve(dirRoot, manifest.main);
+      if (mainPath !== dirRoot && !mainPath.startsWith(dirRoot + sep)) {
+        logger.warn(
+          { manifestPath, main: manifest.main },
+          "Skipping module: 'main' resolves outside module directory",
+        );
+        continue;
+      }
+
+      const imported = (await import(mainPath)) as {
         instantiate: () => Module;
       };
 
