@@ -1,6 +1,7 @@
 import type {
   AdapterModule,
   InvokeInput,
+  JSONSchema,
   ModuleSetupContext,
   ServiceDefinition,
   ServiceState,
@@ -34,11 +35,29 @@ class OpenapiAdapter implements AdapterModule {
   }
 }
 
+const CONFIG_SCHEMA: JSONSchema = {
+  type: "object",
+  properties: {
+    baseUrl: { type: "string" },
+  },
+  additionalProperties: false,
+};
+
+const SECRETS_SCHEMA: JSONSchema = {
+  type: "object",
+  properties: {
+    apiKey: { type: "string" },
+  },
+  additionalProperties: false,
+};
+
 export const manifest = {
   name: "openapi",
   version: "1.0.0",
   description: "Adapter for interacting with OpenAPI services",
   type: "adapter" as const,
+  configSchema: CONFIG_SCHEMA,
+  secretsSchema: SECRETS_SCHEMA,
 };
 
 export function instantiate(): AdapterModule {

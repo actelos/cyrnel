@@ -20,7 +20,10 @@ export interface ServiceDefinition {
 
 // Base Module
 
-export type ModuleSetupContext = object;
+export interface ModuleSetupContext {
+  config: Record<string, unknown>;
+  secrets: Record<string, unknown>;
+}
 
 export interface Module {
   setup(context: ModuleSetupContext): Promise<void>;

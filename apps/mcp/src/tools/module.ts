@@ -1,6 +1,6 @@
 import type { FastMCPSessionAuth, Tool } from "fastmcp";
 import { z } from "zod";
-import { ModuleId, ModuleType } from "@/schemas";
+import { JsonPatch, ModuleId, ModuleType } from "@/schemas";
 import { api, searchParams } from "@/utils/fetch.js";
 
 // biome-ignore lint/suspicious/noExplicitAny: tool params vary per entry
@@ -118,5 +118,123 @@ export const moduleTools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
     parameters: z.object({}),
     execute: async () =>
       JSON.stringify(await api.post("modules/reload", { json: {} }).json()),
+  },
+  {
+    name: "get_module_config_schema",
+    description: `
+    Fetch a module's configuration JSON Schema by module id.
+
+    When to use:
+      - Use to learn which configuration keys/values a module accepts before
+        patching its configuration.
+    When NOT to use:
+      - If you need the currently stored configuration values, call
+        \`get_module_config\` instead.
+    `,
+    annotations: {
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+    parameters: z.object({ module_id: ModuleId }),
+    execute: async ({ module_id }) =>
+      JSON.stringify(
+        await api.get(`modules/${module_id}/config/schema`).json(),
+      ),
+  },
+  {
+    name: "get_module_config",
+    description: `
+    Fetch the current module configuration by module id.
+
+    When to use:
+      - Use to inspect the currently stored configuration values for an
+        adapter or environment module.
+    When NOT to use:
+      - If you need the allowed shape/constraints, call
+        \`get_module_config_schema\` instead.
+    `,
+    annotations: {
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+    parameters: z.object({ module_id: ModuleId }),
+    execute: async ({ module_id }) =>
+      JSON.stringify(await api.get(`modules/${module_id}/config`).json()),
+  },
+  {
+    name: "patch_module_config",
+    description: `
+    Patch a module configuration with JSON Patch operations.
+
+    The API applies the patch to the current configuration, validates the
+    result against the module's configuration schema, persists it, and reloads
+    the active module instance when required.
+
+    When to use:
+      - Use to update one or more module config keys without sending the entire
+        object.
+    When NOT to use:
+      - If you only need to read config, use \`get_module_config\`.
+    `,
+    annotations: { idempotentHint: false, openWorldHint: true },
+    parameters: z.object({
+      module_id: ModuleId,
+      patch: JsonPatch,
+    }),
+    execute: async ({ module_id, patch }) =>
+      JSON.stringify(
+        await api.patch(`modules/${module_id}/config`, { json: patch }).json(),
+      ),
+  },
+  {
+    name: "get_module_secrets_schema",
+    description: `
+    Fetch a module's secrets JSON Schema by module id.
+
+    Stored secret values are encrypted at rest and never returned by the API.
+
+    When to use:
+      - Use to learn which secret keys/values a module accepts.
+    When NOT to use:
+      - If you need to update secrets, call \`patch_module_secrets\` instead.
+    `,
+    annotations: {
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+    parameters: z.object({ module_id: ModuleId }),
+    execute: async ({ module_id }) =>
+      JSON.stringify(
+        await api.get(`modules/${module_id}/secrets/schema`).json(),
+      ),
+  },
+  {
+    name: "patch_module_secrets",
+    description: `
+    Patch a module secrets payload with JSON Patch operations.
+
+    The API applies the patch to the current decrypted secrets, validates the
+    result against the module's secrets schema, re-encrypts it before
+    persisting, and reloads the active module instance when required. Treat all
+    values as sensitive; avoid logging them.
+
+    When to use:
+      - Use to update one or more module secret keys without sending the entire
+        object.
+    When NOT to use:
+      - If you need to inspect the schema, use \`get_module_secrets_schema\`.
+    `,
+    annotations: { idempotentHint: false, openWorldHint: true },
+    parameters: z.object({
+      module_id: ModuleId,
+      patch: JsonPatch,
+    }),
+    execute: async ({ module_id, patch }) =>
+      JSON.stringify(
+        await api.patch(`modules/${module_id}/secrets`, { json: patch }).json(),
+      ),
   },
 ];

@@ -65,7 +65,7 @@ describe("bindings integration", () => {
       bindings.getTool.mockResolvedValue(toolDetails);
       bindings.invokeTool.mockResolvedValue({ result: 42 });
 
-      await environment.setup({ bindings });
+      await environment.setup({ bindings, config: {}, secrets: {} });
 
       const result = await environment.execute({
         eid: 1,
@@ -109,7 +109,7 @@ describe("bindings integration", () => {
         new Error("Tool invocation failed"),
       );
 
-      await environment.setup({ bindings });
+      await environment.setup({ bindings, config: {}, secrets: {} });
 
       const result = await environment.execute({
         eid: 1,
@@ -168,7 +168,7 @@ describe("bindings integration", () => {
       bindings.discoverServices.mockResolvedValue(services);
       bindings.discoverTools.mockResolvedValue(tools);
 
-      await environment.setup({ bindings });
+      await environment.setup({ bindings, config: {}, secrets: {} });
 
       const result = await environment.execute({
         eid: 1,
@@ -201,7 +201,7 @@ describe("bindings integration", () => {
       const bindings = createBindings();
       const environment = instantiate();
 
-      await environment.setup({ bindings });
+      await environment.setup({ bindings, config: {}, secrets: {} });
 
       await environment.execute({
         eid: 1,
@@ -228,7 +228,7 @@ describe("bindings integration", () => {
       const bindings = createBindings();
       const environment = instantiate();
 
-      await environment.setup({ bindings });
+      await environment.setup({ bindings, config: {}, secrets: {} });
 
       await environment.execute({
         eid: 1,
@@ -256,7 +256,7 @@ describe("bindings integration", () => {
       const bindings = createBindings();
       const environment = instantiate();
 
-      await environment.setup({ bindings });
+      await environment.setup({ bindings, config: {}, secrets: {} });
 
       const result = await environment.execute({
         eid: 1,
@@ -277,7 +277,7 @@ describe("bindings integration", () => {
       const bindings = createBindings();
       const environment = instantiate();
 
-      await environment.setup({ bindings });
+      await environment.setup({ bindings, config: {}, secrets: {} });
 
       await environment.execute({
         eid: 100,
@@ -323,7 +323,7 @@ describe("bindings integration", () => {
           ),
       );
 
-      await environment.setup({ bindings });
+      await environment.setup({ bindings, config: {}, secrets: {} });
 
       const result = await environment.execute({
         eid: 1,
@@ -343,7 +343,7 @@ describe("bindings integration", () => {
 
       bindings.invokeTool.mockResolvedValue({ value: 1 });
 
-      await environment.setup({ bindings });
+      await environment.setup({ bindings, config: {}, secrets: {} });
 
       const result = await environment.execute({
         eid: 1,
@@ -372,7 +372,7 @@ describe("bindings integration", () => {
         new Error("Service not found: unknown"),
       );
 
-      await environment.setup({ bindings });
+      await environment.setup({ bindings, config: {}, secrets: {} });
 
       const result = await environment.execute({
         eid: 1,
@@ -397,7 +397,7 @@ describe("bindings integration", () => {
       const bindings = createBindings();
       const environment = instantiate();
 
-      await environment.setup({ bindings });
+      await environment.setup({ bindings, config: {}, secrets: {} });
 
       const result = await environment.execute({
         eid: 1,
@@ -429,7 +429,7 @@ describe("bindings integration", () => {
 
       bindings.getTool.mockResolvedValue(toolDetails);
 
-      await environment.setup({ bindings });
+      await environment.setup({ bindings, config: {}, secrets: {} });
 
       const result = await environment.execute({
         eid: 1,

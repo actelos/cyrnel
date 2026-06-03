@@ -1,4 +1,5 @@
 import type { Request, Response } from "express";
+import type { Operation } from "fast-json-patch";
 import { z } from "zod";
 import { HttpError } from "@/models/error.model";
 import {
@@ -49,6 +50,44 @@ const moduleIdSchema = z
 const enabledBodySchema = z.object({
   enabled: z.boolean({ error: "Field 'enabled' must be a boolean." }),
 });
+
+const jsonPointerSchema = z.string();
+
+const jsonPatchOperationSchema = z.union([
+  z.object({
+    op: z.literal("add"),
+    path: jsonPointerSchema,
+    value: z.unknown(),
+  }),
+  z.object({
+    op: z.literal("remove"),
+    path: jsonPointerSchema,
+  }),
+  z.object({
+    op: z.literal("replace"),
+    path: jsonPointerSchema,
+    value: z.unknown(),
+  }),
+  z.object({
+    op: z.literal("move"),
+    path: jsonPointerSchema,
+    from: jsonPointerSchema,
+  }),
+  z.object({
+    op: z.literal("copy"),
+    path: jsonPointerSchema,
+    from: jsonPointerSchema,
+  }),
+  z.object({
+    op: z.literal("test"),
+    path: jsonPointerSchema,
+    value: z.unknown(),
+  }),
+]);
+
+const jsonPatchBodySchema: z.ZodType<Operation[]> = z.array(
+  jsonPatchOperationSchema,
+);
 
 function parseOptional<T>(schema: z.ZodType<T>, raw: unknown): T | undefined {
   return raw === undefined ? undefined : parseOrHttpError(schema, raw);
@@ -120,4 +159,67 @@ export async function reloadModules(
 ): Promise<void> {
   await getModuleService(req).reload();
   res.status(200).end();
+}
+
+export async function getModuleConfiguration(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const moduleService = getModuleService(req);
+  const moduleId = parseOrHttpError(moduleIdSchema, req.params.moduleId);
+  const config = await moduleService.getConfig(moduleId);
+  res.status(200).json({ config });
+}
+
+export async function getModuleConfigurationSchema(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const moduleService = getModuleService(req);
+  const moduleId = parseOrHttpError(moduleIdSchema, req.params.moduleId);
+  const configSchema = moduleService.getConfigSchema(moduleId);
+  res.status(200).json({ configSchema });
+}
+
+export async function getModuleSecretsSchema(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const moduleService = getModuleService(req);
+  const moduleId = parseOrHttpError(moduleIdSchema, req.params.moduleId);
+  const secretsSchema = moduleService.getSecretsSchema(moduleId);
+  res.status(200).json({ secretsSchema });
+}
+
+export async function patchModuleConfiguration(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const moduleService = getModuleService(req);
+  const moduleId = parseOrHttpError(moduleIdSchema, req.params.moduleId);
+  const patch = parseOrHttpError(
+    jsonPatchBodySchema,
+    req.body,
+    "Request body must be a JSON Patch array.",
+  );
+
+  await moduleService.patchConfig({ id: moduleId, patch });
+  const config = await moduleService.getConfig(moduleId);
+  res.status(200).json({ config });
+}
+
+export async function patchModuleSecrets(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const moduleService = getModuleService(req);
+  const moduleId = parseOrHttpError(moduleIdSchema, req.params.moduleId);
+  const patch = parseOrHttpError(
+    jsonPatchBodySchema,
+    req.body,
+    "Request body must be a JSON Patch array.",
+  );
+
+  await moduleService.patchSecrets({ id: moduleId, patch });
+  res.status(200).json({ updated: true });
 }

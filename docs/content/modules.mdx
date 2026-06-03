@@ -71,6 +71,32 @@ in-flight executions; once all of them finish, MCI tears it down. This means
 a `POST /modules/:envId/enabled` with `enabled: false` returns immediately,
 but the actual teardown may happen seconds later.
 
+## Configuration and Secrets
+
+Modules can declare `configSchema` and `secretsSchema` in their manifest.
+MCI stores module configuration as plaintext JSON and module secrets as
+AES-256-GCM ciphertext using `MCI_SECRETS_KEY`.
+
+Configuration is readable and patchable:
+
+- `GET /modules/:moduleId/config/schema` returns the module's configuration
+  JSON Schema.
+- `GET /modules/:moduleId/config` returns the currently stored configuration.
+- `PATCH /modules/:moduleId/config` accepts a JSON Patch array, validates the
+  resulting object against `configSchema`, persists it, and reloads the active
+  module instance when required.
+
+Secrets are write-only:
+
+- `GET /modules/:moduleId/secrets/schema` returns the module's secrets JSON
+  Schema.
+- `PATCH /modules/:moduleId/secrets` accepts a JSON Patch array, applies it to
+  the decrypted secret document, validates against `secretsSchema`, then
+  re-encrypts and persists the result.
+
+There is no endpoint that returns plaintext module secrets. Use configuration
+for non-sensitive values only; put credentials and tokens in secrets.
+
 ## Module API
 
 | Method | Path | Notes |
@@ -79,8 +105,19 @@ but the actual teardown may happen seconds later.
 | `GET` | `/modules/:moduleId` | Single module |
 | `POST` | `/modules/:moduleId/enabled` | Toggle `{ enabled: boolean }` |
 | `POST` | `/modules/reload` | Re-scan custom modules from disk |
+| `GET` | `/modules/:moduleId/config/schema` | Module configuration schema |
+| `GET` | `/modules/:moduleId/config` | Current module configuration |
+| `PATCH` | `/modules/:moduleId/config` | Patch module configuration |
+| `GET` | `/modules/:moduleId/secrets/schema` | Module secrets schema |
+| `PATCH` | `/modules/:moduleId/secrets` | Patch encrypted module secrets |
 
 Enabling an orphaned module returns `409`.
+
+The MCP server exposes the same module management surface through:
+
+- `list_modules`, `get_module`, `set_module_enabled`, `reload_modules`
+- `get_module_config_schema`, `get_module_config`, `patch_module_config`
+- `get_module_secrets_schema`, `patch_module_secrets`
 
 A module record:
 

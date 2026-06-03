@@ -25,7 +25,7 @@ describe("typescript-ivm integration", () => {
     const environment = instantiate();
     const bindings = createBindings();
 
-    await environment.setup({ bindings });
+    await environment.setup({ bindings, config: {}, secrets: {} });
 
     const result = await environment.execute({
       eid: 100,
@@ -42,7 +42,7 @@ describe("typescript-ivm integration", () => {
     const environment = instantiate();
     const bindings = createBindings();
 
-    await environment.setup({ bindings });
+    await environment.setup({ bindings, config: {}, secrets: {} });
 
     const promise = environment.execute({
       eid: 101,
