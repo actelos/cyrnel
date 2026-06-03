@@ -17,7 +17,7 @@ import type {
   ToolDocsInput,
 } from "@mci/sdk";
 import * as tsivm from "@mci/typescript-ivm";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import jsonpatch from "fast-json-patch";
 import { z } from "zod";
 
@@ -68,6 +68,13 @@ interface RegisteredModule {
   configSchema: JSONSchema;
   secretsSchema: JSONSchema;
 }
+
+interface ValidatedSetupValues {
+  config: Record<string, unknown>;
+  secrets: Record<string, unknown>;
+}
+
+type JsonObject = Record<string, unknown>;
 
 const encryptedSecretsSchema = z.object({
   alg: z.literal("aes-256-gcm"),
@@ -367,8 +374,9 @@ export class ModuleService {
   async patchConfig(input: PatchModuleConfigInput): Promise<void> {
     const manifest = this.requireRegistered(input.id);
     const current = await this.getConfig(input.id);
+    const nullOnly = isNullOnlySchema(manifest.configSchema);
 
-    let updated: Record<string, unknown>;
+    let updated: JsonObject | null;
     try {
       const result = jsonpatch.applyPatch(
         current,
@@ -376,13 +384,20 @@ export class ModuleService {
         true,
         false,
       ).newDocument;
-      if (!result || typeof result !== "object" || Array.isArray(result)) {
+      if (result === null && nullOnly) {
+        updated = null;
+      } else if (
+        result &&
+        typeof result === "object" &&
+        !Array.isArray(result)
+      ) {
+        updated = result as JsonObject;
+      } else {
         throw new HttpError(
           400,
           "Configuration payload must be a JSON object.",
         );
       }
-      updated = result as Record<string, unknown>;
     } catch (err) {
       if (err instanceof HttpError) throw err;
       throw new HttpError(
@@ -391,29 +406,40 @@ export class ModuleService {
       );
     }
 
-    const nullOnly = isNullOnlySchema(manifest.configSchema);
-    if (!nullOnly) {
+    let payload: JsonObject | null;
+    if (nullOnly) {
+      payload = updated;
+    } else {
+      if (updated === null) {
+        throw new HttpError(
+          400,
+          "Configuration payload must be a JSON object.",
+        );
+      }
       validateJsonSchema(
+        manifest.configSchema,
+        updated,
+        `Invalid configuration for module '${input.id}'.`,
+      );
+      payload = applyJsonSchemaDefaults(
         manifest.configSchema,
         updated,
         `Invalid configuration for module '${input.id}'.`,
       );
     }
 
-    const payload = nullOnly
-      ? updated
-      : applyJsonSchemaDefaults(
-          manifest.configSchema,
-          updated,
-          `Invalid configuration for module '${input.id}'.`,
-        );
+    const storedPayload = payload === null ? sql`'null'` : payload;
 
     await db
       .insert(moduleConfigurations)
-      .values({ moduleId: input.id, payload, updatedAt: Date.now() })
+      .values({
+        moduleId: input.id,
+        payload: storedPayload,
+        updatedAt: Date.now(),
+      })
       .onConflictDoUpdate({
         target: moduleConfigurations.moduleId,
-        set: { payload, updatedAt: Date.now() },
+        set: { payload: storedPayload, updatedAt: Date.now() },
       })
       .catch(() => {
         throw new HttpError(
@@ -449,13 +475,16 @@ export class ModuleService {
       );
     }
 
-    validateJsonSchema(
-      manifest.secretsSchema,
-      updated,
-      `Invalid secrets for module '${input.id}'.`,
-    );
+    const nullOnly = isNullOnlySchema(manifest.secretsSchema);
+    if (!nullOnly) {
+      validateJsonSchema(
+        manifest.secretsSchema,
+        updated,
+        `Invalid secrets for module '${input.id}'.`,
+      );
+    }
 
-    const payload = isNullOnlySchema(manifest.secretsSchema)
+    const payload = nullOnly
       ? updated
       : applyJsonSchemaDefaults(
           manifest.secretsSchema,
@@ -605,9 +634,32 @@ export class ModuleService {
     if (!factory) return;
 
     if (factory.type === "adapter") {
-      if (!this.adapters.has(id)) return;
-      await this.deactivateAdapter(id);
-      await this.activateAdapter(id);
+      const previous = this.adapters.get(id);
+      if (!previous) return;
+
+      const setupCtx = await this.buildSetupContext(id);
+      const next = factory.instantiate() as AdapterModule;
+      await next.setup(setupCtx);
+      this.adapters.set(id, next);
+      try {
+        await this.lifecycle.hydrateAdapter(id);
+      } catch (err) {
+        this.adapters.set(id, previous);
+        try {
+          await next.teardown();
+        } catch (teardownErr) {
+          logger.warn(
+            { err: teardownErr, adapterId: id },
+            "Adapter teardown failed",
+          );
+        }
+        throw err;
+      }
+      try {
+        await previous.teardown();
+      } catch (err) {
+        logger.warn({ err, adapterId: id }, "Adapter teardown failed");
+      }
       return;
     }
 
@@ -631,10 +683,7 @@ export class ModuleService {
   }
 
   private async buildSetupContext(id: string): Promise<ModuleSetupContext> {
-    const [config, secrets] = await Promise.all([
-      this.getConfig(id),
-      this.loadSecrets(id),
-    ]);
+    const { config, secrets } = await this.assertConfigAndSecretsValid(id);
     return { config, secrets };
   }
 
@@ -657,26 +706,34 @@ export class ModuleService {
     return decryptSecrets(parsed.data);
   }
 
-  private async assertConfigAndSecretsValid(id: string): Promise<void> {
+  private async assertConfigAndSecretsValid(
+    id: string,
+  ): Promise<ValidatedSetupValues> {
     const manifest = this.requireRegistered(id);
     const [config, secrets] = await Promise.all([
       this.getConfig(id),
       this.loadSecrets(id),
     ]);
-    if (!isNullOnlySchema(manifest.configSchema)) {
-      applyJsonSchemaDefaults(
-        manifest.configSchema,
-        config,
-        `Invalid configuration for module '${id}'.`,
-      );
-    }
-    if (!isNullOnlySchema(manifest.secretsSchema)) {
-      applyJsonSchemaDefaults(
-        manifest.secretsSchema,
-        secrets,
-        `Invalid secrets for module '${id}'.`,
-      );
-    }
+    const validatedConfig = isNullOnlySchema(manifest.configSchema)
+      ? config
+      : applyJsonSchemaDefaults(
+          manifest.configSchema,
+          config,
+          `Invalid configuration for module '${id}'.`,
+        );
+
+    const validatedSecrets = isNullOnlySchema(manifest.secretsSchema)
+      ? secrets
+      : applyJsonSchemaDefaults(
+          manifest.secretsSchema,
+          secrets,
+          `Invalid secrets for module '${id}'.`,
+        );
+
+    return {
+      config: validatedConfig,
+      secrets: validatedSecrets,
+    };
   }
 
   private requireRegistered(id: string): RegisteredModule {

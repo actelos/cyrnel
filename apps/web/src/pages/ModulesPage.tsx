@@ -1,5 +1,5 @@
 import { RefreshCw, RotateCcw } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { z } from "zod";
 import ConfigEditor from "@/components/ConfigEditor";
@@ -71,6 +71,8 @@ export default function ModulesPage() {
     null,
   );
   const [isSavingSecrets, setIsSavingSecrets] = useState(false);
+  const lastSeededConfigRef = useRef<string | null>(null);
+  const lastSeededConfigModuleRef = useRef<string | null>(null);
 
   const normalizedQuery = queryFilter.trim();
 
@@ -162,10 +164,18 @@ export default function ModulesPage() {
       return;
     }
 
-    setConfigDraftError(null);
     const normalized = JSON.stringify(moduleConfig?.config ?? {}, null, 2);
-    setConfigDraft(normalized);
-  }, [selectedModuleId, moduleConfig?.config]);
+    const moduleChanged =
+      lastSeededConfigModuleRef.current !== selectedModuleId;
+    const editorPristine = configDraft === lastSeededConfigRef.current;
+
+    if (moduleChanged || editorPristine) {
+      setConfigDraftError(null);
+      setConfigDraft(normalized);
+      lastSeededConfigRef.current = normalized;
+      lastSeededConfigModuleRef.current = selectedModuleId;
+    }
+  }, [selectedModuleId, moduleConfig?.config, configDraft]);
 
   useEffect(() => {
     if (!selectedModuleId) {
@@ -279,15 +289,21 @@ export default function ModulesPage() {
 
     setIsSavingConfig(true);
     try {
-      await apiFetch(buildUrl(`/modules/${moduleId}/config`), {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(patch),
-      });
+      const saved = await apiFetchJson(
+        buildUrl(`/modules/${moduleId}/config`),
+        moduleConfigSchema,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patch),
+        },
+      );
+      const normalized = JSON.stringify(saved.config ?? {}, null, 2);
+      setConfigDraft(normalized);
+      lastSeededConfigRef.current = normalized;
+      lastSeededConfigModuleRef.current = moduleId;
 
-      if (configUrl) {
-        await mutate(configUrl);
-      }
+      if (configUrl) await mutate(configUrl, saved, { revalidate: true });
       await mutate(modulesUrl);
     } catch (error) {
       setActionError(errorMessageFrom(error, "Unable to save configuration."));
@@ -322,15 +338,7 @@ export default function ModulesPage() {
         return;
       }
 
-      for (const [key, value] of Object.entries(
-        desiredSecrets as Record<string, unknown>,
-      )) {
-        patch.push({
-          op: "add",
-          path: `/${escapeJsonPointer(key)}`,
-          value,
-        });
-      }
+      patch.push({ op: "replace", path: "", value: desiredSecrets });
     }
 
     setIsSavingSecrets(true);

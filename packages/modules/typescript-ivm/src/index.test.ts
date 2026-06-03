@@ -4,9 +4,10 @@ import { describe, expect, it, vi } from "vitest";
 import { instantiate, manifest, toBuffer } from "./index";
 
 describe("typescript-ivm manifest", () => {
-  it("declares an empty object configSchema", () => {
+  it("declares the supported configSchema", () => {
     expect(manifest.configSchema).toMatchObject({
       type: "object",
+      properties: { poolSize: { type: "integer", minimum: 1 } },
       additionalProperties: false,
     });
   });

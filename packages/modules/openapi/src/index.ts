@@ -35,9 +35,19 @@ class OpenapiAdapter implements AdapterModule {
   }
 }
 
-const EMPTY_OBJECT_SCHEMA: JSONSchema = {
+const CONFIG_SCHEMA: JSONSchema = {
   type: "object",
-  properties: {},
+  properties: {
+    baseUrl: { type: "string" },
+  },
+  additionalProperties: false,
+};
+
+const SECRETS_SCHEMA: JSONSchema = {
+  type: "object",
+  properties: {
+    apiKey: { type: "string" },
+  },
   additionalProperties: false,
 };
 
@@ -46,8 +56,8 @@ export const manifest = {
   version: "1.0.0",
   description: "Adapter for interacting with OpenAPI services",
   type: "adapter" as const,
-  configSchema: EMPTY_OBJECT_SCHEMA,
-  secretsSchema: EMPTY_OBJECT_SCHEMA,
+  configSchema: CONFIG_SCHEMA,
+  secretsSchema: SECRETS_SCHEMA,
 };
 
 export function instantiate(): AdapterModule {

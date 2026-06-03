@@ -445,13 +445,29 @@ describe("module.controller", () => {
       expect(res.json).toHaveBeenCalledWith({ config: { foo: "bar" } });
     });
 
+    it("accepts a root JSON Pointer path", async () => {
+      const res = makeRes();
+      const patch = [{ op: "replace", path: "", value: { foo: "bar" } }];
+      moduleService.patchConfig.mockResolvedValue(undefined);
+      moduleService.getConfig.mockResolvedValue({ foo: "bar" });
+
+      await patchModuleConfiguration(
+        makeReq({ params: { moduleId: "m1" }, body: patch }),
+        cast(res),
+      );
+
+      expect(moduleService.patchConfig).toHaveBeenCalledWith({
+        id: "m1",
+        patch,
+      });
+    });
+
     it.each([
       [{ body: {}, why: "body not an array" }],
       [{ body: [{ op: "unknown", path: "/x" }], why: "unknown op" }],
       [{ body: [{ op: "add", value: 1 }], why: "add missing path" }],
       [{ body: [{ op: "remove" }], why: "remove missing path" }],
       [{ body: [{ op: "move", path: "/x" }], why: "move missing from" }],
-      [{ body: [{ op: "add", path: "", value: 1 }], why: "empty path" }],
     ])("rejects $why", async ({ body }) => {
       const res = makeRes();
       await expect(
@@ -480,6 +496,22 @@ describe("module.controller", () => {
       });
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith({ updated: true });
+    });
+
+    it("accepts root JSON Pointer paths for copy sources", async () => {
+      const res = makeRes();
+      const patch = [{ op: "copy", from: "", path: "/tokenCopy" }];
+      moduleService.patchSecrets.mockResolvedValue(undefined);
+
+      await patchModuleSecrets(
+        makeReq({ params: { moduleId: "m1" }, body: patch }),
+        cast(res),
+      );
+
+      expect(moduleService.patchSecrets).toHaveBeenCalledWith({
+        id: "m1",
+        patch,
+      });
     });
 
     it("does not return the secret contents", async () => {

@@ -32,6 +32,8 @@ const ORIGINAL_SECRETS_KEY = process.env.MCI_SECRETS_KEY;
 const { adapterInstances, envInstances, FakeAdapter, FakeEnvironment } =
   vi.hoisted(() => {
     class FakeAdapter implements AdapterModule {
+      static setupImpl: (ctx: object) => Promise<void> = async () => {};
+
       readonly setupCalls: object[] = [];
       readonly teardownCalls: number[] = [];
       readonly hydrateCalls: ServiceState[] = [];
@@ -50,6 +52,7 @@ const { adapterInstances, envInstances, FakeAdapter, FakeEnvironment } =
 
       async setup(ctx: object): Promise<void> {
         this.setupCalls.push(ctx);
+        await FakeAdapter.setupImpl(ctx);
       }
       async teardown(): Promise<void> {
         this.teardownCalls.push(Date.now());
@@ -118,7 +121,10 @@ vi.mock("@mci/openapi", () => ({
     type: "adapter" as const,
     configSchema: {
       type: "object",
-      properties: { baseUrl: { type: "string" } },
+      properties: {
+        baseUrl: { type: "string" },
+        timeout: { type: "number", default: 30 },
+      },
       additionalProperties: false,
     },
     secretsSchema: {
@@ -1078,7 +1084,7 @@ describe("ModuleService", () => {
   // config / secrets
   // ----------------------------------------------------------------------
   describe("config & secrets", () => {
-    it("passes empty config and secrets to setup by default", async () => {
+    it("passes config and secrets to setup by default", async () => {
       const service = new ModuleService(makeBindings(), makeLifecycle());
       await service.initialize(MISSING_PATH);
 
@@ -1093,6 +1099,16 @@ describe("ModuleService", () => {
         config: {},
         secrets: {},
         bindings: expect.any(Object),
+      });
+    });
+
+    it("passes schema-defaulted config to adapter setup", async () => {
+      const service = new ModuleService(makeBindings(), makeLifecycle());
+      await service.initialize(MISSING_PATH);
+
+      const adapter = unwrap(adapterInstances[0], "adapter");
+      expect(adapter.setupCalls[0]).toMatchObject({
+        config: { timeout: 30 },
       });
     });
 
@@ -1136,6 +1152,7 @@ describe("ModuleService", () => {
 
       expect(await service.getConfig("openapi")).toEqual({
         baseUrl: "https://api.example",
+        timeout: 30,
       });
     });
 
@@ -1163,8 +1180,69 @@ describe("ModuleService", () => {
       ).rejects.toBeInstanceOf(HttpError);
     });
 
+    it("patchConfig persists root null for null-only config schemas", async () => {
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mci-mod-"));
+      try {
+        const moduleDir = path.join(dir, "null-config");
+        await fs.mkdir(moduleDir);
+        await fs.writeFile(
+          path.join(moduleDir, "module.json"),
+          JSON.stringify({
+            name: "null-config",
+            description: "null config",
+            type: "adapter",
+            main: "index.mjs",
+            configSchema: { type: "null" },
+          }),
+        );
+        await fs.writeFile(
+          path.join(moduleDir, "index.mjs"),
+          `export function instantiate() {
+             return {
+               async setup() {},
+               async teardown() {},
+               async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+               async hydrateService() {},
+               async dehydrateService() {},
+               async invoke() { return null; },
+             };
+           }`,
+        );
+
+        const service = new ModuleService(makeBindings(), makeLifecycle());
+        await service.initialize(dir);
+
+        await expect(
+          service.patchConfig({
+            id: "null-config",
+            patch: [{ op: "replace", path: "", value: null }],
+          }),
+        ).resolves.toBeUndefined();
+
+        const stored = await db.run(
+          sql`SELECT payload FROM module_configurations WHERE module_id = 'null-config'`,
+        );
+        expect(stored.rows?.[0]?.[0]).toBe("null");
+      } finally {
+        await fs.rm(dir, { recursive: true, force: true });
+      }
+    });
+
     it("patchConfig reloads an active adapter (teardown + new setup with new context)", async () => {
-      const service = new ModuleService(makeBindings(), makeLifecycle());
+      const state: ServiceState = {
+        id: "alpha",
+        adapterDomain: {},
+        tools: {},
+        config: {},
+        secrets: {},
+      };
+      let service!: InstanceType<typeof ModuleService>;
+      const lifecycle = {
+        hydrateAdapter: vi.fn(async (id: string) => {
+          await service.hydrateService(id, state);
+        }),
+      };
+      service = new ModuleService(makeBindings(), lifecycle);
       await service.initialize(MISSING_PATH);
 
       const firstAdapter = unwrap(adapterInstances[0], "adapter");
@@ -1174,6 +1252,7 @@ describe("ModuleService", () => {
       });
 
       expect(firstAdapter.teardownCalls.length).toBeGreaterThan(0);
+      expect(firstAdapter.hydrateCalls).toHaveLength(1);
       // A second instance should have been created with the new config.
       expect(adapterInstances).toHaveLength(2);
       const secondAdapter = unwrap(
@@ -1181,9 +1260,40 @@ describe("ModuleService", () => {
         "adapter (post-reload)",
       );
       expect(secondAdapter.setupCalls[0]).toMatchObject({
-        config: { baseUrl: "https://x" },
+        config: { baseUrl: "https://x", timeout: 30 },
         secrets: {},
       });
+      expect(secondAdapter.hydrateCalls).toContainEqual(state);
+    });
+
+    it("patchConfig keeps the old adapter active when replacement setup fails", async () => {
+      const service = new ModuleService(makeBindings(), makeLifecycle());
+      await service.initialize(MISSING_PATH);
+
+      const firstAdapter = unwrap(adapterInstances[0], "adapter");
+      const originalSetupImpl = FakeAdapter.setupImpl;
+      FakeAdapter.setupImpl = async () => {
+        throw new Error("replacement setup failed");
+      };
+
+      try {
+        await expect(
+          service.patchConfig({
+            id: "openapi",
+            patch: [{ op: "add", path: "/baseUrl", value: "https://x" }],
+          }),
+        ).rejects.toThrow("replacement setup failed");
+      } finally {
+        FakeAdapter.setupImpl = originalSetupImpl;
+      }
+
+      expect(firstAdapter.teardownCalls).toHaveLength(0);
+      await expect(
+        service.generateDefinition({
+          adapter: "openapi",
+          definition: "{}",
+        }),
+      ).resolves.toMatchObject({ name: "fake" });
     });
 
     it("patchConfig does NOT reload when adapter is disabled", async () => {
@@ -1205,6 +1315,7 @@ describe("ModuleService", () => {
       expect(adapterInstances).toHaveLength(0);
       expect(await service.getConfig("openapi")).toEqual({
         baseUrl: "https://x",
+        timeout: 30,
       });
     });
 
@@ -1245,8 +1356,7 @@ describe("ModuleService", () => {
       const stored = await db.run(
         sql`SELECT payload FROM module_secrets WHERE module_id = 'openapi'`,
       );
-      const rows = stored.rows as unknown as { payload: string }[];
-      const payload = rows[0]?.payload ?? "";
+      const payload = String(stored.rows?.[0]?.[0] ?? "");
       expect(payload).not.toContain("sekret");
 
       // Reload should have provided the new secrets to the new adapter.

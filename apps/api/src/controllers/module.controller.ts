@@ -51,34 +51,36 @@ const enabledBodySchema = z.object({
   enabled: z.boolean({ error: "Field 'enabled' must be a boolean." }),
 });
 
+const jsonPointerSchema = z.string();
+
 const jsonPatchOperationSchema = z.union([
   z.object({
     op: z.literal("add"),
-    path: z.string().min(1),
+    path: jsonPointerSchema,
     value: z.unknown(),
   }),
   z.object({
     op: z.literal("remove"),
-    path: z.string().min(1),
+    path: jsonPointerSchema,
   }),
   z.object({
     op: z.literal("replace"),
-    path: z.string().min(1),
+    path: jsonPointerSchema,
     value: z.unknown(),
   }),
   z.object({
     op: z.literal("move"),
-    path: z.string().min(1),
-    from: z.string().min(1),
+    path: jsonPointerSchema,
+    from: jsonPointerSchema,
   }),
   z.object({
     op: z.literal("copy"),
-    path: z.string().min(1),
-    from: z.string().min(1),
+    path: jsonPointerSchema,
+    from: jsonPointerSchema,
   }),
   z.object({
     op: z.literal("test"),
-    path: z.string().min(1),
+    path: jsonPointerSchema,
     value: z.unknown(),
   }),
 ]);

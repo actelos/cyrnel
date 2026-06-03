@@ -96,7 +96,7 @@ export const moduleConfigurations = sqliteTable("module_configurations", {
     .primaryKey()
     .references(() => modules.id, { onDelete: "cascade" }),
   payload: text("payload", { mode: "json" })
-    .$type<Record<string, unknown>>()
+    .$type<Record<string, unknown> | null>()
     .notNull()
     .default({}),
   updatedAt: integer("updated_at").notNull(),

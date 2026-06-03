@@ -3,16 +3,18 @@ import { describe, expect, it } from "vitest";
 import { instantiate, manifest } from "@/index";
 
 describe("openapi module manifest", () => {
-  it("declares an empty object configSchema", () => {
+  it("declares the supported configSchema", () => {
     expect(manifest.configSchema).toMatchObject({
       type: "object",
+      properties: { baseUrl: { type: "string" } },
       additionalProperties: false,
     });
   });
 
-  it("declares an empty object secretsSchema", () => {
+  it("declares the supported secretsSchema", () => {
     expect(manifest.secretsSchema).toMatchObject({
       type: "object",
+      properties: { apiKey: { type: "string" } },
       additionalProperties: false,
     });
   });

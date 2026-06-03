@@ -615,12 +615,20 @@ const EMPTY_OBJECT_SCHEMA: JSONSchema = {
   additionalProperties: false,
 };
 
+const CONFIG_SCHEMA: JSONSchema = {
+  type: "object",
+  properties: {
+    poolSize: { type: "integer", minimum: 1 },
+  },
+  additionalProperties: false,
+};
+
 export const manifest = {
   name: "typescript-ivm",
   version: "1.0.0",
   description: "TypeScript environment powered by isolated-vm",
   type: "environment" as const,
-  configSchema: EMPTY_OBJECT_SCHEMA,
+  configSchema: CONFIG_SCHEMA,
   secretsSchema: EMPTY_OBJECT_SCHEMA,
 };
 
