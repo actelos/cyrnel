@@ -4,6 +4,14 @@ import { describe, expect, it, vi } from "vitest";
 import { instantiate, manifest, toBuffer } from "./index";
 
 describe("typescript-ivm manifest", () => {
+  it("uses id as the stable identifier and name as the display label", () => {
+    expect(manifest).toMatchObject({
+      id: "typescript-ivm",
+      name: "Typescript Isolated VM",
+      type: "environment",
+    });
+  });
+
   it("declares the supported configSchema", () => {
     expect(manifest.configSchema).toMatchObject({
       type: "object",

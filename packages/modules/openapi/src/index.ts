@@ -52,8 +52,8 @@ const SECRETS_SCHEMA: JSONSchema = {
 };
 
 export const manifest = {
-  name: "openapi",
-  version: "1.0.0",
+  id: "openapi",
+  name: "OpenAPI Adapter",
   description: "Adapter for interacting with OpenAPI services",
   type: "adapter" as const,
   configSchema: CONFIG_SCHEMA,

@@ -3,6 +3,14 @@ import { describe, expect, it } from "vitest";
 import { instantiate, manifest } from "@/index";
 
 describe("openapi module manifest", () => {
+  it("uses id as the stable identifier and name as the display label", () => {
+    expect(manifest).toMatchObject({
+      id: "openapi",
+      name: "OpenAPI Adapter",
+      type: "adapter",
+    });
+  });
+
   it("declares the supported configSchema", () => {
     expect(manifest.configSchema).toMatchObject({
       type: "object",
