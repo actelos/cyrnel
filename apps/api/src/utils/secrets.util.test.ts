@@ -11,17 +11,17 @@ import {
 const VALID_KEY = crypto.randomBytes(32).toString("base64");
 
 describe("secrets.util", () => {
-  const originalKey = process.env.MCI_SECRETS_KEY;
+  const originalKey = process.env.CYRNEL_SECRETS_KEY;
 
   beforeEach(() => {
-    process.env.MCI_SECRETS_KEY = VALID_KEY;
+    process.env.CYRNEL_SECRETS_KEY = VALID_KEY;
   });
 
   afterEach(() => {
     if (originalKey === undefined) {
-      delete process.env.MCI_SECRETS_KEY;
+      delete process.env.CYRNEL_SECRETS_KEY;
     } else {
-      process.env.MCI_SECRETS_KEY = originalKey;
+      process.env.CYRNEL_SECRETS_KEY = originalKey;
     }
   });
 
@@ -46,7 +46,7 @@ describe("secrets.util", () => {
     });
 
     it("throws HttpError(500) when the secrets key is missing", () => {
-      delete process.env.MCI_SECRETS_KEY;
+      delete process.env.CYRNEL_SECRETS_KEY;
 
       try {
         encryptSecrets({ token: "abc" });
@@ -59,7 +59,7 @@ describe("secrets.util", () => {
     });
 
     it("throws HttpError(500) when the key is not 32 bytes", () => {
-      process.env.MCI_SECRETS_KEY = Buffer.alloc(16).toString("base64");
+      process.env.CYRNEL_SECRETS_KEY = Buffer.alloc(16).toString("base64");
 
       try {
         encryptSecrets({ token: "abc" });
@@ -180,7 +180,9 @@ describe("secrets.util", () => {
 
     it("throws HttpError(500) when the key has been rotated", () => {
       const payload = encryptSecrets({ token: "abc" });
-      process.env.MCI_SECRETS_KEY = crypto.randomBytes(32).toString("base64");
+      process.env.CYRNEL_SECRETS_KEY = crypto
+        .randomBytes(32)
+        .toString("base64");
 
       expect(() => decryptSecrets(payload)).toThrow(HttpError);
     });

@@ -5,19 +5,19 @@ import { apiKeyMiddleware } from "@/middleware/auth.middleware";
 import { HttpError } from "@/models/error.model";
 
 describe("apiKeyMiddleware", () => {
-  const originalApiKey = process.env.MCI_API_KEY;
+  const originalApiKey = process.env.CYRNEL_API_KEY;
 
   afterEach(() => {
     if (originalApiKey === undefined) {
-      delete process.env.MCI_API_KEY;
+      delete process.env.CYRNEL_API_KEY;
       return;
     }
 
-    process.env.MCI_API_KEY = originalApiKey;
+    process.env.CYRNEL_API_KEY = originalApiKey;
   });
 
   it("passes request with matching bearer token", () => {
-    process.env.MCI_API_KEY = "secret-key";
+    process.env.CYRNEL_API_KEY = "secret-key";
 
     const next = vi.fn();
     const req = {
@@ -31,7 +31,7 @@ describe("apiKeyMiddleware", () => {
   });
 
   it("rejects request when token is missing", () => {
-    process.env.MCI_API_KEY = "secret-key";
+    process.env.CYRNEL_API_KEY = "secret-key";
 
     const next = vi.fn();
     const req = {
@@ -49,7 +49,7 @@ describe("apiKeyMiddleware", () => {
   });
 
   it("rejects request when token does not match", () => {
-    process.env.MCI_API_KEY = "secret-key";
+    process.env.CYRNEL_API_KEY = "secret-key";
 
     const next = vi.fn();
     const req = {
@@ -67,7 +67,7 @@ describe("apiKeyMiddleware", () => {
   });
 
   it("passes request when api key is not configured", () => {
-    delete process.env.MCI_API_KEY;
+    delete process.env.CYRNEL_API_KEY;
 
     const next = vi.fn();
     const req = {

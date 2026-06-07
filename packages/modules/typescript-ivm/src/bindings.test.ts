@@ -9,7 +9,7 @@ import type {
   ListServiceResult,
   ListToolInput,
   ListToolResult,
-} from "@mci/sdk";
+} from "@cyrnel/sdk";
 import { describe, expect, it, vi } from "vitest";
 
 import { instantiate } from "./index";
@@ -128,8 +128,8 @@ describe("bindings", () => {
     });
   });
 
-  describe("mci.output", () => {
-    it("emits output when mci.output is called", async () => {
+  describe("cyrnel.output", () => {
+    it("emits output when cyrnel.output is called", async () => {
       const { bindings, emitOutput } = createBindings();
       const environment = instantiate();
 
@@ -137,7 +137,7 @@ describe("bindings", () => {
 
       await environment.execute({
         eid: 1,
-        code: 'mci.output({ result: "success", count: 42 });',
+        code: 'cyrnel.output({ result: "success", count: 42 });',
         options: { timeoutMs: 30_000 },
       } satisfies ExecutionInput);
 
@@ -155,7 +155,7 @@ describe("bindings", () => {
 
       await environment.execute({
         eid: 99,
-        code: 'mci.output({ data: "test" });',
+        code: 'cyrnel.output({ data: "test" });',
         options: { timeoutMs: 30_000 },
       } satisfies ExecutionInput);
 
@@ -163,7 +163,7 @@ describe("bindings", () => {
     });
   });
 
-  describe("mci.services", () => {
+  describe("cyrnel.services", () => {
     it("calls getService with correct input", async () => {
       const { bindings, getService } = createBindings();
       const environment = instantiate();
@@ -182,7 +182,7 @@ describe("bindings", () => {
 
       await environment.execute({
         eid: 1,
-        code: "const def = await mci.services.testService.getDefinition(); console.log(JSON.stringify(def));",
+        code: "const def = await cyrnel.services.testService.getDefinition(); console.log(JSON.stringify(def));",
       } satisfies ExecutionInput);
 
       expect(getService).toHaveBeenCalledWith("testService");
@@ -206,7 +206,7 @@ describe("bindings", () => {
 
       await environment.execute({
         eid: 1,
-        code: "const def = await mci.services.myService.tools.testTool.getDefinition(); console.log(JSON.stringify(def));",
+        code: "const def = await cyrnel.services.myService.tools.testTool.getDefinition(); console.log(JSON.stringify(def));",
       } satisfies ExecutionInput);
 
       expect(getTool).toHaveBeenCalledWith({
@@ -225,7 +225,7 @@ describe("bindings", () => {
 
       await environment.execute({
         eid: 1,
-        code: "const result = await mci.services.calc.tools.add.invoke({ a: 1, b: 2 }); console.log(JSON.stringify(result));",
+        code: "const result = await cyrnel.services.calc.tools.add.invoke({ a: 1, b: 2 }); console.log(JSON.stringify(result));",
       } satisfies ExecutionInput);
 
       expect(invokeTool).toHaveBeenCalledWith({
@@ -243,7 +243,7 @@ describe("bindings", () => {
 
       const result = await environment.execute({
         eid: 1,
-        code: 'try { mci.services[Symbol("test")]; } catch(e) { console.error(e.message); }',
+        code: 'try { cyrnel.services[Symbol("test")]; } catch(e) { console.error(e.message); }',
       } satisfies ExecutionInput);
 
       expect(result).toBe("success");
@@ -257,14 +257,14 @@ describe("bindings", () => {
 
       const result = await environment.execute({
         eid: 1,
-        code: 'try { mci.services.test.tools[Symbol("tool")]; } catch(e) { console.error(e.message); }',
+        code: 'try { cyrnel.services.test.tools[Symbol("tool")]; } catch(e) { console.error(e.message); }',
       } satisfies ExecutionInput);
 
       expect(result).toBe("success");
     });
   });
 
-  describe("mci.discoverTools", () => {
+  describe("cyrnel.discoverTools", () => {
     it("calls discoverTools with correct input", async () => {
       const { bindings, discoverTools } = createBindings();
       const environment = instantiate();
@@ -294,7 +294,7 @@ describe("bindings", () => {
 
       await environment.execute({
         eid: 1,
-        code: 'const tools = await mci.discoverTools({ query: "math", limit: 10 }); console.log(JSON.stringify(tools));',
+        code: 'const tools = await cyrnel.discoverTools({ query: "math", limit: 10 }); console.log(JSON.stringify(tools));',
       } satisfies ExecutionInput);
 
       expect(discoverTools).toHaveBeenCalledWith({
@@ -313,7 +313,7 @@ describe("bindings", () => {
 
       await environment.execute({
         eid: 1,
-        code: 'await mci.discoverTools({ query: "test" });',
+        code: 'await cyrnel.discoverTools({ query: "test" });',
       } satisfies ExecutionInput);
 
       expect(discoverTools).toHaveBeenCalledWith({
@@ -331,7 +331,7 @@ describe("bindings", () => {
 
       await environment.execute({
         eid: 1,
-        code: 'await mci.discoverTools({ query: "test", enabled: true });',
+        code: 'await cyrnel.discoverTools({ query: "test", enabled: true });',
       } satisfies ExecutionInput);
 
       expect(discoverTools).toHaveBeenCalledWith({
@@ -341,7 +341,7 @@ describe("bindings", () => {
     });
   });
 
-  describe("mci.discoverServices", () => {
+  describe("cyrnel.discoverServices", () => {
     it("calls discoverServices with correct input", async () => {
       const { bindings, discoverServices } = createBindings();
       const environment = instantiate();
@@ -367,7 +367,7 @@ describe("bindings", () => {
 
       await environment.execute({
         eid: 1,
-        code: 'const services = await mci.discoverServices({ query: "api", limit: 5 }); console.log(JSON.stringify(services));',
+        code: 'const services = await cyrnel.discoverServices({ query: "api", limit: 5 }); console.log(JSON.stringify(services));',
       } satisfies ExecutionInput);
 
       expect(discoverServices).toHaveBeenCalledWith({
@@ -386,7 +386,7 @@ describe("bindings", () => {
 
       await environment.execute({
         eid: 1,
-        code: 'await mci.discoverServices({ query: "test", enabled: false });',
+        code: 'await cyrnel.discoverServices({ query: "test", enabled: false });',
       } satisfies ExecutionInput);
 
       expect(discoverServices).toHaveBeenCalledWith({
@@ -437,7 +437,7 @@ describe("bindings", () => {
         eid: 42,
         code: `
           console.log("test");
-          mci.output({ data: "result" });
+          cyrnel.output({ data: "result" });
           console.log("done");
         `,
         options: { timeoutMs: 30_000 },
@@ -455,8 +455,8 @@ describe("bindings", () => {
     });
   });
 
-  describe("mci global immutability", () => {
-    it("prevents modification of mci object", async () => {
+  describe("cyrnel global immutability", () => {
+    it("prevents modification of cyrnel object", async () => {
       const { bindings } = createBindings();
       const environment = instantiate();
 
@@ -466,7 +466,7 @@ describe("bindings", () => {
         eid: 1,
         code: `
           try {
-            mci.newProperty = "test";
+            cyrnel.newProperty = "test";
             console.log("FAIL: Should not allow modification");
           } catch(e) {
             console.log("PASS: Modification prevented");
@@ -478,7 +478,7 @@ describe("bindings", () => {
       expect(result).toBe("success");
     });
 
-    it("prevents reassignment of mci", async () => {
+    it("prevents reassignment of cyrnel", async () => {
       const { bindings } = createBindings();
       const environment = instantiate();
 
@@ -488,7 +488,7 @@ describe("bindings", () => {
         eid: 1,
         code: `
           try {
-            mci = {};
+            cyrnel = {};
             console.log("FAIL: Should not allow reassignment");
           } catch(e) {
             console.log("PASS: Reassignment prevented");
@@ -500,7 +500,7 @@ describe("bindings", () => {
       expect(result).toBe("success");
     });
 
-    it("makes mci enumerable", async () => {
+    it("makes cyrnel enumerable", async () => {
       const { bindings, emitStdout } = createBindings();
       const environment = instantiate();
 
@@ -508,7 +508,7 @@ describe("bindings", () => {
 
       await environment.execute({
         eid: 1,
-        code: 'console.log("mci" in globalThis);',
+        code: 'console.log("cyrnel" in globalThis);',
         options: { timeoutMs: 30_000 },
       } satisfies ExecutionInput);
 

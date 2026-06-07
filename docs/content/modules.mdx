@@ -3,14 +3,14 @@ title: "Modules"
 description: "Runtime modules — adapters and environments"
 ---
 
-MCI coordinates two kinds of modules:
+Cyrnel coordinates two kinds of modules:
 
 - **[Adapter modules](/content/modules/adapters)** translate environment
   invocations into calls to end services.
 - **[Environment modules](/content/modules/environments)** execute the code
   clients submit.
 
-Both implement the base `Module` interface from `@mci/sdk` (`setup`,
+Both implement the base `Module` interface from `@cyrnel/sdk` (`setup`,
 `teardown`); each adds its own contract on top.
 
 ## The Module Registry
@@ -21,7 +21,7 @@ sources:
 1. **Built-in modules**, shipped as workspace packages. The current set:
    - `openapi` — adapter, in `packages/modules/openapi`
    - `typescript-ivm` — environment, in `packages/modules/typescript-ivm`
-2. **Custom modules**, loaded from `$MCI_DATA_DIR/modules/<name>/`. Each
+2. **Custom modules**, loaded from `$CYRNEL_DATA_DIR/modules/<name>/`. Each
    directory must contain a `module.json`:
 
    ```json
@@ -48,14 +48,14 @@ during reconciliation:
 - **Restore** — an orphaned row whose module is registered again. Clear
   `orphaned: false`.
 
-`POST /modules/reload` re-scans `$MCI_DATA_DIR/modules/` and reruns
+`POST /modules/reload` re-scans `$CYRNEL_DATA_DIR/modules/` and reruns
 reconciliation. Use it after dropping a new custom module into the directory.
 
 ## Activation
 
 Activation = "this module is now ready to take work". It is per-module-type:
 
-- **Adapters** activate eagerly. On startup MCI activates every adapter row
+- **Adapters** activate eagerly. On startup cyrnel activates every adapter row
   with `enabled = true, orphaned = false`, runs `setup({})`, then hydrates
   every enabled service that targets it.
 - **Environments** activate one-at-a-time. Only the environment whose row is
@@ -67,15 +67,15 @@ Activation = "this module is now ready to take work". It is per-module-type:
 When the active environment is replaced or disabled, it doesn't disappear —
 it becomes **draining**. New executions go to the newly-active environment
 (or fail with `503` if none). The draining environment keeps running its
-in-flight executions; once all of them finish, MCI tears it down. This means
+in-flight executions; once all of them finish, cyrnel tears it down. This means
 a `POST /modules/:envId/enabled` with `enabled: false` returns immediately,
 but the actual teardown may happen seconds later.
 
 ## Configuration and Secrets
 
 Modules can declare `configSchema` and `secretsSchema` in their manifest.
-MCI stores module configuration as plaintext JSON and module secrets as
-AES-256-GCM ciphertext using `MCI_SECRETS_KEY`.
+Cyrnel stores module configuration as plaintext JSON and module secrets as
+AES-256-GCM ciphertext using `CYRNEL_SECRETS_KEY`.
 
 Configuration is readable and patchable:
 

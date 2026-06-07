@@ -1,4 +1,8 @@
-import type { JSONSchema, ServiceDefinition, ToolDefinition } from "@mci/sdk";
+import type {
+  JSONSchema,
+  ServiceDefinition,
+  ToolDefinition,
+} from "@cyrnel/sdk";
 import type { IJsonSchema, OpenAPIV3_1 } from "openapi-types";
 import { parse as parseYaml } from "yaml";
 

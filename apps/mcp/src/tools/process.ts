@@ -74,7 +74,7 @@ export const processTools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
     description: `
     Create and run a new process from TypeScript code, returning its pid.
 
-    A process encapsulates runnable code executed by the MCI environment module.
+    A process encapsulates runnable code executed by the cyrnel environment module.
     If \`block\` is true, the API waits until the process returns to the
     \`idle\` state before responding.
 

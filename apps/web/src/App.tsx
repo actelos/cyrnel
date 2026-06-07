@@ -29,12 +29,12 @@ function App() {
   const isServicesRoute = location.pathname === "/services";
   const isModulesRoute = location.pathname === "/modules";
 
-  const mciApiUrl =
-    import.meta.env.VITE_MCI_API_URL ??
-    "Configure VITE_MCI_API_URL to expose the API URL here.";
-  const mciApiKey =
-    import.meta.env.VITE_MCI_API_KEY ??
-    "Configure VITE_MCI_API_KEY to expose your key here.";
+  const cyrnelApiUrl =
+    import.meta.env.VITE_CYRNEL_API_URL ??
+    "Configure VITE_CYRNEL_API_URL to expose the API URL here.";
+  const cyrnelApiKey =
+    import.meta.env.VITE_CYRNEL_API_KEY ??
+    "Configure VITE_CYRNEL_API_KEY to expose your key here.";
 
   async function handleCopy(
     value: string,
@@ -158,14 +158,16 @@ function App() {
                   <ol className="text-muted-foreground list-decimal space-y-4 pl-4 text-xs">
                     <li className="space-y-2">
                       <p>
-                        Copy the MCI API connection URL and paste it where
+                        Copy the cyrnel API connection URL and paste it where
                         needed.
                       </p>
                       <div className="flex items-center gap-2">
-                        <Input readOnly value={mciApiUrl} />
+                        <Input readOnly value={cyrnelApiUrl} />
                         <Button
-                          aria-label="Copy MCI API URL"
-                          onClick={() => void handleCopy(mciApiUrl, "apiUrl")}
+                          aria-label="Copy cyrnel API URL"
+                          onClick={() =>
+                            void handleCopy(cyrnelApiUrl, "apiUrl")
+                          }
                           type="button"
                           variant="outline"
                         >
@@ -174,12 +176,14 @@ function App() {
                       </div>
                     </li>
                     <li className="space-y-2">
-                      <p>Copy the MCI API key and paste it too.</p>
+                      <p>Copy the cyrnel API key and paste it too.</p>
                       <div className="flex items-center gap-2">
-                        <Input type="password" readOnly value={mciApiKey} />
+                        <Input type="password" readOnly value={cyrnelApiKey} />
                         <Button
-                          aria-label="Copy MCI API key"
-                          onClick={() => void handleCopy(mciApiKey, "apiKey")}
+                          aria-label="Copy cyrnel API key"
+                          onClick={() =>
+                            void handleCopy(cyrnelApiKey, "apiKey")
+                          }
                           type="button"
                           variant="outline"
                         >

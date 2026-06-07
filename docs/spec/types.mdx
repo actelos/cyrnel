@@ -1,10 +1,10 @@
 ---
 title: "Types"
-description: "Service, tool, and runtime data shapes from @mci/sdk"
+description: "Service, tool, and runtime data shapes from @cyrnel/sdk"
 ---
 
-The `@mci/sdk` package exports a small set of TypeScript types that
-describe the data MCI exchanges between the host, adapters, and
+The `@cyrnel/sdk` package exports a small set of TypeScript types that
+describe the data cyrnel exchanges between the host, adapters, and
 environments. Everything else builds on these.
 
 ## `JSONSchema`
@@ -13,7 +13,7 @@ environments. Everything else builds on these.
 type JSONSchema = Record<string, unknown>;
 ```
 
-A free-form JSON document. MCI uses Ajv internally to validate payloads
+A free-form JSON document. Cyrnel uses Ajv internally to validate payloads
 against schemas, so anything Ajv accepts is fair game (Draft-07-ish, with
 `strict: false`). Adapters and environments treat schemas as opaque.
 
@@ -30,13 +30,13 @@ interface ServiceDefinition {
 }
 ```
 
-The shape an adapter returns from `generateDefinition`. MCI persists this
+The shape an adapter returns from `generateDefinition`. Cyrnel persists this
 into the `services` table along with an `id`, `hash`, `source`,
 `adapter`, and `enabled` flag — see [Services](/content/services).
 
 - `configSchema` describes per-service configuration (validated on PATCH).
 - `secretsSchema` describes per-service secrets (validated on PATCH).
-- `adapterDomain` is opaque to MCI. Adapters use it to carry
+- `adapterDomain` is opaque to cyrnel. Adapters use it to carry
   install-time information that the runtime needs at invoke time.
 
 ## `ToolDefinition`
@@ -75,7 +75,7 @@ interface ServiceState
 }
 ```
 
-The snapshot MCI hands to an adapter through
+The snapshot cyrnel hands to an adapter through
 `AdapterModule.hydrateService`. It carries everything the adapter needs to
 serve invocations:
 

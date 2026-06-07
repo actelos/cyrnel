@@ -6,13 +6,13 @@ import { drizzle } from "drizzle-orm/libsql";
 import * as schema from "@/db/schema";
 
 function resolveDatabaseUrl(): string {
-  if (process.env.MCI_DB_URL) return process.env.MCI_DB_URL;
+  if (process.env.CYRNEL_DB_URL) return process.env.CYRNEL_DB_URL;
   if (process.env.NODE_ENV === "test" || process.env.VITEST)
     return "file::memory:?cache=shared";
 
-  const dataDir = process.env.MCI_DATA_DIR ?? ".";
+  const dataDir = process.env.CYRNEL_DATA_DIR ?? ".";
   mkdirSync(dataDir, { recursive: true });
-  return `file:${path.join(dataDir, "mci.db")}`;
+  return `file:${path.join(dataDir, "data.db")}`;
 }
 
 export { schema };

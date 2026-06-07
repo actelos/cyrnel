@@ -91,7 +91,7 @@ Perform one tool call. The host has already verified:
 The adapter is free to validate `parameters` against the stored
 `inputSchema` itself (recommended) before issuing the outbound call. The
 returned value is whatever the environment receives back from
-`mci.services[...].tools[...].invoke(...)`.
+`cyrnel.services[...].tools[...].invoke(...)`.
 
 Throw on any failure. Throwing an `Error` with a useful message is fine;
 the host surfaces it to the calling process.
@@ -105,7 +105,7 @@ operator-facing guidance and **what a well-behaved adapter must not do**.
 ## Minimal Skeleton
 
 ```ts
-import type { AdapterModule, InvokeInput, ServiceDefinition, ServiceState } from "@mci/sdk";
+import type { AdapterModule, InvokeInput, ServiceDefinition, ServiceState } from "@cyrnel/sdk";
 
 class MyAdapter implements AdapterModule {
   private state = new Map<string, ServiceState>();
@@ -162,4 +162,4 @@ export function instantiate(): AdapterModule {
 ```
 
 See [Writing a custom module](/spec/writing-a-custom-module) for how to
-drop this into a running MCI deployment.
+drop this into a running cyrnel deployment.

@@ -4,7 +4,7 @@ import type {
   ExecutionExitState,
   ExecutionInput,
   ExecutionState,
-} from "@mci/sdk";
+} from "@cyrnel/sdk";
 
 import { logger } from "@/logger";
 import { HttpError } from "@/models/error.model";

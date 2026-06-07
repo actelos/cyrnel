@@ -10,13 +10,13 @@ const IV_LENGTH = 12;
 const AUTH_TAG_LENGTH = 16;
 
 function getSecretsKey(): Buffer {
-  const raw = process.env.MCI_SECRETS_KEY;
+  const raw = process.env.CYRNEL_SECRETS_KEY;
   if (!raw) throw new HttpError(500, "Secrets key is not configured.");
   const key = Buffer.from(raw, "base64");
   if (key.length !== 32)
     throw new HttpError(
       500,
-      "Secrets key must be 32 bytes base64-encoded (MCI_SECRETS_KEY).",
+      "Secrets key must be 32 bytes base64-encoded (CYRNEL_SECRETS_KEY).",
     );
   return key;
 }

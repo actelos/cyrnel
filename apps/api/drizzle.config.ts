@@ -8,7 +8,7 @@ export default defineConfig({
   schema: "./src/db/schema.ts",
   dialect: "sqlite",
   dbCredentials: {
-    url: `file:${path.join(process.env.MCI_DATA_DIR ?? ".", "mci.db")}`,
+    url: `file:${path.join(process.env.CYRNEL_DATA_DIR ?? ".", "data.db")}`,
   },
   strict: true,
   verbose: true,

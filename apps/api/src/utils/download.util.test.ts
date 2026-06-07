@@ -2,7 +2,7 @@ import dns from "node:dns/promises";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const ORIGINAL_ALLOW_PRIVATE = process.env.MCI_ALLOW_PRIVATE_REGISTRY;
+const ORIGINAL_ALLOW_PRIVATE = process.env.CYRNEL_ALLOW_PRIVATE_REGISTRY;
 
 async function _resolve4Fixture(hostname: string) {
   if (hostname === "example.com") return [{ address: "93.184.216.34" }];
@@ -13,14 +13,14 @@ async function _resolve4Fixture(hostname: string) {
 
 describe("download util", () => {
   beforeEach(() => {
-    delete process.env.MCI_ALLOW_PRIVATE_REGISTRY;
+    delete process.env.CYRNEL_ALLOW_PRIVATE_REGISTRY;
   });
 
   afterEach(() => {
     if (ORIGINAL_ALLOW_PRIVATE === undefined) {
-      delete process.env.MCI_ALLOW_PRIVATE_REGISTRY;
+      delete process.env.CYRNEL_ALLOW_PRIVATE_REGISTRY;
     } else {
-      process.env.MCI_ALLOW_PRIVATE_REGISTRY = ORIGINAL_ALLOW_PRIVATE;
+      process.env.CYRNEL_ALLOW_PRIVATE_REGISTRY = ORIGINAL_ALLOW_PRIVATE;
     }
     vi.restoreAllMocks();
   });
@@ -69,8 +69,8 @@ describe("download util", () => {
       });
     });
 
-    it("passes when MCI_ALLOW_PRIVATE_REGISTRY is set", async () => {
-      process.env.MCI_ALLOW_PRIVATE_REGISTRY = "1";
+    it("passes when CYRNEL_ALLOW_PRIVATE_REGISTRY is set", async () => {
+      process.env.CYRNEL_ALLOW_PRIVATE_REGISTRY = "1";
       const { assertRegistryAddressAllowed } = await import(
         "@/utils/download.util"
       );

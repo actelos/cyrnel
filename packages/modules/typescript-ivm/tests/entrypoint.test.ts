@@ -1,5 +1,5 @@
-import type { EnvironmentBindings, ExecutionInput } from "@mci/sdk";
-import { instantiate } from "@mci/typescript-ivm";
+import type { EnvironmentBindings, ExecutionInput } from "@cyrnel/sdk";
+import { instantiate } from "@cyrnel/typescript-ivm";
 import { describe, expect, it, vi } from "vitest";
 
 const infiniteCode = "while (true) {}";

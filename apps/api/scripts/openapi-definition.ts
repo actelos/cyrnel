@@ -1511,8 +1511,11 @@ export function generateOpenApiDoc(): OpenAPIObject {
   return generator.generateDocument({
     openapi: "3.0.0",
     info: {
-      title: "MCI API",
-      description: "Model Control interface API",
+      title: "Cyrnel API",
+      description: `
+      Cyrnel is an interface that lets users plug in any service over any protocol
+      with any standard and have models use it efficiently at low cost.
+      `,
       version: "1.0.0",
     },
     servers: [{ url: "http://localhost:7687" }],

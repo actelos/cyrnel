@@ -3,20 +3,20 @@ import { z } from "zod";
 
 const env = z
   .object({
-    MCI_API_URL: z
+    CYRNEL_API_URL: z
       .url()
       .default("http://localhost:7687")
       .transform((v) => v.replace(/\/+$/, "")),
-    MCI_API_KEY: z.string().optional(),
-    MCI_API_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
+    CYRNEL_API_KEY: z.string().optional(),
+    CYRNEL_API_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
   })
   .parse(process.env);
 
 export const api: KyInstance = ky.create({
-  prefix: env.MCI_API_URL,
-  timeout: env.MCI_API_TIMEOUT_MS,
-  headers: env.MCI_API_KEY
-    ? { Authorization: `Bearer ${env.MCI_API_KEY}` }
+  prefix: env.CYRNEL_API_URL,
+  timeout: env.CYRNEL_API_TIMEOUT_MS,
+  headers: env.CYRNEL_API_KEY
+    ? { Authorization: `Bearer ${env.CYRNEL_API_KEY}` }
     : undefined,
   hooks: {
     beforeError: [

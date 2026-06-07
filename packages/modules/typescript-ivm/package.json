@@ -1,5 +1,5 @@
 {
-  "name": "@mci/typescript-ivm",
+  "name": "@cyrnel/typescript-ivm",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -19,7 +19,7 @@
   },
   "packageManager": "pnpm@10.30.3",
   "dependencies": {
-    "@mci/sdk": "workspace:*",
+    "@cyrnel/sdk": "workspace:*",
     "isolated-vm": "^6.1.2",
     "typescript": "^6.0.3"
   },

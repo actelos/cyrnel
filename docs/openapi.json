@@ -1,8 +1,8 @@
 {
   "openapi": "3.0.0",
   "info": {
-    "title": "MCI API",
-    "description": "Model Control interface API",
+    "title": "Cyrnel API",
+    "description": "Cyrnel is an interface that lets users plug in any service over any protocol with any standard and have models use it efficiently at low cost.",
     "version": "1.0.0"
   },
   "servers": [
@@ -20,9 +20,7 @@
             "description": "Human-readable error message returned by the API."
           }
         },
-        "required": [
-          "error"
-        ],
+        "required": ["error"],
         "description": "Standard error envelope returned by the HTTP error middleware."
       },
       "Process": {
@@ -41,24 +39,13 @@
           },
           "state": {
             "type": "string",
-            "enum": [
-              "queued",
-              "running",
-              "idle",
-              "terminating"
-            ],
+            "enum": ["queued", "running", "idle", "terminating"],
             "description": "Current lifecycle state of the process."
           },
           "exitState": {
             "type": "string",
             "nullable": true,
-            "enum": [
-              "failed",
-              "success",
-              "timeout",
-              "canceled",
-              null
-            ],
+            "enum": ["failed", "success", "timeout", "canceled", null],
             "description": "Terminal exit state of the process. Null until the process becomes idle."
           },
           "error": {
@@ -67,12 +54,7 @@
             "description": "Error message captured during execution, or null if no error occurred."
           }
         },
-        "required": [
-          "pid",
-          "state",
-          "exitState",
-          "error"
-        ],
+        "required": ["pid", "state", "exitState", "error"],
         "description": "Process snapshot returned by the process management endpoints."
       },
       "ProcessListResponse": {
@@ -86,9 +68,7 @@
             "description": "Processes that match the provided query filters."
           }
         },
-        "required": [
-          "processes"
-        ],
+        "required": ["processes"],
         "description": "Collection wrapper for process listings."
       },
       "ProcessCreateRequest": {
@@ -121,9 +101,7 @@
             "description": "Optional execution options for the process."
           }
         },
-        "required": [
-          "code"
-        ],
+        "required": ["code"],
         "description": "Request body used to create a new process."
       },
       "ProcessCreatedResponse": {
@@ -136,9 +114,7 @@
             "description": "Identifier assigned to the newly created process."
           }
         },
-        "required": [
-          "pid"
-        ],
+        "required": ["pid"],
         "description": "Response returned after a process is created."
       },
       "ProcessOutput": {
@@ -240,10 +216,7 @@
                 "description": "JSON Schema describing the service secrets object."
               }
             },
-            "required": [
-              "configSchema",
-              "secretsSchema"
-            ]
+            "required": ["configSchema", "secretsSchema"]
           }
         ],
         "description": "Service metadata including configuration and secrets schemas."
@@ -259,9 +232,7 @@
             "description": "Services that match the current query filters."
           }
         },
-        "required": [
-          "services"
-        ],
+        "required": ["services"],
         "description": "Collection wrapper for service listings."
       },
       "ServiceInstallRequest": {
@@ -283,11 +254,7 @@
             "description": "Adapter module identifier responsible for the service."
           }
         },
-        "required": [
-          "id",
-          "source",
-          "adapter"
-        ],
+        "required": ["id", "source", "adapter"],
         "description": "Request body used to install a new service definition."
       },
       "ServiceCreatedResponse": {
@@ -299,9 +266,7 @@
             "description": "Identifier assigned to the newly installed service."
           }
         },
-        "required": [
-          "id"
-        ],
+        "required": ["id"],
         "description": "Response returned after a service is installed."
       },
       "ServiceUpdateResponse": {
@@ -317,10 +282,7 @@
             "description": "Acknowledges that the update request was processed successfully."
           }
         },
-        "required": [
-          "id",
-          "updated"
-        ],
+        "required": ["id", "updated"],
         "description": "Response returned by the service update endpoint."
       },
       "ServiceEnabledRequest": {
@@ -331,9 +293,7 @@
             "description": "Desired enabled state for the service."
           }
         },
-        "required": [
-          "enabled"
-        ],
+        "required": ["enabled"],
         "description": "Request body used to toggle a service enabled state."
       },
       "ServiceEnabledResponse": {
@@ -349,10 +309,7 @@
             "description": "The new enabled state stored for the service."
           }
         },
-        "required": [
-          "id",
-          "enabled"
-        ],
+        "required": ["id", "enabled"],
         "description": "Response returned after toggling a service enabled state."
       },
       "ServiceConfigurationResponse": {
@@ -366,9 +323,7 @@
             "description": "Current configuration payload stored for the service."
           }
         },
-        "required": [
-          "config"
-        ],
+        "required": ["config"],
         "description": "Wrapper for a service configuration document."
       },
       "ServiceConfigurationSchemaResponse": {
@@ -382,9 +337,7 @@
             "description": "JSON Schema used to validate the service configuration payload."
           }
         },
-        "required": [
-          "configSchema"
-        ],
+        "required": ["configSchema"],
         "description": "Wrapper for a service configuration schema document."
       },
       "ServiceSecretsSchemaResponse": {
@@ -398,9 +351,7 @@
             "description": "JSON Schema used to validate the service secrets payload."
           }
         },
-        "required": [
-          "secretsSchema"
-        ],
+        "required": ["secretsSchema"],
         "description": "Wrapper for a service secrets schema document."
       },
       "ServiceSecretsResponse": {
@@ -411,9 +362,7 @@
             "description": "Acknowledges that the secrets patch was accepted and persisted."
           }
         },
-        "required": [
-          "updated"
-        ],
+        "required": ["updated"],
         "description": "Response returned after patching service secrets."
       },
       "ToolListItem": {
@@ -519,9 +468,7 @@
             "description": "Tools that match the supplied filters."
           }
         },
-        "required": [
-          "tools"
-        ],
+        "required": ["tools"],
         "description": "Collection wrapper for tool listings."
       },
       "ToolEnabledRequest": {
@@ -532,9 +479,7 @@
             "description": "Desired enabled state for the tool."
           }
         },
-        "required": [
-          "enabled"
-        ],
+        "required": ["enabled"],
         "description": "Request body used to toggle a tool enabled state."
       },
       "ToolEnabledResponse": {
@@ -555,11 +500,7 @@
             "description": "The new enabled state stored for the tool."
           }
         },
-        "required": [
-          "id",
-          "serviceId",
-          "enabled"
-        ],
+        "required": ["id", "serviceId", "enabled"],
         "description": "Response returned after toggling a tool enabled state."
       },
       "Module": {
@@ -577,10 +518,7 @@
           },
           "type": {
             "type": "string",
-            "enum": [
-              "adapter",
-              "environment"
-            ],
+            "enum": ["adapter", "environment"],
             "description": "Module type."
           },
           "description": {
@@ -622,9 +560,7 @@
             "description": "Modules that match the supplied query filters."
           }
         },
-        "required": [
-          "modules"
-        ],
+        "required": ["modules"],
         "description": "Collection wrapper for module listings."
       },
       "ModuleDetails": {
@@ -660,12 +596,7 @@
                 "description": "JSON Schema describing the module secrets object."
               }
             },
-            "required": [
-              "hash",
-              "source",
-              "configSchema",
-              "secretsSchema"
-            ]
+            "required": ["hash", "source", "configSchema", "secretsSchema"]
           }
         ],
         "description": "Full module manifest record returned by the get module endpoint."
@@ -679,9 +610,7 @@
             "description": "URL of the .tar.zst module archive to download and install."
           }
         },
-        "required": [
-          "source"
-        ],
+        "required": ["source"],
         "description": "Request body used to install a new module."
       },
       "ModuleUpdateResponse": {
@@ -692,9 +621,7 @@
             "description": "Whether the module was updated (false if no change detected)."
           }
         },
-        "required": [
-          "updated"
-        ],
+        "required": ["updated"],
         "description": "Response returned by the module update endpoint."
       },
       "ModuleEnabledRequest": {
@@ -705,9 +632,7 @@
             "description": "Desired enabled state for the module."
           }
         },
-        "required": [
-          "enabled"
-        ],
+        "required": ["enabled"],
         "description": "Request body used to toggle a module enabled state."
       }
     },
@@ -716,9 +641,7 @@
   "paths": {
     "/processes": {
       "get": {
-        "tags": [
-          "Processes"
-        ],
+        "tags": ["Processes"],
         "summary": "List processes",
         "description": "Returns process snapshots filtered by optional ref, state, and status query parameters. The status filter accepts the terminal exit states (success, failed, timeout, canceled) or 'null' to match processes that have not finished.",
         "parameters": [
@@ -735,12 +658,7 @@
           {
             "schema": {
               "type": "string",
-              "enum": [
-                "queued",
-                "running",
-                "idle",
-                "terminating"
-              ],
+              "enum": ["queued", "running", "idle", "terminating"],
               "description": "Current lifecycle state of a process."
             },
             "required": false,
@@ -751,13 +669,7 @@
           {
             "schema": {
               "type": "string",
-              "enum": [
-                "failed",
-                "success",
-                "timeout",
-                "canceled",
-                "null"
-              ],
+              "enum": ["failed", "success", "timeout", "canceled", "null"],
               "description": "Filter processes by terminal exit state. Use 'null' to match processes that have not finished."
             },
             "required": false,
@@ -810,9 +722,7 @@
         }
       },
       "post": {
-        "tags": [
-          "Processes"
-        ],
+        "tags": ["Processes"],
         "summary": "Create a process",
         "description": "Stages new code as a process. The optional block flag waits until execution becomes idle before responding. The optional options.timeout is expressed in milliseconds and may be null to explicitly clear it.",
         "requestBody": {
@@ -880,9 +790,7 @@
     },
     "/processes/{pid}": {
       "get": {
-        "tags": [
-          "Processes"
-        ],
+        "tags": ["Processes"],
         "summary": "Get a process",
         "description": "Returns the current process snapshot for the requested process identifier.",
         "parameters": [
@@ -951,9 +859,7 @@
         }
       },
       "delete": {
-        "tags": [
-          "Processes"
-        ],
+        "tags": ["Processes"],
         "summary": "Delete a process",
         "description": "Deletes an idle process snapshot. Active processes must be stopped before they can be deleted.",
         "parameters": [
@@ -1034,9 +940,7 @@
     },
     "/processes/{pid}/code": {
       "get": {
-        "tags": [
-          "Processes"
-        ],
+        "tags": ["Processes"],
         "summary": "Get stored process code",
         "description": "Returns the exact source code stored for the process as plain text. Useful for debugging and auditing the code that produced the execution output.",
         "parameters": [
@@ -1108,9 +1012,7 @@
     },
     "/processes/{pid}/output": {
       "get": {
-        "tags": [
-          "Processes"
-        ],
+        "tags": ["Processes"],
         "summary": "Get process output",
         "description": "Returns the structured output collected during process execution. Output is only available once the process is idle.",
         "parameters": [
@@ -1191,9 +1093,7 @@
     },
     "/processes/{pid}/stdout": {
       "get": {
-        "tags": [
-          "Processes"
-        ],
+        "tags": ["Processes"],
         "summary": "Get process stdout",
         "description": "Returns the captured standard output for the process as plain text. Output is only available once the process is idle.",
         "parameters": [
@@ -1275,9 +1175,7 @@
     },
     "/processes/{pid}/stderr": {
       "get": {
-        "tags": [
-          "Processes"
-        ],
+        "tags": ["Processes"],
         "summary": "Get process stderr",
         "description": "Returns the captured standard error for the process as plain text. Output is only available once the process is idle.",
         "parameters": [
@@ -1359,9 +1257,7 @@
     },
     "/processes/{pid}/signals/run": {
       "post": {
-        "tags": [
-          "Processes"
-        ],
+        "tags": ["Processes"],
         "summary": "Run a process",
         "description": "Queues an idle process for execution. Set force to true to rerun a process that already produced output. Set block to true to wait for the process to return to the idle state before responding.",
         "parameters": [
@@ -1461,9 +1357,7 @@
     },
     "/processes/{pid}/signals/kill": {
       "post": {
-        "tags": [
-          "Processes"
-        ],
+        "tags": ["Processes"],
         "summary": "Kill a process",
         "description": "Signals an active process to terminate. The body is only validated as a JSON object; its contents are ignored.",
         "parameters": [
@@ -1553,9 +1447,7 @@
     },
     "/services": {
       "get": {
-        "tags": [
-          "Services"
-        ],
+        "tags": ["Services"],
         "summary": "List services",
         "description": "Returns the installed services. The query parameter is trimmed and matched against service id, name, and description. The enabled parameter accepts 'true' or 'false'; omit it to return all services.",
         "parameters": [
@@ -1572,10 +1464,7 @@
           {
             "schema": {
               "type": "string",
-              "enum": [
-                "true",
-                "false"
-              ],
+              "enum": ["true", "false"],
               "description": "Enabled-state filter. Omit to return all services."
             },
             "required": false,
@@ -1630,9 +1519,7 @@
     },
     "/services/{serviceId}": {
       "get": {
-        "tags": [
-          "Services"
-        ],
+        "tags": ["Services"],
         "summary": "Get a service",
         "description": "Returns full manifest metadata for a service, including configuration and secrets schemas.",
         "parameters": [
@@ -1702,9 +1589,7 @@
         }
       },
       "delete": {
-        "tags": [
-          "Services"
-        ],
+        "tags": ["Services"],
         "summary": "Delete a service",
         "description": "Deletes a service manifest along with its tools, configuration, and secrets. The owning adapter is asked to dehydrate the service afterwards.",
         "parameters": [
@@ -1769,9 +1654,7 @@
     },
     "/services/install": {
       "post": {
-        "tags": [
-          "Services"
-        ],
+        "tags": ["Services"],
         "summary": "Install a service",
         "description": "Downloads the definition file from the supplied source URL, validates the manifest, and stores it as a new service under the supplied id and adapter. Installation does not automatically enable the service.",
         "requestBody": {
@@ -1859,9 +1742,7 @@
     },
     "/services/{serviceId}/update": {
       "post": {
-        "tags": [
-          "Services"
-        ],
+        "tags": ["Services"],
         "summary": "Update a service manifest",
         "description": "Re-downloads the stored definition source and updates the manifest. Tool enabled flags are preserved by name where possible, and the service is disabled until it is explicitly re-enabled.",
         "parameters": [
@@ -1963,9 +1844,7 @@
     },
     "/services/{serviceId}/enabled": {
       "post": {
-        "tags": [
-          "Services"
-        ],
+        "tags": ["Services"],
         "summary": "Toggle a service",
         "description": "Sets whether a service is enabled. When enabling, the stored configuration and secrets are validated against their schemas before the change is persisted and the service is hydrated on its adapter.",
         "parameters": [
@@ -2056,9 +1935,7 @@
     },
     "/services/{serviceId}/config/schema": {
       "get": {
-        "tags": [
-          "Services"
-        ],
+        "tags": ["Services"],
         "summary": "Get a service configuration schema",
         "description": "Returns the JSON Schema used to validate the service configuration payload.",
         "parameters": [
@@ -2130,9 +2007,7 @@
     },
     "/services/{serviceId}/config": {
       "get": {
-        "tags": [
-          "Services"
-        ],
+        "tags": ["Services"],
         "summary": "Get service configuration",
         "description": "Returns the configuration payload stored for the service. If no configuration exists yet, an empty object is returned.",
         "parameters": [
@@ -2192,9 +2067,7 @@
         }
       },
       "patch": {
-        "tags": [
-          "Services"
-        ],
+        "tags": ["Services"],
         "summary": "Patch service configuration",
         "description": "Applies a JSON Patch document to the stored configuration, validates the result against the schema, persists it, and returns the resulting configuration payload. The patch body must be an array of RFC 6902 operations.",
         "parameters": [
@@ -2222,9 +2095,7 @@
                       "properties": {
                         "op": {
                           "type": "string",
-                          "enum": [
-                            "add"
-                          ],
+                          "enum": ["add"],
                           "description": "Insert a value at the target path."
                         },
                         "path": {
@@ -2237,19 +2108,14 @@
                           "description": "Value to insert or replace."
                         }
                       },
-                      "required": [
-                        "op",
-                        "path"
-                      ]
+                      "required": ["op", "path"]
                     },
                     {
                       "type": "object",
                       "properties": {
                         "op": {
                           "type": "string",
-                          "enum": [
-                            "remove"
-                          ],
+                          "enum": ["remove"],
                           "description": "Remove the value at the target path."
                         },
                         "path": {
@@ -2258,19 +2124,14 @@
                           "description": "JSON Pointer path to remove."
                         }
                       },
-                      "required": [
-                        "op",
-                        "path"
-                      ]
+                      "required": ["op", "path"]
                     },
                     {
                       "type": "object",
                       "properties": {
                         "op": {
                           "type": "string",
-                          "enum": [
-                            "replace"
-                          ],
+                          "enum": ["replace"],
                           "description": "Replace the value at the target path."
                         },
                         "path": {
@@ -2283,19 +2144,14 @@
                           "description": "Replacement value."
                         }
                       },
-                      "required": [
-                        "op",
-                        "path"
-                      ]
+                      "required": ["op", "path"]
                     },
                     {
                       "type": "object",
                       "properties": {
                         "op": {
                           "type": "string",
-                          "enum": [
-                            "move"
-                          ],
+                          "enum": ["move"],
                           "description": "Move a value from one path to another."
                         },
                         "path": {
@@ -2309,20 +2165,14 @@
                           "description": "Source JSON Pointer path."
                         }
                       },
-                      "required": [
-                        "op",
-                        "path",
-                        "from"
-                      ]
+                      "required": ["op", "path", "from"]
                     },
                     {
                       "type": "object",
                       "properties": {
                         "op": {
                           "type": "string",
-                          "enum": [
-                            "copy"
-                          ],
+                          "enum": ["copy"],
                           "description": "Copy a value from one path to another."
                         },
                         "path": {
@@ -2336,20 +2186,14 @@
                           "description": "Source JSON Pointer path."
                         }
                       },
-                      "required": [
-                        "op",
-                        "path",
-                        "from"
-                      ]
+                      "required": ["op", "path", "from"]
                     },
                     {
                       "type": "object",
                       "properties": {
                         "op": {
                           "type": "string",
-                          "enum": [
-                            "test"
-                          ],
+                          "enum": ["test"],
                           "description": "Assert that a path contains a value."
                         },
                         "path": {
@@ -2362,10 +2206,7 @@
                           "description": "Expected value."
                         }
                       },
-                      "required": [
-                        "op",
-                        "path"
-                      ]
+                      "required": ["op", "path"]
                     }
                   ]
                 },
@@ -2430,9 +2271,7 @@
     },
     "/services/{serviceId}/secrets/schema": {
       "get": {
-        "tags": [
-          "Services"
-        ],
+        "tags": ["Services"],
         "summary": "Get a service secrets schema",
         "description": "Returns the JSON Schema used to validate the service secrets payload.",
         "parameters": [
@@ -2504,9 +2343,7 @@
     },
     "/services/{serviceId}/secrets": {
       "patch": {
-        "tags": [
-          "Services"
-        ],
+        "tags": ["Services"],
         "summary": "Patch service secrets",
         "description": "Applies a JSON Patch document to the encrypted secrets payload, validates the result against the schema, and persists the updated secrets. The response only confirms success; secrets are never echoed back.",
         "parameters": [
@@ -2534,9 +2371,7 @@
                       "properties": {
                         "op": {
                           "type": "string",
-                          "enum": [
-                            "add"
-                          ],
+                          "enum": ["add"],
                           "description": "Insert a value at the target path."
                         },
                         "path": {
@@ -2549,19 +2384,14 @@
                           "description": "Value to insert or replace."
                         }
                       },
-                      "required": [
-                        "op",
-                        "path"
-                      ]
+                      "required": ["op", "path"]
                     },
                     {
                       "type": "object",
                       "properties": {
                         "op": {
                           "type": "string",
-                          "enum": [
-                            "remove"
-                          ],
+                          "enum": ["remove"],
                           "description": "Remove the value at the target path."
                         },
                         "path": {
@@ -2570,19 +2400,14 @@
                           "description": "JSON Pointer path to remove."
                         }
                       },
-                      "required": [
-                        "op",
-                        "path"
-                      ]
+                      "required": ["op", "path"]
                     },
                     {
                       "type": "object",
                       "properties": {
                         "op": {
                           "type": "string",
-                          "enum": [
-                            "replace"
-                          ],
+                          "enum": ["replace"],
                           "description": "Replace the value at the target path."
                         },
                         "path": {
@@ -2595,19 +2420,14 @@
                           "description": "Replacement value."
                         }
                       },
-                      "required": [
-                        "op",
-                        "path"
-                      ]
+                      "required": ["op", "path"]
                     },
                     {
                       "type": "object",
                       "properties": {
                         "op": {
                           "type": "string",
-                          "enum": [
-                            "move"
-                          ],
+                          "enum": ["move"],
                           "description": "Move a value from one path to another."
                         },
                         "path": {
@@ -2621,20 +2441,14 @@
                           "description": "Source JSON Pointer path."
                         }
                       },
-                      "required": [
-                        "op",
-                        "path",
-                        "from"
-                      ]
+                      "required": ["op", "path", "from"]
                     },
                     {
                       "type": "object",
                       "properties": {
                         "op": {
                           "type": "string",
-                          "enum": [
-                            "copy"
-                          ],
+                          "enum": ["copy"],
                           "description": "Copy a value from one path to another."
                         },
                         "path": {
@@ -2648,20 +2462,14 @@
                           "description": "Source JSON Pointer path."
                         }
                       },
-                      "required": [
-                        "op",
-                        "path",
-                        "from"
-                      ]
+                      "required": ["op", "path", "from"]
                     },
                     {
                       "type": "object",
                       "properties": {
                         "op": {
                           "type": "string",
-                          "enum": [
-                            "test"
-                          ],
+                          "enum": ["test"],
                           "description": "Assert that a path contains a value."
                         },
                         "path": {
@@ -2674,10 +2482,7 @@
                           "description": "Expected value."
                         }
                       },
-                      "required": [
-                        "op",
-                        "path"
-                      ]
+                      "required": ["op", "path"]
                     }
                   ]
                 },
@@ -2742,9 +2547,7 @@
     },
     "/tools": {
       "get": {
-        "tags": [
-          "Tools"
-        ],
+        "tags": ["Tools"],
         "summary": "List tools",
         "description": "Returns tools that match the supplied filters. The serviceId, query, limit, and enabled query parameters are all optional. The enabled filter accepts 'true' or 'false'.",
         "parameters": [
@@ -2781,10 +2584,7 @@
           {
             "schema": {
               "type": "string",
-              "enum": [
-                "true",
-                "false"
-              ],
+              "enum": ["true", "false"],
               "description": "Enabled-state filter. Omit to return all tools."
             },
             "required": false,
@@ -2839,9 +2639,7 @@
     },
     "/tools/{serviceId}/{toolId}": {
       "get": {
-        "tags": [
-          "Tools"
-        ],
+        "tags": ["Tools"],
         "summary": "Get a tool",
         "description": "Returns detailed metadata for a tool within a service, including input and output schemas.",
         "parameters": [
@@ -2924,9 +2722,7 @@
     },
     "/tools/{serviceId}/{toolId}/docs": {
       "get": {
-        "tags": [
-          "Tools"
-        ],
+        "tags": ["Tools"],
         "summary": "Get tool documentation",
         "description": "Returns generated documentation for the tool as Markdown text. Documentation is produced by the active environment module.",
         "parameters": [
@@ -3010,9 +2806,7 @@
     },
     "/tools/{serviceId}/{toolId}/enabled": {
       "post": {
-        "tags": [
-          "Tools"
-        ],
+        "tags": ["Tools"],
         "summary": "Toggle a tool",
         "description": "Sets whether a tool is enabled. The parent service can still disable the tool at runtime even if the stored tool flag is true.",
         "parameters": [
@@ -3104,9 +2898,7 @@
     },
     "/modules": {
       "get": {
-        "tags": [
-          "Modules"
-        ],
+        "tags": ["Modules"],
         "summary": "List modules",
         "description": "Returns module manifests filtered by optional query, type, isBuiltin, and enabled query parameters. The enabled filter accepts 'true', 'false', or 'null' to match orphaned modules.",
         "parameters": [
@@ -3123,10 +2915,7 @@
           {
             "schema": {
               "type": "string",
-              "enum": [
-                "adapter",
-                "environment"
-              ],
+              "enum": ["adapter", "environment"],
               "description": "Module type. Either 'adapter' or 'environment'."
             },
             "required": false,
@@ -3137,10 +2926,7 @@
           {
             "schema": {
               "type": "string",
-              "enum": [
-                "true",
-                "false"
-              ],
+              "enum": ["true", "false"],
               "description": "Filter by whether the module is bundled with the API."
             },
             "required": false,
@@ -3151,11 +2937,7 @@
           {
             "schema": {
               "type": "string",
-              "enum": [
-                "true",
-                "false",
-                "null"
-              ],
+              "enum": ["true", "false", "null"],
               "description": "Enabled-state filter for modules."
             },
             "required": false,
@@ -3210,9 +2992,7 @@
     },
     "/modules/reload": {
       "post": {
-        "tags": [
-          "Modules"
-        ],
+        "tags": ["Modules"],
         "summary": "Reload modules",
         "description": "Reloads the on-disk module registry. The active environment is drained and the adapter pool is reconciled against the new manifests.",
         "responses": {
@@ -3244,9 +3024,7 @@
     },
     "/modules/{moduleId}": {
       "get": {
-        "tags": [
-          "Modules"
-        ],
+        "tags": ["Modules"],
         "summary": "Get a module",
         "description": "Returns the module manifest record for the requested module id, including hash, source, and configuration/secrets schemas.",
         "parameters": [
@@ -3316,9 +3094,7 @@
         }
       },
       "delete": {
-        "tags": [
-          "Modules"
-        ],
+        "tags": ["Modules"],
         "summary": "Delete a module",
         "description": "Deactivates the module's adapter or environment, deletes its database record, and removes its filesystem directory. Services belonging to the module are also removed.",
         "parameters": [
@@ -3383,9 +3159,7 @@
     },
     "/modules/install": {
       "post": {
-        "tags": [
-          "Modules"
-        ],
+        "tags": ["Modules"],
         "summary": "Install a module",
         "description": "Downloads a .tar.zst archive from the supplied source URL, validates the module.json manifest, and registers the module. Newly installed modules start disabled by default.",
         "requestBody": {
@@ -3473,9 +3247,7 @@
     },
     "/modules/{moduleId}/update": {
       "post": {
-        "tags": [
-          "Modules"
-        ],
+        "tags": ["Modules"],
         "summary": "Update a module",
         "description": "Re-downloads the module archive from its stored source URL. If the archive hash has changed the module is re-installed and its instance reloaded. Returns updated: false when the archive is unchanged.",
         "parameters": [
@@ -3557,9 +3329,7 @@
     },
     "/modules/{moduleId}/enabled": {
       "post": {
-        "tags": [
-          "Modules"
-        ],
+        "tags": ["Modules"],
         "summary": "Toggle a module",
         "description": "Sets whether a module is enabled. Orphaned modules cannot be enabled.",
         "parameters": [
@@ -3643,9 +3413,7 @@
     },
     "/environment/docs": {
       "get": {
-        "tags": [
-          "Environment"
-        ],
+        "tags": ["Environment"],
         "summary": "Get environment documentation",
         "description": "Returns Markdown documentation generated by the active environment module describing the runtime and the available bindings.",
         "responses": {

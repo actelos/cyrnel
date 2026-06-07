@@ -1,4 +1,4 @@
-import type { JSONSchema } from "@mci/sdk";
+import type { JSONSchema } from "@cyrnel/sdk";
 import {
   index,
   integer,

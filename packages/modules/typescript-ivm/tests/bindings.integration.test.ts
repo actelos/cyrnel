@@ -7,7 +7,7 @@ import type {
   ListServiceResult,
   ListToolInput,
   ListToolResult,
-} from "@mci/sdk";
+} from "@cyrnel/sdk";
 import { describe, expect, it, vi } from "vitest";
 
 import { instantiate } from "../src/index";
@@ -70,18 +70,18 @@ describe("bindings integration", () => {
       const result = await environment.execute({
         eid: 1,
         code: `
-          const service = await mci.services.calculator.getDefinition();
+          const service = await cyrnel.services.calculator.getDefinition();
           console.log("Service:", service.name);
 
-          const tool = await mci.services.calculator.tools.add.getDefinition();
+          const tool = await cyrnel.services.calculator.tools.add.getDefinition();
           console.log("Tool:", tool.name);
 
-          const output = await mci.services.calculator.tools.add.invoke({
+          const output = await cyrnel.services.calculator.tools.add.invoke({
             a: 40,
             b: 2
           });
 
-          mci.output({ computation: output });
+          cyrnel.output({ computation: output });
         `,
       } satisfies ExecutionInput);
 
@@ -115,7 +115,7 @@ describe("bindings integration", () => {
         eid: 1,
         code: `
           try {
-            await mci.services.broken.tools.fail.invoke({});
+            await cyrnel.services.broken.tools.fail.invoke({});
             console.log("Should not reach here");
           } catch (error) {
             console.error("Caught error:", error.message);
@@ -173,13 +173,13 @@ describe("bindings integration", () => {
       const result = await environment.execute({
         eid: 1,
         code: `
-          const services = await mci.discoverServices({ query: "", limit: 10 });
+          const services = await cyrnel.discoverServices({ query: "", limit: 10 });
           console.log("Services count:", services.length);
 
-          const tools = await mci.discoverTools({ query: "calc", limit: 10 });
+          const tools = await cyrnel.discoverTools({ query: "calc", limit: 10 });
           console.log("Tools count:", tools.length);
 
-          mci.output({ services, tools });
+          cyrnel.output({ services, tools });
         `,
       } satisfies ExecutionInput);
 
@@ -283,7 +283,7 @@ describe("bindings integration", () => {
         eid: 100,
         code: `
           console.log("Execution 100");
-          mci.output({ eid: 100 });
+          cyrnel.output({ eid: 100 });
         `,
       } satisfies ExecutionInput);
 
@@ -291,7 +291,7 @@ describe("bindings integration", () => {
         eid: 200,
         code: `
           console.log("Execution 200");
-          mci.output({ eid: 200 });
+          cyrnel.output({ eid: 200 });
         `,
       } satisfies ExecutionInput);
 
@@ -328,8 +328,8 @@ describe("bindings integration", () => {
       const result = await environment.execute({
         eid: 1,
         code: `
-          const result = await mci.services.async.tools.wait.invoke({});
-          mci.output(result);
+          const result = await cyrnel.services.async.tools.wait.invoke({});
+          cyrnel.output(result);
         `,
       } satisfies ExecutionInput);
 
@@ -349,11 +349,11 @@ describe("bindings integration", () => {
         eid: 1,
         code: `
           const results = await Promise.all([
-            mci.services.test.tools.a.invoke({}),
-            mci.services.test.tools.b.invoke({}),
-            mci.services.test.tools.c.invoke({})
+            cyrnel.services.test.tools.a.invoke({}),
+            cyrnel.services.test.tools.b.invoke({}),
+            cyrnel.services.test.tools.c.invoke({})
           ]);
-          mci.output({ count: results.length });
+          cyrnel.output({ count: results.length });
         `,
       } satisfies ExecutionInput);
 
@@ -378,7 +378,7 @@ describe("bindings integration", () => {
         eid: 1,
         code: `
           try {
-            await mci.services.unknown.getDefinition();
+            await cyrnel.services.unknown.getDefinition();
           } catch (error) {
             console.error("Error:", error.message);
           }
@@ -407,7 +407,7 @@ describe("bindings integration", () => {
           }
 
           const data: Result = { value: 42 };
-          mci.output(data);
+          cyrnel.output(data);
         `,
       } satisfies ExecutionInput);
 
@@ -434,7 +434,7 @@ describe("bindings integration", () => {
       const result = await environment.execute({
         eid: 1,
         code: `
-          const tool = await mci.services.test.tools.test.getDefinition();
+          const tool = await cyrnel.services.test.tools.test.getDefinition();
           const name: string = tool.name;
           console.log(name);
         `,

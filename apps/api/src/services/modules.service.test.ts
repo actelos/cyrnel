@@ -13,7 +13,7 @@ import type {
   ServiceDefinition,
   ServiceState,
   ToolDocsInput,
-} from "@mci/sdk";
+} from "@cyrnel/sdk";
 import { eq, sql } from "drizzle-orm";
 import {
   afterAll,
@@ -27,7 +27,7 @@ import {
 } from "vitest";
 
 const SECRETS_KEY = crypto.randomBytes(32).toString("base64");
-const ORIGINAL_SECRETS_KEY = process.env.MCI_SECRETS_KEY;
+const ORIGINAL_SECRETS_KEY = process.env.CYRNEL_SECRETS_KEY;
 
 const { adapterInstances, envInstances, FakeAdapter, FakeEnvironment } =
   vi.hoisted(() => {
@@ -118,7 +118,7 @@ const { downloadBinaryMock, decompressMock } = vi.hoisted(() => ({
   decompressMock: vi.fn(),
 }));
 
-vi.mock("@mci/openapi", () => ({
+vi.mock("@cyrnel/openapi", () => ({
   manifest: {
     id: "openapi",
     name: "OpenAPI Adapter",
@@ -157,7 +157,7 @@ vi.mock("fzstd", () => ({
   decompress: decompressMock,
 }));
 
-vi.mock("@mci/typescript-ivm", () => ({
+vi.mock("@cyrnel/typescript-ivm", () => ({
   manifest: {
     id: "typescript-ivm",
     name: "Typescript Isolated VM",
@@ -266,19 +266,19 @@ function makeLifecycle() {
   };
 }
 
-const MISSING_PATH = path.join(os.tmpdir(), "mci-no-such-modules-dir");
+const MISSING_PATH = path.join(os.tmpdir(), "cyrnel-no-such-modules-dir");
 
 describe("ModuleService", () => {
   beforeAll(async () => {
-    process.env.MCI_SECRETS_KEY = SECRETS_KEY;
+    process.env.CYRNEL_SECRETS_KEY = SECRETS_KEY;
     await applyMigrations();
   });
 
   afterAll(() => {
     if (ORIGINAL_SECRETS_KEY === undefined) {
-      delete process.env.MCI_SECRETS_KEY;
+      delete process.env.CYRNEL_SECRETS_KEY;
     } else {
-      process.env.MCI_SECRETS_KEY = ORIGINAL_SECRETS_KEY;
+      process.env.CYRNEL_SECRETS_KEY = ORIGINAL_SECRETS_KEY;
     }
   });
 
@@ -355,7 +355,7 @@ describe("ModuleService", () => {
     });
 
     it("registers custom modules with separate id and display name", async () => {
-      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mci-mod-"));
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-mod-"));
       try {
         const moduleDir = path.join(dir, "custom");
         await fs.mkdir(moduleDir);
@@ -402,7 +402,7 @@ describe("ModuleService", () => {
     });
 
     it("registers custom modules from a directory", async () => {
-      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mci-mod-"));
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-mod-"));
       try {
         const moduleDir = path.join(dir, "custom");
         await fs.mkdir(moduleDir);
@@ -450,7 +450,7 @@ describe("ModuleService", () => {
     });
 
     it("throws on modules whose module.json omits a required id", async () => {
-      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mci-mod-"));
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-mod-"));
       try {
         const moduleDir = path.join(dir, "no-id");
         await fs.mkdir(moduleDir);
@@ -472,7 +472,7 @@ describe("ModuleService", () => {
     });
 
     it("throws on modules whose manifest 'main' escapes the module directory", async () => {
-      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mci-mod-"));
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-mod-"));
       try {
         const moduleDir = path.join(dir, "evil");
         await fs.mkdir(moduleDir);
@@ -495,7 +495,7 @@ describe("ModuleService", () => {
     });
 
     it("throws on modules with a malformed module.json", async () => {
-      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mci-mod-"));
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-mod-"));
       try {
         const moduleDir = path.join(dir, "broken");
         await fs.mkdir(moduleDir);
@@ -512,7 +512,7 @@ describe("ModuleService", () => {
     });
 
     it("skips module directories with no module.json", async () => {
-      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mci-mod-"));
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-mod-"));
       try {
         await fs.mkdir(path.join(dir, "empty"));
 
@@ -1062,7 +1062,7 @@ describe("ModuleService", () => {
     });
 
     it("reload() re-runs reconcile and respects new manifests", async () => {
-      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mci-mod-"));
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-mod-"));
       try {
         const service = new ModuleService(makeBindings(), makeLifecycle());
         await service.initialize(dir);
@@ -1117,7 +1117,7 @@ describe("ModuleService", () => {
     });
 
     it("reload() does not deactivate in-memory state for now-orphaned modules", async () => {
-      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mci-mod-"));
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-mod-"));
       try {
         const modDir = path.join(dir, "transient");
         await fs.mkdir(modDir);
@@ -1313,7 +1313,7 @@ describe("ModuleService", () => {
     });
 
     it("patchConfig persists root null for null-only config schemas", async () => {
-      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mci-mod-"));
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-mod-"));
       try {
         const moduleDir = path.join(dir, "nullConfig");
         await fs.mkdir(moduleDir);
@@ -1562,7 +1562,7 @@ describe("ModuleService", () => {
   // ----------------------------------------------------------------------
   describe("installModule()", () => {
     it("installs a module from a valid archive and returns its manifest", async () => {
-      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mci-install-"));
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-install-"));
       try {
         const tarData = await createTestTar(dir, {
           "module.json": JSON.stringify({
@@ -1623,7 +1623,7 @@ describe("ModuleService", () => {
     });
 
     it("rejects a duplicate module id", async () => {
-      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mci-install-"));
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-install-"));
       try {
         const tarData = await createTestTar(dir, {
           "module.json": JSON.stringify({
@@ -1669,7 +1669,7 @@ describe("ModuleService", () => {
     });
 
     it("rejects an archive missing module.json", async () => {
-      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mci-install-"));
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-install-"));
       try {
         const tarData = await createTestTar(dir, {
           "index.mjs": `export function instantiate() { return {}; }`,
@@ -1694,7 +1694,7 @@ describe("ModuleService", () => {
     });
 
     it("rejects an archive with invalid module.json content", async () => {
-      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mci-install-"));
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-install-"));
       try {
         const tarData = await createTestTar(dir, {
           "module.json": `{ this is not json }`,
@@ -1719,7 +1719,7 @@ describe("ModuleService", () => {
     });
 
     it("rejects an archive whose main points outside the archive", async () => {
-      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mci-install-"));
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-install-"));
       try {
         const tarData = await createTestTar(dir, {
           "module.json": JSON.stringify({
@@ -1755,7 +1755,7 @@ describe("ModuleService", () => {
   // ----------------------------------------------------------------------
   describe("deleteModule()", () => {
     it("deletes a module and its filesystem directory", async () => {
-      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mci-del-"));
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-del-"));
       try {
         const modDir = path.join(dir, "toBeDeleted");
         await fs.mkdir(modDir);
@@ -1806,7 +1806,7 @@ describe("ModuleService", () => {
     });
 
     it("deletes all services belonging to the module", async () => {
-      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mci-del-"));
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-del-"));
       try {
         const modDir = path.join(dir, "adapterMod");
         await fs.mkdir(modDir);
@@ -1879,7 +1879,7 @@ describe("ModuleService", () => {
   // ----------------------------------------------------------------------
   describe("installModule hash/source", () => {
     it("stores hash and source in the database but omits them from the return value", async () => {
-      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mci-hash-"));
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-hash-"));
       try {
         const tarData = await createTestTar(dir, {
           "module.json": JSON.stringify({
@@ -1952,7 +1952,7 @@ describe("ModuleService", () => {
     });
 
     it("throws 409 when the module has no stored install source", async () => {
-      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mci-upd-"));
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-upd-"));
       try {
         const modDir = path.join(dir, "noSourceMod");
         await fs.mkdir(modDir);
@@ -1996,7 +1996,7 @@ describe("ModuleService", () => {
     });
 
     it("skips the update when the archive hash has not changed", async () => {
-      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mci-upd-"));
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-upd-"));
       try {
         const tarData = await createTestTar(dir, {
           "module.json": JSON.stringify({
@@ -2038,7 +2038,7 @@ describe("ModuleService", () => {
     });
 
     it("re-installs when the archive hash has changed", async () => {
-      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mci-upd-"));
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-upd-"));
       try {
         const tarData = await createTestTar(dir, {
           "module.json": JSON.stringify({
@@ -2124,7 +2124,7 @@ describe("ModuleService", () => {
     });
 
     it("rejects update when downloaded manifest.id differs from requested id", async () => {
-      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mci-upd-"));
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-upd-"));
       try {
         const tarData = await createTestTar(dir, {
           "module.json": JSON.stringify({

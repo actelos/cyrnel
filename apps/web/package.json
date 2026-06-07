@@ -1,5 +1,5 @@
 {
-  "name": "@mci/web",
+  "name": "@cyrnel/web",
   "private": true,
   "type": "module",
   "scripts": {

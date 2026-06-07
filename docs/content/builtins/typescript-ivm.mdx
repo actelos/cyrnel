@@ -4,10 +4,10 @@ description: "Default environment module — TypeScript on isolated-vm"
 sidebarTitle: "typescript-ivm"
 ---
 
-`typescript-ivm` is the environment module shipped with MCI. It is the
+`typescript-ivm` is the environment module shipped with cyrnel. It is the
 default home for process code.
 
-- **Workspace**: `packages/modules/typescript-ivm` (`@mci/typescript-ivm`)
+- **Workspace**: `packages/modules/typescript-ivm` (`@cyrnel/typescript-ivm`)
 - **Module type**: `environment`
 - **Module id**: `typescript-ivm`
 - **Runtime**: [`isolated-vm`](https://github.com/laverdet/isolated-vm)
@@ -23,7 +23,7 @@ queued internally.
 User code is wrapped before execution:
 
 ```js
-async function __mciMain__() { /* user code */ } __mciMain__();
+async function __cyrnelMain__() { /* user code */ } __cyrnelMain__();
 ```
 
 Top-level `await` is therefore allowed. The wrapped script is compiled
@@ -36,26 +36,26 @@ recreate the worker slot**. There is no soft-stop.
 ## What's available inside
 
 The isolate has **no module loader, no filesystem, no network, and no
-Node built-ins**. The only outbound channel is `globalThis.mci`, frozen
+Node built-ins**. The only outbound channel is `globalThis.cyrnel`, frozen
 in place by a small prelude (`bindings.ts`). The full surface:
 
 ```ts
-mci.output(data: Record<string, unknown>): void;
+cyrnel.output(data: Record<string, unknown>): void;
 
-mci.discoverServices(input: {
+cyrnel.discoverServices(input: {
   query?: string;
   limit?: number;
   enabled?: boolean;
 }): Promise<{ id: string; name: string; description: string; enabled: boolean }[]>;
 
-mci.discoverTools(input: {
+cyrnel.discoverTools(input: {
   serviceId?: string;
   query?: string;
   limit?: number;
   enabled?: boolean;
 }): Promise<{ serviceId: string; id: string; name: string; description: string; enabled: boolean }[]>;
 
-mci.services[serviceId].getDefinition(): Promise<{
+cyrnel.services[serviceId].getDefinition(): Promise<{
   name: string;
   description: string;
   enabled: boolean;
@@ -63,7 +63,7 @@ mci.services[serviceId].getDefinition(): Promise<{
   secretsSchema: JSONSchema;
 }>;
 
-mci.services[serviceId].tools[toolId].getDefinition(): Promise<{
+cyrnel.services[serviceId].tools[toolId].getDefinition(): Promise<{
   name: string;
   description: string;
   enabled: boolean;
@@ -71,9 +71,9 @@ mci.services[serviceId].tools[toolId].getDefinition(): Promise<{
   outputSchema: JSONSchema;
 }>;
 
-mci.services[serviceId].tools[toolId].getDocs(): Promise<string>;
+cyrnel.services[serviceId].tools[toolId].getDocs(): Promise<string>;
 
-mci.services[serviceId].tools[toolId].invoke(parameters: Record<string, unknown>): Promise<unknown>;
+cyrnel.services[serviceId].tools[toolId].invoke(parameters: Record<string, unknown>): Promise<unknown>;
 ```
 
 `console.log` and `console.error` are remapped to the environment's stdout
@@ -82,15 +82,15 @@ and stderr emitters. Objects are JSON-pretty-printed; strings pass through.
 ## Example
 
 ```ts
-const tools = await mci.discoverTools({ query: "weather", limit: 1 });
+const tools = await cyrnel.discoverTools({ query: "weather", limit: 1 });
 if (tools.length === 0) {
   console.error("no weather tool installed");
 } else {
   const [tool] = tools;
-  const result = await mci.services[tool.serviceId].tools[tool.id].invoke({
+  const result = await cyrnel.services[tool.serviceId].tools[tool.id].invoke({
     city: "Accra",
   });
-  mci.output({ result });
+  cyrnel.output({ result });
 }
 ```
 

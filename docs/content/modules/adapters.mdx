@@ -1,15 +1,15 @@
 ---
 title: "Adapter Modules"
-description: "Modules that connect MCI to end services"
+description: "Modules that connect cyrnel to end services"
 sidebarTitle: "Adapter Modules"
 ---
 
-An **adapter module** is the part of MCI that knows how to talk to a
+An **adapter module** is the part of cyrnel that knows how to talk to a
 specific kind of end service. It is responsible for:
 
 1. **Parsing definitions.** Turning whatever the user supplied at install
    time (an OpenAPI document, a gRPC proto, a custom JSON descriptor, …)
-   into a `ServiceDefinition` MCI can store.
+   into a `ServiceDefinition` cyrnel can store.
 2. **Holding runtime state.** Storing per-service config and secrets, and
    any `adapterDomain` metadata produced at install time.
 3. **Invoking tools.** Translating a generic
@@ -59,7 +59,7 @@ interface AdapterModule extends Module {
 
 ## Security Model
 
-Adapter modules are the **most security-sensitive** part of MCI. They:
+Adapter modules are the **most security-sensitive** part of cyrnel. They:
 
 - Receive **decrypted secrets** via `ServiceState.secrets`.
 - Make **outbound network requests** (or open files, or send messages,
@@ -67,7 +67,7 @@ Adapter modules are the **most security-sensitive** part of MCI. They:
 - Run in the **host Node.js process** with full host permissions — they are
   not sandboxed.
 
-Concretely, the trust boundary is "the operator of the MCI server" decides
+Concretely, the trust boundary is "the operator of the cyrnel server" decides
 which adapters to enable. Every enabled adapter can:
 
 - Read every secret of every service it owns.
@@ -76,13 +76,13 @@ which adapters to enable. Every enabled adapter can:
 
 ### Implications
 
-- **Treat the contents of `$MCI_DATA_DIR/modules/` as code with full host
+- **Treat the contents of `$CYRNEL_DATA_DIR/modules/` as code with full host
   privileges.** Use the same review you would use for any other server
   code. A malicious adapter trivially exfiltrates secrets.
 - **Don't enable adapters you can't read.** "Plug-and-play" is convenient
   but not safe.
-- **Don't reuse `MCI_SECRETS_KEY` across environments.** A leaked key,
-  combined with a copy of `mci.db`, decrypts every secret of every service.
+- **Don't reuse `CYRNEL_SECRETS_KEY` across environments.** A leaked key,
+  combined with a copy of `data.db`, decrypts every secret of every service.
 - **Be careful with `adapterDomain`.** It is persisted in plaintext in the
   `services` table. If the adapter places URLs, header templates, or other
   identifying metadata there, treat that table as sensitive too.
@@ -91,7 +91,7 @@ which adapters to enable. Every enabled adapter can:
 
 - **Persist secrets outside `ServiceState`.** All secret retention must be
   in-memory; if the process restarts, `hydrateService` is called again.
-  Writing them to disk silently breaks the encryption guarantee MCI is
+  Writing them to disk silently breaks the encryption guarantee cyrnel is
   trying to give the operator.
 - **Drop authentication on retry.** If a request fails, retry with the same
   credentials, not without them.

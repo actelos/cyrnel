@@ -1,15 +1,15 @@
 # Repository Instructions
 
-MCI is a Turbo + pnpm monorepo. Every workspace is TypeScript.
+Cyrnel is a Turbo + pnpm monorepo. Every workspace is TypeScript.
 
 ## Repo layout
 
-- `apps/api` — Express API (`@mci/api`)
-- `apps/web` — Vite + React web app (`@mci/web`)
-- `apps/mcp` — MCP server built on `fastmcp` (`@mci/mcp-ts`)
-- `packages/libs/sdk` — shared TS SDK (`@mci/sdk`)
-- `packages/modules/openapi` — OpenAPI generator (`@mci/openapi`)
-- `packages/modules/typescript-ivm` — sandboxed TS runtime (`@mci/typescript-ivm`)
+- `apps/api` — Express API (`@cyrnel/api`)
+- `apps/web` — Vite + React web app (`@cyrnel/web`)
+- `apps/mcp` — MCP server built on `fastmcp` (`@cyrnel/mcp-ts`)
+- `packages/libs/sdk` — shared TS SDK (`@cyrnel/sdk`)
+- `packages/modules/openapi` — OpenAPI generator (`@cyrnel/openapi`)
+- `packages/modules/typescript-ivm` — sandboxed TS runtime (`@cyrnel/typescript-ivm`)
 
 Workspaces are declared in `pnpm-workspace.yaml`; the Turbo pipeline lives in
 `turbo.json`; lint/format config is `biome.json`.
@@ -55,7 +55,7 @@ Scope to a single workspace with `pnpm -C <dir> <script>`:
 
 Or filter via Turbo:
 
-- `pnpm turbo test --filter=@mci/api`
+- `pnpm turbo test --filter=@cyrnel/api`
 - `pnpm turbo build --filter=./apps/mcp`
 
 ## App-specific scripts
@@ -82,7 +82,7 @@ Or filter via Turbo:
 - Unit tests live next to code as `*.test.ts`.
 - Module packages (`packages/modules/*`) also have a `tests/**` folder for
   broader/integration tests.
-- The `@mci/sdk` package currently has no tests.
+- The `@cyrnel/sdk` package currently has no tests.
 
 Run a single file or filter by name:
 
@@ -113,7 +113,7 @@ Style:
 - Use `import type { ... }` for type-only imports.
 - Node built-ins use the `node:` prefix.
 - Import groups (Biome will normalize): node built-ins → externals → workspace
-  (`@mci/*`, `@/...`) → relative.
+  (`@cyrnel/*`, `@/...`) → relative.
 
 Naming: `kebab-case` files in `apps/api/src/**`, `camelCase` for
 functions/vars, `PascalCase` for classes/types, `SCREAMING_SNAKE_CASE` only

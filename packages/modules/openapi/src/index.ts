@@ -5,7 +5,7 @@ import type {
   ModuleSetupContext,
   ServiceDefinition,
   ServiceState,
-} from "@mci/sdk";
+} from "@cyrnel/sdk";
 
 import { generateDefinition } from "./generateDefinition";
 

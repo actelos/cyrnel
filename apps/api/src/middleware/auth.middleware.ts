@@ -8,7 +8,7 @@ export function apiKeyMiddleware(
   _res: Response,
   next: NextFunction,
 ): void {
-  const expectedApiKey = process.env.MCI_API_KEY;
+  const expectedApiKey = process.env.CYRNEL_API_KEY;
   if (!expectedApiKey) {
     next();
     return;

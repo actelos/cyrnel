@@ -1,6 +1,6 @@
 ---
-title: "MCI vs MCP"
-description: "A Deep Comparative Analysis between MCP and MCI"
+title: "Cyrnel vs MCP"
+description: "A Deep Comparative Analysis between MCP and cyrnel"
 ---
 
 Modern AI systems are increasingly expected to act in the real world, modifying databases, deploying code, controlling hardware, and coordinating with other software agents. While large language models (LLMs) excel at reasoning and synthesis, they are non-deterministic by nature and were never designed to function as trusted execution engines.
@@ -25,17 +25,17 @@ Relying on context as the primary mechanism for action introduces several system
 
 These are not mere implementation bugs; they are the natural consequences of using a probabilistic reasoning system for execution.
 
-## The MCI Reframing
+## The cyrnel Reframing
 
-The Model Control Interface (MCI) takes a different position:
+Cyrnel takes a different position:
 
 > ****Models are excellent at deciding what should be done, but they should not be responsible for doing it.****
 
-MCI introduces a control-oriented architecture that places deterministic systems between model intent and real-world effects. Instead of emitting simple tool calls, models emit **executable code** that runs inside a secure, sandboxed runtime managed by MCI.
+Cyrnel introduces a control-oriented architecture that places deterministic systems between model intent and real-world effects. Instead of emitting simple tool calls, models emit **executable code** that runs inside a secure, sandboxed runtime managed by cyrnel.
 
-## What MCI Enables
+## What cyrnel Enables
 
-By separating reasoning from execution, MCI enables capabilities that are difficult or impractical under context-based protocols:
+By separating reasoning from execution, cyrnel enables capabilities that are difficult or impractical under context-based protocols:
 
 - **Deterministic Security:** Achieved through sandboxing, strict permissions, and secret isolation.
 - **Long-Running Workflows:** Supports asynchronous tasks without bloating the model's context.
@@ -43,15 +43,15 @@ By separating reasoning from execution, MCI enables capabilities that are diffic
 - **Persistent State:** State is managed explicitly outside the model, ensuring continuity.
 - **Passive Context:** Event-driven integrations allow the system to respond to changes without constant polling.
 - **Deep Observability:** Structured logging and interception controls allow visibility into every action.
-- **Fine Grained Security and Permissions:** Each and every action done by the model can be observed, approved or disapproved, redirected, etc. across every client over MCI.
+- **Fine Grained Security and Permissions:** Each and every action done by the model can be observed, approved or disapproved, redirected, etc. across every client over cyrnel.
 
-These properties make MCI the superior choice for robotics, infrastructure automation, security monitoring, and multi-agent collaboration.
+These properties make cyrnel the superior choice for robotics, infrastructure automation, security monitoring, and multi-agent collaboration.
 
 Imagine asking your model a simple question:
 
 > “Prep me up for work today”
 
-In an MCI-based system, that question does not trigger a flurry of ad-hoc tool calls. Instead, it kicks off a single, structured execution plan.
+In an cyrnel-based system, that question does not trigger a flurry of ad-hoc tool calls. Instead, it kicks off a single, structured execution plan.
 
 The model:
 
@@ -61,7 +61,7 @@ From the user’s perspective, it feels like asking about work and getting work-
 
 ## Core Architectural Comparison
 
-| Feature | MCP (Model Context Protocol) | MCI (Model Control Interface) |
+| Feature | MCP (Model Context Protocol) | Cyrnel |
 | --- | --- | --- |
 | **Core Design** | **Protocol**: Focuses on how data is exchanged. | **Runtime**: Focuses on how actions are executed. |
 | **Control Mechanism** | **Context-driven**: The model interprets and responds. | **Execution-driven**: The model orchestrates a sandbox. |
@@ -77,9 +77,9 @@ From the user’s perspective, it feels like asking about work and getting work-
 
     For a service to work over MCP it must be MCP compliant and follow all the MCP flavored JSON-RPC definition. This requires developers to write servers as code for external services.
 
-    ### MCI Approach
+    ### Cyrnel Approach
 
-    MCI ingests a definition file and uses a compliant adapter module to register the service without requiring a dedicated server for each end service.
+    Cyrnel ingests a definition file and uses a compliant adapter module to register the service without requiring a dedicated server for each end service.
   </Accordion>
 
   <Accordion title="Deterministic Security and Permission Boundaries">
@@ -87,9 +87,9 @@ From the user’s perspective, it feels like asking about work and getting work-
 
     MCP exposes capabilities to models via context. Once a tool is described, invocation authority is implicitly granted. There is no first-class notion of permission scopes, least-privilege execution, or enforced separation between intent and capability. It relies on each host to build its own hardened permission system.
 
-    ### MCI Approach
+    ### Cyrnel Approach
 
-    MCI externalizes authority. Actions execute inside a sandbox governed by explicit, deterministic permission rules. Requests can be inspected in transit to enforce policy. The model can request actions, but cannot exceed what the sandbox and server modules permit.
+    Cyrnel externalizes authority. Actions execute inside a sandbox governed by explicit, deterministic permission rules. Requests can be inspected in transit to enforce policy. The model can request actions, but cannot exceed what the sandbox and server modules permit.
   </Accordion>
 
   <Accordion title="Elimination of Context-Based Capability Discovery">
@@ -99,7 +99,7 @@ From the user’s perspective, it feels like asking about work and getting work-
 
     This creates a failure mode where the model either forgets capabilities or hallucinates them.
 
-    ### MCI Approach
+    ### Cyrnel Approach
 
     Capabilities are resolved at startup and compiled into generated, read-only libraries inside the sandbox. The model does not need to remember what exists. It imports what is available and can query capability discovery when needed.
   </Accordion>
@@ -109,7 +109,7 @@ From the user’s perspective, it feels like asking about work and getting work-
 
     Each interaction re-transmits schemas, arguments, and intermediate results through the model. Token usage scales with system wiring rather than user intent.
 
-    ### MCI Approach
+    ### Cyrnel Approach
 
     The model emits a compact code block once. All intermediate computation occurs in the sandbox. Only results and logs are streamed back.
   </Accordion>
@@ -119,9 +119,9 @@ From the user’s perspective, it feels like asking about work and getting work-
 
     State lives in the context window. When it scrolls out, it is lost or hallucinated. Cross-session continuity is unreliable.
 
-    ### MCI Approach
+    ### Cyrnel Approach
 
-    State is externalized into databases, filesystems, queues, and services managed by MCI. The model accesses state explicitly via code.
+    State is externalized into databases, filesystems, queues, and services managed by cyrnel. The model accesses state explicitly via code.
   </Accordion>
 
   <Accordion title="Action Chaining and Complex Task Composition">
@@ -129,7 +129,7 @@ From the user’s perspective, it feels like asking about work and getting work-
 
     Actions are invoked as discrete, serialized requests. Intermediate results must be re-injected into context, inflating tokens and increasing failure risk.
 
-    ### MCI Approach
+    ### Cyrnel Approach
 
     Actions are composed directly in code. Models can chain operations, branch logic, loop, and aggregate results within a single execution.
   </Accordion>
@@ -139,7 +139,7 @@ From the user’s perspective, it feels like asking about work and getting work-
 
     From the model's perspective, actions are blocking. Progress is opaque until completion.
 
-    ### MCI Approach
+    ### Cyrnel Approach
 
     Clients can start executions without blocking their request flow. Results and logs can be retrieved as execution progresses or after completion.
   </Accordion>
@@ -149,7 +149,7 @@ From the user’s perspective, it feels like asking about work and getting work-
 
     All context must be pulled by the model. External events cannot push information proactively.
 
-    ### MCI Approach
+    ### Cyrnel Approach
 
     Event sources can inject context reactively, such as callbacks, sensors, alerts, and scheduled events.
   </Accordion>
@@ -159,15 +159,15 @@ From the user’s perspective, it feels like asking about work and getting work-
 
     Logging, auditing, and policy enforcement are not standardized. Each server reinvents these mechanisms.
 
-    ### MCI Approach
+    ### Cyrnel Approach
 
     Action interception and observability are built into the execution flow.
   </Accordion>
 </AccordionGroup>
 
-## Why MCP Cannot Evolve into MCI Without Collapsing
+## Why MCP Cannot Evolve into cyrnel Without Collapsing
 
-MCP's core abstraction is context extension. MCI's core abstraction is controlled execution.
+MCP's core abstraction is context extension. Cyrnel's core abstraction is controlled execution.
 
 Adding permissions, state, observability, async execution, and code-based action composition to MCP would require removing its dependence on context as the primary control surface. At that point, MCP would no longer be MCP; it would be an execution runtime retrofitted onto a text protocol.
 

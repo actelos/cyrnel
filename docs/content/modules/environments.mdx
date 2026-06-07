@@ -8,7 +8,7 @@ An **environment module** runs the code clients submit through
 `POST /processes`. It owns:
 
 1. **Code execution.** Transpiling, sandboxing, and running submitted code.
-2. **Runtime bindings.** Exposing the `mci.*` API (or whatever shape it
+2. **Runtime bindings.** Exposing the `cyrnel.*` API (or whatever shape it
    prefers) so user code can discover and invoke tools.
 3. **Output capture.** Streaming stdout, stderr, and structured output back
    to the host through callbacks.
@@ -51,7 +51,7 @@ interface EnvironmentModule extends Module {
 Only one environment is active at a time — the one whose `modules` row has
 `enabled = true`. Switching environments (or disabling the active one)
 moves it to a **draining** state: no new executions are dispatched to it,
-but in-flight ones run to completion. Once the last execution finishes, MCI
+but in-flight ones run to completion. Once the last execution finishes, cyrnel
 calls `teardown()` on it.
 
 This means:
@@ -71,7 +71,7 @@ For the bundled `typescript-ivm`:
 
 - Code runs in an `isolated-vm` isolate with a hard memory limit.
 - The isolate has **no module loader, no filesystem, no network, no Node
-  built-ins**. The only escape hatches are the references MCI installs.
+  built-ins**. The only escape hatches are the references cyrnel installs.
 - Timeouts terminate the isolate; the worker slot is recreated rather than
   reused.
 

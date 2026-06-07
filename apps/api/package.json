@@ -1,5 +1,5 @@
 {
-  "name": "@mci/api",
+  "name": "@cyrnel/api",
   "private": true,
   "type": "module",
   "scripts": {
@@ -20,9 +20,9 @@
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^8.5.0",
     "@libsql/client": "^0.17.3",
-    "@mci/openapi": "workspace:*",
-    "@mci/sdk": "workspace:*",
-    "@mci/typescript-ivm": "workspace:*",
+    "@cyrnel/openapi": "workspace:*",
+    "@cyrnel/sdk": "workspace:*",
+    "@cyrnel/typescript-ivm": "workspace:*",
     "ajv": "^8.20.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",

@@ -4,29 +4,29 @@
     applySyncPromise(receiver: undefined, args: unknown[]): Promise<unknown>;
   }
 
-  interface MciGlobals {
-    __mci_emitStdout: IvmReference;
-    __mci_emitStderr: IvmReference;
-    __mci_emitOutput: IvmReference;
-    __mci_getService: IvmReference;
-    __mci_getTool: IvmReference;
-    __mci_getToolDocs: IvmReference;
-    __mci_invokeTool: IvmReference;
-    __mci_discoverTools: IvmReference;
-    __mci_discoverServices: IvmReference;
+  interface CyrnelGlobals {
+    __cyrnel_emitStdout: IvmReference;
+    __cyrnel_emitStderr: IvmReference;
+    __cyrnel_emitOutput: IvmReference;
+    __cyrnel_getService: IvmReference;
+    __cyrnel_getTool: IvmReference;
+    __cyrnel_getToolDocs: IvmReference;
+    __cyrnel_invokeTool: IvmReference;
+    __cyrnel_discoverTools: IvmReference;
+    __cyrnel_discoverServices: IvmReference;
   }
 
-  const mciGlobals = globalThis as typeof globalThis & MciGlobals;
+  const cyrnelGlobals = globalThis as typeof globalThis & CyrnelGlobals;
 
-  const __mci_emitStdout = mciGlobals.__mci_emitStdout;
-  const __mci_emitStderr = mciGlobals.__mci_emitStderr;
-  const __mci_emitOutput = mciGlobals.__mci_emitOutput;
-  const __mci_getService = mciGlobals.__mci_getService;
-  const __mci_getTool = mciGlobals.__mci_getTool;
-  const __mci_getToolDocs = mciGlobals.__mci_getToolDocs;
-  const __mci_invokeTool = mciGlobals.__mci_invokeTool;
-  const __mci_discoverTools = mciGlobals.__mci_discoverTools;
-  const __mci_discoverServices = mciGlobals.__mci_discoverServices;
+  const __cyrnel_emitStdout = cyrnelGlobals.__cyrnel_emitStdout;
+  const __cyrnel_emitStderr = cyrnelGlobals.__cyrnel_emitStderr;
+  const __cyrnel_emitOutput = cyrnelGlobals.__cyrnel_emitOutput;
+  const __cyrnel_getService = cyrnelGlobals.__cyrnel_getService;
+  const __cyrnel_getTool = cyrnelGlobals.__cyrnel_getTool;
+  const __cyrnel_getToolDocs = cyrnelGlobals.__cyrnel_getToolDocs;
+  const __cyrnel_invokeTool = cyrnelGlobals.__cyrnel_invokeTool;
+  const __cyrnel_discoverTools = cyrnelGlobals.__cyrnel_discoverTools;
+  const __cyrnel_discoverServices = cyrnelGlobals.__cyrnel_discoverServices;
 
   type ListServiceInput = {
     query?: string;
@@ -100,12 +100,12 @@
 
   console.log = (...args: unknown[]) => {
     const message = `${formatConsoleArgs(...args)}\n`;
-    __mci_emitStdout.applyIgnored(undefined, [message]);
+    __cyrnel_emitStdout.applyIgnored(undefined, [message]);
   };
 
   console.error = (...args: unknown[]) => {
     const message = `${formatConsoleArgs(...args)}\n`;
-    __mci_emitStderr.applyIgnored(undefined, [message]);
+    __cyrnel_emitStderr.applyIgnored(undefined, [message]);
   };
 
   const callAsync = async <T>(
@@ -126,9 +126,9 @@
     return result as string;
   };
 
-  const mci = {
+  const cyrnel = {
     output(data: Record<string, unknown>): void {
-      __mci_emitOutput.applyIgnored(undefined, [JSON.stringify(data)]);
+      __cyrnel_emitOutput.applyIgnored(undefined, [JSON.stringify(data)]);
     },
 
     services: new Proxy(
@@ -154,7 +154,7 @@
 
           return {
             async getDefinition(): Promise<ServiceDetails> {
-              return callAsync<ServiceDetails>(__mci_getService, serviceId);
+              return callAsync<ServiceDetails>(__cyrnel_getService, serviceId);
             },
 
             tools: new Proxy(
@@ -180,14 +180,14 @@
                         serviceId,
                         toolId,
                       } satisfies GetToolInput;
-                      return callAsync<ToolDetails>(__mci_getTool, input);
+                      return callAsync<ToolDetails>(__cyrnel_getTool, input);
                     },
                     async getDocs(): Promise<string> {
                       const input = {
                         serviceId,
                         toolId,
                       } satisfies GetToolInput;
-                      return callAsyncText(__mci_getToolDocs, input);
+                      return callAsyncText(__cyrnel_getToolDocs, input);
                     },
                     async invoke(
                       parameters: Record<string, unknown>,
@@ -197,7 +197,7 @@
                         toolId,
                         parameters,
                       } satisfies InvokeInput;
-                      return callAsync<unknown>(__mci_invokeTool, input);
+                      return callAsync<unknown>(__cyrnel_invokeTool, input);
                     },
                   };
                 },
@@ -209,18 +209,18 @@
     ),
 
     async discoverTools(input: ListToolInput): Promise<ListToolResult[]> {
-      return callAsync<ListToolResult[]>(__mci_discoverTools, input);
+      return callAsync<ListToolResult[]>(__cyrnel_discoverTools, input);
     },
 
     async discoverServices(
       input: ListServiceInput,
     ): Promise<ListServiceResult[]> {
-      return callAsync<ListServiceResult[]>(__mci_discoverServices, input);
+      return callAsync<ListServiceResult[]>(__cyrnel_discoverServices, input);
     },
   };
 
-  Object.defineProperty(globalThis, "mci", {
-    value: Object.freeze(mci),
+  Object.defineProperty(globalThis, "cyrnel", {
+    value: Object.freeze(cyrnel),
     enumerable: true,
     configurable: false,
     writable: false,

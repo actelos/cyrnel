@@ -8,7 +8,7 @@ export const MAX_REDIRECTS = 5;
 export const DOWNLOAD_TIMEOUT_MS = 10_000;
 
 export function isPrivateRegistryAllowed(): boolean {
-  const v = process.env.MCI_ALLOW_PRIVATE_REGISTRY;
+  const v = process.env.CYRNEL_ALLOW_PRIVATE_REGISTRY;
   return v === "1" || v?.toLowerCase() === "true";
 }
 

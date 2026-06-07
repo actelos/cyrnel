@@ -7,7 +7,7 @@ import type {
   ServiceDefinition,
   ServiceState,
   ToolDocsInput,
-} from "@mci/sdk";
+} from "@cyrnel/sdk";
 import { sql } from "drizzle-orm";
 import {
   afterAll,
@@ -32,7 +32,7 @@ import { encryptSecrets } from "@/utils/secrets.util";
 const MIGRATIONS_DIR = path.resolve(import.meta.dirname, "../../drizzle");
 
 const SECRETS_KEY = crypto.randomBytes(32).toString("base64");
-const originalSecretsKey = process.env.MCI_SECRETS_KEY;
+const originalSecretsKey = process.env.CYRNEL_SECRETS_KEY;
 
 async function applyMigrations(): Promise<void> {
   const entries = (await fs.readdir(MIGRATIONS_DIR))
@@ -182,15 +182,15 @@ function mockFetchOnce(
 
 describe("ServicesService", () => {
   beforeAll(async () => {
-    process.env.MCI_SECRETS_KEY = SECRETS_KEY;
+    process.env.CYRNEL_SECRETS_KEY = SECRETS_KEY;
     await applyMigrations();
   });
 
   afterAll(() => {
     if (originalSecretsKey === undefined) {
-      delete process.env.MCI_SECRETS_KEY;
+      delete process.env.CYRNEL_SECRETS_KEY;
     } else {
-      process.env.MCI_SECRETS_KEY = originalSecretsKey;
+      process.env.CYRNEL_SECRETS_KEY = originalSecretsKey;
     }
   });
 
@@ -1286,8 +1286,8 @@ describe("ServicesService", () => {
       ).rejects.toMatchObject({ statusCode: 502 });
     });
 
-    it("allows private addresses when MCI_ALLOW_PRIVATE_REGISTRY=1", async () => {
-      vi.stubEnv("MCI_ALLOW_PRIVATE_REGISTRY", "1");
+    it("allows private addresses when CYRNEL_ALLOW_PRIVATE_REGISTRY=1", async () => {
+      vi.stubEnv("CYRNEL_ALLOW_PRIVATE_REGISTRY", "1");
       mockFetchOnce("payload");
       const svc = new ServicesService(makeController());
 
@@ -1300,8 +1300,8 @@ describe("ServicesService", () => {
       ).resolves.toBeUndefined();
     });
 
-    it("allows resolving hostnames to private IPs when MCI_ALLOW_PRIVATE_REGISTRY=true", async () => {
-      vi.stubEnv("MCI_ALLOW_PRIVATE_REGISTRY", "true");
+    it("allows resolving hostnames to private IPs when CYRNEL_ALLOW_PRIVATE_REGISTRY=true", async () => {
+      vi.stubEnv("CYRNEL_ALLOW_PRIVATE_REGISTRY", "true");
       vi.spyOn(dns, "lookup").mockResolvedValue([
         { address: "127.0.0.1", family: 4 },
       ] as never);

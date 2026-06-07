@@ -1,5 +1,5 @@
 {
-  "name": "@mci/openapi",
+  "name": "@cyrnel/openapi",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -19,7 +19,7 @@
   },
   "packageManager": "pnpm@10.30.3",
   "dependencies": {
-    "@mci/sdk": "workspace:*",
+    "@cyrnel/sdk": "workspace:*",
     "yaml": "^2.9.0"
   },
   "devDependencies": {

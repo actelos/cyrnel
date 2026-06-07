@@ -5,22 +5,22 @@ description: "Trust boundaries, secrets, modules, and known limitations"
 
 There are three actors that matter:
 
-- **The operator.** Whoever runs the MCI process. They choose the env vars,
+- **The operator.** Whoever runs the cyrnel process. They choose the env vars,
   the modules on disk, the key material, and what to expose.
-- **The API caller.** Anyone with a valid `MCI_API_KEY` (or any caller if
+- **The API caller.** Anyone with a valid `CYRNEL_API_KEY` (or any caller if
   the API runs anonymously). They can install services, write secrets,
   toggle modules, and run code.
 - **The end services.** Whatever the adapters reach. They are downstream
-  of MCI and largely outside its control.
+  of cyrnel and largely outside its control.
 
 Everything else (user code in the sandbox, adapters loaded from disk, the
 web UI) is a tool the operator chooses to trust.
 
 ## API Surface
 
-- **Authentication is one static bearer token** (`MCI_API_KEY`). No scopes,
+- **Authentication is one static bearer token** (`CYRNEL_API_KEY`). No scopes,
   no expiry. Anonymous mode is intended for `127.0.0.1` only.
-  See the [README](https://github.com/actelos/mci#talk-to-the-api).
+  See the [README](https://github.com/actelos/cyrnel#talk-to-the-api).
 - **No rate limiting** is enforced by the API. A noisy or hostile caller
   will be felt directly by adapters and end services.
 - **Error envelopes** are intentionally terse (`{ "error": "..." }`). They
@@ -31,7 +31,7 @@ web UI) is a tool the operator chooses to trust.
 
 ### Adapter modules
 
-Adapter modules are the most security-sensitive component MCI loads, for
+Adapter modules are the most security-sensitive component cyrnel loads, for
 three reasons:
 
 1. **They run with full host privileges.** Custom adapters loaded via execute()
@@ -74,7 +74,7 @@ bundled `typescript-ivm`:
 
 - Must run each execution in an isolate.
 - Should provide **no module loader, no filesystem, no network, and no Node
-  built-ins**. The only outbound channel is the small set of references from MCI.
+  built-ins**. The only outbound channel is the small set of references from cyrnel.
 - Terminates the isolate on timeout and recreates worker slots.
 
 caveat:
@@ -82,7 +82,7 @@ caveat:
 - **Tool invocations bypass the sandbox.** When client code calls an invoke,
   the request leaves the isolate and runs in the host through the adapter.
   The sandbox limits what code can *do directly*, not what tools it can *ask
-  MCI to call*.
+  cyrnel to call*.
 
 See [Environment Modules](/content/modules/environments).
 
@@ -91,7 +91,7 @@ See [Environment Modules](/content/modules/environments).
 Secrets live in `service_secrets.payload` as ciphertext with a
 fresh 12-byte IV per write. The auth tag is stored alongside.
 
-- **The key** is `MCI_SECRETS_KEY`, base64-encoded, decoded to 32 bytes.
+- **The key** is `CYRNEL_SECRETS_KEY`, base64-encoded, decoded to 32 bytes.
   Anything else (missing, short, long, non-base64) fails the request with
   `500 Secrets key is not configured`.
 - **The example key in `.example.env`
@@ -119,7 +119,7 @@ guards:
 
 But:
 
-- **DNS names are not resolved or pinned.** A caller can hand MCI any
+- **DNS names are not resolved or pinned.** A caller can hand cyrnel any
   hostname; the SSRF guard only triggers when the hostname is *already*
   an IP literal. `http://internal.example.com/...` is fetched without
   comment, even if it resolves to `10.0.0.5`. Likewise, `http://localhost/`
@@ -132,7 +132,7 @@ But:
 - Treat the API key as the security boundary. Do not expose
   `/services/install` (or the API at all) to clients you wouldn't trust
   to make outbound network requests from the host.
-- If you need a stricter posture, run MCI inside a network namespace or
+- If you need a stricter posture, run cyrnel inside a network namespace or
   egress firewall that restricts which hosts it can reach.
 
 ## Data at Rest
@@ -141,7 +141,7 @@ But:
 | --- | --- | --- |
 | Service metadata, tools, schemas | `services`, `tools` tables | None (plaintext). |
 | Service configuration (JSON-Patch-edited) | `service_configurations.payload` | None (plaintext). |
-| Service secrets | `service_secrets.payload` | AES-256-GCM with `MCI_SECRETS_KEY`. |
+| Service secrets | `service_secrets.payload` | AES-256-GCM with `CYRNEL_SECRETS_KEY`. |
 | Module enable/orphan state | `modules` | None (plaintext, but boolean flags only). |
 | Process records, stdout, stderr, output | In-memory only | Lost on restart. |
 
@@ -151,11 +151,11 @@ Configuration is not — operators must avoid storing credentials in
 
 ## Defaults Worth Hardening
 
-- Replace `MCI_SECRETS_KEY` before first use.
-- Set `MCI_API_KEY` whenever the API listens on anything other than
+- Replace `CYRNEL_SECRETS_KEY` before first use.
+- Set `CYRNEL_API_KEY` whenever the API listens on anything other than
   `127.0.0.1`.
 - Restrict the host's outbound network if `/services/install` is
   reachable by untrusted callers.
 - Don't deploy the web UI publicly with credentials baked into the
   bundle.
-- Review adapters before dropping them into `$MCI_DATA_DIR/modules/`.
+- Review adapters before dropping them into `$CYRNEL_DATA_DIR/modules/`.

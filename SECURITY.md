@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-MCI is under active development and does not yet maintain release branches.
+Cyrnel is under active development and does not yet maintain release branches.
 Only the latest commit on `main` receives security fixes. Older snapshots,
 forks, and tagged pre-releases are not supported — please update to `main`
 before reporting an issue or expecting a fix.
@@ -20,7 +20,7 @@ existing users at risk.
 
 Report vulnerabilities privately through GitHub Security Advisories:
 
-> <https://github.com/actelos/mci/security/advisories/new>
+> <https://github.com/actelos/cyrnel/security/advisories/new>
 
 A good report includes:
 
@@ -52,12 +52,12 @@ In scope:
 
 - Code in this repository (`apps/`, `packages/`, and supporting
   infrastructure such as CI workflows, Dockerfiles, and migrations).
-- The default configuration shipped with MCI.
+- The default configuration shipped with cyrnel.
 
 Out of scope:
 
 - Vulnerabilities in third-party dependencies that do not have a viable
-  exploitation path through MCI — please report those upstream.
+  exploitation path through cyrnel — please report those upstream.
 - Issues that require a privileged account, attacker-controlled module
   installation, or other prerequisites that effectively grant code
   execution on the host.
@@ -65,4 +65,4 @@ Out of scope:
   rate-limiting on non-sensitive endpoints, and other findings commonly
   filed by automated scanners without manual validation.
 
-Thanks for helping keep MCI and its users safe.
+Thanks for helping keep cyrnel and its users safe.

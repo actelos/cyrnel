@@ -3,7 +3,7 @@ import type { FastMCPSessionAuth, ResourceTemplate } from "fastmcp";
 import { api } from "@/utils/fetch";
 
 export const toolDocsResourceTemplate: ResourceTemplate<FastMCPSessionAuth> = {
-  uriTemplate: "mci://services/{service_id}/tools/{tool_id}/docs",
+  uriTemplate: "cyrnel://services/{service_id}/tools/{tool_id}/docs",
   name: "tool_docs",
   description: `
   Markdown docs for a single tool, rendered by the active execution

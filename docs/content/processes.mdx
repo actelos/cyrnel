@@ -3,8 +3,8 @@ title: "Processes"
 description: "Creating, running, and inspecting processes"
 ---
 
-A process is a stateful execution unit in MCI. When a client submits code,
-MCI creates a process with a unique process id (`pid`), runs it on the active
+A process is a stateful execution unit in cyrnel. When a client submits code,
+cyrnel creates a process with a unique process id (`pid`), runs it on the active
 [environment module](/content/modules/environments), captures its output, and
 exposes those outputs by `pid`. Process execution does not block the client
 request unless `block: true` is set.
@@ -20,7 +20,7 @@ Each process is an in-memory record with the following fields:
 - `error`: error message if the process failed, otherwise `null`
 - `code`: the submitted source
 - `options.timeoutMs`: per-process timeout in milliseconds, or `null` to disable
-- `output`: structured key/value payload emitted by `mci.output(...)`
+- `output`: structured key/value payload emitted by `cyrnel.output(...)`
 - `stdout`, `stderr`: captured byte buffers
 
 <Warning>
@@ -75,7 +75,7 @@ Response (`201`):
 { "pid": 42 }
 ```
 
-If `block: true`, MCI polls until `state === "idle"` before responding. The
+If `block: true`, cyrnel polls until `state === "idle"` before responding. The
 HTTP status is still `201`.
 
 ## Run an Existing Process
@@ -144,7 +144,7 @@ by future creates.
 # 1. submit code
 curl -X POST http://localhost:7687/processes \
   -H 'content-type: application/json' \
-  -d '{"code":"mci.output({ hello: 42 });","block":true}'
+  -d '{"code":"cyrnel.output({ hello: 42 });","block":true}'
 # { "pid": 1 }
 
 # 2. fetch outputs

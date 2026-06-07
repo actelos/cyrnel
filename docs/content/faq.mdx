@@ -1,47 +1,47 @@
 ---
 title: "Frequently Asked Questions"
-description: "Frequent questions about MCI"
+description: "Frequent questions about cyrnel"
 ---
 
 <AccordionGroup>
-  <Accordion title="What is MCI actually providing?">
-    Among others, MCI provides:
+  <Accordion title="What is cyrnel actually providing?">
+    Among others, cyrnel provides:
 
-    - **Efficiency:** MCI is built on researched and proven concepts, our methodology assures effective token usage, cutting down costs, preventing context bloat and making interactions faster.
+    - **Efficiency:** Cyrnel is built on researched and proven concepts, our methodology assures effective token usage, cutting down costs, preventing context bloat and making interactions faster.
       - [MCP code execution](https://www.anthropic.com/engineering/code-execution-with-mcp)
       - [MCP tool search](https://platform.claude.com/docs/en/agents-and-tools/tool-use/tool-search-tool)
-    - **Agnosticism:** MCI is protocol-agnostic at the end-service layer. MCI exposes an HTTP REST API, while adapter modules connect to end services over their native protocols and standards.
-    - **Availability:** MCI is infrastructure-agnostic and can run in serverless, IoT, or clustered environments.
-    - **Observability:** MCI provides built-in tool call observability for users and administrators.
-    - **Security and Permissions:** MCI supports granular tool call security and permission controls.
-    - **Better Developer Experience:** To make an existing service usable on MCI, you do not need to write new server code. You can provide a definition such as `OpenAPI` and register it through adapter modules.
+    - **Agnosticism:** Cyrnel is protocol-agnostic at the end-service layer. Cyrnel exposes an HTTP REST API, while adapter modules connect to end services over their native protocols and standards.
+    - **Availability:** Cyrnel is infrastructure-agnostic and can run in serverless, IoT, or clustered environments.
+    - **Observability:** Cyrnel provides built-in tool call observability for users and administrators.
+    - **Security and Permissions:** Cyrnel supports granular tool call security and permission controls.
+    - **Better Developer Experience:** To make an existing service usable on cyrnel, you do not need to write new server code. You can provide a definition such as `OpenAPI` and register it through adapter modules.
   </Accordion>
 
-  <Accordion title="What makes MCI more secure and observable?">
-    MCI provides an interception layer for tool calls. Requests can be inspected
+  <Accordion title="What makes cyrnel more secure and observable?">
+    Cyrnel provides an interception layer for tool calls. Requests can be inspected
     to block, redirect, or log actions before execution. This supports policy
     enforcement and audit workflows.
   </Accordion>
 
   <Accordion title="What does the “code” look like?">
-    MCI doesn't force a proprietary language (DSL) on you. It uses **environment modules** that translate definitions into standard libraries.
+    Cyrnel doesn't force a proprietary language (DSL) on you. It uses **environment modules** that translate definitions into standard libraries.
 
     This means models can write tasks in Python, JavaScript, or any language the runtime supports.
   </Accordion>
 
-  <Accordion title="Is MCI execution stateful?">
-    Yes. While MCP relies on the model’s limited context window to "remember" state, MCI shifts state management to the code and the runtime. This keeps the model's context clear and makes tool interactions significantly more reliable.
+  <Accordion title="Is cyrnel execution stateful?">
+    Yes. While MCP relies on the model’s limited context window to "remember" state, cyrnel shifts state management to the code and the runtime. This keeps the model's context clear and makes tool interactions significantly more reliable.
   </Accordion>
 
   <Accordion title="Does this mean I can't use MCP?">
-    No. You can use MCI alongside existing MCP servers. You can also connect MCI directly to endpoints when an MCP middle layer is not needed.
+    No. You can use cyrnel alongside existing MCP servers. You can also connect cyrnel directly to endpoints when an MCP middle layer is not needed.
   </Accordion>
 
   <Accordion title="Why not just extend MCP to do this?">
     MCP is a communication standard. Incorporating these features would require redefining its core principles, likely breaking existing implementations. While third-party wrappers could add _some_ of this functionality to MCP, they cannot match the native security and efficiency of a purpose-built control interface.
   </Accordion>
 
-  <Accordion title="Is MCI opinionated about hosting or deployment?">
-    No. MCI is infrastructure-neutral. Whether you are running on-prem, in the cloud, or on embedded devices, MCI is compatible as long as the host environment can enforce the execution contract.
+  <Accordion title="Is cyrnel opinionated about hosting or deployment?">
+    No. Cyrnel is infrastructure-neutral. Whether you are running on-prem, in the cloud, or on embedded devices, cyrnel is compatible as long as the host environment can enforce the execution contract.
   </Accordion>
 </AccordionGroup>

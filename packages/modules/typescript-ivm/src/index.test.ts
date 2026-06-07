@@ -1,4 +1,4 @@
-import type { EnvironmentBindings, ExecutionInput } from "@mci/sdk";
+import type { EnvironmentBindings, ExecutionInput } from "@cyrnel/sdk";
 import { describe, expect, it, vi } from "vitest";
 
 import { instantiate, manifest, toBuffer } from "./index";

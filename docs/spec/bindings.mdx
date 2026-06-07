@@ -4,7 +4,7 @@ description: "Callbacks an environment module receives from the host"
 sidebarTitle: "EnvironmentBindings"
 ---
 
-`EnvironmentBindings` is the callback surface MCI hands to an environment
+`EnvironmentBindings` is the callback surface cyrnel hands to an environment
 module at activation. The environment calls *into* these to talk to the
 host — there is no other channel back.
 
@@ -28,7 +28,7 @@ interface EnvironmentBindings {
 
 These are the calls user code ultimately drives. The environment is
 expected to expose them in whatever surface the runtime uses
-(`mci.discoverServices(...)`, `mci.services[id].tools[t].invoke(...)`,
+(`cyrnel.discoverServices(...)`, `cyrnel.services[id].tools[t].invoke(...)`,
 etc.) and proxy them through.
 
 | Callback | What it returns |

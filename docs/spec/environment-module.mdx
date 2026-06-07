@@ -86,7 +86,7 @@ inside, idioms, examples. Served at `GET /environment/docs`.
 
 This is what AI clients read to learn how to write code for *this*
 environment, so be specific. The bundled `typescript-ivm` documents its
-`mci.*` surface; a custom environment that exposes a different shape
+`cyrnel.*` surface; a custom environment that exposes a different shape
 should document the shape it exposes.
 
 ## `generateToolDocs(input)`
@@ -105,7 +105,7 @@ Return Markdown documenting a single tool **as it should be invoked
 inside this environment**. Served at
 `GET /tools/:serviceId/:toolId/docs`.
 
-If the environment exposes tools as `mci.services[s].tools[t].invoke(p)`,
+If the environment exposes tools as `cyrnel.services[s].tools[t].invoke(p)`,
 render an example using that. If it exposes them as Python functions, do
 that instead.
 
@@ -134,7 +134,7 @@ import type {
   ExecutionExitState,
   ExecutionInput,
   ToolDocsInput,
-} from "@mci/sdk";
+} from "@cyrnel/sdk";
 
 class MyEnvironment implements EnvironmentModule {
   private bindings!: EnvironmentBindings;

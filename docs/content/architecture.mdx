@@ -1,11 +1,11 @@
 ---
-title: "How Does MCI Work?"
-description: "A high-level description of the inner workings of MCI"
+title: "How Does cyrnel Work?"
+description: "A high-level description of the inner workings of cyrnel"
 sidebarTitle: "Architecture Overview"
 ---
 
-MCI is a single HTTP server that sits between AI applications (clients) and
-the services those applications want to act on. Clients submit code, MCI runs
+Cyrnel is a single HTTP server that sits between AI applications (clients) and
+the services those applications want to act on. Clients submit code, cyrnel runs
 it inside a sandboxed environment, and tool invocations made from that code
 are translated by adapter modules into calls to the real services.
 
@@ -17,7 +17,7 @@ graph LR
         C3[Web Chat Clients]
     end
 
-    MCI[MCI Server Instance]
+    Cyrnel[Cyrnel Server Instance]
 
     subgraph End_Servers [Service Layer]
         REST[REST APIs]
@@ -26,19 +26,19 @@ graph LR
         Other[...]
     end
 
-    C1 --- MCI
-    C2 --- MCI
-    C3 --- MCI
+    C1 --- Cyrnel
+    C2 --- Cyrnel
+    C3 --- Cyrnel
 
-    MCI --- REST
-    MCI --- DB
-    MCI --- CLI
-    MCI --- Other
+    Cyrnel --- REST
+    Cyrnel --- DB
+    Cyrnel --- CLI
+    Cyrnel --- Other
 ```
 
 ## Core Components
 
-The MCI server is composed of three cooperating services.
+The cyrnel server is composed of three cooperating services.
 
 ### `Processes`
 
@@ -64,7 +64,7 @@ commands to the different module types.
 
 See [Modules](/content/modules) for the full modules model.
 
-The different types of modules play different roles in MCI;
+The different types of modules play different roles in cyrnel;
 
 - **Adapter modules**: Generate services and translate tool invocations into
   the right call to the right end service (HTTP, RPC, whatever the service
@@ -94,7 +94,7 @@ sequenceDiagram
 
     participant Client
 
-    box MCI Server
+    box Cyrnel Server
         participant API as HTTP API
         participant PS as ProcessService
         participant MS as ModuleService

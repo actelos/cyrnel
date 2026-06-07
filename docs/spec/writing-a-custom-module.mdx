@@ -5,13 +5,13 @@ sidebarTitle: "Writing a custom module"
 ---
 
 This page covers the mechanics of adding a custom adapter or environment
-to a running MCI deployment. For the interfaces themselves, see
+to a running cyrnel deployment. For the interfaces themselves, see
 [`AdapterModule`](/spec/adapter-module) and
 [`EnvironmentModule`](/spec/environment-module).
 
 ## Where Modules Live
 
-Custom modules live under `$MCI_DATA_DIR/modules/<id>/`. Each directory
+Custom modules live under `$CYRNEL_DATA_DIR/modules/<id>/`. Each directory
 must contain a `module.json`:
 
 ```json
@@ -41,7 +41,7 @@ expectation is that you ship modules built ahead of time.
 `my-adapter/index.ts` (compile to `index.js` and ship that):
 
 ```ts
-import type { AdapterModule, InvokeInput, ServiceDefinition, ServiceState } from "@mci/sdk";
+import type { AdapterModule, InvokeInput, ServiceDefinition, ServiceState } from "@cyrnel/sdk";
 
 class MyAdapter implements AdapterModule {
   async setup() {}
@@ -74,7 +74,7 @@ Type is `"environment" as const` in the manifest.)
 
 ## Registering a Module
 
-1. Place the built directory at `$MCI_DATA_DIR/modules/my-adapter/`.
+1. Place the built directory at `$CYRNEL_DATA_DIR/modules/my-adapter/`.
 2. Ensure it contains `module.json` and the file named in `main`.
 3. Either restart the API or call:
 
@@ -82,7 +82,7 @@ Type is `"environment" as const` in the manifest.)
    curl -X POST http://localhost:7687/modules/reload
    ```
 
-`reload` re-scans `$MCI_DATA_DIR/modules/`, registers any new directories,
+`reload` re-scans `$CYRNEL_DATA_DIR/modules/`, registers any new directories,
 and reconciles the result against the `modules` table. A new module is
 inserted with `enabled: true, orphaned: false` by default.
 
@@ -109,7 +109,7 @@ environment and drains the previous one.
 
 ## Removing a Module
 
-Stop the API, delete `$MCI_DATA_DIR/modules/<id>/`, and restart. Or
+Stop the API, delete `$CYRNEL_DATA_DIR/modules/<id>/`, and restart. Or
 delete the directory and `POST /modules/reload`.
 
 The `modules` row is **not** deleted — it's marked `orphaned: true,
@@ -127,7 +127,7 @@ the duplicate. Built-ins are registered first.
 While developing:
 
 1. Build the module (`tsc`, `esbuild`, whatever).
-2. `cp -r dist $MCI_DATA_DIR/modules/<id>/`.
+2. `cp -r dist $CYRNEL_DATA_DIR/modules/<id>/`.
 3. `POST /modules/reload`.
 4. Disable + re-enable the module to force `teardown` / `setup`.
 
@@ -140,7 +140,7 @@ already-enabled modules. Toggle `enabled` to pick up code changes.
   file the Node runtime can resolve directly. Bundle into a single file
   if your module has dependencies; the loader does not run `npm install`
   for you.
-- `peerDependencies` are not honoured. If your module needs `@mci/sdk`
+- `peerDependencies` are not honoured. If your module needs `@cyrnel/sdk`
   types, ship them as build-time `devDependencies` and bundle anything
   you import.
 - Keep modules narrow. A single module that does many unrelated things

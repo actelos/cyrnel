@@ -1,20 +1,20 @@
 ---
 title: "Specification Overview"
-description: "What @mci/sdk is and how modules consume it"
+description: "What @cyrnel/sdk is and how modules consume it"
 sidebarTitle: "Overview"
 ---
 
-`@mci/sdk` is the TypeScript package every MCI module is written against.
-It defines the data shapes MCI exchanges (services, tools, execution
+`@cyrnel/sdk` is the TypeScript package every cyrnel module is written against.
+It defines the data shapes cyrnel exchanges (services, tools, execution
 state) and the interfaces that adapter and environment modules implement.
 
-- **Package**: `@mci/sdk`
+- **Package**: `@cyrnel/sdk`
 - **Workspace**: `packages/libs/sdk`
 - **Entry**: a single `src/index.ts` that re-exports everything.
 
 The SDK is intentionally tiny — no runtime helpers, no defaults, no
 opinions on transport. It is purely a **contract**: if your module
-satisfies the relevant interface, MCI can run it.
+satisfies the relevant interface, cyrnel can run it.
 
 ## What's in the SDK
 
@@ -32,7 +32,7 @@ satisfies the relevant interface, MCI can run it.
 - **Adapter authors** implement [`AdapterModule`](/spec/adapter-module).
 - **Environment authors** implement
   [`EnvironmentModule`](/spec/environment-module).
-- **MCI itself** implements [`EnvironmentBindings`](/spec/bindings),
+- **Cyrnel itself** implements [`EnvironmentBindings`](/spec/bindings),
   which is what an environment module *calls into*. You don't implement
   these unless you're rewriting the host.
 
@@ -54,13 +54,13 @@ export function instantiate(): AdapterModule {
 }
 ```
 
-Built-ins are registered by MCI from their workspace exports. Custom
-modules are loaded from `$MCI_DATA_DIR/modules/<name>/` based on a
+Built-ins are registered by cyrnel from their workspace exports. Custom
+modules are loaded from `$CYRNEL_DATA_DIR/modules/<name>/` based on a
 `module.json` file — see
 [Writing a custom module](/spec/writing-a-custom-module).
 
 ## Versioning
 
-`@mci/sdk` follows the repo's overall semver. Until 1.0 these interfaces
+`@cyrnel/sdk` follows the repo's overall semver. Until 1.0 these interfaces
 should be considered movable; treat changes as ABI changes for modules
 loaded at runtime.

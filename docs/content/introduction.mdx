@@ -1,39 +1,39 @@
 ---
-title: "What is The Model Control Interface (MCI)?"
-description: "An overview of what MCI is and what problems it solves"
-sidebarTitle: "What is MCI?"
+title: "What is Cyrnel?"
+description: "An overview of what cyrnel is and what problems it solves"
+sidebarTitle: "What is cyrnel?"
 ---
 
-**MCI (Model Control Interface)** is open-source software that enables **fast**, **reliable**, **secure**, and **efficient** integration between LLM applications and APIs.
+**Cyrnel** is open-source software that enables **fast**, **reliable**, **secure**, and **efficient** integration between LLM applications and APIs.
 
-MCI lets users plug in any service over any protocol with any standard to any AI client and use it efficiently at low cost.
+Cyrnel lets users plug in any service over any protocol with any standard to any AI client and use it efficiently at low cost.
 
 <Warning>
-  **MCI is not MCP**
+  **Cyrnel is not MCP**
 
-  While both MCP and MCI enable LLMs to interact with external systems, they operate on fundamentally different principles.
+  While both MCP and cyrnel enable LLMs to interact with external systems, they operate on fundamentally different principles.
 </Warning>
 
-## Why MCI?
+## Why cyrnel?
 
 MCP uses the JSON-RPC protocol and aims to be the **standard** for AI applications to communicate with servers and applications. This means any service that wants to provide tools that LLMs can use **MUST** implement the MCP server standard, even if a similar server already exists over another protocol.
 
-MCI, on the other hand, is neither a standard nor a new protocol... It's software that sits between the AI application and any external service, regardless of which protocol or standard that service uses. This shifts the heavy lifting from the users and developers to us.
+Cyrnel, on the other hand, is neither a standard nor a new protocol... It's software that sits between the AI application and any external service, regardless of which protocol or standard that service uses. This shifts the heavy lifting from the users and developers to us.
 
-Beyond core principles, MCI has many advantages and differences. A few of them are as follows:
+Beyond core principles, cyrnel has many advantages and differences. A few of them are as follows:
 
-- **Code Execution Model:** Instead of writing tool calls, with MCI, LLMs write code to perform actions, cutting down tokens and allowing models to perform very long, complex tasks.
-- **Asynchronous Execution**: MCI lets clients start process execution without blocking other requests and retrieve process results when needed.
-- **First-class Observability and Interception:** Every tool call done over MCI can be observed and intercepted for logging, permission management and security audits.
-- **Progressive Composition Without Context Saturation:** MCI allows many services to be wired to a single model without context overload.
+- **Code Execution Model:** Instead of writing tool calls, with cyrnel, LLMs write code to perform actions, cutting down tokens and allowing models to perform very long, complex tasks.
+- **Asynchronous Execution**: Cyrnel lets clients start process execution without blocking other requests and retrieve process results when needed.
+- **First-class Observability and Interception:** Every tool call done over cyrnel can be observed and intercepted for logging, permission management and security audits.
+- **Progressive Composition Without Context Saturation:** Cyrnel allows many services to be wired to a single model without context overload.
 
-## What does MCI enable
+## What does cyrnel enable
 
-- MCI can be used in robotics to have a robot run an asynchronous background action to walk to an object while the model observes its environment.
-- In security, MCI can power an AI-enabled CCTV camera to scan specific points over time while the AI analyzes each frame of footage.
-- MCI can query multiple data sources and databases simultaneously, selecting specific fields and filtering them with expressions to create a pool of results for the model to analyze.
-- MCI enables multiple AIs to collaborate in a single codebase, each assigned tickets and tasks to complete. They can receive repository event notifications when others push changes, allowing them to handle merge conflicts when pushing to the same repository.
-- MCI can control your everyday devices and services like music, streaming, finances, education, and time management.
+- Cyrnel can be used in robotics to have a robot run an asynchronous background action to walk to an object while the model observes its environment.
+- In security, cyrnel can power an AI-enabled CCTV camera to scan specific points over time while the AI analyzes each frame of footage.
+- Cyrnel can query multiple data sources and databases simultaneously, selecting specific fields and filtering them with expressions to create a pool of results for the model to analyze.
+- Cyrnel enables multiple AIs to collaborate in a single codebase, each assigned tickets and tasks to complete. They can receive repository event notifications when others push changes, allowing them to handle merge conflicts when pushing to the same repository.
+- Cyrnel can control your everyday devices and services like music, streaming, finances, education, and time management.
 
 ## The Vision & Philosophy
 
@@ -41,11 +41,11 @@ We intend to create the optimal interface that seamlessly connects artificial in
 
 ## Design Principles
 
-- **Reliability:** MCI must behave predictably under all conditions, ensuring actions either complete correctly or fail safely with clear observability.
+- **Reliability:** Cyrnel must behave predictably under all conditions, ensuring actions either complete correctly or fail safely with clear observability.
 - **Fast & Efficient:** The system minimizes latency, token usage, and resource overhead, enabling long-running and complex tasks without unnecessary cost.
-- **Open:** MCI is open-source and extensible, encouraging community contributions, transparency, and vendor-neutral adoption.
+- **Open:** Cyrnel is open-source and extensible, encouraging community contributions, transparency, and vendor-neutral adoption.
 - **Security:** All interactions are designed with strong isolation, permission boundaries, and secure execution to prevent unintended or unsafe actions.
 - **Privacy:** User data and model context are handled intentionally, with fine-grained control over what is shared, stored, or exposed.
-- **Modular & Scalable:** Services, protocols, and capabilities can be added, removed, or extended independently, allowing MCI to scale from small projects to large systems.
-- **Easy to Set Up & Use:** MCI prioritizes sensible defaults, clear configuration, and fast on-boarding so users can go from zero to working quickly.
-- **Model & Language Agnostic:** MCI does not assume a specific LLM, programming language, or runtime, allowing any model or stack to participate equally.
+- **Modular & Scalable:** Services, protocols, and capabilities can be added, removed, or extended independently, allowing cyrnel to scale from small projects to large systems.
+- **Easy to Set Up & Use:** Cyrnel prioritizes sensible defaults, clear configuration, and fast on-boarding so users can go from zero to working quickly.
+- **Model & Language Agnostic:** Cyrnel does not assume a specific LLM, programming language, or runtime, allowing any model or stack to participate equally.

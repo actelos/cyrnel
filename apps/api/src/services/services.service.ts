@@ -3,7 +3,7 @@ import type {
   ServiceDefinition,
   ServiceState,
   ToolDocsInput,
-} from "@mci/sdk";
+} from "@cyrnel/sdk";
 import { and, asc, eq, getTableColumns, like, or } from "drizzle-orm";
 import jsonpatch from "fast-json-patch";
 

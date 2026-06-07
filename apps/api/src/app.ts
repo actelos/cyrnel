@@ -65,7 +65,7 @@ export class App {
   }
 
   async setup(): Promise<void> {
-    const dataDir = process.env.MCI_DATA_DIR || ".";
+    const dataDir = process.env.CYRNEL_DATA_DIR || ".";
     await this.moduleService.initialize(path.join(dataDir, "modules"));
   }
 

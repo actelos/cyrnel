@@ -1,6 +1,6 @@
 import type { z } from "zod";
 
-export const apiBase = import.meta.env.VITE_MCI_API_URL ?? "";
+export const apiBase = import.meta.env.VITE_CYRNEL_API_URL ?? "";
 
 export class ApiError extends Error {
   constructor(

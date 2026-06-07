@@ -1,5 +1,5 @@
 {
-  "name": "mci",
+  "name": "cyrnel",
   "private": true,
   "scripts": {
     "dev": "turbo dev",

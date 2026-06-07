@@ -1,4 +1,4 @@
-import type { ServiceDefinition, ToolDefinition } from "@mci/sdk";
+import type { ServiceDefinition, ToolDefinition } from "@cyrnel/sdk";
 import type { Operation } from "fast-json-patch";
 
 export interface ToolDefinitionRecord extends ToolDefinition {

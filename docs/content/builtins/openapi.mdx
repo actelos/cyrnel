@@ -4,10 +4,10 @@ description: "Adapter module that ingests OpenAPI documents"
 sidebarTitle: "openapi"
 ---
 
-`openapi` is the adapter shipped with MCI. It turns an OpenAPI document
+`openapi` is the adapter shipped with cyrnel. It turns an OpenAPI document
 into a service whose tools correspond to operations.
 
-- **Workspace**: `packages/modules/openapi` (`@mci/openapi`)
+- **Workspace**: `packages/modules/openapi` (`@cyrnel/openapi`)
 - **Module type**: `adapter`
 - **Module id**: `openapi`
 
@@ -25,7 +25,7 @@ curl -X POST http://localhost:7687/services/install \
   }'
 ```
 
-MCI will:
+Cyrnel will:
 
 1. Download the URL.
 2. Hand the body to `openapi.generateDefinition(content)`.

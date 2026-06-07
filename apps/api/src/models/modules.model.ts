@@ -1,4 +1,4 @@
-import type { JSONSchema } from "@mci/sdk";
+import type { JSONSchema } from "@cyrnel/sdk";
 import type { Operation } from "fast-json-patch";
 import { z } from "zod";
 

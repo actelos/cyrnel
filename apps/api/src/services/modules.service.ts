@@ -1,7 +1,7 @@
 import type { Dirent } from "node:fs";
 import fs from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
-import * as oapi from "@mci/openapi";
+import * as oapi from "@cyrnel/openapi";
 import type {
   AdapterModule,
   EnvironmentBindings,
@@ -15,8 +15,8 @@ import type {
   ServiceDefinition,
   ServiceState,
   ToolDocsInput,
-} from "@mci/sdk";
-import * as tsivm from "@mci/typescript-ivm";
+} from "@cyrnel/sdk";
+import * as tsivm from "@cyrnel/typescript-ivm";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import jsonpatch from "fast-json-patch";
 import { decompress as zstdDecompress } from "fzstd";
@@ -831,7 +831,7 @@ export class ModuleService {
     }
 
     const installDir = join(this.modulesPath, manifest.id);
-    const backupDir = installDir + ".bak";
+    const backupDir = `${installDir}.bak`;
     await fs.rm(backupDir, { recursive: true, force: true }).catch(() => {});
 
     try {

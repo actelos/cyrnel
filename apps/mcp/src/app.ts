@@ -15,7 +15,7 @@ export class App {
   readonly server: FastMCP;
 
   constructor() {
-    this.server = new FastMCP({ name: "mci", version: "1.0.0" });
+    this.server = new FastMCP({ name: "cyrnel", version: "1.0.0" });
 
     this.server.addTools([
       ...processTools,

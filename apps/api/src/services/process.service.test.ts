@@ -1,4 +1,4 @@
-import type { ExecutionExitState, ExecutionInput } from "@mci/sdk";
+import type { ExecutionExitState, ExecutionInput } from "@cyrnel/sdk";
 import { describe, expect, it } from "vitest";
 
 import { HttpError } from "@/models/error.model";

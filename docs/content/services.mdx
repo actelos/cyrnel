@@ -24,7 +24,7 @@ interface ServiceDefinition {
 }
 ```
 
-On disk, MCI extends that with:
+On disk, cyrnel extends that with:
 
 - `id`: the service identifier the client chose at install time. Must be a
   valid identifier (`[A-Za-z_$][A-Za-z0-9_$]*`).
@@ -136,13 +136,13 @@ the service) and stored as a JSON blob.
 
 The server applies the patch, validates the result against `configSchema`,
 fills in any missing defaults from the schema, and persists the merged
-object. If the service is currently enabled, MCI re-hydrates it on the
+object. If the service is currently enabled, cyrnel re-hydrates it on the
 adapter so the change takes effect immediately.
 
 ## Secrets
 
 Per-service secrets behave like configuration, but the stored payload is
-encrypted with AES-256-GCM using `MCI_SECRETS_KEY`.
+encrypted with AES-256-GCM using `CYRNEL_SECRETS_KEY`.
 
 | Method | Path | Returns |
 | --- | --- | --- |
@@ -155,14 +155,14 @@ decrypted document in memory; the result is re-encrypted before being
 written back.
 
 <Warning>
-  If `MCI_SECRETS_KEY` is missing or the wrong size, both reading and
+  If `CYRNEL_SECRETS_KEY` is missing or the wrong size, both reading and
   writing secrets fail with `500`. See
   [Security](/content/security#secrets).
 </Warning>
 
 ## How Services Are Used at Execution Time
 
-When user code calls `mci.services[serviceId].tools[toolId].invoke(...)`:
+When user code calls `cyrnel.services[serviceId].tools[toolId].invoke(...)`:
 
 1. The environment forwards the call to the host as an `invokeTool` binding.
 2. The `ModuleService` joins the `services` and `tools` tables on

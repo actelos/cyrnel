@@ -12,7 +12,7 @@ import type {
   ListServiceInput,
   ListToolInput,
   ToolDocsInput,
-} from "@mci/sdk";
+} from "@cyrnel/sdk";
 import ivm from "isolated-vm";
 import ts from "typescript";
 
@@ -34,25 +34,25 @@ built-ins — only the globals listed below.
 
 ## Globals
 
-### \`mci.output(data)\`
+### \`cyrnel.output(data)\`
 Emit a structured JSON payload for the caller. \`data\` must be a plain object.
 
-### \`mci.discoverServices(input)\`
+### \`cyrnel.discoverServices(input)\`
 List installed services. Returns \`{ id, name, description, enabled }[]\`.
 \`input\`: \`{ query?: string; limit?: number; enabled?: boolean }\`.
 
-### \`mci.discoverTools(input)\`
+### \`cyrnel.discoverTools(input)\`
 List tools across services. Returns
 \`{ serviceId, id, name, description, enabled }[]\`. \`input\`:
 \`{ serviceId?: string; query?: string; limit?: number; enabled?: boolean }\`.
 
-### \`mci.services[serviceId].getDefinition()\`
+### \`cyrnel.services[serviceId].getDefinition()\`
 Returns the service metadata, including \`configSchema\` and \`secretsSchema\`.
 
-### \`mci.services[serviceId].tools[toolId].getDefinition()\`
+### \`cyrnel.services[serviceId].tools[toolId].getDefinition()\`
 Returns the tool metadata, including \`inputSchema\` and \`outputSchema\`.
 
-### \`mci.services[serviceId].tools[toolId].invoke(parameters)\`
+### \`cyrnel.services[serviceId].tools[toolId].invoke(parameters)\`
 Invoke a tool. \`parameters\` must satisfy the tool's \`inputSchema\`. Returns
 whatever the tool produces.
 
@@ -66,12 +66,12 @@ Objects are pretty-printed as JSON; strings are passed through verbatim.
 ## Example
 
 \`\`\`ts
-const tools = await mci.discoverTools({ query: "weather" });
+const tools = await cyrnel.discoverTools({ query: "weather" });
 const [tool] = tools;
-const result = await mci.services[tool.serviceId].tools[tool.id].invoke({
+const result = await cyrnel.services[tool.serviceId].tools[tool.id].invoke({
   city: "Accra",
 });
-mci.output({ result });
+cyrnel.output({ result });
 \`\`\`
 `;
 
@@ -175,7 +175,7 @@ function createInterrupt(): Interrupt {
 }
 
 function buildWrappedCode(code: string): string {
-  return `async function __mciMain__() {${code}}__mciMain__();`;
+  return `async function __cyrnelMain__() {${code}}__cyrnelMain__();`;
 }
 
 function schemaTypeLabel(schema: JSONSchema | undefined): string {
@@ -288,8 +288,8 @@ function renderToolDocs(input: ToolDocsInput): string {
   ## Example
 
   \`\`\`ts
-  const result = await mci.services.${input.serviceId}.tools.${input.toolId}.invoke(${exampleJson});
-  mci.output({ result });
+  const result = await cyrnel.services.${input.serviceId}.tools.${input.toolId}.invoke(${exampleJson});
+  cyrnel.output({ result });
   \`\`\`
   `;
 }
@@ -507,28 +507,28 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
     const bindings = this.bindings;
 
     await jail.set(
-      "__mci_emitStdout",
+      "__cyrnel_emitStdout",
       new ivm.Reference((data: string) => {
         void bindings.emitStdout(eid, Buffer.from(data, "utf8"));
       }),
     );
 
     await jail.set(
-      "__mci_emitStderr",
+      "__cyrnel_emitStderr",
       new ivm.Reference((data: string) => {
         void bindings.emitStderr(eid, Buffer.from(data, "utf8"));
       }),
     );
 
     await jail.set(
-      "__mci_emitOutput",
+      "__cyrnel_emitOutput",
       new ivm.Reference((data: string) => {
         bindings.emitOutput(eid, JSON.parse(data) as Record<string, unknown>);
       }),
     );
 
     await jail.set(
-      "__mci_getService",
+      "__cyrnel_getService",
       new ivm.Reference(async (jsonInput: string) => {
         const serviceId = JSON.parse(jsonInput) as string;
         const result = await bindings.getService(serviceId);
@@ -537,7 +537,7 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
     );
 
     await jail.set(
-      "__mci_getTool",
+      "__cyrnel_getTool",
       new ivm.Reference(async (jsonInput: string) => {
         const input = JSON.parse(jsonInput) as GetToolInput;
         const result = await bindings.getTool(input);
@@ -546,7 +546,7 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
     );
 
     await jail.set(
-      "__mci_getToolDocs",
+      "__cyrnel_getToolDocs",
       new ivm.Reference(async (jsonInput: string) => {
         const input = JSON.parse(jsonInput) as GetToolInput;
         return bindings.getToolDocs(input);
@@ -554,7 +554,7 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
     );
 
     await jail.set(
-      "__mci_invokeTool",
+      "__cyrnel_invokeTool",
       new ivm.Reference(async (jsonInput: string) => {
         const input = JSON.parse(jsonInput) as InvokeInput;
         const result = await bindings.invokeTool(input);
@@ -563,7 +563,7 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
     );
 
     await jail.set(
-      "__mci_discoverTools",
+      "__cyrnel_discoverTools",
       new ivm.Reference(async (jsonInput: string) => {
         const input = JSON.parse(jsonInput) as ListToolInput;
         const result = await bindings.discoverTools(input);
@@ -572,7 +572,7 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
     );
 
     await jail.set(
-      "__mci_discoverServices",
+      "__cyrnel_discoverServices",
       new ivm.Reference(async (jsonInput: string) => {
         const input = JSON.parse(jsonInput) as ListServiceInput;
         const result = await bindings.discoverServices(input);

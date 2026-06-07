@@ -1,14 +1,14 @@
 ---
 title: "Transport"
-description: "How data flows in and out of MCI"
+description: "How data flows in and out of cyrnel"
 ---
 
-MCI has two distinct transport layers: the **external** API that clients use,
+Cyrnel has two distinct transport layers: the **external** API that clients use,
 and the **internal** channel between the runtime and its modules.
 
 ## External Transport
 
-The MCI server exposes a JSON-over-HTTP REST API. Clients use it to interact
+The cyrnel server exposes a JSON-over-HTTP REST API. Clients use it to interact
 with processes, modules and services.
 
 ## Internal Transport
@@ -27,7 +27,7 @@ The environment streams events back through the same in-process
 The bundled environment compiles / transpiles and runs user code. Code runs in
 a fresh context per execution with **as much restriction as possible**. The
 only way out of the environment is through references explicitly installed for
-MCI.
+cyrnel.
 
 ### Environment ⇄ adapter
 
