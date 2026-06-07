@@ -1,6 +1,4 @@
 {
-  "name": "cyrnel",
-  "private": true,
   "scripts": {
     "dev": "turbo dev",
     "build": "turbo build",
@@ -12,6 +10,7 @@
   },
   "packageManager": "pnpm@10.30.3",
   "devDependencies": {
+    "@changesets/cli": "^2.31.0",
     "turbo": "^2.9.14"
   }
 }

@@ -21,12 +21,15 @@
     "cyrnel",
     "agents"
   ],
-  "author": "Actelos",
+  "author": "0x15ba88ff",
   "license": "MIT",
   "packageManager": "pnpm@10.30.3",
   "devDependencies": {
     "@biomejs/biome": "2.4.15",
     "@types/node": "^25.8.0",
     "typescript": "^6.0.3"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

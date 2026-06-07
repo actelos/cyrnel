@@ -1,6 +1,7 @@
 import type { EnvironmentBindings, ExecutionInput } from "@cyrnel/sdk";
-import { instantiate } from "@cyrnel/typescript-ivm";
 import { describe, expect, it, vi } from "vitest";
+
+import { instantiate } from "@/index";
 
 const infiniteCode = "while (true) {}";
 const tick = () => new Promise((resolve) => setTimeout(resolve, 10));

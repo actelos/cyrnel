@@ -10,7 +10,7 @@ import type {
 } from "@cyrnel/sdk";
 import { describe, expect, it, vi } from "vitest";
 
-import { instantiate } from "../src/index";
+import { instantiate } from "@/index";
 
 describe("bindings integration", () => {
   const createBindings = () => {
