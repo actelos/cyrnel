@@ -237,4 +237,74 @@ export const moduleTools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
         await api.patch(`modules/${module_id}/secrets`, { json: patch }).json(),
       ),
   },
+  {
+    name: "install_module",
+    description: `
+    Install a new module from a compressed tar archive (.tar.zst) URL.
+
+    Downloads the archive, validates its module.json manifest, and registers
+    the module. Newly installed modules start disabled by default.
+
+    When to use:
+      - Use to add a new adapter or environment module from a remote URL.
+    When NOT to use:
+      - If you already know the module id, use \`get_module\` for details.
+    `,
+    annotations: { destructiveHint: true, idempotentHint: false },
+    parameters: z.object({
+      source: z
+        .string()
+        .min(1)
+        .describe(
+          'URL of the .tar.zst archive. Example: "https://example.com/module.tar.zst".',
+        ),
+    }),
+    execute: async ({ source }) =>
+      JSON.stringify(
+        await api.post("modules/install", { json: { source } }).json(),
+      ),
+  },
+  {
+    name: "delete_module",
+    description: `
+    Remove a module by id from the registry and disk.
+
+    Deactivates the adapter or environment, deletes the database record,
+    and removes the module's filesystem directory. Services belonging to
+    the module are also removed.
+
+    When to use:
+      - Use to permanently remove a module that is no longer needed.
+    When NOT to use:
+      - If you only want to turn the module off, use \`set_module_enabled\`
+        with enabled=false instead.
+    `,
+    annotations: { destructiveHint: true, idempotentHint: true },
+    parameters: z.object({ module_id: ModuleId }),
+    execute: async ({ module_id }) => {
+      await api.delete(`modules/${module_id}`).text();
+      return "Module deleted successfully.";
+    },
+  },
+  {
+    name: "update_module",
+    description: `
+    Re-download and re-install a module from its stored source URL.
+
+    Compares the new archive hash against the stored hash. If unchanged the
+    update is skipped. If changed, the module directory and database record
+    are refreshed and the module instance is reloaded.
+
+    When to use:
+      - Use to pull the latest version of a previously installed module.
+    When NOT to use:
+      - If the module is not yet installed, use \`install_module\` instead.
+    `,
+    annotations: { idempotentHint: true, openWorldHint: true },
+    parameters: z.object({ module_id: ModuleId }),
+    execute: async ({ module_id }) =>
+      JSON.stringify(
+        await api.post(`modules/${module_id}/update`, { json: {} }).json(),
+      ),
+  },
 ];
