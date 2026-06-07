@@ -13,8 +13,6 @@ configuration and (encrypted) secrets.
 
 ## Service Shape
 
-The canonical shape is `ServiceDefinition` from `@mci/sdk`:
-
 ```ts
 interface ServiceDefinition {
   name: string;
@@ -29,7 +27,7 @@ interface ServiceDefinition {
 On disk, MCI extends that with:
 
 - `id`: the service identifier the client chose at install time. Must be a
-  valid TypeScript identifier (`[A-Za-z_$][A-Za-z0-9_$]*`).
+  valid identifier (`[A-Za-z_$][A-Za-z0-9_$]*`).
 - `hash`: SHA-256 of the definition file used at install/update time.
 - `source`: the URL the definition was fetched from (used by
   `POST /services/:id/update`).
@@ -57,13 +55,13 @@ outside.
 
 Server-side flow:
 
-1. Validate the `id` is a TypeScript identifier.
+1. Validate the `id` is a valid identifier (`[A-Za-z_$][A-Za-z0-9_$]*`).
 2. Fetch the URL in `source` (with size, timeout, and address-range guards —
    see [Security](/content/security)).
 3. Hash the content (SHA-256).
 4. Call `adapter.generateDefinition(content)` to produce a
    `ServiceDefinition`.
-5. Validate that every tool's `id` is also a TypeScript identifier.
+5. Validate that every tool's `id` is also a valid identifier (`[A-Za-z_$][A-Za-z0-9_$]*`).
 6. Insert the service and its tools in a single DB transaction. The service
    starts **disabled**.
 

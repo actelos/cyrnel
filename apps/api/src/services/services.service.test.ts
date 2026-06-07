@@ -129,6 +129,7 @@ async function seedService(
     adapter?: string;
     enabled?: boolean;
     source?: string;
+    hash?: string;
     name?: string;
     description?: string;
     configSchema?: JSONSchema;
@@ -142,7 +143,7 @@ async function seedService(
         VALUES (${id},
                 ${options.name ?? id},
                 ${options.description ?? ""},
-                'hash',
+                ${options.hash ?? "hash"},
                 ${options.source ?? "https://example.com/def.json"},
                 ${adapter},
                 ${options.enabled === false ? 0 : 1},
@@ -655,6 +656,56 @@ describe("ServicesService", () => {
         "alpha",
       );
     });
+
+    it("skips re-download when the content hash has not changed", async () => {
+      await seedService("alpha", { enabled: true });
+      const { computeContentHash } = await import("@/utils/hash.util");
+      const content = "same-content";
+      const hash = computeContentHash(content);
+
+      await db.run(sql`UPDATE services SET hash = ${hash} WHERE id = 'alpha'`);
+
+      mockFetchOnce(content);
+
+      const controller = makeController();
+      const svc = new ServicesService(controller);
+
+      await svc.updateService("alpha");
+
+      // Service should remain enabled (no update happened)
+      const refreshed = await svc.getService("alpha");
+      expect(refreshed.enabled).toBe(true);
+
+      // Dehydrate should NOT have been called
+      expect(controller.dehydrateService).not.toHaveBeenCalled();
+    });
+
+    it("re-downloads when the content hash has changed", async () => {
+      await seedService("alpha", { enabled: true });
+      const { computeContentHash } = await import("@/utils/hash.util");
+      const oldContent = "old-content";
+      const oldHash = computeContentHash(oldContent);
+
+      await db.run(
+        sql`UPDATE services SET hash = ${oldHash} WHERE id = 'alpha'`,
+      );
+
+      mockFetchOnce("new-content");
+
+      const controller = makeController();
+      const svc = new ServicesService(controller);
+
+      await svc.updateService("alpha");
+
+      // Service should be disabled (update happened)
+      const refreshed = await svc.getService("alpha");
+      expect(refreshed.enabled).toBe(false);
+
+      expect(controller.dehydrateService).toHaveBeenCalledWith(
+        "test-adapter",
+        "alpha",
+      );
+    });
   });
 
   // ------------------------------------------------------------------
@@ -1068,7 +1119,7 @@ describe("ServicesService", () => {
         }),
       ).rejects.toMatchObject({
         statusCode: 400,
-        message: "Downloaded definition file was empty.",
+        message: "Downloaded definition was empty.",
       });
     });
 

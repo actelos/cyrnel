@@ -1,4 +1,4 @@
-import { RefreshCw, RotateCcw } from "lucide-react";
+import { Loader2, RefreshCw, RotateCcw, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { z } from "zod";
@@ -46,6 +46,20 @@ const moduleSecretsSchemaSchema = z.object({
   secretsSchema: z.record(z.string(), z.unknown()),
 });
 
+const moduleDetailSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  type: moduleTypeSchema,
+  description: z.string(),
+  hash: z.string(),
+  source: z.string(),
+  isBuiltin: z.boolean(),
+  enabled: z.boolean(),
+  orphaned: z.boolean(),
+  configSchema: z.record(z.string(), z.unknown()),
+  secretsSchema: z.record(z.string(), z.unknown()),
+});
+
 type Module = z.infer<typeof moduleSchema>;
 type ModuleType = z.infer<typeof moduleTypeSchema>;
 
@@ -71,6 +85,10 @@ export default function ModulesPage() {
     null,
   );
   const [isSavingSecrets, setIsSavingSecrets] = useState(false);
+  const [installSource, setInstallSource] = useState("");
+  const [isInstalling, setIsInstalling] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
   const lastSeededConfigRef = useRef<string | null>(null);
   const lastSeededConfigModuleRef = useRef<string | null>(null);
 
@@ -134,6 +152,16 @@ export default function ModulesPage() {
   const secretsSchemaUrl = selectedModuleId
     ? buildUrl(`/modules/${selectedModuleId}/secrets/schema`)
     : null;
+
+  const moduleDetailUrl = selectedModuleId
+    ? buildUrl(`/modules/${selectedModuleId}`)
+    : null;
+
+  const { data: moduleDetail } = useSWR(
+    moduleDetailUrl,
+    (url) => apiFetchJson(url, moduleDetailSchema),
+    { refreshInterval: 8000 },
+  );
 
   const { data: moduleConfig } = useSWR(
     configUrl,
@@ -358,6 +386,63 @@ export default function ModulesPage() {
     }
   };
 
+  const handleInstall = async () => {
+    setActionError(null);
+    const trimmed = installSource.trim();
+    if (!trimmed) {
+      setActionError("Source URL is required.");
+      return;
+    }
+    setIsInstalling(true);
+    try {
+      await apiFetch(buildUrl("/modules/install"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source: trimmed }),
+      });
+      setInstallSource("");
+      await mutate(modulesUrl);
+    } catch (error) {
+      setActionError(errorMessageFrom(error, "Unable to install module."));
+    } finally {
+      setIsInstalling(false);
+    }
+  };
+
+  const handleUpdate = async (moduleId: string) => {
+    setActionError(null);
+    setIsUpdating(true);
+    try {
+      await apiFetch(buildUrl(`/modules/${moduleId}/update`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      await mutate(moduleDetailUrl);
+      await mutate(modulesUrl);
+    } catch (error) {
+      setActionError(errorMessageFrom(error, "Unable to update module."));
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleDelete = async (moduleId: string) => {
+    setActionError(null);
+    setIsDeleting(true);
+    try {
+      await apiFetch(buildUrl(`/modules/${moduleId}`), {
+        method: "DELETE",
+      });
+      setSelectedModuleId(null);
+      await mutate(modulesUrl);
+    } catch (error) {
+      setActionError(errorMessageFrom(error, "Unable to delete module."));
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   const hasDetailPanel = selectedModuleId !== null;
 
   return (
@@ -371,6 +456,28 @@ export default function ModulesPage() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-2">
+              <Input
+                placeholder="Source URL (.tar.zst)"
+                value={installSource}
+                onChange={(e) => setInstallSource(e.target.value)}
+                className="w-64"
+              />
+              <Button
+                type="button"
+                disabled={isInstalling || !installSource.trim()}
+                onClick={() => void handleInstall()}
+                aria-label={
+                  isInstalling ? "Installing module" : "Install module"
+                }
+              >
+                {isInstalling ? (
+                  <Loader2 className="animate-spin" />
+                ) : (
+                  "Install"
+                )}
+              </Button>
+            </div>
             <Button
               type="button"
               className="gap-2"
@@ -566,6 +673,16 @@ export default function ModulesPage() {
                           <p className="text-muted-foreground text-sm">
                             {selectedModule.description || "No description"}
                           </p>
+                          {moduleDetail ? (
+                            <div className="space-y-1 pt-1">
+                              <p className="text-muted-foreground text-xs font-mono break-all">
+                                Hash: {moduleDetail.hash}
+                              </p>
+                              <p className="text-muted-foreground text-xs font-mono break-all">
+                                Source: {moduleDetail.source}
+                              </p>
+                            </div>
+                          ) : null}
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
                           <Button
@@ -587,6 +704,54 @@ export default function ModulesPage() {
                           >
                             {selectedModule.enabled ? "Disable" : "Enable"}
                           </Button>
+                          {!selectedModule.isBuiltin ? (
+                            <>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                disabled={isUpdating}
+                                onClick={() =>
+                                  void handleUpdate(selectedModule.id)
+                                }
+                                aria-label={
+                                  isUpdating
+                                    ? "Updating module"
+                                    : "Update module"
+                                }
+                              >
+                                {isUpdating ? (
+                                  <Loader2 className="animate-spin" />
+                                ) : (
+                                  "Update"
+                                )}
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="destructive"
+                                disabled={isDeleting}
+                                onClick={() => {
+                                  if (
+                                    window.confirm(
+                                      `Delete module "${selectedModule.name}" (${selectedModule.id})? This will also remove all its services.`,
+                                    )
+                                  ) {
+                                    void handleDelete(selectedModule.id);
+                                  }
+                                }}
+                                aria-label={
+                                  isDeleting
+                                    ? "Deleting module"
+                                    : "Delete module"
+                                }
+                              >
+                                {isDeleting ? (
+                                  <Loader2 className="animate-spin" />
+                                ) : (
+                                  <Trash2 />
+                                )}
+                              </Button>
+                            </>
+                          ) : null}
                         </div>
                       </div>
 

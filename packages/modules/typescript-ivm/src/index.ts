@@ -624,8 +624,8 @@ const CONFIG_SCHEMA: JSONSchema = {
 };
 
 export const manifest = {
-  name: "typescript-ivm",
-  version: "1.0.0",
+  id: "typescript-ivm",
+  name: "Typescript Isolated VM",
   description: "TypeScript environment powered by isolated-vm",
   type: "environment" as const,
   configSchema: CONFIG_SCHEMA,

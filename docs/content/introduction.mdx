@@ -4,9 +4,9 @@ description: "An overview of what MCI is and what problems it solves"
 sidebarTitle: "What is MCI?"
 ---
 
-**MCI (Model Control Interface)** is an open-source system that enables **fast**, **reliable**, **secure**, and **efficient** integration between LLM applications and external services.
+**MCI (Model Control Interface)** is open-source software that enables **fast**, **reliable**, **secure**, and **efficient** integration between LLM applications and APIs.
 
-MCI is an interface that lets users plug in any service over any protocol with any standard and have models use it efficiently at low cost.
+MCI lets users plug in any service over any protocol with any standard to any AI client and use it efficiently at low cost.
 
 <Warning>
   **MCI is not MCP**
@@ -16,16 +16,14 @@ MCI is an interface that lets users plug in any service over any protocol with a
 
 ## Why MCI?
 
-MCI and MCP both aim to enable AI to interact with external systems and services, but they approach the problem in fundamentally different ways.
+MCP uses the JSON-RPC protocol and aims to be the **standard** for AI applications to communicate with servers and applications. This means any service that wants to provide tools that LLMs can use **MUST** implement the MCP server standard, even if a similar server already exists over another protocol.
 
-MCP is a **standard** with a custom protocol that aims to be **the** standard for AI applications communicating with services. This means any service that wants to offer an MCP server must implement the MCP protocol and standard, even if a similar server already exists over another protocol.
-
-MCI, on the other hand, is neither a standard nor a new protocol... It's software that sits between the AI application and any external service, regardless of which protocol or standard that service uses. This shifts the heavy lifting from the user or developer to us.
+MCI, on the other hand, is neither a standard nor a new protocol... It's software that sits between the AI application and any external service, regardless of which protocol or standard that service uses. This shifts the heavy lifting from the users and developers to us.
 
 Beyond core principles, MCI has many advantages and differences. A few of them are as follows:
 
-- **Code Execution Model:** Instead of writing tool calls, with MCI models write code to perform actions, cutting down tokens and allowing models to perform very long, complex tasks.
-- **Asynchronous Execution**: MCI lets clients start process execution without blocking client requests. Clients can retrieve process results when needed.
+- **Code Execution Model:** Instead of writing tool calls, with MCI, LLMs write code to perform actions, cutting down tokens and allowing models to perform very long, complex tasks.
+- **Asynchronous Execution**: MCI lets clients start process execution without blocking other requests and retrieve process results when needed.
 - **First-class Observability and Interception:** Every tool call done over MCI can be observed and intercepted for logging, permission management and security audits.
 - **Progressive Composition Without Context Saturation:** MCI allows many services to be wired to a single model without context overload.
 

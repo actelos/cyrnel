@@ -19,6 +19,8 @@ import type {
 import * as tsivm from "@mci/typescript-ivm";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import jsonpatch from "fast-json-patch";
+import { decompress as zstdDecompress } from "fzstd";
+import { Unpack } from "tar";
 import { z } from "zod";
 
 import { db } from "@/db/client";
@@ -32,21 +34,28 @@ import {
 } from "@/db/schema";
 import { logger } from "@/logger";
 import { HttpError } from "@/models/error.model";
-import type {
-  FilterModuleManifestInput,
-  GenerateDefinitionInput,
-  GetModuleManifestResult,
-  ListModuleManifestResult,
-  ModuleType,
-  PatchModuleConfigInput,
-  PatchModuleSecretsInput,
-  SetModuleEnabledInput,
+import {
+  type FilterModuleManifestInput,
+  type GenerateDefinitionInput,
+  type GetModuleManifestResult,
+  type ListModuleManifestResult,
+  type ModuleManifestRecord,
+  type ModuleManifestSchema,
+  type ModuleType,
+  moduleManifestSchema,
+  type PatchModuleConfigInput,
+  type PatchModuleSecretsInput,
+  type SetModuleEnabledInput,
 } from "@/models/modules.model";
+import { downloadBinary } from "@/utils/download.util";
+import { computeBinaryHash } from "@/utils/hash.util";
 import { decryptSecrets, encryptSecrets } from "@/utils/secrets.util";
 import {
   applyJsonSchemaDefaults,
   validateJsonSchema,
 } from "@/utils/validation.util";
+
+const MODULE_DOWNLOAD_MAX_BYTES = 10 * 1024 * 1024;
 
 interface ModuleFactory {
   type: ModuleType;
@@ -280,7 +289,9 @@ export class ModuleService {
       )
       .filter((row) =>
         query
-          ? `${row.name}\n${row.description}`.toLowerCase().includes(query)
+          ? `${row.id}\n${row.name}\n${row.description}`
+              .toLowerCase()
+              .includes(query)
           : true,
       )
       .map((row) => this.toListRecord(row));
@@ -541,6 +552,423 @@ export class ModuleService {
     return null;
   }
 
+  async installModule(source: string): Promise<ModuleManifestRecord> {
+    const buffer = await downloadBinary(source, MODULE_DOWNLOAD_MAX_BYTES);
+    const archiveHash = computeBinaryHash(buffer);
+    const decompressed = zstdDecompress(new Uint8Array(buffer));
+
+    if (!this.modulesPath) {
+      throw new HttpError(503, "ModuleService has not been initialized.");
+    }
+
+    const tmpDir = await fs.mkdtemp(join(this.modulesPath, ".install-"));
+    let manifest: ModuleManifestSchema;
+
+    try {
+      const { Readable } = await import("node:stream");
+      const { pipeline } = await import("node:stream/promises");
+
+      const readable = Readable.from([Buffer.from(decompressed)]);
+      const unpack = new Unpack({ cwd: tmpDir });
+      await pipeline(readable, unpack);
+
+      const moduleJsonPath = join(tmpDir, "module.json");
+      let rawManifest: string;
+      try {
+        rawManifest = await fs.readFile(moduleJsonPath, "utf8");
+      } catch {
+        throw new HttpError(
+          400,
+          "Archive must contain a 'module.json' at its root.",
+        );
+      }
+
+      let parsedManifest: Record<string, unknown>;
+      try {
+        parsedManifest = JSON.parse(rawManifest) as Record<string, unknown>;
+      } catch {
+        throw new HttpError(400, "module.json contains invalid JSON.");
+      }
+
+      const parsed = moduleManifestSchema.safeParse(parsedManifest);
+      if (!parsed.success) {
+        throw new HttpError(
+          400,
+          `Invalid module manifest: ${parsed.error.message}`,
+        );
+      }
+      manifest = parsed.data;
+
+      const mainPath = resolve(tmpDir, manifest.main);
+      if (!mainPath.startsWith(tmpDir + sep)) {
+        throw new HttpError(
+          400,
+          "Manifest 'main' must point to a file inside the archive.",
+        );
+      }
+      try {
+        const mainStat = await fs.stat(mainPath);
+        if (!mainStat.isFile()) {
+          throw new HttpError(
+            400,
+            "Manifest 'main' must point to a valid file.",
+          );
+        }
+      } catch {
+        throw new HttpError(
+          400,
+          `Manifest 'main' file '${manifest.main}' not found in archive.`,
+        );
+      }
+    } catch (err) {
+      await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+      throw err;
+    }
+
+    if (this.factories.has(manifest.id)) {
+      await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+      throw new HttpError(
+        409,
+        `Module '${manifest.id}' is already registered.`,
+      );
+    }
+    const [existing] = await db
+      .select({ id: modulesTable.id })
+      .from(modulesTable)
+      .where(eq(modulesTable.id, manifest.id))
+      .limit(1);
+    if (existing) {
+      await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+      throw new HttpError(409, `Module '${manifest.id}' already exists.`);
+    }
+
+    const installDir = join(this.modulesPath, manifest.id);
+    try {
+      await fs.rename(tmpDir, installDir);
+    } catch {
+      await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+      throw new HttpError(500, `Failed to install module '${manifest.id}'.`);
+    }
+
+    try {
+      const mainPath = resolve(installDir, manifest.main);
+      const imported = (await import(mainPath)) as {
+        instantiate: () => Module;
+      };
+      const configSchema = manifest.configSchema ?? EMPTY_OBJECT_SCHEMA;
+      const secretsSchema = manifest.secretsSchema ?? EMPTY_OBJECT_SCHEMA;
+
+      this.factories.set(manifest.id, {
+        type: manifest.type,
+        configSchema,
+        secretsSchema,
+        instantiate: imported.instantiate,
+      });
+      this.manifests.set(manifest.id, {
+        id: manifest.id,
+        name: manifest.name,
+        description: manifest.description,
+        type: manifest.type,
+        isBuiltin: false,
+        configSchema,
+        secretsSchema,
+      });
+    } catch (err) {
+      await fs.rm(installDir, { recursive: true, force: true }).catch(() => {});
+      this.factories.delete(manifest.id);
+      this.manifests.delete(manifest.id);
+      throw new HttpError(
+        500,
+        `Failed to register module '${manifest.id}': ${err instanceof Error ? err.message : "Unknown error"}`,
+      );
+    }
+
+    try {
+      await db.insert(modulesTable).values({
+        id: manifest.id,
+        name: manifest.name,
+        description: manifest.description,
+        type: manifest.type,
+        hash: archiveHash,
+        source: source,
+        enabled: false,
+        orphaned: false,
+      });
+    } catch {
+      await fs.rm(installDir, { recursive: true, force: true }).catch(() => {});
+      this.factories.delete(manifest.id);
+      this.manifests.delete(manifest.id);
+      throw new HttpError(
+        500,
+        `Failed to persist module '${manifest.id}' in database.`,
+      );
+    }
+
+    return {
+      id: manifest.id,
+      name: manifest.name,
+      description: manifest.description,
+      type: manifest.type,
+      hash: archiveHash,
+      source: source,
+      isBuiltin: false,
+      enabled: false,
+      orphaned: false,
+      configSchema: manifest.configSchema ?? EMPTY_OBJECT_SCHEMA,
+      secretsSchema: manifest.secretsSchema ?? EMPTY_OBJECT_SCHEMA,
+    };
+  }
+
+  async updateModule(id: string): Promise<{ updated: boolean }> {
+    if (!this.modulesPath) {
+      throw new HttpError(503, "ModuleService has not been initialized.");
+    }
+
+    const [row] = await db
+      .select({
+        hash: modulesTable.hash,
+        source: modulesTable.source,
+        type: modulesTable.type,
+      })
+      .from(modulesTable)
+      .where(eq(modulesTable.id, id))
+      .limit(1)
+      .catch(() => {
+        throw new HttpError(500, `Failed to load module '${id}'.`);
+      });
+
+    if (!row) throw new HttpError(404, `Module '${id}' not found.`);
+    if (!row.source)
+      throw new HttpError(
+        409,
+        `Module '${id}' has no stored install source and cannot be updated automatically.`,
+      );
+
+    const buffer = await downloadBinary(row.source, MODULE_DOWNLOAD_MAX_BYTES);
+    const newHash = computeBinaryHash(buffer);
+
+    if (newHash === row.hash) {
+      return { updated: false };
+    }
+
+    const decompressed = zstdDecompress(new Uint8Array(buffer));
+
+    const tmpDir = await fs.mkdtemp(join(this.modulesPath, ".install-"));
+    let manifest: ModuleManifestSchema;
+
+    try {
+      const { Readable } = await import("node:stream");
+      const { pipeline } = await import("node:stream/promises");
+
+      const readable = Readable.from([Buffer.from(decompressed)]);
+      const unpack = new Unpack({ cwd: tmpDir });
+      await pipeline(readable, unpack);
+
+      const moduleJsonPath = join(tmpDir, "module.json");
+      let rawManifest: string;
+      try {
+        rawManifest = await fs.readFile(moduleJsonPath, "utf8");
+      } catch {
+        throw new HttpError(
+          400,
+          "Archive must contain a 'module.json' at its root.",
+        );
+      }
+
+      let parsedManifest: Record<string, unknown>;
+      try {
+        parsedManifest = JSON.parse(rawManifest) as Record<string, unknown>;
+      } catch {
+        throw new HttpError(400, "module.json contains invalid JSON.");
+      }
+
+      const parsed = moduleManifestSchema.safeParse(parsedManifest);
+      if (!parsed.success) {
+        throw new HttpError(
+          400,
+          `Invalid module manifest: ${parsed.error.message}`,
+        );
+      }
+      manifest = parsed.data;
+
+      if (manifest.id !== id) {
+        throw new HttpError(
+          400,
+          `Module manifest id '${manifest.id}' does not match requested id '${id}'.`,
+        );
+      }
+      if (manifest.type !== row.type) {
+        throw new HttpError(
+          400,
+          `Module manifest type '${manifest.type}' does not match existing type '${row.type}'.`,
+        );
+      }
+
+      const mainPath = resolve(tmpDir, manifest.main);
+      if (!mainPath.startsWith(tmpDir + sep)) {
+        throw new HttpError(
+          400,
+          "Manifest 'main' must point to a file inside the archive.",
+        );
+      }
+      try {
+        const mainStat = await fs.stat(mainPath);
+        if (!mainStat.isFile()) {
+          throw new HttpError(
+            400,
+            "Manifest 'main' must point to a valid file.",
+          );
+        }
+      } catch {
+        throw new HttpError(
+          400,
+          `Manifest 'main' file '${manifest.main}' not found in archive.`,
+        );
+      }
+    } catch (err) {
+      await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+      throw err;
+    }
+
+    const installDir = join(this.modulesPath, manifest.id);
+    const backupDir = installDir + ".bak";
+    await fs.rm(backupDir, { recursive: true, force: true }).catch(() => {});
+
+    try {
+      await fs.rename(installDir, backupDir);
+    } catch {
+      await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+      throw new HttpError(
+        500,
+        `Failed to back up existing module '${manifest.id}'.`,
+      );
+    }
+
+    try {
+      await fs.rename(tmpDir, installDir);
+    } catch {
+      await fs.rename(backupDir, installDir).catch(() => {});
+      await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+      throw new HttpError(
+        500,
+        `Failed to install updated module '${manifest.id}'.`,
+      );
+    }
+
+    try {
+      const mainPath = resolve(installDir, manifest.main);
+      const imported = (await import(mainPath)) as {
+        instantiate: () => Module;
+      };
+      const configSchema = manifest.configSchema ?? EMPTY_OBJECT_SCHEMA;
+      const secretsSchema = manifest.secretsSchema ?? EMPTY_OBJECT_SCHEMA;
+
+      this.factories.set(manifest.id, {
+        type: manifest.type,
+        configSchema,
+        secretsSchema,
+        instantiate: imported.instantiate,
+      });
+      this.manifests.set(manifest.id, {
+        id: manifest.id,
+        name: manifest.name,
+        description: manifest.description,
+        type: manifest.type,
+        isBuiltin: false,
+        configSchema,
+        secretsSchema,
+      });
+    } catch (err) {
+      await fs.rm(installDir, { recursive: true, force: true }).catch(() => {});
+      await fs.rename(backupDir, installDir).catch(() => {});
+      this.factories.delete(manifest.id);
+      this.manifests.delete(manifest.id);
+      throw new HttpError(
+        500,
+        `Failed to register updated module '${manifest.id}': ${err instanceof Error ? err.message : "Unknown error"}`,
+      );
+    }
+
+    try {
+      await db
+        .update(modulesTable)
+        .set({
+          name: manifest.name,
+          description: manifest.description,
+          hash: newHash,
+        })
+        .where(eq(modulesTable.id, id));
+    } catch {
+      await fs.rm(installDir, { recursive: true, force: true }).catch(() => {});
+      await fs.rename(backupDir, installDir).catch(() => {});
+      this.factories.delete(manifest.id);
+      this.manifests.delete(manifest.id);
+      throw new HttpError(
+        500,
+        `Failed to persist updated module '${id}' in database.`,
+      );
+    }
+
+    await fs.rm(backupDir, { recursive: true, force: true }).catch(() => {});
+
+    try {
+      await this.reloadIfActive(id);
+    } catch (err) {
+      logger.warn(
+        { err, moduleId: id },
+        "Failed to reload active module after update",
+      );
+    }
+
+    return { updated: true };
+  }
+
+  async deleteModule(id: string): Promise<void> {
+    if (this.isBuiltin(id)) {
+      throw new HttpError(
+        400,
+        `Module '${id}' is a built-in module and cannot be deleted.`,
+      );
+    }
+
+    const [deleted] = await db
+      .delete(modulesTable)
+      .where(eq(modulesTable.id, id))
+      .returning({ id: modulesTable.id })
+      .catch(() => {
+        throw new HttpError(
+          500,
+          `Failed to delete module '${id}' from database.`,
+        );
+      });
+
+    if (!deleted) {
+      throw new HttpError(404, `Module '${id}' not found.`);
+    }
+
+    this.factories.delete(id);
+    this.manifests.delete(id);
+
+    if (this.adapters.has(id)) {
+      await this.deactivateAdapter(id);
+    }
+    if (this.activeEnvironment?.id === id) {
+      this.deactivateEnvironment(id);
+    }
+
+    if (this.modulesPath) {
+      const moduleDir = join(this.modulesPath, id);
+      try {
+        await fs.rm(moduleDir, { recursive: true, force: true });
+      } catch (err) {
+        logger.warn(
+          { err, moduleId: id },
+          "Failed to remove module filesystem directory",
+        );
+      }
+    }
+  }
+
   private async reconcile(): Promise<void> {
     const knownIds = new Set(this.manifests.keys());
     const rows = await db.select().from(modulesTable);
@@ -553,6 +981,11 @@ export class ModuleService {
     const toRestore = rows
       .filter((r) => knownIds.has(r.id) && r.orphaned)
       .map((r) => r.id);
+    const toSync = rows.filter((r) => {
+      const manifest = this.manifests.get(r.id);
+      if (!manifest) return false;
+      return manifest.name !== r.name || manifest.description !== r.description;
+    });
 
     if (toInsert.length > 0) {
       await db.insert(modulesTable).values(
@@ -576,6 +1009,10 @@ export class ModuleService {
         .update(modulesTable)
         .set({ orphaned: true, enabled: false })
         .where(inArray(modulesTable.id, toOrphan));
+      await db
+        .update(servicesTable)
+        .set({ orphaned: true })
+        .where(inArray(servicesTable.adapter, toOrphan));
     }
 
     if (toRestore.length > 0) {
@@ -583,6 +1020,26 @@ export class ModuleService {
         .update(modulesTable)
         .set({ orphaned: false })
         .where(inArray(modulesTable.id, toRestore));
+      await db
+        .update(servicesTable)
+        .set({ orphaned: false })
+        .where(inArray(servicesTable.adapter, toRestore));
+    }
+
+    if (toSync.length > 0) {
+      await Promise.all(
+        toSync.map((row) => {
+          const manifest = this.manifests.get(row.id);
+          if (!manifest) return Promise.resolve();
+          return db
+            .update(modulesTable)
+            .set({
+              name: manifest.name,
+              description: manifest.description,
+            })
+            .where(eq(modulesTable.id, row.id));
+        }),
+      );
     }
   }
 
@@ -813,6 +1270,7 @@ export class ModuleService {
   private registerBuiltinModules(): void {
     const builtins: {
       manifest: {
+        id: string;
         name: string;
         description: string;
         type: ModuleType;
@@ -826,7 +1284,7 @@ export class ModuleService {
     ];
 
     for (const { manifest, instantiate } of builtins) {
-      const id = manifest.name;
+      const id = manifest.id;
       const configSchema = manifest.configSchema ?? EMPTY_OBJECT_SCHEMA;
       const secretsSchema = manifest.secretsSchema ?? EMPTY_OBJECT_SCHEMA;
       this.factories.set(id, {
@@ -862,58 +1320,71 @@ export class ModuleService {
       const dir = join(path, entry.name);
       const manifestPath = join(dir, "module.json");
 
-      let manifest: {
-        name: string;
-        description: string;
-        type: ModuleType;
-        main: string;
-        configSchema?: JSONSchema;
-        secretsSchema?: JSONSchema;
-      };
+      let raw: string;
       try {
-        manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
-      } catch (err) {
-        logger.warn(
-          { err, manifestPath },
-          "Skipping module: failed to read or parse module.json",
-        );
+        raw = await fs.readFile(manifestPath, "utf8");
+      } catch {
         continue;
       }
 
-      const id = manifest.name;
-      if (this.factories.has(id)) continue;
+      let manifest: Record<string, unknown>;
+      try {
+        manifest = JSON.parse(raw) as Record<string, unknown>;
+      } catch {
+        throw new HttpError(
+          500,
+          `Invalid JSON in module manifest at '${manifestPath}'.`,
+        );
+      }
+
+      const parsed = moduleManifestSchema.safeParse(manifest);
+      if (!parsed.success) {
+        throw new HttpError(
+          500,
+          `Invalid module manifest at '${manifestPath}': ${parsed.error.message}`,
+        );
+      }
+
+      const { id, name, description, type, main, configSchema, secretsSchema } =
+        parsed.data;
+
+      if (this.factories.has(id)) {
+        throw new HttpError(
+          409,
+          `Duplicate module id '${id}' at '${manifestPath}'.`,
+        );
+      }
 
       const dirRoot = resolve(dir);
-      const mainPath = resolve(dirRoot, manifest.main);
+      const mainPath = resolve(dirRoot, main);
       if (mainPath !== dirRoot && !mainPath.startsWith(dirRoot + sep)) {
-        logger.warn(
-          { manifestPath, main: manifest.main },
-          "Skipping module: 'main' resolves outside module directory",
+        throw new HttpError(
+          500,
+          `Module '${id}' at '${manifestPath}' has 'main' that resolves outside module directory.`,
         );
-        continue;
       }
 
       const imported = (await import(mainPath)) as {
         instantiate: () => Module;
       };
 
-      const configSchema = manifest.configSchema ?? EMPTY_OBJECT_SCHEMA;
-      const secretsSchema = manifest.secretsSchema ?? EMPTY_OBJECT_SCHEMA;
+      const resolvedConfigSchema = configSchema ?? EMPTY_OBJECT_SCHEMA;
+      const resolvedSecretsSchema = secretsSchema ?? EMPTY_OBJECT_SCHEMA;
 
       this.factories.set(id, {
-        type: manifest.type,
-        configSchema,
-        secretsSchema,
+        type,
+        configSchema: resolvedConfigSchema,
+        secretsSchema: resolvedSecretsSchema,
         instantiate: imported.instantiate,
       });
       this.manifests.set(id, {
         id,
-        name: manifest.name,
-        description: manifest.description,
-        type: manifest.type,
+        name,
+        description,
+        type,
         isBuiltin: false,
-        configSchema,
-        secretsSchema,
+        configSchema: resolvedConfigSchema,
+        secretsSchema: resolvedSecretsSchema,
       });
     }
   }
@@ -938,6 +1409,8 @@ export class ModuleService {
     const manifest = this.manifests.get(row.id);
     return {
       ...this.toListRecord(row),
+      hash: row.hash,
+      source: row.source,
       configSchema: manifest?.configSchema ?? EMPTY_OBJECT_SCHEMA,
       secretsSchema: manifest?.secretsSchema ?? EMPTY_OBJECT_SCHEMA,
     };

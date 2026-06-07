@@ -29,6 +29,7 @@ export const services = sqliteTable("services", {
   adapterDomain: text("adapter_domain", { mode: "json" })
     .$type<Record<string, unknown>>()
     .notNull(),
+  orphaned: integer("orphaned", { mode: "boolean" }).notNull().default(false),
 });
 
 export const serviceConfigurations = sqliteTable("service_configurations", {
@@ -85,6 +86,8 @@ export const modules = sqliteTable(
     name: text("name").notNull(),
     type: text("type").$type<ModuleType>().notNull(),
     description: text("description").notNull().default(""),
+    hash: text("hash").notNull().default(""),
+    source: text("source").notNull().default(""),
     enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
     orphaned: integer("orphaned", { mode: "boolean" }).notNull().default(false),
   },

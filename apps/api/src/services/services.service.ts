@@ -1,5 +1,3 @@
-import dns from "node:dns/promises";
-
 import type {
   JSONSchema,
   ServiceDefinition,
@@ -9,7 +7,6 @@ import type {
 import { and, asc, eq, getTableColumns, like, or } from "drizzle-orm";
 import jsonpatch from "fast-json-patch";
 
-import ipaddr from "ipaddr.js";
 import { z } from "zod";
 
 import { db } from "@/db/client";
@@ -35,6 +32,7 @@ import type {
   SetServiceEnabledInput,
   SetToolEnablesInput,
 } from "@/models/services.model";
+import { downloadText } from "@/utils/download.util";
 import { computeContentHash } from "@/utils/hash.util";
 import { decryptSecrets, encryptSecrets } from "@/utils/secrets.util";
 import {
@@ -42,9 +40,7 @@ import {
   validateJsonSchema,
 } from "@/utils/validation.util";
 
-const DEFINITION_DOWNLOAD_TIMEOUT_MS = 10_000;
-const MAX_DEFINITION_DOWNLOAD_BYTES = 2_048_576;
-const MAX_DEFINITION_DOWNLOAD_REDIRECTS = 5;
+const DEFINITION_DOWNLOAD_MAX_BYTES = 2 * 1024 * 1024;
 const IDENTIFIER_SCHEMA = z.string().regex(/^[A-Za-z_$][A-Za-z0-9_$]*$/);
 
 export interface AdapterController {
@@ -72,8 +68,15 @@ export class ServicesService {
     const normalizedQuery = input?.query?.trim();
 
     try {
-      const { configSchema, secretsSchema, adapterDomain, ...serviceColumns } =
-        getTableColumns(services);
+      const {
+        configSchema,
+        secretsSchema,
+        adapterDomain,
+        hash,
+        source,
+        orphaned,
+        ...serviceColumns
+      } = getTableColumns(services);
 
       const query = db
         .select(serviceColumns)
@@ -298,7 +301,11 @@ export class ServicesService {
 
   async updateService(id: string): Promise<void> {
     const [service] = await db
-      .select({ adapter: services.adapter, source: services.source })
+      .select({
+        adapter: services.adapter,
+        source: services.source,
+        hash: services.hash,
+      })
       .from(services)
       .where(eq(services.id, id))
       .limit(1)
@@ -315,6 +322,9 @@ export class ServicesService {
 
     const definitionContent = await this.downloadDefinition(service.source);
     const hash = computeContentHash(definitionContent);
+
+    if (hash === service.hash) return;
+
     const parsedDefinition = await this.controller.generateDefinition({
       definition: definitionContent,
       adapter: service.adapter,
@@ -761,173 +771,8 @@ export class ServicesService {
   }
 
   private async downloadDefinition(fileUrl: string): Promise<string> {
-    const controller = new AbortController();
-    const timeout = setTimeout(
-      () => controller.abort(),
-      DEFINITION_DOWNLOAD_TIMEOUT_MS,
-    );
-
-    let response: Response;
-    try {
-      let currentUrl = fileUrl;
-      for (let hop = 0; ; hop++) {
-        await assertRegistryAddressAllowed(currentUrl);
-
-        let hopResponse: Response;
-        try {
-          hopResponse = await fetch(currentUrl, {
-            method: "GET",
-            headers: {
-              accept: "application/json, text/plain, application/octet-stream",
-            },
-            signal: controller.signal,
-            redirect: "manual",
-          });
-        } catch {
-          if (controller.signal.aborted)
-            throw new HttpError(502, "Definition download timed out.");
-          throw new HttpError(502, "Failed to download definition file.");
-        }
-
-        const isRedirect =
-          hopResponse.status >= 300 &&
-          hopResponse.status < 400 &&
-          hopResponse.status !== 304;
-
-        if (!isRedirect) {
-          response = hopResponse;
-          break;
-        }
-
-        if (hop >= MAX_DEFINITION_DOWNLOAD_REDIRECTS) {
-          throw new HttpError(
-            502,
-            "Definition download exceeded maximum redirect count.",
-          );
-        }
-
-        const location = hopResponse.headers.get("location");
-        if (!location) {
-          throw new HttpError(
-            502,
-            "Definition download redirect was missing a Location header.",
-          );
-        }
-
-        let nextUrl: string;
-        try {
-          nextUrl = new URL(location, currentUrl).toString();
-        } catch {
-          throw new HttpError(
-            502,
-            "Definition download redirected to an invalid URL.",
-          );
-        }
-
-        await hopResponse.body?.cancel().catch(() => {});
-        currentUrl = nextUrl;
-      }
-    } finally {
-      clearTimeout(timeout);
-    }
-
-    if (!response.ok) {
-      throw new HttpError(
-        502,
-        `Failed to download definition file with status ${response.status}.`,
-      );
-    }
-
-    const sizeError = `Definition file exceeds maximum allowed size of ${MAX_DEFINITION_DOWNLOAD_BYTES} bytes.`;
-    const contentLength = response.headers.get("content-length");
-    if (
-      contentLength &&
-      Number.isFinite(+contentLength) &&
-      +contentLength > MAX_DEFINITION_DOWNLOAD_BYTES
-    ) {
-      throw new HttpError(413, sizeError);
-    }
-
-    if (!response.body) {
-      throw new HttpError(
-        502,
-        "Downloaded definition file did not include a response body.",
-      );
-    }
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder("utf-8");
-    let total = 0;
-    let content = "";
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (!value) continue;
-        total += value.byteLength;
-        if (total > MAX_DEFINITION_DOWNLOAD_BYTES) {
-          await reader.cancel();
-          throw new HttpError(413, sizeError);
-        }
-        content += decoder.decode(value, { stream: true });
-      }
-      content += decoder.decode();
-    } finally {
-      reader.releaseLock();
-    }
-
-    if (!content.trim())
-      throw new HttpError(400, "Downloaded definition file was empty.");
-    return content;
+    return downloadText(fileUrl, DEFINITION_DOWNLOAD_MAX_BYTES, "definition");
   }
-}
-
-async function assertRegistryAddressAllowed(url: string): Promise<void> {
-  if (isPrivateRegistryAllowed()) return;
-
-  let hostname: string;
-
-  try {
-    hostname = new URL(url).hostname.trim().toLowerCase();
-  } catch {
-    throw new HttpError(502, "Registry download redirected to an invalid URL.");
-  }
-
-  const normalizedHost =
-    hostname.startsWith("[") && hostname.endsWith("]")
-      ? hostname.slice(1, -1)
-      : hostname;
-
-  const blockedError = new HttpError(
-    502,
-    "Registry download blocked: address is not publicly routable.",
-  );
-
-  if (ipaddr.isValid(normalizedHost)) {
-    if (ipaddr.process(normalizedHost).range() !== "unicast") {
-      throw blockedError;
-    }
-    return;
-  }
-
-  let resolved: { address: string }[];
-  try {
-    resolved = await dns.lookup(normalizedHost, { all: true });
-  } catch {
-    throw new HttpError(502, "Failed to resolve registry hostname.");
-  }
-
-  if (resolved.length === 0) throw blockedError;
-
-  for (const { address } of resolved) {
-    if (!ipaddr.isValid(address)) throw blockedError;
-    if (ipaddr.process(address).range() !== "unicast") throw blockedError;
-  }
-}
-
-function isPrivateRegistryAllowed(): boolean {
-  const v = process.env.MCI_ALLOW_PRIVATE_REGISTRY;
-  return v === "1" || v?.toLowerCase() === "true";
 }
 
 function isNullOnlySchema(schema: Record<string, unknown>): boolean {

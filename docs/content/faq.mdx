@@ -16,7 +16,7 @@ description: "Frequent questions about MCI"
     - **Security and Permissions:** MCI supports granular tool call security and permission controls.
     - **Better Developer Experience:** To make an existing service usable on MCI, you do not need to write new server code. You can provide a definition such as `OpenAPI` and register it through adapter modules.
   </Accordion>
-  
+
   <Accordion title="What makes MCI more secure and observable?">
     MCI provides an interception layer for tool calls. Requests can be inspected
     to block, redirect, or log actions before execution. This supports policy
@@ -33,7 +33,7 @@ description: "Frequent questions about MCI"
     Yes. While MCP relies on the model’s limited context window to "remember" state, MCI shifts state management to the code and the runtime. This keeps the model's context clear and makes tool interactions significantly more reliable.
   </Accordion>
 
-  <Accordion title="Does this mean I cant use MCP?">
+  <Accordion title="Does this mean I can't use MCP?">
     No. You can use MCI alongside existing MCP servers. You can also connect MCI directly to endpoints when an MCP middle layer is not needed.
   </Accordion>
 

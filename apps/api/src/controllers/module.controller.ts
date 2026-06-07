@@ -12,6 +12,15 @@ import {
 import type { ModuleService } from "@/services/modules.service";
 import { parseOrHttpError } from "@/utils/validation.util";
 
+const installModuleBodySchema = z.object({
+  source: z
+    .string({ error: "Field 'source' must be a string." })
+    .transform((v) => v.trim())
+    .refine((v) => v.length > 0, {
+      error: "Field 'source' must not be empty.",
+    }),
+});
+
 const booleanSchema = (fieldName: string) =>
   z.union([z.boolean(), z.string()]).transform((value, ctx): boolean => {
     if (typeof value === "boolean") return value;
@@ -97,6 +106,37 @@ function getModuleService(req: Request): ModuleService {
   const service = req.app.locals.moduleService as ModuleService | undefined;
   if (!service) throw new Error("ModuleService not configured in app.locals");
   return service;
+}
+
+export async function installModule(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const moduleService = getModuleService(req);
+  const { source } = parseOrHttpError(
+    installModuleBodySchema,
+    req.body,
+    "Request body must be an object.",
+  );
+
+  const manifest = await moduleService.installModule(source);
+  res.status(201).json(manifest);
+}
+
+export async function deleteModule(req: Request, res: Response): Promise<void> {
+  const moduleService = getModuleService(req);
+  const moduleId = parseOrHttpError(moduleIdSchema, req.params.moduleId);
+
+  await moduleService.deleteModule(moduleId);
+  res.status(204).send();
+}
+
+export async function updateModule(req: Request, res: Response): Promise<void> {
+  const moduleService = getModuleService(req);
+  const moduleId = parseOrHttpError(moduleIdSchema, req.params.moduleId);
+
+  const result = await moduleService.updateModule(moduleId);
+  res.status(200).json(result);
 }
 
 export async function listModules(req: Request, res: Response): Promise<void> {

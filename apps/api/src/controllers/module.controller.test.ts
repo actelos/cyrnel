@@ -2,15 +2,18 @@ import type { Request, Response } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  deleteModule as deleteModuleHandler,
   getModule,
   getModuleConfiguration,
   getModuleConfigurationSchema,
   getModuleSecretsSchema,
+  installModule,
   listModules,
   patchModuleConfiguration,
   patchModuleSecrets,
   reloadModules,
   setModuleEnabled,
+  updateModule as updateModuleHandler,
 } from "@/controllers/module.controller";
 import { HttpError } from "@/models/error.model";
 
@@ -24,6 +27,9 @@ const moduleService = {
   getSecretsSchema: vi.fn(),
   patchConfig: vi.fn(),
   patchSecrets: vi.fn(),
+  installModule: vi.fn(),
+  deleteModule: vi.fn(),
+  updateModule: vi.fn(),
 };
 
 interface MockResponse {
@@ -538,6 +544,153 @@ describe("module.controller", () => {
           cast(res),
         ),
       ).rejects.toBeInstanceOf(HttpError);
+    });
+  });
+
+  describe("installModule", () => {
+    it("parses source from body, delegates to service, responds 201 with manifest", async () => {
+      const res = makeRes();
+      const manifest = {
+        id: "newMod",
+        name: "New Module",
+        type: "adapter",
+        description: "test",
+        hash: "abc123",
+        source: "https://example.com/mod.tar.zst",
+        isBuiltin: false,
+        enabled: false,
+        orphaned: false,
+      };
+      moduleService.installModule.mockResolvedValue(manifest);
+
+      await installModule(
+        makeReq({ body: { source: "https://example.com/mod.tar.zst" } }),
+        cast(res),
+      );
+
+      expect(moduleService.installModule).toHaveBeenCalledWith(
+        "https://example.com/mod.tar.zst",
+      );
+      expect(res.status).toHaveBeenCalledWith(201);
+      expect(res.json).toHaveBeenCalledWith(manifest);
+    });
+
+    it("rejects an empty source", async () => {
+      const res = makeRes();
+      await expect(
+        installModule(makeReq({ body: { source: "" } }), cast(res)),
+      ).rejects.toBeInstanceOf(HttpError);
+      expect(moduleService.installModule).not.toHaveBeenCalled();
+    });
+
+    it("rejects a missing source", async () => {
+      const res = makeRes();
+      await expect(
+        installModule(makeReq({ body: {} }), cast(res)),
+      ).rejects.toBeInstanceOf(HttpError);
+      expect(moduleService.installModule).not.toHaveBeenCalled();
+    });
+
+    it("rejects a null body", async () => {
+      const res = makeRes();
+      await expect(
+        installModule(makeReq({ body: null }), cast(res)),
+      ).rejects.toBeInstanceOf(HttpError);
+    });
+  });
+
+  describe("deleteModule", () => {
+    it("delegates to service and responds 204", async () => {
+      const res = makeRes();
+      moduleService.deleteModule.mockResolvedValue(undefined);
+
+      await deleteModuleHandler(
+        makeReq({ params: { moduleId: "modToDelete" } }),
+        cast(res),
+      );
+
+      expect(moduleService.deleteModule).toHaveBeenCalledWith("modToDelete");
+      expect(res.status).toHaveBeenCalledWith(204);
+      expect(res.send).toHaveBeenCalled();
+    });
+
+    it("rejects an empty moduleId", async () => {
+      const res = makeRes();
+      await expect(
+        deleteModuleHandler(makeReq({ params: { moduleId: "" } }), cast(res)),
+      ).rejects.toBeInstanceOf(HttpError);
+      expect(moduleService.deleteModule).not.toHaveBeenCalled();
+    });
+
+    it("propagates errors from the service", async () => {
+      const res = makeRes();
+      moduleService.deleteModule.mockRejectedValue(
+        new HttpError(404, "Module 'ghost' not found."),
+      );
+
+      await expect(
+        deleteModuleHandler(
+          makeReq({ params: { moduleId: "ghost" } }),
+          cast(res),
+        ),
+      ).rejects.toMatchObject({
+        statusCode: 404,
+        message: "Module 'ghost' not found.",
+      });
+    });
+  });
+
+  describe("updateModule", () => {
+    it("delegates to service and responds 200 with result", async () => {
+      const res = makeRes();
+      moduleService.updateModule.mockResolvedValue({ updated: true });
+
+      await updateModuleHandler(
+        makeReq({ params: { moduleId: "myMod" } }),
+        cast(res),
+      );
+
+      expect(moduleService.updateModule).toHaveBeenCalledWith("myMod");
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith({ updated: true });
+    });
+
+    it("returns updated: false when no changes", async () => {
+      const res = makeRes();
+      moduleService.updateModule.mockResolvedValue({ updated: false });
+
+      await updateModuleHandler(
+        makeReq({ params: { moduleId: "myMod" } }),
+        cast(res),
+      );
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith({ updated: false });
+    });
+
+    it("rejects an empty moduleId", async () => {
+      const res = makeRes();
+      await expect(
+        updateModuleHandler(makeReq({ params: { moduleId: "" } }), cast(res)),
+      ).rejects.toBeInstanceOf(HttpError);
+      expect(moduleService.updateModule).not.toHaveBeenCalled();
+    });
+
+    it("propagates errors from the service", async () => {
+      const res = makeRes();
+      moduleService.updateModule.mockRejectedValue(
+        new HttpError(404, "Module 'ghost' not found."),
+      );
+
+      await expect(
+        updateModuleHandler(
+          makeReq({ params: { moduleId: "ghost" } }),
+          cast(res),
+        ),
+      ).rejects.toMatchObject({
+        statusCode: 404,
+        message: "Module 'ghost' not found.",
+      });
     });
   });
 });
