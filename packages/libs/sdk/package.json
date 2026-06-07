@@ -5,7 +5,7 @@
   "description": "Cyrnel modules SDK",
   "repository": {
     "type": "git",
-    "url": "https://github.com/actelos/mci.git"
+    "url": "https://github.com/actelos/cyrnel.git"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
