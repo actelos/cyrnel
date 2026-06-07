@@ -13,8 +13,6 @@ configuration and (encrypted) secrets.
 
 ## Service Shape
 
-The canonical shape is `ServiceDefinition` from `@mci/sdk`:
-
 ```ts
 interface ServiceDefinition {
   name: string;
@@ -29,7 +27,7 @@ interface ServiceDefinition {
 On disk, MCI extends that with:
 
 - `id`: the service identifier the client chose at install time. Must be a
-  valid TypeScript identifier (`[A-Za-z_$][A-Za-z0-9_$]*`).
+  valid identifier (`[A-Za-z_$][A-Za-z0-9_$]*`).
 - `hash`: SHA-256 of the definition file used at install/update time.
 - `source`: the URL the definition was fetched from (used by
   `POST /services/:id/update`).

@@ -151,21 +151,3 @@ curl -X POST http://localhost:7687/processes \
 curl http://localhost:7687/processes/1/output
 # { "hello": 42 }
 ```
-
-## Concurrency and Scheduling
-
-`ProcessService.create` starts an execution immediately and tracks it in an
-internal map. There is no API-level queue. The active environment module
-decides how many executions to run in parallel — the bundled
-[`typescript-ivm`](/content/builtins/typescript-ivm) maintains a small pool
-of isolates (default `2`) and queues anything beyond that internally.
-
-## Common Pitfalls
-
-- **`status` vs `exitState`** — the query parameter is `status`, but the
-  field on the record is `exitState`. The two map onto the same values.
-- **`timeout` is in milliseconds**, not seconds, and lives under `options`,
-  not at the top level.
-- **Output endpoints `409` while the process is non-idle**. Either poll
-  `GET /processes/:pid` until `state === "idle"` or use `block: true` on
-  create/run.

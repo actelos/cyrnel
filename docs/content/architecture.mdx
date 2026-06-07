@@ -4,11 +4,6 @@ description: "A high-level description of the inner workings of MCI"
 sidebarTitle: "Architecture Overview"
 ---
 
-This document describes the runtime shape of the **Model Control Interface
-(MCI)** — its components, how they cooperate, and where work runs.
-
-## System Architecture
-
 MCI is a single HTTP server that sits between AI applications (clients) and
 the services those applications want to act on. Clients submit code, MCI runs
 it inside a sandboxed environment, and tool invocations made from that code
@@ -17,9 +12,9 @@ are translated by adapter modules into calls to the real services.
 ```mermaid
 graph LR
     subgraph Clients [AI Applications]
-        C1[Mobile App]
-        C2[Desktop/CLI]
-        C3[Web/Serverless]
+        C1[Mobile App Chat Clients]
+        C2[Desktop/CLI Agent]
+        C3[Web Chat Clients]
     end
 
     MCI[MCI Server Instance]
@@ -27,7 +22,7 @@ graph LR
     subgraph End_Servers [Service Layer]
         REST[REST APIs]
         DB[Databases]
-        CLI[CLI Commands]
+        CLI[CLI Applications]
         Other[...]
     end
 
@@ -47,57 +42,39 @@ The MCI server is composed of three cooperating services.
 
 ### `Processes`
 
-Owns process lifecycle — creating a process from submitted code, scheduling
-its execution, tracking state and exit state, and capturing stdout, stderr,
-and structured output. Processes have a `pid` and are addressable by clients
-through the `/processes` HTTP routes.
+Owns process lifecycle, responsible for creating a processes, scheduling and
+terminating it's execution, tracking state, and capturing outputs.
 
 See [Processes](/content/processes) for the full process model.
 
 ### `Services`
 
-Owns the registry of installed services and their tools — manifest storage,
-JSON-Schema-validated configuration, AES-256-GCM-encrypted secrets, install/
-update/delete, and enable/disable. Surfaces the `/services` and `/tools`
-routes.
+Owns the **service registry**, responsible for installing, updating, and
+deleting services services, retrieving service and tool data, and managing
+configuration and encrypted secrets.
 
-See [Services](/content/services) and [Tools](/content/tools).
+See [Services](/content/services) and [Tools](/content/tools) for the full
+services model.
 
 ### `Modules`
 
-Owns the **module registry** and runtime activation. Registers built-in
-modules and any custom modules dropped into `$MCI_DATA_DIR/modules/`.
-Reconciles the registry with the database (inserting new entries, marking
-missing ones as `orphaned`, restoring them when they reappear), and activates
-the modules currently enabled.
+Owns the **module registry**, responsible for installing, updating, and
+deleting modules, Loading built-in and any custom modules and dispatching
+commands to the different module types.
 
-See [Modules](/content/modules).
+See [Modules](/content/modules) for the full modules model.
 
-### Modules
+The different types of modules play different roles in MCI;
 
-- **Adapter modules** translate environment tool invocations into the right
-  call to the right end service (HTTP, RPC, whatever the service speaks),
-  and hold the per-service config and secret snapshots needed to do so.
-- **Environment modules** execute submitted code in an isolated runtime and
-  expose generated bindings so that code can discover services, fetch tool
-  metadata, and invoke tools.
+- **Adapter modules**: Generates services and translate tool invocations into
+  the right call to the right end service (HTTP, RPC, whatever the service
+  speaks), and hold the per-service config and secret snapshots needed to do so.
+- **Environment modules** execute submitted code in and expose generated
+  bindings so that code can discover services, fetch tool metadata, and invoke
+  tools.
 
 See [Adapter Modules](/content/modules/adapters) and
-[Environment Modules](/content/modules/environments).
-
-## Module Activation Model
-
-MCI does not maintain a pool of independent module instances. Instead:
-
-- **Adapters**: every enabled adapter is activated on startup. When a service
-  is enabled, MCI builds a `ServiceState` snapshot (manifest +
-  `adapterDomain` + config + decrypted secrets) and calls
-  `adapter.hydrateService(state)`. Disabling or updating the service calls
-  `dehydrateService(serviceId)`.
-- **Environments**: at most **one** environment is active at any time. When
-  the active environment is replaced (or disabled), it is marked **draining**
-  — no new executions are scheduled on it, but in-flight executions finish.
-  Once it has no executions left, the runtime tears it down.
+[Environment Modules](/content/modules/environments) for the full models.
 
 This model keeps the running surface small and deterministic: a single source
 of truth for "which environment runs new code", plus a known set of adapters
@@ -156,18 +133,3 @@ sequenceDiagram
     Client->>API: GET /processes/:pid/output
     API-->>Client: structured output
 ```
-
-## What Runs Where
-
-| Concern | Owner | Notes |
-| --- | --- | --- |
-| HTTP, auth, routing | `App` + Express middleware | API key via `Authorization: Bearer …` when `MCI_API_KEY` is set. |
-| Process records & I/O capture | `ProcessService` | In-memory. State, exitState, code, output, stdout, stderr. |
-| Service / tool registry | `ServicesService` + SQLite (libSQL) | Persistent. Tools are unique by `(serviceId, toolId)`. |
-| Module registry & activation | `ModuleService` | Reconciles built-ins and `$MCI_DATA_DIR/modules/` against the DB. |
-| Code execution | Active environment module | Default: `typescript-ivm` (`isolated-vm`). |
-| Outbound calls to end services | Adapter modules | Default: `openapi`. |
-| Secret storage | DB column, AES-256-GCM | Requires `MCI_SECRETS_KEY` (32 bytes, base64). |
-
-For the transport between these pieces — HTTP at the edge, isolate-host
-references inside the worker — see [Transport](/content/transport).

@@ -3,38 +3,6 @@ title: "Security"
 description: "Trust boundaries, secrets, modules, and known limitations"
 ---
 
-This page maps the security model of an MCI deployment: who is trusted to
-do what, where the boundaries are, and where the current implementation
-falls short of an ideal one. Read it before exposing MCI beyond a single
-local machine.
-
-## Trust Model in One Diagram
-
-```
-        ┌──────────────────────────────────────────────────────────┐
-        │                       MCI host process                    │
-        │                                                          │
-        │   ┌─────────────────┐    ┌────────────────────────────┐  │
-        │   │  HTTP API       │    │  Module registry           │  │
-        │   │  (auth gate)    │    │  • Adapter modules         │  │
-        │   │                 │    │    (full host privileges)  │  │
-        │   │                 │    │  • Environment module      │  │
-        │   │                 │    │    (sandboxes user code)   │  │
-        │   └────────┬────────┘    └──────────┬─────────────────┘  │
-        │            │                        │                    │
-        │   ┌────────▼────────────────────────▼────────────────┐   │
-        │   │           SQLite (libSQL): mci.db                │   │
-        │   │   services / tools / configs / encrypted secrets │   │
-        │   └──────────────────────────────────────────────────┘   │
-        └──────────────────────────────────────────────────────────┘
-                ▲                                       │
-                │ Authorization: Bearer <MCI_API_KEY>   │ outbound calls
-                │                                       ▼
-       ┌────────────────┐                       ┌────────────────┐
-       │  API clients   │                       │  End services  │
-       └────────────────┘                       └────────────────┘
-```
-
 There are three actors that matter:
 
 - **The operator.** Whoever runs the MCI process. They choose the env vars,
@@ -66,11 +34,12 @@ web UI) is a tool the operator chooses to trust.
 Adapter modules are the most security-sensitive component MCI loads, for
 three reasons:
 
-1. **They run with full host privileges.** Custom adapters loaded from
-   `$MCI_DATA_DIR/modules/<name>/` execute in the API's Node.js process.
-   They can read environment variables, open files, make arbitrary
-   network requests, and call native code. There is no sandbox between
-   an adapter and the host.
+1. **They run with full host privileges.** Custom adapters loaded from execute
+   in the API's Node.js process. They can read environment variables, open
+   files, make arbitrary network requests, and call native code. There is no
+   sandbox between an adapter and the host.
+   Adapter modules also have access to service secrets and keys as they are
+   required to to function.
 2. **They receive decrypted secrets.** `ServiceState.secrets` is the
    plaintext secret document the operator stored for a given service.
    Every enabled adapter sees every secret of every service it owns.
@@ -78,15 +47,19 @@ three reasons:
    per-service state in memory — but a malicious or careless adapter can
    write that state anywhere it pleases.
 
+<Warning>
+  For These reasons, we **strongly** recommend using **only** trusted
+  modules. **DO NOT** enable any untrusted modules.
+</Warning>
+
 #### Operator guidance
 
-- Treat `$MCI_DATA_DIR/modules/` as part of the codebase. Review additions
-  with the same scrutiny you give to a `node_modules` dependency.
+- Treat `modules` as part of the program. Review additions with the same
+  scrutiny you give to a `node_modules` or any program installed your computer.
 - Disable adapters you aren't actively using. A disabled adapter still has
   its row in `modules`, but its `setup()` is never called.
-- Don't share `MCI_SECRETS_KEY` across deployments. A leaked key plus a
-  stolen `mci.db` is equivalent to leaking every credential the deployment
-  has stored.
+- Don't share secrets across deployments. A leaked key plus a stolen db is
+  equivalent to leaking every credential the deployment has stored.
 - If you're integrating a third-party adapter, verify what it does with
   secrets — at minimum, that it does not log them, persist them to disk,
   or forward them anywhere outside the target service.
@@ -99,31 +72,23 @@ expectations.
 The active environment owns the sandbox user code runs inside. The
 bundled `typescript-ivm`:
 
-- Runs each execution in an `isolated-vm` isolate with a 128 MB memory
-  cap (default).
-- Provides **no module loader, no filesystem, no network, and no Node
-  built-ins**. The only outbound channel is the small set of `__mci_*`
-  references MCI installs.
-- Terminates the isolate on timeout and recreates the worker slot.
+- Must run each execution in an isolate.
+- Should provides **no module loader, no filesystem, no network, and no Node
+  built-ins**. The only outbound channel is the small set of references MCI.
+- Terminates the isolate on timeout and recreates worker slots.
 
-A few caveats:
+caveat:
 
-- **CPU is shared with the host process.** A tight loop occupies an
-  isolate's worker slot until the timeout fires; with the default pool
-  size of 2, two such loops block all process execution.
-- **Tool invocations bypass the sandbox.** When user code calls
-  `mci.services[id].tools[t].invoke(...)`, the request leaves the
-  isolate and runs in the host through the adapter. The sandbox limits
-  what code can *do directly*, not what tools it can *ask MCI to call*.
-- **Per-tool authorization is the gating mechanism.** A tool you don't
-  want a process to call should be disabled (`POST
-  /tools/:serviceId/:toolId/enabled`).
+- **Tool invocations bypass the sandbox.** When client code calls an invoke,
+  the request leaves the isolate and runs in the host through the adapter.
+  The sandbox limits what code can *do directly*, not what tools it can *ask
+  MCI to call*.
 
 See [Environment Modules](/content/modules/environments).
 
 ## Secrets
 
-Secrets live in `service_secrets.payload` as AES-256-GCM ciphertext with a
+Secrets live in `service_secrets.payload` as ciphertext with a
 fresh 12-byte IV per write. The auth tag is stored alongside.
 
 - **The key** is `MCI_SECRETS_KEY`, base64-encoded, decoded to 32 bytes.
@@ -170,21 +135,6 @@ But:
 - If you need a stricter posture, run MCI inside a network namespace or
   egress firewall that restricts which hosts it can reach.
 
-## Web UI
-
-`apps/web` is a **client-side** dashboard. Two consequences:
-
-- **`VITE_AUTH_USERNAME` and `VITE_AUTH_PASSWORD` are not auth.** The
-  login form compares typed values against env vars baked into the
-  bundle. Anyone with the bundle can read them.
-- **`VITE_MCI_API_KEY` is exposed to anyone who can load the page.** When
-  the web UI is hosted publicly, this is equivalent to publishing the
-  API key.
-
-The intended deployment story is "the web UI is a local-dev convenience";
-expose the API with proper auth, and treat the dashboard as a development
-tool rather than a production console.
-
 ## Data at Rest
 
 | What | Where | Protection |
@@ -195,7 +145,7 @@ tool rather than a production console.
 | Module enable/orphan state | `modules` | None (plaintext, but boolean flags only). |
 | Process records, stdout, stderr, output | In-memory only | Lost on restart. |
 
-If `mci.db` leaks, the encrypted secrets are protected by the key only.
+If the db leaks, the encrypted secrets are protected by the key only.
 Configuration is not — operators must avoid storing credentials in
 `config` blocks. The `secretsSchema` exists for that exact reason; use it.
 
