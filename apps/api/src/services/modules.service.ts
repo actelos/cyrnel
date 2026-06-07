@@ -791,6 +791,19 @@ export class ModuleService {
       }
       manifest = parsed.data;
 
+      if (manifest.id !== id) {
+        throw new HttpError(
+          400,
+          `Module manifest id '${manifest.id}' does not match requested id '${id}'.`,
+        );
+      }
+      if (manifest.type !== row.type) {
+        throw new HttpError(
+          400,
+          `Module manifest type '${manifest.type}' does not match existing type '${row.type}'.`,
+        );
+      }
+
       const mainPath = resolve(tmpDir, manifest.main);
       if (!mainPath.startsWith(tmpDir + sep)) {
         throw new HttpError(
@@ -818,10 +831,23 @@ export class ModuleService {
     }
 
     const installDir = join(this.modulesPath, manifest.id);
+    const backupDir = installDir + ".bak";
+    await fs.rm(backupDir, { recursive: true, force: true }).catch(() => {});
+
     try {
-      await fs.rm(installDir, { recursive: true, force: true }).catch(() => {});
+      await fs.rename(installDir, backupDir);
+    } catch {
+      await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+      throw new HttpError(
+        500,
+        `Failed to back up existing module '${manifest.id}'.`,
+      );
+    }
+
+    try {
       await fs.rename(tmpDir, installDir);
     } catch {
+      await fs.rename(backupDir, installDir).catch(() => {});
       await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
       throw new HttpError(
         500,
@@ -854,6 +880,7 @@ export class ModuleService {
       });
     } catch (err) {
       await fs.rm(installDir, { recursive: true, force: true }).catch(() => {});
+      await fs.rename(backupDir, installDir).catch(() => {});
       this.factories.delete(manifest.id);
       this.manifests.delete(manifest.id);
       throw new HttpError(
@@ -873,6 +900,7 @@ export class ModuleService {
         .where(eq(modulesTable.id, id));
     } catch {
       await fs.rm(installDir, { recursive: true, force: true }).catch(() => {});
+      await fs.rename(backupDir, installDir).catch(() => {});
       this.factories.delete(manifest.id);
       this.manifests.delete(manifest.id);
       throw new HttpError(
@@ -880,6 +908,8 @@ export class ModuleService {
         `Failed to persist updated module '${id}' in database.`,
       );
     }
+
+    await fs.rm(backupDir, { recursive: true, force: true }).catch(() => {});
 
     try {
       await this.reloadIfActive(id);
@@ -894,14 +924,11 @@ export class ModuleService {
   }
 
   async deleteModule(id: string): Promise<void> {
-    this.factories.delete(id);
-    this.manifests.delete(id);
-
-    if (this.adapters.has(id)) {
-      await this.deactivateAdapter(id);
-    }
-    if (this.activeEnvironment?.id === id) {
-      this.deactivateEnvironment(id);
+    if (this.isBuiltin(id)) {
+      throw new HttpError(
+        400,
+        `Module '${id}' is a built-in module and cannot be deleted.`,
+      );
     }
 
     const [deleted] = await db
@@ -916,9 +943,17 @@ export class ModuleService {
       });
 
     if (!deleted) {
-      this.factories.delete(id);
-      this.manifests.delete(id);
       throw new HttpError(404, `Module '${id}' not found.`);
+    }
+
+    this.factories.delete(id);
+    this.manifests.delete(id);
+
+    if (this.adapters.has(id)) {
+      await this.deactivateAdapter(id);
+    }
+    if (this.activeEnvironment?.id === id) {
+      this.deactivateEnvironment(id);
     }
 
     if (this.modulesPath) {

@@ -68,8 +68,15 @@ export class ServicesService {
     const normalizedQuery = input?.query?.trim();
 
     try {
-      const { configSchema, secretsSchema, adapterDomain, ...serviceColumns } =
-        getTableColumns(services);
+      const {
+        configSchema,
+        secretsSchema,
+        adapterDomain,
+        hash,
+        source,
+        orphaned,
+        ...serviceColumns
+      } = getTableColumns(services);
 
       const query = db
         .select(serviceColumns)

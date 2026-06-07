@@ -42,15 +42,15 @@ The MCI server is composed of three cooperating services.
 
 ### `Processes`
 
-Owns process lifecycle, responsible for creating a processes, scheduling and
-terminating it's execution, tracking state, and capturing outputs.
+Owns process lifecycle, responsible for creating processes, scheduling and
+terminating their execution, tracking state, and capturing outputs.
 
 See [Processes](/content/processes) for the full process model.
 
 ### `Services`
 
 Owns the **service registry**, responsible for installing, updating, and
-deleting services services, retrieving service and tool data, and managing
+deleting services, retrieving service and tool data, and managing
 configuration and encrypted secrets.
 
 See [Services](/content/services) and [Tools](/content/tools) for the full
@@ -66,10 +66,10 @@ See [Modules](/content/modules) for the full modules model.
 
 The different types of modules play different roles in MCI;
 
-- **Adapter modules**: Generates services and translate tool invocations into
+- **Adapter modules**: Generate services and translate tool invocations into
   the right call to the right end service (HTTP, RPC, whatever the service
   speaks), and hold the per-service config and secret snapshots needed to do so.
-- **Environment modules** execute submitted code in and expose generated
+- **Environment modules** execute submitted code and expose generated
   bindings so that code can discover services, fetch tool metadata, and invoke
   tools.
 

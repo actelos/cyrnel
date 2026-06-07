@@ -55,7 +55,7 @@ export interface PatchModuleSecretsInput {
 }
 
 export const moduleManifestSchema = z.object({
-  id: z.string().regex(/^[A-Za-z_$][A-Za-z0-9_$]*$/),
+  id: z.string().regex(/^[A-Za-z_$][A-Za-z0-9_$-]*$/),
   name: z.string().min(1),
   description: z.string(),
   type: z.enum(MODULE_TYPES),

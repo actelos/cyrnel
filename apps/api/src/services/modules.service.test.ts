@@ -290,6 +290,8 @@ describe("ModuleService", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    downloadBinaryMock.mockReset();
+    decompressMock.mockReset();
   });
 
   // ----------------------------------------------------------------------
@@ -2116,6 +2118,85 @@ describe("ModuleService", () => {
         expect(row?.hash).toBe(
           computeBinaryHash(Buffer.from("updated-download")),
         );
+      } finally {
+        await fs.rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("rejects update when downloaded manifest.id differs from requested id", async () => {
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mci-upd-"));
+      try {
+        const tarData = await createTestTar(dir, {
+          "module.json": JSON.stringify({
+            id: "mismatchMod",
+            name: "Mismatch Module",
+            description: "original",
+            type: "adapter",
+            main: "index.mjs",
+          }),
+          "index.mjs": `export function instantiate() {
+            return {
+              async setup() {},
+              async teardown() {},
+              async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+              async hydrateService() {},
+              async dehydrateService() {},
+              async invoke() { return null; },
+            };
+          }`,
+        });
+
+        const tarUint8 = new Uint8Array(tarData);
+        downloadBinaryMock.mockResolvedValue(Buffer.from("mismatch-download"));
+        decompressMock.mockReturnValue(tarUint8);
+
+        const service = new ModuleService(makeBindings(), makeLifecycle());
+        await service.initialize(dir);
+        await service.installModule("https://example.com/mismatch.tar.zst");
+
+        // Create a new tar with a DIFFERENT id
+        const mismatchedTarData = await createTestTar(dir, {
+          "module.json": JSON.stringify({
+            id: "mismatchedId",
+            name: "Wrong Identity",
+            description: "should not apply",
+            type: "adapter",
+            main: "index.mjs",
+          }),
+          "index.mjs": `export function instantiate() { return {}; }`,
+        });
+
+        const mismatchedTarUint8 = new Uint8Array(mismatchedTarData);
+        downloadBinaryMock.mockResolvedValue(Buffer.from("wrong-identity"));
+        decompressMock.mockReturnValue(mismatchedTarUint8);
+
+        await expect(service.updateModule("mismatchMod")).rejects.toThrow(
+          HttpError,
+        );
+
+        // Original module state should be unchanged
+        const record = unwrap(
+          await service.get("mismatchMod"),
+          "module 'mismatchMod'",
+        );
+        expect(record.description).toBe("original");
+
+        // DB row should be unchanged
+        const [row] = await db
+          .select({
+            description: (await import("@/db/schema")).modules.description,
+            hash: (await import("@/db/schema")).modules.hash,
+          })
+          .from((await import("@/db/schema")).modules)
+          .where(eq((await import("@/db/schema")).modules.id, "mismatchMod"))
+          .limit(1);
+        expect(row).toBeDefined();
+        expect(row?.description).toBe("original");
+
+        // No directory for the mismatched id should exist
+        await expect(
+          fs.access(path.join(dir, "mismatchedId")),
+        ).rejects.toThrow();
       } finally {
         await fs.rm(dir, { recursive: true, force: true });
       }

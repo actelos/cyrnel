@@ -308,6 +308,12 @@ describe("download util", () => {
   // downloadText
   // -----------------------------------------------------------------------
   describe("downloadText", () => {
+    beforeEach(() => {
+      vi.spyOn(dns, "lookup").mockResolvedValue([
+        { address: "93.184.216.34", family: 4 },
+      ] as never);
+    });
+
     it("downloads and decodes UTF-8 text", async () => {
       const encoder = new TextEncoder();
       vi.stubGlobal(

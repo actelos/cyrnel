@@ -20,7 +20,7 @@ web UI) is a tool the operator chooses to trust.
 
 - **Authentication is one static bearer token** (`MCI_API_KEY`). No scopes,
   no expiry. Anonymous mode is intended for `127.0.0.1` only.
-  See the [README](https://github.com/actelos/mci#authentication).
+  See the [README](https://github.com/actelos/mci#talk-to-the-api).
 - **No rate limiting** is enforced by the API. A noisy or hostile caller
   will be felt directly by adapters and end services.
 - **Error envelopes** are intentionally terse (`{ "error": "..." }`). They
@@ -34,12 +34,12 @@ web UI) is a tool the operator chooses to trust.
 Adapter modules are the most security-sensitive component MCI loads, for
 three reasons:
 
-1. **They run with full host privileges.** Custom adapters loaded from execute
-   in the API's Node.js process. They can read environment variables, open
+1. **They run with full host privileges.** Custom adapters loaded via execute()
+   run in the API's Node.js process. They can read environment variables, open
    files, make arbitrary network requests, and call native code. There is no
    sandbox between an adapter and the host.
    Adapter modules also have access to service secrets and keys as they are
-   required to to function.
+   required to function.
 2. **They receive decrypted secrets.** `ServiceState.secrets` is the
    plaintext secret document the operator stored for a given service.
    Every enabled adapter sees every secret of every service it owns.
@@ -73,8 +73,8 @@ The active environment owns the sandbox user code runs inside. The
 bundled `typescript-ivm`:
 
 - Must run each execution in an isolate.
-- Should provides **no module loader, no filesystem, no network, and no Node
-  built-ins**. The only outbound channel is the small set of references MCI.
+- Should provide **no module loader, no filesystem, no network, and no Node
+  built-ins**. The only outbound channel is the small set of references from MCI.
 - Terminates the isolate on timeout and recreates worker slots.
 
 caveat:

@@ -73,13 +73,11 @@ pnpm build
 pnpm start
 ```
 
-Turbo runs `dev` across every workspace in parallel:
+After building, `pnpm start` runs every workspace in parallel:
 
 - `@mci/api` — Express server on `:7687`
 - `@mci/web` — Vite dev server on `:5173`
 - `@mci/mcp` — `fastmcp` HTTP server on `:3333`
-
-For stdio MCP transport:
 
 ## Talk to the API
 

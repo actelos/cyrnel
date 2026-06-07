@@ -467,6 +467,9 @@ export default function ModulesPage() {
                 type="button"
                 disabled={isInstalling || !installSource.trim()}
                 onClick={() => void handleInstall()}
+                aria-label={
+                  isInstalling ? "Installing module" : "Install module"
+                }
               >
                 {isInstalling ? (
                   <Loader2 className="animate-spin" />
@@ -710,6 +713,11 @@ export default function ModulesPage() {
                                 onClick={() =>
                                   void handleUpdate(selectedModule.id)
                                 }
+                                aria-label={
+                                  isUpdating
+                                    ? "Updating module"
+                                    : "Update module"
+                                }
                               >
                                 {isUpdating ? (
                                   <Loader2 className="animate-spin" />
@@ -730,6 +738,11 @@ export default function ModulesPage() {
                                     void handleDelete(selectedModule.id);
                                   }
                                 }}
+                                aria-label={
+                                  isDeleting
+                                    ? "Deleting module"
+                                    : "Delete module"
+                                }
                               >
                                 {isDeleting ? (
                                   <Loader2 className="animate-spin" />
