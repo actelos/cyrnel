@@ -1,7 +1,7 @@
 import type { EnvironmentBindings, ExecutionInput } from "@cyrnel/sdk";
 import { describe, expect, it, vi } from "vitest";
 
-import { instantiate, manifest, toBuffer } from "./index";
+import { instantiate, manifest, toBuffer } from "@/index";
 
 describe("typescript-ivm manifest", () => {
   it("uses id as the stable identifier and name as the display label", () => {
