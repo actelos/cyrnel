@@ -14,7 +14,7 @@ import type {
   ServiceState,
   ToolDocsInput,
 } from "@mci/sdk";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import {
   afterAll,
   afterEach,
@@ -113,10 +113,15 @@ const { adapterInstances, envInstances, FakeAdapter, FakeEnvironment } =
     };
   });
 
+const { downloadBinaryMock, decompressMock } = vi.hoisted(() => ({
+  downloadBinaryMock: vi.fn(),
+  decompressMock: vi.fn(),
+}));
+
 vi.mock("@mci/openapi", () => ({
   manifest: {
-    name: "openapi",
-    version: "1.0.0",
+    id: "openapi",
+    name: "OpenAPI Adapter",
     description: "Fake openapi adapter",
     type: "adapter" as const,
     configSchema: {
@@ -140,10 +145,22 @@ vi.mock("@mci/openapi", () => ({
   },
 }));
 
+vi.mock("@/utils/download.util", () => ({
+  downloadBinary: downloadBinaryMock,
+  MODULE_DOWNLOAD_MAX_BYTES: 10 * 1024 * 1024,
+  downloadText: vi.fn(),
+  DEFINITION_DOWNLOAD_MAX_BYTES: 2 * 1024 * 1024,
+  assertRegistryAddressAllowed: vi.fn(),
+}));
+
+vi.mock("fzstd", () => ({
+  decompress: decompressMock,
+}));
+
 vi.mock("@mci/typescript-ivm", () => ({
   manifest: {
-    name: "typescript-ivm",
-    version: "1.0.0",
+    id: "typescript-ivm",
+    name: "Typescript Isolated VM",
     description: "Fake TS environment",
     type: "environment" as const,
     configSchema: {
@@ -170,6 +187,23 @@ const { ModuleService } = await import("@/services/modules.service");
 const { HttpError } = await import("@/models/error.model");
 
 const MIGRATIONS_DIR = path.resolve(import.meta.dirname, "../../drizzle");
+
+async function createTestTar(
+  dir: string,
+  files: Record<string, string>,
+): Promise<Buffer> {
+  const { c: tarCreate } = await import("tar");
+  const tarPath = path.join(dir, "test.tar");
+
+  for (const [filePath, content] of Object.entries(files)) {
+    const fullPath = path.join(dir, filePath);
+    await fs.mkdir(path.dirname(fullPath), { recursive: true });
+    await fs.writeFile(fullPath, content);
+  }
+
+  await tarCreate({ cwd: dir, file: tarPath }, ["."]);
+  return fs.readFile(tarPath);
+}
 
 async function applyMigrations(): Promise<void> {
   const entries = (await fs.readdir(MIGRATIONS_DIR))
@@ -278,6 +312,14 @@ describe("ModuleService", () => {
         expect(row.enabled).toBe(true);
         expect(row.orphaned).toBe(false);
       }
+
+      const byId = new Map(rows.map((row) => [row.id, row]));
+      expect(byId.get("openapi")).toMatchObject({
+        name: "OpenAPI Adapter",
+      });
+      expect(byId.get("typescript-ivm")).toMatchObject({
+        name: "Typescript Isolated VM",
+      });
     });
 
     it("activates the adapter and environment on first run", async () => {
@@ -310,6 +352,53 @@ describe("ModuleService", () => {
       expect(lifecycle.hydrateAdapter).not.toHaveBeenCalled();
     });
 
+    it("registers custom modules with separate id and display name", async () => {
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mci-mod-"));
+      try {
+        const moduleDir = path.join(dir, "custom");
+        await fs.mkdir(moduleDir);
+        await fs.writeFile(
+          path.join(moduleDir, "module.json"),
+          JSON.stringify({
+            id: "customMod",
+            name: "Custom Module",
+            description: "custom",
+            type: "adapter",
+            main: "index.mjs",
+          }),
+        );
+        await fs.writeFile(
+          path.join(moduleDir, "index.mjs"),
+          `export function instantiate() {
+             return {
+               async setup() {},
+               async teardown() {},
+               async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+               async hydrateService() {},
+               async dehydrateService() {},
+               async invoke() { return null; },
+             };
+           }`,
+        );
+
+        const service = new ModuleService(makeBindings(), makeLifecycle());
+        await service.initialize(dir);
+
+        const record = unwrap(
+          await service.get("customMod"),
+          "module 'customMod'",
+        );
+        expect(record).toMatchObject({
+          id: "customMod",
+          name: "Custom Module",
+          isBuiltin: false,
+          type: "adapter",
+        });
+      } finally {
+        await fs.rm(dir, { recursive: true, force: true });
+      }
+    });
+
     it("registers custom modules from a directory", async () => {
       const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mci-mod-"));
       try {
@@ -318,7 +407,8 @@ describe("ModuleService", () => {
         await fs.writeFile(
           path.join(moduleDir, "module.json"),
           JSON.stringify({
-            name: "custom-mod",
+            id: "customMod",
+            name: "Custom Module",
             description: "custom",
             type: "adapter",
             main: "index.mjs",
@@ -343,7 +433,7 @@ describe("ModuleService", () => {
 
         const records = await service.list();
         const map = new Map(records.map((r) => [r.id, r]));
-        expect(map.get("custom-mod")).toMatchObject({
+        expect(map.get("customMod")).toMatchObject({
           isBuiltin: false,
           type: "adapter",
         });
@@ -352,12 +442,34 @@ describe("ModuleService", () => {
       }
     });
 
-    it("silently ignores a missing custom-modules path", async () => {
+    it("silently ignores a missing customModules path", async () => {
       const service = new ModuleService(makeBindings(), makeLifecycle());
       await expect(service.initialize(MISSING_PATH)).resolves.toBeUndefined();
     });
 
-    it("skips modules whose manifest 'main' escapes the module directory", async () => {
+    it("throws on modules whose module.json omits a required id", async () => {
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mci-mod-"));
+      try {
+        const moduleDir = path.join(dir, "no-id");
+        await fs.mkdir(moduleDir);
+        await fs.writeFile(
+          path.join(moduleDir, "module.json"),
+          JSON.stringify({
+            name: "No Id Module",
+            description: "missing id",
+            type: "adapter",
+            main: "index.mjs",
+          }),
+        );
+
+        const service = new ModuleService(makeBindings(), makeLifecycle());
+        await expect(service.initialize(dir)).rejects.toBeInstanceOf(HttpError);
+      } finally {
+        await fs.rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("throws on modules whose manifest 'main' escapes the module directory", async () => {
       const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mci-mod-"));
       try {
         const moduleDir = path.join(dir, "evil");
@@ -365,7 +477,8 @@ describe("ModuleService", () => {
         await fs.writeFile(
           path.join(moduleDir, "module.json"),
           JSON.stringify({
-            name: "evil-mod",
+            id: "evilMod",
+            name: "Evil Module",
             description: "tries to escape",
             type: "adapter",
             main: "../../../../../../etc/passwd",
@@ -373,16 +486,13 @@ describe("ModuleService", () => {
         );
 
         const service = new ModuleService(makeBindings(), makeLifecycle());
-        await service.initialize(dir);
-
-        const records = await service.list();
-        expect(records.map((r) => r.id)).not.toContain("evil-mod");
+        await expect(service.initialize(dir)).rejects.toBeInstanceOf(HttpError);
       } finally {
         await fs.rm(dir, { recursive: true, force: true });
       }
     });
 
-    it("skips modules with a malformed or unreadable module.json", async () => {
+    it("throws on modules with a malformed module.json", async () => {
       const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mci-mod-"));
       try {
         const moduleDir = path.join(dir, "broken");
@@ -393,13 +503,7 @@ describe("ModuleService", () => {
         );
 
         const service = new ModuleService(makeBindings(), makeLifecycle());
-        await expect(service.initialize(dir)).resolves.toBeUndefined();
-
-        const records = await service.list();
-        expect(records.map((r) => r.id).sort()).toEqual([
-          "openapi",
-          "typescript-ivm",
-        ]);
+        await expect(service.initialize(dir)).rejects.toBeInstanceOf(HttpError);
       } finally {
         await fs.rm(dir, { recursive: true, force: true });
       }
@@ -791,6 +895,9 @@ describe("ModuleService", () => {
       expect(
         (await service.list({ query: "openapi" })).map((r) => r.id),
       ).toEqual(["openapi"]);
+      expect(
+        (await service.list({ query: "openapi adapter" })).map((r) => r.id),
+      ).toEqual(["openapi"]);
       expect(await service.list({ isBuiltin: false })).toHaveLength(0);
     });
 
@@ -918,6 +1025,27 @@ describe("ModuleService", () => {
       expect(row.enabled).toBe(false);
     });
 
+    it("syncs human-readable names from manifests on reconcile", async () => {
+      await db.run(
+        sql`INSERT INTO modules (id, name, type, description, enabled, orphaned)
+            VALUES ('openapi', 'openapi', 'adapter', 'old description', 1, 0),
+                   ('typescript-ivm', 'typescript-ivm', 'environment', '', 1, 0)`,
+      );
+
+      const service = new ModuleService(makeBindings(), makeLifecycle());
+      await service.initialize(MISSING_PATH);
+
+      expect(await service.get("openapi")).toMatchObject({
+        id: "openapi",
+        name: "OpenAPI Adapter",
+        description: "Fake openapi adapter",
+      });
+      expect(await service.get("typescript-ivm")).toMatchObject({
+        id: "typescript-ivm",
+        name: "Typescript Isolated VM",
+      });
+    });
+
     it("clears the orphaned flag when a previously orphaned module reappears", async () => {
       // Run 1: orphan a module.
       const first = new ModuleService(makeBindings(), makeLifecycle());
@@ -949,7 +1077,8 @@ describe("ModuleService", () => {
         await fs.writeFile(
           path.join(modDir, "module.json"),
           JSON.stringify({
-            name: "fresh-mod",
+            id: "freshMod",
+            name: "Fresh Module",
             description: "x",
             type: "adapter",
             main: "index.mjs",
@@ -973,7 +1102,7 @@ describe("ModuleService", () => {
 
         rows = await service.list();
         expect(rows.map((r) => r.id).sort()).toEqual(
-          ["fresh-mod", "openapi", "typescript-ivm"].sort(),
+          ["freshMod", "openapi", "typescript-ivm"].sort(),
         );
       } finally {
         await fs.rm(dir, { recursive: true, force: true });
@@ -993,7 +1122,8 @@ describe("ModuleService", () => {
         await fs.writeFile(
           path.join(modDir, "module.json"),
           JSON.stringify({
-            name: "transient-mod",
+            id: "transientMod",
+            name: "Transient Module",
             description: "x",
             type: "adapter",
             main: "index.mjs",
@@ -1018,7 +1148,7 @@ describe("ModuleService", () => {
         // Custom adapter is active.
         await db.run(
           sql`INSERT INTO services (id, name, description, hash, source, adapter, enabled, config_schema, secrets_schema, adapter_domain)
-              VALUES ('alpha', 'alpha', '', 'h', '', 'transient-mod', 1, '{}', '{}', '{}')`,
+              VALUES ('alpha', 'alpha', '', 'h', '', 'transientMod', 1, '{}', '{}', '{}')`,
         );
         await db.run(
           sql`INSERT INTO tools (service_id, id, name, description, enabled, input_schema, output_schema, adapter_domain)
@@ -1030,8 +1160,8 @@ describe("ModuleService", () => {
         await service.reload();
 
         const row = unwrap(
-          await service.get("transient-mod"),
-          "module 'transient-mod'",
+          await service.get("transientMod"),
+          "module 'transientMod'",
         );
         expect(row.orphaned).toBe(true);
         expect(row.enabled).toBe(false);
@@ -1183,12 +1313,13 @@ describe("ModuleService", () => {
     it("patchConfig persists root null for null-only config schemas", async () => {
       const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mci-mod-"));
       try {
-        const moduleDir = path.join(dir, "null-config");
+        const moduleDir = path.join(dir, "nullConfig");
         await fs.mkdir(moduleDir);
         await fs.writeFile(
           path.join(moduleDir, "module.json"),
           JSON.stringify({
-            name: "null-config",
+            id: "nullConfig",
+            name: "Null Config Module",
             description: "null config",
             type: "adapter",
             main: "index.mjs",
@@ -1214,13 +1345,13 @@ describe("ModuleService", () => {
 
         await expect(
           service.patchConfig({
-            id: "null-config",
+            id: "nullConfig",
             patch: [{ op: "replace", path: "", value: null }],
           }),
         ).resolves.toBeUndefined();
 
         const stored = await db.run(
-          sql`SELECT payload FROM module_configurations WHERE module_id = 'null-config'`,
+          sql`SELECT payload FROM module_configurations WHERE module_id = 'nullConfig'`,
         );
         expect(stored.rows?.[0]?.[0]).toBe("null");
       } finally {
@@ -1421,6 +1552,573 @@ describe("ModuleService", () => {
       expect(adapter.setupCalls[0]).toMatchObject({
         config: { baseUrl: "https://kept" },
       });
+    });
+  });
+
+  // ----------------------------------------------------------------------
+  // installModule()
+  // ----------------------------------------------------------------------
+  describe("installModule()", () => {
+    it("installs a module from a valid archive and returns its manifest", async () => {
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mci-install-"));
+      try {
+        const tarData = await createTestTar(dir, {
+          "module.json": JSON.stringify({
+            id: "installedMod",
+            name: "Installed Module",
+            description: "test module",
+            type: "adapter",
+            main: "index.mjs",
+          }),
+          "index.mjs": `export function instantiate() {
+            return {
+              async setup() {},
+              async teardown() {},
+              async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+              async hydrateService() {},
+              async dehydrateService() {},
+              async invoke() { return null; },
+            };
+          }`,
+        });
+
+        const tarUint8 = new Uint8Array(tarData);
+        downloadBinaryMock.mockResolvedValue(Buffer.from("mocked"));
+        decompressMock.mockReturnValue(tarUint8);
+
+        const service = new ModuleService(makeBindings(), makeLifecycle());
+        await service.initialize(dir);
+
+        const manifest = await service.installModule(
+          "https://example.com/mod.tar.zst",
+        );
+
+        expect(manifest.id).toBe("installedMod");
+        expect(manifest.name).toBe("Installed Module");
+        expect(manifest.type).toBe("adapter");
+        expect(manifest.enabled).toBe(false);
+        expect(manifest.orphaned).toBe(false);
+        expect(manifest.isBuiltin).toBe(false);
+
+        const record = unwrap(
+          await service.get("installedMod"),
+          "module 'installedMod'",
+        );
+        expect(record.enabled).toBe(false);
+        expect(record.orphaned).toBe(false);
+        expect(record.isBuiltin).toBe(false);
+
+        const modDir = path.join(dir, "installedMod");
+        await expect(
+          fs.access(path.join(modDir, "module.json")),
+        ).resolves.toBeUndefined();
+        await expect(
+          fs.access(path.join(modDir, "index.mjs")),
+        ).resolves.toBeUndefined();
+      } finally {
+        await fs.rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("rejects a duplicate module id", async () => {
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mci-install-"));
+      try {
+        const tarData = await createTestTar(dir, {
+          "module.json": JSON.stringify({
+            id: "dupeMod",
+            name: "Dupe Module",
+            description: "duplicate",
+            type: "adapter",
+            main: "index.mjs",
+          }),
+          "index.mjs": `export function instantiate() {
+            return {
+              async setup() {},
+              async teardown() {},
+              async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+              async hydrateService() {},
+              async dehydrateService() {},
+              async invoke() { return null; },
+            };
+          }`,
+        });
+
+        const tarUint8 = new Uint8Array(tarData);
+        downloadBinaryMock.mockResolvedValue(Buffer.from("mocked"));
+        decompressMock.mockReturnValue(tarUint8);
+
+        const service = new ModuleService(makeBindings(), makeLifecycle());
+        await service.initialize(dir);
+
+        await service.installModule("https://example.com/first.tar.zst");
+
+        downloadBinaryMock.mockResolvedValue(Buffer.from("mocked"));
+        decompressMock.mockReturnValue(tarUint8);
+
+        await expect(
+          service.installModule("https://example.com/dupe.tar.zst"),
+        ).rejects.toMatchObject({
+          statusCode: 409,
+          message: "Module 'dupeMod' is already registered.",
+        });
+      } finally {
+        await fs.rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("rejects an archive missing module.json", async () => {
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mci-install-"));
+      try {
+        const tarData = await createTestTar(dir, {
+          "index.mjs": `export function instantiate() { return {}; }`,
+        });
+
+        const tarUint8 = new Uint8Array(tarData);
+        downloadBinaryMock.mockResolvedValue(Buffer.from("mocked"));
+        decompressMock.mockReturnValue(tarUint8);
+
+        const service = new ModuleService(makeBindings(), makeLifecycle());
+        await service.initialize(dir);
+
+        await expect(
+          service.installModule("https://example.com/bad.tar.zst"),
+        ).rejects.toMatchObject({
+          statusCode: 400,
+          message: "Archive must contain a 'module.json' at its root.",
+        });
+      } finally {
+        await fs.rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("rejects an archive with invalid module.json content", async () => {
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mci-install-"));
+      try {
+        const tarData = await createTestTar(dir, {
+          "module.json": `{ this is not json }`,
+        });
+
+        const tarUint8 = new Uint8Array(tarData);
+        downloadBinaryMock.mockResolvedValue(Buffer.from("mocked"));
+        decompressMock.mockReturnValue(tarUint8);
+
+        const service = new ModuleService(makeBindings(), makeLifecycle());
+        await service.initialize(dir);
+
+        await expect(
+          service.installModule("https://example.com/bad.tar.zst"),
+        ).rejects.toMatchObject({
+          statusCode: 400,
+          message: "module.json contains invalid JSON.",
+        });
+      } finally {
+        await fs.rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("rejects an archive whose main points outside the archive", async () => {
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mci-install-"));
+      try {
+        const tarData = await createTestTar(dir, {
+          "module.json": JSON.stringify({
+            id: "escapeMod",
+            name: "Escape",
+            description: "escapes",
+            type: "adapter",
+            main: "../../../../etc/passwd",
+          }),
+        });
+
+        const tarUint8 = new Uint8Array(tarData);
+        downloadBinaryMock.mockResolvedValue(Buffer.from("mocked"));
+        decompressMock.mockReturnValue(tarUint8);
+
+        const service = new ModuleService(makeBindings(), makeLifecycle());
+        await service.initialize(dir);
+
+        await expect(
+          service.installModule("https://example.com/escape.tar.zst"),
+        ).rejects.toMatchObject({
+          statusCode: 400,
+          message: "Manifest 'main' must point to a file inside the archive.",
+        });
+      } finally {
+        await fs.rm(dir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  // ----------------------------------------------------------------------
+  // deleteModule()
+  // ----------------------------------------------------------------------
+  describe("deleteModule()", () => {
+    it("deletes a module and its filesystem directory", async () => {
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mci-del-"));
+      try {
+        const modDir = path.join(dir, "toBeDeleted");
+        await fs.mkdir(modDir);
+        await fs.writeFile(
+          path.join(modDir, "module.json"),
+          JSON.stringify({
+            id: "toBeDeleted",
+            name: "Delete Me",
+            description: "will be deleted",
+            type: "adapter",
+            main: "index.mjs",
+          }),
+        );
+        await fs.writeFile(
+          path.join(modDir, "index.mjs"),
+          `export function instantiate() {
+            return {
+              async setup() {},
+              async teardown() {},
+              async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+              async hydrateService() {},
+              async dehydrateService() {},
+              async invoke() { return null; },
+            };
+          }`,
+        );
+
+        const service = new ModuleService(makeBindings(), makeLifecycle());
+        await service.initialize(dir);
+
+        const record = unwrap(
+          await service.get("toBeDeleted"),
+          "module 'toBeDeleted'",
+        );
+        expect(record).toBeDefined();
+
+        await service.deleteModule("toBeDeleted");
+
+        const after = await service.get("toBeDeleted");
+        expect(after).toBeUndefined();
+
+        await expect(
+          fs.access(path.join(modDir, "module.json")),
+        ).rejects.toThrow();
+      } finally {
+        await fs.rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("deletes all services belonging to the module", async () => {
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mci-del-"));
+      try {
+        const modDir = path.join(dir, "adapterMod");
+        await fs.mkdir(modDir);
+        await fs.writeFile(
+          path.join(modDir, "module.json"),
+          JSON.stringify({
+            id: "adapterMod",
+            name: "Adapter",
+            description: "adapter",
+            type: "adapter",
+            main: "index.mjs",
+          }),
+        );
+        await fs.writeFile(
+          path.join(modDir, "index.mjs"),
+          `export function instantiate() {
+            return {
+              async setup() {},
+              async teardown() {},
+              async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+              async hydrateService() {},
+              async dehydrateService() {},
+              async invoke() { return null; },
+            };
+          }`,
+        );
+
+        const service = new ModuleService(makeBindings(), makeLifecycle());
+        await service.initialize(dir);
+
+        await db.run(
+          sql`INSERT INTO services (id, name, description, hash, source, adapter, enabled, config_schema, secrets_schema, adapter_domain)
+              VALUES ('svc1', 'svc1', '', 'h', '', 'adapterMod', 1, '{}', '{}', '{}')`,
+        );
+        await db.run(
+          sql`INSERT INTO tools (service_id, id, name, description, enabled, input_schema, output_schema, adapter_domain)
+              VALUES ('svc1', 't1', 't1', '', 1, '{}', '{}', '{}')`,
+        );
+
+        await service.deleteModule("adapterMod");
+
+        const services = await db
+          .select({ id: (await import("@/db/schema")).services.id })
+          .from((await import("@/db/schema")).services)
+          .where(
+            eq((await import("@/db/schema")).services.adapter, "adapterMod"),
+          );
+        expect(services).toHaveLength(0);
+
+        const module = await service.get("adapterMod");
+        expect(module).toBeUndefined();
+      } finally {
+        await fs.rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("throws 404 for a non-existent module", async () => {
+      const service = new ModuleService(makeBindings(), makeLifecycle());
+      await service.initialize(MISSING_PATH);
+
+      await expect(service.deleteModule("nonExistent")).rejects.toMatchObject({
+        statusCode: 404,
+        message: "Module 'nonExistent' not found.",
+      });
+    });
+  });
+
+  // ----------------------------------------------------------------------
+  // installModule — hash and source storage
+  // ----------------------------------------------------------------------
+  describe("installModule hash/source", () => {
+    it("stores hash and source in the database but omits them from the return value", async () => {
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mci-hash-"));
+      try {
+        const tarData = await createTestTar(dir, {
+          "module.json": JSON.stringify({
+            id: "hashTestMod",
+            name: "Hash Test",
+            description: "testing",
+            type: "adapter",
+            main: "index.mjs",
+          }),
+          "index.mjs": `export function instantiate() {
+            return {
+              async setup() {},
+              async teardown() {},
+              async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+              async hydrateService() {},
+              async dehydrateService() {},
+              async invoke() { return null; },
+            };
+          }`,
+        });
+
+        const tarUint8 = new Uint8Array(tarData);
+        const downloadPayload = Buffer.from("test-download-bytes");
+        downloadBinaryMock.mockResolvedValue(downloadPayload);
+        decompressMock.mockReturnValue(tarUint8);
+
+        const service = new ModuleService(makeBindings(), makeLifecycle());
+        await service.initialize(dir);
+
+        const result = await service.installModule(
+          "https://example.com/hash-test.tar.zst",
+        );
+
+        // Return value should include hash and source
+        expect(result.hash).toBeDefined();
+        expect(result.source).toBe("https://example.com/hash-test.tar.zst");
+
+        // DB should have them
+        const [row] = await db
+          .select({
+            hash: (await import("@/db/schema")).modules.hash,
+            source: (await import("@/db/schema")).modules.source,
+          })
+          .from((await import("@/db/schema")).modules)
+          .where(eq((await import("@/db/schema")).modules.id, "hashTestMod"))
+          .limit(1);
+        expect(row).toBeDefined();
+        expect(row?.source).toBe("https://example.com/hash-test.tar.zst");
+
+        const { computeBinaryHash } = await import("@/utils/hash.util");
+        expect(row?.hash).toBe(computeBinaryHash(downloadPayload));
+      } finally {
+        await fs.rm(dir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  // ----------------------------------------------------------------------
+  // updateModule()
+  // ----------------------------------------------------------------------
+  describe("updateModule()", () => {
+    it("throws 404 when the module does not exist", async () => {
+      const service = new ModuleService(makeBindings(), makeLifecycle());
+      await service.initialize(MISSING_PATH);
+
+      await expect(service.updateModule("nonExistent")).rejects.toMatchObject({
+        statusCode: 404,
+        message: "Module 'nonExistent' not found.",
+      });
+    });
+
+    it("throws 409 when the module has no stored install source", async () => {
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mci-upd-"));
+      try {
+        const modDir = path.join(dir, "noSourceMod");
+        await fs.mkdir(modDir);
+        await fs.writeFile(
+          path.join(modDir, "module.json"),
+          JSON.stringify({
+            id: "noSourceMod",
+            name: "No Source",
+            description: "no source",
+            type: "adapter",
+            main: "index.mjs",
+          }),
+        );
+        await fs.writeFile(
+          path.join(modDir, "index.mjs"),
+          `export function instantiate() {
+            return {
+              async setup() {},
+              async teardown() {},
+              async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+              async hydrateService() {},
+              async dehydrateService() {},
+              async invoke() { return null; },
+            };
+          }`,
+        );
+
+        const service = new ModuleService(makeBindings(), makeLifecycle());
+        await service.initialize(dir);
+
+        await expect(service.updateModule("noSourceMod")).rejects.toMatchObject(
+          {
+            statusCode: 409,
+            message:
+              "Module 'noSourceMod' has no stored install source and cannot be updated automatically.",
+          },
+        );
+      } finally {
+        await fs.rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("skips the update when the archive hash has not changed", async () => {
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mci-upd-"));
+      try {
+        const tarData = await createTestTar(dir, {
+          "module.json": JSON.stringify({
+            id: "stableMod",
+            name: "Stable Module",
+            description: "stable",
+            type: "adapter",
+            main: "index.mjs",
+          }),
+          "index.mjs": `export function instantiate() {
+            return {
+              async setup() {},
+              async teardown() {},
+              async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+              async hydrateService() {},
+              async dehydrateService() {},
+              async invoke() { return null; },
+            };
+          }`,
+        });
+
+        const tarUint8 = new Uint8Array(tarData);
+        const downloadPayload = Buffer.from("stable-download");
+        downloadBinaryMock.mockResolvedValue(downloadPayload);
+        decompressMock.mockReturnValue(tarUint8);
+
+        const service = new ModuleService(makeBindings(), makeLifecycle());
+        await service.initialize(dir);
+        await service.installModule("https://example.com/stable.tar.zst");
+
+        // Same payload → same hash → should skip
+        downloadBinaryMock.mockResolvedValue(downloadPayload);
+
+        const result = await service.updateModule("stableMod");
+        expect(result).toEqual({ updated: false });
+      } finally {
+        await fs.rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("re-installs when the archive hash has changed", async () => {
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mci-upd-"));
+      try {
+        const tarData = await createTestTar(dir, {
+          "module.json": JSON.stringify({
+            id: "changedMod",
+            name: "Changed Module",
+            description: "original",
+            type: "adapter",
+            main: "index.mjs",
+          }),
+          "index.mjs": `export function instantiate() {
+            return {
+              async setup() {},
+              async teardown() {},
+              async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+              async hydrateService() {},
+              async dehydrateService() {},
+              async invoke() { return null; },
+            };
+          }`,
+        });
+
+        const tarUint8 = new Uint8Array(tarData);
+        downloadBinaryMock.mockResolvedValue(Buffer.from("original-download"));
+        decompressMock.mockReturnValue(tarUint8);
+
+        const service = new ModuleService(makeBindings(), makeLifecycle());
+        await service.initialize(dir);
+        await service.installModule("https://example.com/changed.tar.zst");
+
+        // New tar with updated name
+        const newTarData = await createTestTar(dir, {
+          "module.json": JSON.stringify({
+            id: "changedMod",
+            name: "Changed Module Updated",
+            description: "updated",
+            type: "adapter",
+            main: "index.mjs",
+          }),
+          "index.mjs": `export function instantiate() {
+            return {
+              async setup() {},
+              async teardown() {},
+              async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+              async hydrateService() {},
+              async dehydrateService() {},
+              async invoke() { return null; },
+            };
+          }`,
+        });
+
+        const newTarUint8 = new Uint8Array(newTarData);
+        downloadBinaryMock.mockResolvedValue(Buffer.from("updated-download"));
+        decompressMock.mockReturnValue(newTarUint8);
+
+        const result = await service.updateModule("changedMod");
+        expect(result).toEqual({ updated: true });
+
+        // Description should be updated
+        const record = unwrap(
+          await service.get("changedMod"),
+          "module 'changedMod'",
+        );
+        expect(record.description).toBe("updated");
+
+        // DB should also reflect the update
+        const [row] = await db
+          .select({
+            description: (await import("@/db/schema")).modules.description,
+            hash: (await import("@/db/schema")).modules.hash,
+          })
+          .from((await import("@/db/schema")).modules)
+          .where(eq((await import("@/db/schema")).modules.id, "changedMod"))
+          .limit(1);
+        expect(row).toBeDefined();
+        expect(row?.description).toBe("updated");
+        const { computeBinaryHash } = await import("@/utils/hash.util");
+        expect(row?.hash).toBe(
+          computeBinaryHash(Buffer.from("updated-download")),
+        );
+      } finally {
+        await fs.rm(dir, { recursive: true, force: true });
+      }
     });
   });
 });

@@ -578,6 +578,55 @@ const ModuleListResponseSchema = registry.register(
     .describe("Collection wrapper for module listings."),
 );
 
+const ModuleDetailsSchema = registry.register(
+  "ModuleDetails",
+  ModuleSchema.extend({
+    hash: z
+      .string()
+      .min(1)
+      .describe("Content hash of the installed module archive."),
+    source: z
+      .string()
+      .min(1)
+      .describe("Install source URL used to fetch the module archive."),
+    configSchema: jsonObjectSchema.describe(
+      "JSON Schema describing the module configuration object.",
+    ),
+    secretsSchema: jsonObjectSchema.describe(
+      "JSON Schema describing the module secrets object.",
+    ),
+  }).describe(
+    "Full module manifest record returned by the get module endpoint.",
+  ),
+);
+
+const ModuleInstallRequestSchema = registry.register(
+  "ModuleInstallRequest",
+  z
+    .object({
+      source: z
+        .string()
+        .min(1)
+        .describe(
+          "URL of the .tar.zst module archive to download and install.",
+        ),
+    })
+    .describe("Request body used to install a new module."),
+);
+
+const ModuleUpdateResponseSchema = registry.register(
+  "ModuleUpdateResponse",
+  z
+    .object({
+      updated: z
+        .boolean()
+        .describe(
+          "Whether the module was updated (false if no change detected).",
+        ),
+    })
+    .describe("Response returned by the module update endpoint."),
+);
+
 const ModuleEnabledRequestSchema = registry.register(
   "ModuleEnabledRequest",
   z
@@ -1319,12 +1368,12 @@ registry.registerPath({
   tags: ["Modules"],
   summary: "Get a module",
   description:
-    "Returns the module manifest record for the requested module id.",
+    "Returns the module manifest record for the requested module id, including hash, source, and configuration/secrets schemas.",
   request: { params: moduleIdParam },
   responses: {
     200: {
-      description: "Module manifest record.",
-      content: jsonContent(ModuleSchema),
+      description: "Full module manifest record.",
+      content: jsonContent(ModuleDetailsSchema),
     },
     400: apiErrorResponse("The moduleId path parameter was invalid."),
     401: apiErrorResponse(
@@ -1332,6 +1381,78 @@ registry.registerPath({
     ),
     404: apiErrorResponse("The module could not be found."),
     500: apiErrorResponse("The module could not be loaded."),
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/modules/install",
+  tags: ["Modules"],
+  summary: "Install a module",
+  description:
+    "Downloads a .tar.zst archive from the supplied source URL, validates the module.json manifest, and registers the module. Newly installed modules start disabled by default.",
+  request: { body: { content: jsonContent(ModuleInstallRequestSchema) } },
+  responses: {
+    201: {
+      description: "The module manifest record for the newly installed module.",
+      content: jsonContent(ModuleDetailsSchema),
+    },
+    400: apiErrorResponse(
+      "The request body was invalid or the archive failed validation.",
+    ),
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    409: apiErrorResponse("A module already exists with the requested id."),
+    413: apiErrorResponse(
+      "The downloaded archive exceeded the configured size limit.",
+    ),
+    502: apiErrorResponse("The archive file could not be downloaded."),
+    500: apiErrorResponse("The module could not be installed."),
+  },
+});
+
+registry.registerPath({
+  method: "delete",
+  path: "/modules/{moduleId}",
+  tags: ["Modules"],
+  summary: "Delete a module",
+  description:
+    "Deactivates the module's adapter or environment, deletes its database record, and removes its filesystem directory. Services belonging to the module are also removed.",
+  request: { params: moduleIdParam },
+  responses: {
+    204: { description: "The module was deleted successfully." },
+    400: apiErrorResponse("The moduleId path parameter was invalid."),
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    404: apiErrorResponse("The module could not be found."),
+    500: apiErrorResponse("The module could not be deleted."),
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/modules/{moduleId}/update",
+  tags: ["Modules"],
+  summary: "Update a module",
+  description:
+    "Re-downloads the module archive from its stored source URL. If the archive hash has changed the module is re-installed and its instance reloaded. Returns updated: false when the archive is unchanged.",
+  request: { params: moduleIdParam },
+  responses: {
+    200: {
+      description: "Update result for the requested module.",
+      content: jsonContent(ModuleUpdateResponseSchema),
+    },
+    400: apiErrorResponse("The moduleId path parameter was invalid."),
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    404: apiErrorResponse("The module could not be found."),
+    409: apiErrorResponse(
+      "The module has no stored install source and cannot be updated automatically.",
+    ),
+    500: apiErrorResponse("The module could not be updated."),
   },
 });
 

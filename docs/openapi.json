@@ -627,6 +627,76 @@
         ],
         "description": "Collection wrapper for module listings."
       },
+      "ModuleDetails": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Module"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Content hash of the installed module archive."
+              },
+              "source": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Install source URL used to fetch the module archive."
+              },
+              "configSchema": {
+                "type": "object",
+                "additionalProperties": {
+                  "nullable": true
+                },
+                "description": "JSON Schema describing the module configuration object."
+              },
+              "secretsSchema": {
+                "type": "object",
+                "additionalProperties": {
+                  "nullable": true
+                },
+                "description": "JSON Schema describing the module secrets object."
+              }
+            },
+            "required": [
+              "hash",
+              "source",
+              "configSchema",
+              "secretsSchema"
+            ]
+          }
+        ],
+        "description": "Full module manifest record returned by the get module endpoint."
+      },
+      "ModuleInstallRequest": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string",
+            "minLength": 1,
+            "description": "URL of the .tar.zst module archive to download and install."
+          }
+        },
+        "required": [
+          "source"
+        ],
+        "description": "Request body used to install a new module."
+      },
+      "ModuleUpdateResponse": {
+        "type": "object",
+        "properties": {
+          "updated": {
+            "type": "boolean",
+            "description": "Whether the module was updated (false if no change detected)."
+          }
+        },
+        "required": [
+          "updated"
+        ],
+        "description": "Response returned by the module update endpoint."
+      },
       "ModuleEnabledRequest": {
         "type": "object",
         "properties": {
@@ -3178,7 +3248,7 @@
           "Modules"
         ],
         "summary": "Get a module",
-        "description": "Returns the module manifest record for the requested module id.",
+        "description": "Returns the module manifest record for the requested module id, including hash, source, and configuration/secrets schemas.",
         "parameters": [
           {
             "schema": {
@@ -3194,11 +3264,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Module manifest record.",
+            "description": "Full module manifest record.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Module"
+                  "$ref": "#/components/schemas/ModuleDetails"
                 }
               }
             }
@@ -3235,6 +3305,245 @@
           },
           "500": {
             "description": "The module could not be loaded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Modules"
+        ],
+        "summary": "Delete a module",
+        "description": "Deactivates the module's adapter or environment, deletes its database record, and removes its filesystem directory. Services belonging to the module are also removed.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Module identifier."
+            },
+            "required": true,
+            "description": "Module identifier.",
+            "name": "moduleId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The module was deleted successfully."
+          },
+          "400": {
+            "description": "The moduleId path parameter was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A bearer token was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The module could not be found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The module could not be deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/modules/install": {
+      "post": {
+        "tags": [
+          "Modules"
+        ],
+        "summary": "Install a module",
+        "description": "Downloads a .tar.zst archive from the supplied source URL, validates the module.json manifest, and registers the module. Newly installed modules start disabled by default.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModuleInstallRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The module manifest record for the newly installed module.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleDetails"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body was invalid or the archive failed validation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A bearer token was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A module already exists with the requested id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The downloaded archive exceeded the configured size limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The module could not be installed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The archive file could not be downloaded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/modules/{moduleId}/update": {
+      "post": {
+        "tags": [
+          "Modules"
+        ],
+        "summary": "Update a module",
+        "description": "Re-downloads the module archive from its stored source URL. If the archive hash has changed the module is re-installed and its instance reloaded. Returns updated: false when the archive is unchanged.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Module identifier."
+            },
+            "required": true,
+            "description": "Module identifier.",
+            "name": "moduleId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Update result for the requested module.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleUpdateResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The moduleId path parameter was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A bearer token was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The module could not be found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The module has no stored install source and cannot be updated automatically.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The module could not be updated.",
             "content": {
               "application/json": {
                 "schema": {
