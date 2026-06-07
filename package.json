@@ -9,6 +9,12 @@
     "typecheck": "turbo typecheck"
   },
   "packageManager": "pnpm@10.30.3",
+  "pnpm": {
+    "overrides": {
+      "qs": "^6.15.2",
+      "hono": "^4.12.21"
+    }
+  },
   "devDependencies": {
     "@changesets/cli": "^2.31.0",
     "turbo": "^2.9.16"
