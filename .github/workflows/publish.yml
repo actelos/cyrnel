@@ -36,7 +36,7 @@ jobs:
       - name: Create Release PR or Publish
         uses: changesets/action@v1
         with:
-          publish: pnpm exec changeset publish --provenance
+          publish: pnpm exec changeset publish
           version: pnpm exec changeset version
           commit: "chore: version packages"
           title: "chore: version packages"
