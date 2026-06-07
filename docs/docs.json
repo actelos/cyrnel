@@ -1,7 +1,7 @@
 {
   "$schema": "https://mintlify.com/docs.json",
   "theme": "mint",
-  "name": "Actelos",
+  "name": "Cyrnel",
   "colors": {
     "primary": "#a995c9",
     "light": "#8a79ab",
@@ -121,7 +121,7 @@
       "github": "https://github.com/modelcontrolinterface"
     }
   },
-  "description": "Actelos is an open AI lab focusing of giving models efficient and reliable agency.",
+  "description": "Cyrnel is software that enables secure, fast, reliable, and efficient integration\nbetween LLM applications and external services.\n\nCyrnel is an interface that lets users plug in any service over any protocol with\nany standard and have models use it efficiently at low cost.\n\nRather than a USB-C for AI applications, think of cyrnel as a modular docking\nstation. Instead of expecting all devices to use USB-C ports, we have one\npowerful docking station that can connect to any port and communicate with any\nservice. If your port isn’t on the existing docking station, just make an\nextension for it.",
   "seo": {
     "indexing": "all"
   },
