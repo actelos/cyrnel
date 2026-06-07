@@ -14,9 +14,7 @@
     "outDir": "dist",
     "rootDir": "src",
     "types": ["node"],
-    "sourceMap": true,
     "declaration": true,
-    "declarationMap": true,
     "paths": {
       "@/*": ["./src/*"]
     }
