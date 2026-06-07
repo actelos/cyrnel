@@ -8,5 +8,6 @@
   "baseBranch": "main",
   "changedFilePatterns": ["packages/libs/**"],
   "updateInternalDependencies": "patch",
+  "enableProvenance": true,
   "ignore": []
 }
