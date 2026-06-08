@@ -1,17 +1,5 @@
 # Security Policy
 
-## Supported versions
-
-Cyrnel is under active development and does not yet maintain release branches.
-Only the latest commit on `main` receives security fixes. Older snapshots,
-forks, and tagged pre-releases are not supported — please update to `main`
-before reporting an issue or expecting a fix.
-
-| Version             | Supported          |
-| ------------------- | ------------------ |
-| Latest `main`       | :white_check_mark: |
-| Anything else       | :x:                |
-
 ## Reporting a vulnerability
 
 **Please do not open a public GitHub issue, pull request, or discussion for
