@@ -10,11 +10,10 @@
 
 <br/>
 
-Cyrnel is software that enables secure, fast, reliable, and efficient integration
-between LLM applications and external services.
-
-Cyrnel is an interface that lets users plug in any service over any protocol with
-any standard and have models use it efficiently at low cost.
+Cyrnel is open-source software that enables fast, reliable, secure, and
+efficient integration between LLM applications and APIs. It lets users plug in
+any service over any protocol with any standard to any AI client and use it
+efficiently at low cost.
 
 Rather than a USB-C for AI applications, think of cyrnel as a modular docking
 station. Instead of expecting all devices to use USB-C ports, we have one
@@ -26,105 +25,46 @@ extension for it.
 
 ## Prerequisites
 
-- **Node.js** — pinned to `v22.x` (CI runs `v22`).
-- **pnpm** — `pnpm@10.30.3` (declared in `packageManager`).
+Requirements:
 
-There are no published releases yet — cyrnel runs from source.
+- Node.js >= 22
+- pnpm >= 10.30.3
 
-## Install
+## Local Development
 
 ```bash
 git clone https://github.com/actelos/cyrnel.git
 cd cyrnel
-pnpm i -r
+pnpm i
 ```
 
-## Configure
+- Read [DEVELOPERS.md](./DEVELOPERS.md) for more info.
 
-Copy the example env file for the API:
+## Learn More
 
-```bash
-for app in api mcp web; do cp "apps/$app/.example.env" "apps/$app/.env"; done
-```
+Visit [our docs](https://actelos.mintlify.app/) or the
+[deep wiki](https://deepwiki.com/actelos/cyrnel) to learn more about cyrnel.
 
-Then **replace the example `CYRNEL_SECRETS_KEY`** before doing anything that
-stores secrets — the shipped value is a base64-encoded block of zero bytes,
-which is the same as having no key at all.
+## Contributing
 
-```bash
-openssl rand -base64 32
-```
+Cyrnel is open source and we'd love to have your help. Whether you're fixing a
+bug, improving the docs, or building modules, contributions of all kinds are
+welcome.
 
-## Initialise the database
+- Read [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines on issues, pull
+  requests, and what to do before you open a PR.
+- Read [DEVELOPERS.md](./DEVELOPERS.md) to get your local environment set up and
+  to understand how each workspace fits together.
+- If you're building a new integration module, see the
+  [module authoring guide](./docs/modules/AUTHORING.md).
+- Browse issues tagged [`good first issue`](https://github.com/actelos/cyrnel/labels/good%20first%20issue)
+  if you're looking for a place to start.
 
-```bash
-pnpm -C apps/api db:push
-```
+## Contributors
 
-This creates `data.db` in `CYRNEL_DATA_DIR` (defaults to the API working
-directory).
+Thank you to everyone who has contributed to cyrnel. Every contribution moves
+the project forward and is genuinely appreciated.
 
-## Run
-
-### One command, everything at once
-
-```bash
-pnpm build
-pnpm start
-```
-
-After building, `pnpm start` runs every workspace in parallel:
-
-- `@cyrnel/api` — Express server on `:7687`
-- `@cyrnel/web` — Vite dev server on `:5173`
-- `@cyrnel/mcp` — `fastmcp` HTTP server on `:3333`
-
-## Talk to the API
-
-### Modules
-
-```bash
-# List installed modules
-curl http://localhost:7687/modules
-
-# Get a single module (includes hash, source, config/secrets schemas)
-curl http://localhost:7687/modules/openapi
-
-# Install a module from a .tar.zst archive URL
-curl -X POST http://localhost:7687/modules/install \
-  -H 'content-type: application/json' \
-  -d '{"source":"https://example.com/module.tar.zst"}'
-
-# Update a module (re-download from its stored source)
-curl -X POST http://localhost:7687/modules/openapi/update \
-  -H 'content-type: application/json' \
-  -d '{}'
-
-# Delete a module (removes its services, database record, and disk directory)
-curl -X DELETE http://localhost:7687/modules/openapi
-
-# Enable / disable a module
-curl -X POST http://localhost:7687/modules/openapi/enabled \
-  -H 'content-type: application/json' \
-  -d '{"enabled":false}'
-
-# Reload the on-disk module registry
-curl -X POST http://localhost:7687/modules/reload \
-  -H 'content-type: application/json' \
-  -d '{}'
-```
-
-If you set `CYRNEL_API_KEY`, every request needs `Authorization: Bearer <key>`.
-Anonymous mode (key unset) is intended for `127.0.0.1` only.
-
-### Submit a process
-
-```bash
-curl -X POST http://localhost:7687/processes \
-  -H 'content-type: application/json' \
-  -d '{"code":"cyrnel.output({ hello: 42 });","block":true}'
-# { "pid": 1 }
-
-curl http://localhost:7687/processes/1/output
-# { "hello": 42 }
-```
+<a href="https://github.com/actelos/cyrnel/graphs/contributors">
+  <img src="https://contributors.deno.dev/actelos/cyrnel?height=400&width=800" width="800" height="400" alt="cyrnel contributors" />
+</a>
