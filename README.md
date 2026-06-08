@@ -23,13 +23,6 @@ extension for it.
 
 [Docs](https://actelos.mintlify.app/content/introduction) · [FAQ](https://actelos.mintlify.app/content/faq)
 
-## Prerequisites
-
-Requirements:
-
-- Node.js >= 22
-- pnpm >= 10.30.3
-
 ## Local Development
 
 ```bash
