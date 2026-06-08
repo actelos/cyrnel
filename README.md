@@ -48,8 +48,6 @@ welcome.
   requests, and what to do before you open a PR.
 - Read [DEVELOPERS.md](./DEVELOPERS.md) to get your local environment set up and
   to understand how each workspace fits together.
-- If you're building a new integration module, see the
-  [module authoring guide](./docs/modules/AUTHORING.md).
 - Browse issues tagged [`good first issue`](https://github.com/actelos/cyrnel/labels/good%20first%20issue)
   if you're looking for a place to start.
 
