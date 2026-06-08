@@ -8,7 +8,7 @@ Thank you for contributing to cyrnel! We'd love to have your help making cyrnel 
 
 ## Getting Started
 
-To ensure a positive and inclusive environment, please read our [Code of Conduct](./CODE_OF_CONDUCT.md) before contributing. For help setting up the repo locally, follow the [DEVELOPERS.md](./DEVELOPERS.md) guide. If you're building a new integration module, see the [module authoring guide](./docs/modules/AUTHORING.md).
+To ensure a positive and inclusive environment, please read our [Code of Conduct](./CODE_OF_CONDUCT.md) before contributing. For help setting up the repo locally, follow the [DEVELOPERS.md](./DEVELOPERS.md) guide.
 
 ## Issues
 
