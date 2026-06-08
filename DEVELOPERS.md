@@ -213,7 +213,7 @@ Whenever you add or change API endpoints, regenerate the spec and commit it:
 pnpm -C apps/api openapi:generate
 ```
 
-This updates `apps/api/openapi.json`, which is also served at `https://actelos.mintlify.app/openapi.json` for the public docs.
+This updates `apps/api/openapi.json`, which is also served at `https://actelos.mintlify.app/cyrnel.openapi.json` for the public docs.
 
 **Auth:**
 
@@ -299,7 +299,7 @@ pnpm -C packages/modules/typescript-ivm typecheck
 
 ## Working with the docs
 
-Cyrnel's public documentation lives at [actelos.mintlify.app](https://actelos.mintlify.app) and is authored in the `docs/` folder of this repo using [Mintlify](https://mintlify.com/).
+Cyrnel's public documentation lives at https://actelos.mintlify.app/cyrnel/docs and is authored in the `docs/` folder of this repo using [Mintlify](https://mintlify.com/).
 
 **Prerequisites:**
 

@@ -23,31 +23,31 @@
                   {
                     "group": "Overview",
                     "pages": [
-                      "content/introduction",
-                      "content/faq",
-                      "content/comparison"
+                      "cyrnel/docs/introduction",
+                      "cyrnel/docs/faq",
+                      "cyrnel/docs/comparison"
                     ]
                   },
                   {
                     "group": "Architecture",
                     "pages": [
-                      "content/architecture",
-                      "content/transport",
-                      "content/security"
+                      "cyrnel/docs/architecture",
+                      "cyrnel/docs/transport",
+                      "cyrnel/docs/security"
                     ]
                   },
                   {
                     "group": "Concepts",
                     "pages": [
-                      "content/processes",
-                      "content/services",
-                      "content/tools",
+                      "cyrnel/docs/processes",
+                      "cyrnel/docs/services",
+                      "cyrnel/docs/tools",
                       {
                         "group": "Modules",
                         "pages": [
-                          "content/modules",
-                          "content/modules/adapters",
-                          "content/modules/environments"
+                          "cyrnel/docs/modules",
+                          "cyrnel/docs/adapters-modules",
+                          "cyrnel/docs/environments-modules"
                         ]
                       }
                     ]
@@ -55,8 +55,8 @@
                   {
                     "group": "Built-in Modules",
                     "pages": [
-                      "content/builtins/openapi",
-                      "content/builtins/typescript-ivm"
+                      "cyrnel/docs/openapi-module",
+                      "cyrnel/docs/typescript-ivm-module"
                     ]
                   }
                 ]
@@ -67,36 +67,36 @@
                   {
                     "group": "Overview",
                     "pages": [
-                      "spec/overview",
-                      "spec/types"
+                      "cyrnel/specs/overview",
+                      "cyrnel/specs/types"
                     ]
                   },
                   {
                     "group": "Module Interfaces",
                     "pages": [
-                      "spec/module",
-                      "spec/adapter-module",
-                      "spec/environment-module"
+                      "cyrnel/specs/module",
+                      "cyrnel/specs/adapter-module",
+                      "cyrnel/specs/environment-module"
                     ]
                   },
                   {
                     "group": "Runtime Contracts",
                     "pages": [
-                      "spec/bindings",
-                      "spec/execution"
+                      "cyrnel/specs/bindings",
+                      "cyrnel/specs/execution"
                     ]
                   },
                   {
                     "group": "Authoring",
                     "pages": [
-                      "spec/writing-a-custom-module"
+                      "cyrnel/specs/writing-a-custom-module"
                     ]
                   }
                 ]
               },
               {
                 "tab": "API Reference",
-                "openapi": "openapi.json"
+                "openapi": "./cyrnel.openapi.json"
               }
             ]
           },
@@ -143,7 +143,7 @@
       "github": "https://github.com/actelos"
     }
   },
-  "description": "Cyrnel is software that enables secure, fast, reliable, and efficient integration\nbetween LLM applications and external services.\n\nCyrnel is an interface that lets users plug in any service over any protocol with\nany standard and have models use it efficiently at low cost.\n\nRather than a USB-C for AI applications, think of cyrnel as a modular docking\nstation. Instead of expecting all devices to use USB-C ports, we have one\npowerful docking station that can connect to any port and communicate with any\nservice. If your port isn’t on the existing docking station, just make an\nextension for it.",
+  "description": "Cyrnel is software that enables secure, fast, reliable, and efficient integration\nbetween LLM applications and external services.\n\nCyrnel is an interface that lets users plug in any service over any protocol with\nany standard and have models use it efficiently at low cost.\n\nRather than a USB-C for AI applications, think of cyrnel as a modular docking\nstation. Instead of expecting all devices to use USB-C ports, we have one\npowerful docking station that can connect to any port and communicate with any\nservice. If your port isn't on the existing docking station, just make an\nextension for it.",
   "seo": {
     "indexing": "all"
   },

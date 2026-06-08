@@ -21,7 +21,7 @@ powerful docking station that can connect to any port and communicate with any
 service. If your port isn’t on the existing docking station, just make an
 extension for it.
 
-[Docs](https://actelos.mintlify.app/content/introduction) · [FAQ](https://actelos.mintlify.app/content/faq)
+[Docs](https://actelos.mintlify.app/cyrnel/docs/introduction) · [FAQ](https://actelos.mintlify.app/cyrnel/docs/faq)
 
 ## Local Development
 
@@ -35,7 +35,7 @@ pnpm i
 
 ## Learn More
 
-Visit [our docs](https://actelos.mintlify.app/) or the
+Visit [our docs](https://actelos.mintlify.app/cyrnel/docs) or the
 [deep wiki](https://deepwiki.com/actelos/cyrnel) to learn more about cyrnel.
 
 ## Contributing
