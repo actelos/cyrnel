@@ -11,8 +11,7 @@
   "packageManager": "pnpm@10.30.3",
   "pnpm": {
     "overrides": {
-      "qs": "^6.15.2",
-      "hono": "^4.12.21"
+      "esbuild": ">=0.25.0"
     }
   },
   "devDependencies": {
