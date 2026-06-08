@@ -9,90 +9,103 @@
   },
   "favicon": "/favicon.svg",
   "navigation": {
-    "anchors": [
+    "products": [
       {
-        "anchor": "Documentation",
-        "icon": "book-open",
-        "tabs": [
+        "product": "cyrnel",
+        "anchors": [
           {
-            "tab": "Documentation",
-            "groups": [
+            "anchor": "Documentation",
+            "icon": "book-open",
+            "tabs": [
               {
-                "group": "Overview",
-                "pages": [
-                  "content/introduction",
-                  "content/faq",
-                  "content/comparison"
-                ]
-              },
-              {
-                "group": "Architecture",
-                "pages": [
-                  "content/architecture",
-                  "content/transport",
-                  "content/security"
-                ]
-              },
-              {
-                "group": "Concepts",
-                "pages": [
-                  "content/processes",
-                  "content/services",
-                  "content/tools",
+                "tab": "Documentation",
+                "groups": [
                   {
-                    "group": "Modules",
+                    "group": "Overview",
                     "pages": [
-                      "content/modules",
-                      "content/modules/adapters",
-                      "content/modules/environments"
+                      "content/introduction",
+                      "content/faq",
+                      "content/comparison"
+                    ]
+                  },
+                  {
+                    "group": "Architecture",
+                    "pages": [
+                      "content/architecture",
+                      "content/transport",
+                      "content/security"
+                    ]
+                  },
+                  {
+                    "group": "Concepts",
+                    "pages": [
+                      "content/processes",
+                      "content/services",
+                      "content/tools",
+                      {
+                        "group": "Modules",
+                        "pages": [
+                          "content/modules",
+                          "content/modules/adapters",
+                          "content/modules/environments"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "group": "Built-in Modules",
+                    "pages": [
+                      "content/builtins/openapi",
+                      "content/builtins/typescript-ivm"
                     ]
                   }
                 ]
               },
               {
-                "group": "Built-in Modules",
-                "pages": [
-                  "content/builtins/openapi",
-                  "content/builtins/typescript-ivm"
+                "tab": "Specification",
+                "groups": [
+                  {
+                    "group": "Overview",
+                    "pages": [
+                      "spec/overview",
+                      "spec/types"
+                    ]
+                  },
+                  {
+                    "group": "Module Interfaces",
+                    "pages": [
+                      "spec/module",
+                      "spec/adapter-module",
+                      "spec/environment-module"
+                    ]
+                  },
+                  {
+                    "group": "Runtime Contracts",
+                    "pages": [
+                      "spec/bindings",
+                      "spec/execution"
+                    ]
+                  },
+                  {
+                    "group": "Authoring",
+                    "pages": [
+                      "spec/writing-a-custom-module"
+                    ]
+                  }
                 ]
+              },
+              {
+                "tab": "API Reference",
+                "openapi": "openapi.json"
               }
             ]
           },
           {
-            "tab": "Specification",
-            "groups": [
-              {
-                "group": "Overview",
-                "pages": ["spec/overview", "spec/types"]
-              },
-              {
-                "group": "Module Interfaces",
-                "pages": [
-                  "spec/module",
-                  "spec/adapter-module",
-                  "spec/environment-module"
-                ]
-              },
-              {
-                "group": "Runtime Contracts",
-                "pages": ["spec/bindings", "spec/execution"]
-              },
-              {
-                "group": "Authoring",
-                "pages": ["spec/writing-a-custom-module"]
-              }
-            ]
-          },
-          {
-            "tab": "API Reference",
-            "openapi": "./openapi.json"
+            "anchor": "Blog",
+            "icon": "newspaper",
+            "href": "https://actelos.github.io/blog/"
           }
         ]
-      },
-      {
-        "anchor": "Blog",
-        "icon": "newspaper",
-        "href": "https://actelos.github.io/blog/"
       }
     ]
   },
