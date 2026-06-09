@@ -40,5 +40,5 @@ import type {
 - `invokeTool` Call a tool on a service
 - `setState` / `setError` / `emitStdout` / `emitStderr` / `emitOutput`: Lifecycle signals
 
-More details in our [specification](https://actelos.mintlify.app/spec/overview).
+More details in our [specification](https://actelos.mintlify.app/cyrnel/specs).
 Built with [Cyrnel](https://github.com/actelos/cyrnel).
