@@ -14,7 +14,7 @@
     "db:studio": "drizzle-kit studio",
     "db:migrate": "drizzle-kit migrate",
     "db:generate": "drizzle-kit generate",
-    "openapi:generate": "tsx scripts/generate-definition.ts"
+    "openapi:generate": "tsx scripts/generate-definition.ts --out ./openapi.json ../../docs/cyrnel/openapi.json"
   },
   "packageManager": "pnpm@10.30.3",
   "dependencies": {
