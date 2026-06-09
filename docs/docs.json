@@ -18,6 +18,9 @@
             "icon": "book-open",
             "tabs": [
               {
+                "tab": "Getting Started"
+              },
+              {
                 "tab": "Documentation",
                 "groups": [
                   {
@@ -89,6 +92,9 @@
               {
                 "tab": "API Reference",
                 "openapi": "./cyrnel/openapi.json"
+              },
+              {
+                "tab": "Registry"
               }
             ]
           },
