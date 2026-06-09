@@ -66,10 +66,7 @@
                 "groups": [
                   {
                     "group": "Overview",
-                    "pages": [
-                      "cyrnel/specs/overview",
-                      "cyrnel/specs/types"
-                    ]
+                    "pages": ["cyrnel/specs/overview", "cyrnel/specs/types"]
                   },
                   {
                     "group": "Module Interfaces",
@@ -81,22 +78,17 @@
                   },
                   {
                     "group": "Runtime Contracts",
-                    "pages": [
-                      "cyrnel/specs/bindings",
-                      "cyrnel/specs/execution"
-                    ]
+                    "pages": ["cyrnel/specs/bindings", "cyrnel/specs/execution"]
                   },
                   {
                     "group": "Authoring",
-                    "pages": [
-                      "cyrnel/specs/writing-a-custom-module"
-                    ]
+                    "pages": ["cyrnel/specs/writing-a-custom-module"]
                   }
                 ]
               },
               {
                 "tab": "API Reference",
-                "openapi": "./cyrnel.openapi.json"
+                "openapi": "./cyrnel/openapi.json"
               }
             ]
           },
