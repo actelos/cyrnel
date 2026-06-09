@@ -12,7 +12,8 @@
       "packages/**",
       "!**/dist",
       "!**/build",
-      "!**/node_modules"
+      "!**/node_modules",
+      "!**/openapi.json"
     ]
   },
   "formatter": {
