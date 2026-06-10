@@ -1,12 +1,20 @@
 {
   "name": "@cyrnel/sdk",
-  "type": "module",
   "version": "1.1.1",
   "description": "Cyrnel modules SDK",
+  "keywords": [
+    "cyrnel",
+    "modules"
+  ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/actelos/cyrnel.git"
+    "url": "https://github.com/actelos/cyrnel.git",
+    "directory": "packages/libs/sdk"
   },
+  "homepage": "https://actelos.mintlify.app/cyrnel/specs",
+  "author": "0x15ba88ff",
+  "license": "MIT",
+  "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -15,25 +23,19 @@
       "import": "./dist/index.js"
     }
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "biome check .",
     "check:fix": "biome check --write .",
     "typecheck": "tsc --noEmit"
   },
-  "keywords": [
-    "cyrnel",
-    "agents"
-  ],
-  "author": "0x15ba88ff",
-  "license": "MIT",
-  "packageManager": "pnpm@10.30.3",
   "devDependencies": {
     "@biomejs/biome": "2.4.16",
     "@types/node": "^25.9.2",
     "typescript": "^6.0.3"
   },
-  "publishConfig": {
-    "access": "public"
-  }
+  "packageManager": "pnpm@10.30.3"
 }
