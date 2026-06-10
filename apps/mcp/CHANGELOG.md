@@ -1,5 +1,11 @@
 # @cyrnel/mcp
 
+## 1.1.3
+
+### Patch Changes
+
+- 2a5c740: Exclude source maps from published package, include changelog
+
 ## 1.1.2
 
 ### Patch Changes
