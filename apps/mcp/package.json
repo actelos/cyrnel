@@ -22,10 +22,6 @@
   "bin": {
     "cyrnel-mcp": "dist/index.js"
   },
-  "files": [
-    "dist"
-  ],
-  "sourceMap": false,
   "publishConfig": {
     "access": "public"
   },
