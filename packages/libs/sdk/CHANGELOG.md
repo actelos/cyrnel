@@ -1,5 +1,11 @@
 # @cyrnel/sdk
 
+## 1.1.2
+
+### Patch Changes
+
+- 8e57bb6: Exclude source maps from published package, add missing package metadata for npm publishing
+
 ## 1.1.1
 
 ### Patch Changes
