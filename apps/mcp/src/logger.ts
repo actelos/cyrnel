@@ -17,9 +17,9 @@ const devTransport = {
 export const logger =
   NODE_ENV === "test"
     ? pino({ level: "silent" })
-    : NODE_ENV === "production"
-      ? pino(
+    : NODE_ENV === "development" || NODE_ENV === "dev"
+      ? pino({ ...devTransport, level: LOG_LEVEL ?? "debug" })
+      : pino(
           { level: LOG_LEVEL ?? "info" },
           pino.destination({ dest: 2, sync: false }),
-        )
-      : pino({ ...devTransport, level: LOG_LEVEL ?? "debug" });
+        );

@@ -1,11 +1,11 @@
 import { FastMCP } from "fastmcp";
 
-import { environmentDocsResource } from "@/resources/environment";
-import { toolDocsResourceTemplate } from "@/resources/tool";
-import { moduleTools } from "@/tools/module";
-import { processTools } from "@/tools/process";
-import { serviceTools } from "@/tools/service";
-import { toolTools } from "@/tools/tool";
+import { environmentDocsResource } from "@/resources/environment.js";
+import { toolDocsResourceTemplate } from "@/resources/tool.js";
+import { moduleTools } from "@/tools/module.js";
+import { processTools } from "@/tools/process.js";
+import { serviceTools } from "@/tools/service.js";
+import { toolTools } from "@/tools/tool.js";
 
 export type Transport =
   | { type: "stdio" }

@@ -1,7 +1,7 @@
 import type { FastMCPSessionAuth, Tool } from "fastmcp";
 import { z } from "zod";
-import { Pid, ProcessExitStateQuery, ProcessState } from "@/schemas";
-import { api, searchParams } from "@/utils/fetch";
+import { Pid, ProcessExitStateQuery, ProcessState } from "@/schemas.js";
+import { api, searchParams } from "@/utils/fetch.js";
 
 // biome-ignore lint/suspicious/noExplicitAny: tool params vary per entry
 export const processTools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [

@@ -1,8 +1,8 @@
 import type { FastMCPSessionAuth, Tool } from "fastmcp";
 import { z } from "zod";
 
-import { JsonPatch, ServiceId } from "@/schemas";
-import { api, searchParams } from "@/utils/fetch";
+import { JsonPatch, ServiceId } from "@/schemas.js";
+import { api, searchParams } from "@/utils/fetch.js";
 
 // biome-ignore lint/suspicious/noExplicitAny: tool params vary per entry
 export const serviceTools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [

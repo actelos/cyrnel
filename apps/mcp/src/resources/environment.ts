@@ -1,6 +1,6 @@
 import type { FastMCPSessionAuth, Resource } from "fastmcp";
 
-import { api } from "@/utils/fetch";
+import { api } from "@/utils/fetch.js";
 
 export const environmentDocsResource: Resource<FastMCPSessionAuth> = {
   uri: "cyrnel://environment/docs",

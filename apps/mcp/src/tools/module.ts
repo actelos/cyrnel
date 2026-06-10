@@ -1,6 +1,6 @@
 import type { FastMCPSessionAuth, Tool } from "fastmcp";
 import { z } from "zod";
-import { JsonPatch, ModuleId, ModuleType } from "@/schemas";
+import { JsonPatch, ModuleId, ModuleType } from "@/schemas.js";
 import { api, searchParams } from "@/utils/fetch.js";
 
 // biome-ignore lint/suspicious/noExplicitAny: tool params vary per entry

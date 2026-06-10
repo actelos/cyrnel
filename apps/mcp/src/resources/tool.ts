@@ -1,6 +1,6 @@
 import type { FastMCPSessionAuth, ResourceTemplate } from "fastmcp";
 
-import { api } from "@/utils/fetch";
+import { api } from "@/utils/fetch.js";
 
 export const toolDocsResourceTemplate: ResourceTemplate<FastMCPSessionAuth> = {
   uriTemplate: "cyrnel://services/{service_id}/tools/{tool_id}/docs",
