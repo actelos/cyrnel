@@ -127,8 +127,8 @@ importers:
         specifier: ^17.4.2
         version: 17.4.2
       fastmcp:
-        specifier: ^4.0.2
-        version: 4.0.2(arktype@2.2.0)(effect@3.21.3)
+        specifier: ^4.1.0
+        version: 4.1.0(arktype@2.2.0)(effect@3.21.3)
       ky:
         specifier: ^2.0.2
         version: 2.0.2
@@ -2839,8 +2839,8 @@ packages:
   fast-wrap-ansi@0.2.2:
     resolution: {integrity: sha512-7F2Fl+TjRSenLqlU3UjSH0iyqopqoZIu7eZVpEirP2g1GtWa2G/ecEmBdgz31+Mxr+ELclgg6sokpSFIQiZ02Q==}
 
-  fastmcp@4.0.2:
-    resolution: {integrity: sha512-RMaG5FLT7sGpAfystrb1mDnqcHWjCqOnSfhp6kum3vgmDTrkc/tk9wGJB0EzocYvNujiqiF4gZZVkVAKujhvAw==}
+  fastmcp@4.1.0:
+    resolution: {integrity: sha512-4gv1rZA7vFzbKcREU5VO/LIUy8lcJ86Wrm2iN0ml0n+KpLHqzpgM+PuSCnCStWfvXV8OeIcPTC3bWECqj06VzQ==}
     hasBin: true
     peerDependencies:
       jose: ^5.0.0
@@ -3023,8 +3023,8 @@ packages:
   help-me@5.0.0:
     resolution: {integrity: sha512-7xgomUX6ADmcYzFik0HzAxh/73YlKR9bmFzf51CZwR+b6YtzU2m0u49hQCqV6SvlqIqsaxovfwdvbnsw3b/zpg==}
 
-  hono@4.12.23:
-    resolution: {integrity: sha512-eIaZ9qDgu7XV0pxOCrg7/WhnQ6Ivm22UcxhXx/A3dcbqbbYgBEkc6e/J/s7j2tS96zoB0S9VBdLwQNCWwUo4LA==}
+  hono@4.12.25:
+    resolution: {integrity: sha512-2NFaIyNVgJmBs/ecmtGzlmluTFs5cHEWGTdu0t1HBwYzoGXOL5nUQBRMXsXWla5i4KkG//QMzVP88m1+I3fdAQ==}
     engines: {node: '>=16.9.0'}
 
   http-assert@1.5.0:
@@ -5103,9 +5103,9 @@ snapshots:
 
   '@fontsource-variable/inter@5.2.8': {}
 
-  '@hono/node-server@1.19.14(hono@4.12.23)':
+  '@hono/node-server@1.19.14(hono@4.12.25)':
     dependencies:
-      hono: 4.12.23
+      hono: 4.12.25
 
   '@inquirer/ansi@2.0.7': {}
 
@@ -5245,7 +5245,7 @@ snapshots:
 
   '@modelcontextprotocol/sdk@1.29.0(zod@3.25.76)':
     dependencies:
-      '@hono/node-server': 1.19.14(hono@4.12.23)
+      '@hono/node-server': 1.19.14(hono@4.12.25)
       ajv: 8.20.0
       ajv-formats: 3.0.1(ajv@8.20.0)
       content-type: 1.0.5
@@ -5255,7 +5255,7 @@ snapshots:
       eventsource-parser: 3.1.0
       express: 5.2.1
       express-rate-limit: 8.5.2(express@5.2.1)
-      hono: 4.12.23
+      hono: 4.12.25
       jose: 6.2.3
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
@@ -5267,7 +5267,7 @@ snapshots:
 
   '@modelcontextprotocol/sdk@1.29.0(zod@4.4.3)':
     dependencies:
-      '@hono/node-server': 1.19.14(hono@4.12.23)
+      '@hono/node-server': 1.19.14(hono@4.12.25)
       ajv: 8.20.0
       ajv-formats: 3.0.1(ajv@8.20.0)
       content-type: 1.0.5
@@ -5277,7 +5277,7 @@ snapshots:
       eventsource-parser: 3.1.0
       express: 5.2.1
       express-rate-limit: 8.5.2(express@5.2.1)
-      hono: 4.12.23
+      hono: 4.12.25
       jose: 6.2.3
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
@@ -6985,14 +6985,14 @@ snapshots:
     dependencies:
       fast-string-width: 3.0.2
 
-  fastmcp@4.0.2(arktype@2.2.0)(effect@3.21.3):
+  fastmcp@4.1.0(arktype@2.2.0)(effect@3.21.3):
     dependencies:
       '@modelcontextprotocol/sdk': 1.29.0(zod@4.4.3)
       '@standard-schema/spec': 1.1.0
       execa: 9.6.1
       file-type: 21.3.4
       fuse.js: 7.4.2
-      hono: 4.12.23
+      hono: 4.12.25
       mcp-proxy: 6.5.1
       strict-event-emitter-types: 2.0.0
       undici: 7.27.2
@@ -7187,7 +7187,7 @@ snapshots:
 
   help-me@5.0.0: {}
 
-  hono@4.12.23: {}
+  hono@4.12.25: {}
 
   http-assert@1.5.0:
     dependencies:
