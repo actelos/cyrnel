@@ -8,7 +8,10 @@ sidebarTitle: "Module"
 extends.
 
 ```ts
-type ModuleSetupContext = object;
+interface ModuleSetupContext {
+  config: Record<string, unknown>;
+  secrets: Record<string, unknown>;
+}
 
 interface Module {
   setup(context: ModuleSetupContext): Promise<void>;
@@ -20,13 +23,20 @@ interface Module {
 
 Called once when the module is activated.
 
-- For adapter modules, `context` is the empty object `{}`.
-- For environment modules, `context` is an
-  [`EnvironmentSetupContext`](/spec/environment-module#setup) that carries
-  the host's bindings.
+- `config`: The module's resolved configuration (defaults applied).
+- `secrets` The module's decrypted secrets (defaults applied).
+
+For adapter modules, `context` carries the module-level config and
+secrets from the `modules` database row. Service-level config and secrets
+are delivered separately through
+[`hydrateService`](/specs/adapter-module#hydrateservicestate).
+
+For environment modules, `context` is an
+[`EnvironmentSetupContext`](/specs/environment-module#setup) that adds
+`bindings`, the host's callback surface.
 
 The host awaits `setup` before declaring the module ready. Throw to abort
-activation — the corresponding `modules` row keeps its `enabled` flag, but
+activation, the corresponding `modules` row keeps its `enabled` flag, but
 the module is not registered as active until the next attempt succeeds.
 
 `setup` may be called more than once over the life of a process if the
@@ -52,8 +62,8 @@ do not propagate to the caller.
 
 - The host **never calls `setup` twice in a row without an intervening
   `teardown`** for the same module instance. Module instances are not
-  reused after teardown — the host calls `instantiate()` again if it
+  reused after teardown, the host calls `instantiate()` again if it
   needs the module back.
 - For environment modules, `teardown` may be deferred while the module
   drains in-flight executions. See
-  [`EnvironmentModule`](/spec/environment-module#draining).
+  [`EnvironmentModule`](/specs/environment-module#draining).

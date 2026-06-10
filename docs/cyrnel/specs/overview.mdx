@@ -1,6 +1,6 @@
 ---
 title: "Specification Overview"
-description: "What @cyrnel/sdk is and how modules consume it"
+description: "What the cyrnel sdk is and how to use it"
 sidebarTitle: "Overview"
 ---
 
@@ -8,45 +8,35 @@ sidebarTitle: "Overview"
 It defines the data shapes cyrnel exchanges (services, tools, execution
 state) and the interfaces that adapter and environment modules implement.
 
-- **Package**: `@cyrnel/sdk`
-- **Workspace**: `packages/libs/sdk`
-- **Entry**: a single `src/index.ts` that re-exports everything.
+## Installation and Usage
 
-The SDK is intentionally tiny — no runtime helpers, no defaults, no
-opinions on transport. It is purely a **contract**: if your module
-satisfies the relevant interface, cyrnel can run it.
+To use the cyrnel SDK in your typescript codebase, install the [`@cyrnel/sdk`](https://www.npmjs.com/package/@cyrnel/sdk)
+package and use it.
 
-## What's in the SDK
-
-| Concept | Symbol(s) | Page |
-| --- | --- | --- |
-| JSON-Schema, service & tool shapes | `JSONSchema`, `ServiceDefinition`, `ToolDefinition`, `ServiceState`, `ToolState`, `InvokeInput` | [Types](/spec/types) |
-| Base module contract | `Module`, `ModuleSetupContext` | [`Module`](/spec/module) |
-| Adapter contract | `AdapterModule` | [`AdapterModule`](/spec/adapter-module) |
-| Environment contract | `EnvironmentModule`, `EnvironmentSetupContext` | [`EnvironmentModule`](/spec/environment-module) |
-| Callback surface from environment back to host | `EnvironmentBindings` | [Bindings](/spec/bindings) |
-| Execution input & state machine | `ExecutionInput`, `ExecutionOptions`, `EXECUTION_STATES`, `EXECUTION_EXIT_STATES`, `ExecutionState`, `ExecutionExitState`, `ToolDocsInput` | [Execution](/spec/execution) |
+```bash
+npm install @cyrnel/sdk
+```
 
 ## Who implements what
 
-- **Adapter authors** implement [`AdapterModule`](/spec/adapter-module).
+- **Adapter authors** implement [`AdapterModule`](/specs/adapter-module).
 - **Environment authors** implement
-  [`EnvironmentModule`](/spec/environment-module).
-- **Cyrnel itself** implements [`EnvironmentBindings`](/spec/bindings),
-  which is what an environment module *calls into*. You don't implement
-  these unless you're rewriting the host.
+  [`EnvironmentModule`](/specs/environment-module).
+- **Cyrnel itself** implements [`EnvironmentBindings`](/specs/environment-bindings),
+  which is what an environment module *calls into*.
 
 ## Module Manifests
 
-Every module — built-in or custom — exposes a tiny manifest plus an
+Every module, built-in or custom exposes a tiny manifest plus an
 `instantiate` factory:
 
 ```ts
 export const manifest = {
-  name: "my-adapter",
-  version: "1.0.0",
-  description: "Talks to my service",
-  type: "adapter" as const, // or "environment"
+  id: "my-adapter",
+  name: "My Adapter",
+  type: "adapter" as const,
+  description: "Hello World",
+  ...
 };
 
 export function instantiate(): AdapterModule {
@@ -56,11 +46,5 @@ export function instantiate(): AdapterModule {
 
 Built-ins are registered by cyrnel from their workspace exports. Custom
 modules are loaded from `$CYRNEL_DATA_DIR/modules/<name>/` based on a
-`module.json` file — see
-[Writing a custom module](/spec/writing-a-custom-module).
-
-## Versioning
-
-`@cyrnel/sdk` follows the repo's overall semver. Until 1.0 these interfaces
-should be considered movable; treat changes as ABI changes for modules
-loaded at runtime.
+`module.json` file. See
+[Writing a custom module](/specs/writing-custom-modules) for more info.

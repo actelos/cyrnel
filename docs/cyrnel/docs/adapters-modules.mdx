@@ -1,6 +1,6 @@
 ---
 title: "Adapter Modules"
-description: "Modules that connect cyrnel to end services"
+description: "Modules that connect cyrnel to services and APIs"
 sidebarTitle: "Adapter Modules"
 ---
 
@@ -16,7 +16,7 @@ specific kind of end service. It is responsible for:
    `{ serviceId, toolId, parameters }` invocation into a real call to the
    underlying service.
 
-Adapter modules implement the SDK [`AdapterModule`](/spec/adapter-module)
+Adapter modules implement the SDK [`AdapterModule`](/specs/adapter-module)
 interface.
 
 ## Lifecycle
@@ -30,11 +30,11 @@ interface AdapterModule extends Module {
 }
 ```
 
-1. **`setup({})`** — called once when the adapter is activated.
-2. **`generateDefinition(content)`** — called during `POST /services/install`
+1. **`setup({})`** is called once when the adapter is activated.
+2. **`generateDefinition(content)`** is called during `POST /services/install`
    and `POST /services/:id/update`. Pure: given the same definition string,
    should produce the same `ServiceDefinition`.
-3. **`hydrateService(state)`** — called whenever a service that targets this
+3. **`hydrateService(state)`** is called whenever a service that targets this
    adapter is enabled, has its config or secrets patched, or this adapter is
    activated while the service is already enabled. Receives a snapshot:
 
@@ -50,11 +50,11 @@ interface AdapterModule extends Module {
 
    The adapter is expected to store this and use it on subsequent
    `invoke` calls.
-4. **`dehydrateService(id)`** — called when a service is disabled, deleted,
+4. **`dehydrateService(id)`** is called when a service is disabled, deleted,
    or updated. The adapter should drop any state it kept for that service.
-5. **`invoke(input)`** — called once per tool call. Must throw for an
+5. **`invoke(input)`** is called once per tool call. Must throw for an
    unknown `(serviceId, toolId)` pair or any transport-level failure.
-6. **`teardown()`** — called when the adapter is deactivated. Should release
+6. **`teardown()`** is called when the adapter is deactivated. Should release
    any pooled resources.
 
 ## Security Model
@@ -64,7 +64,7 @@ Adapter modules are the **most security-sensitive** part of cyrnel. They:
 - Receive **decrypted secrets** via `ServiceState.secrets`.
 - Make **outbound network requests** (or open files, or send messages,
   etc.) to end services on behalf of users.
-- Run in the **host Node.js process** with full host permissions — they are
+- Run in the **host Node.js process** with full host permissions, they are
   not sandboxed.
 
 Concretely, the trust boundary is "the operator of the cyrnel server" decides
@@ -101,11 +101,7 @@ See [Security](/content/security) for the broader picture.
 
 ## Authoring
 
-See [Writing a custom module](/spec/writing-a-custom-module) for the file
-layout and registration mechanics, and [`AdapterModule`](/spec/adapter-module)
-for the interface in full.
-
-## Built-in
-
-- **[`openapi`](/content/builtins/openapi)** — turns an OpenAPI document
-  into a service whose tools correspond to operations.
+See [Writing a custom adapter module](/specs/writing-custom-adapter-module)
+for the file layout, a skeleton, and a full working example.
+[`AdapterModule`](/specs/adapter-module) covers the interface contract
+in full.

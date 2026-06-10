@@ -1,12 +1,12 @@
 ---
-title: "EnvironmentBindings"
+title: "Environment Bindings"
 description: "Callbacks an environment module receives from the host"
-sidebarTitle: "EnvironmentBindings"
+sidebarTitle: "Environment Bindings"
 ---
 
 `EnvironmentBindings` is the callback surface cyrnel hands to an environment
 module at activation. The environment calls *into* these to talk to the
-host — there is no other channel back.
+host.
 
 ```ts
 interface EnvironmentBindings {
@@ -37,7 +37,7 @@ etc.) and proxy them through.
 | `discoverTools` | Filtered tool summaries across services. |
 | `getService` | Single service definition (no `tools`, no `adapterDomain`). |
 | `getTool` | Single tool with `inputSchema` and `outputSchema`. |
-| `getToolDocs` | Markdown reference for one tool — usually produced by the active environment's own `generateToolDocs`. |
+| `getToolDocs` | Markdown reference for one tool, usually produced by the active environment's own `generateToolDocs`. |
 | `invokeTool` | Whatever the adapter returns. Throws on disabled / missing service or tool. |
 
 The discovery callbacks are the same calls the HTTP API uses internally,
@@ -58,14 +58,14 @@ happening.
 | `emitStderr(eid, buf)` | User code wrote to stderr. |
 | `emitOutput(eid, obj)` | User code emitted a structured output payload. The host `Object.assign`s into the running output. |
 
-`eid` always matches the process `pid` — it's the value the host passed
+`eid` always matches the process `pid`, it's the value the host passed
 in `ExecutionInput.eid`. Mixing up `eid` values silently mis-routes
 output between processes.
 
 ## Buffers and Strings
 
-`emitStdout` and `emitStderr` take `Buffer`. The host owns the decode —
-it runs each stream through a `StringDecoder("utf8")` so multi-byte
+`emitStdout` and `emitStderr` take `Buffer`. The host owns the decode.
+It runs each stream through a `StringDecoder("utf8")` so multi-byte
 characters split across chunks are reassembled correctly. The
 environment should pass raw bytes; do not decode and re-encode.
 
@@ -86,9 +86,3 @@ new keys are appended.
   An environment using worker threads must marshal calls back through
   references (the bundled `typescript-ivm` does this with
   `ivm.Reference`).
-
-## Where this is implemented
-
-The host wires these in `apps/api/src/app.ts` against `ProcessService`,
-`ServicesService`, and `ModuleService`. Environment modules see only
-the interface — they never touch those services directly.

@@ -1,0 +1,76 @@
+---
+title: "Writing a Custom Environment Module"
+description: "Skeleton and example for building a custom environment"
+sidebarTitle: "Writing a custom environment"
+---
+
+This page covers the environment-specific parts of writing a custom module.
+For the shared mechanics (file layout, registration, lifecycle) see
+[Writing a custom module](/specs/writing-custom-modules). For the full
+interface reference see [`EnvironmentModule`](/specs/environment-module).
+
+## Minimal Skeleton
+
+```ts
+import type {
+  EnvironmentBindings,
+  EnvironmentModule,
+  EnvironmentSetupContext,
+  ExecutionExitState,
+  ExecutionInput,
+  ToolDocsInput,
+} from "@cyrnel/sdk";
+
+class MyEnvironment implements EnvironmentModule {
+  private bindings!: EnvironmentBindings;
+
+  async setup({ bindings }: EnvironmentSetupContext) {
+    this.bindings = bindings;
+  }
+
+  async teardown() {}
+
+  async execute(input: ExecutionInput): Promise<ExecutionExitState> {
+    this.bindings.setState(input.eid, "running");
+    try {
+      // ...execute input.code in your runtime, emitting stdout/stderr/output
+      return "success";
+    } catch (err) {
+      this.bindings.setError(input.eid, String(err));
+      return "failed";
+    }
+  }
+
+  async kill(_eid: number) {}
+
+  async generateDocs() {
+    return "# My Environment\n\nDocument the runtime here.";
+  }
+
+  async generateToolDocs(_input: ToolDocsInput) {
+    return "# Tool\n\nDocument how to call this tool here.";
+  }
+}
+
+export const manifest = {
+  name: "my-environment",
+  version: "1.0.0",
+  description: "...",
+  type: "environment" as const,
+};
+
+export function instantiate(): EnvironmentModule {
+  return new MyEnvironment();
+}
+```
+
+## Full Example
+
+See the [Shell environment example](https://github.com/actelos/mci/tree/main/examples/environment-module)
+in the repository for a complete, working environment that executes
+submitted code as shell commands via `sh -c`. It streams stdout and stderr
+back through the host bindings and reports the exit code on completion.
+
+See [`EnvironmentBindings`](/specs/environment-bindings) for the callback
+surface and [Execution](/specs/execution) for the state machine and timeout
+contracts.

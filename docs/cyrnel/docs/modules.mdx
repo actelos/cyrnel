@@ -1,6 +1,6 @@
 ---
 title: "Modules"
-description: "Runtime modules — adapters and environments"
+description: "Runtime modules. Adapters and environments"
 ---
 
 Cyrnel coordinates two kinds of modules:
@@ -10,42 +10,43 @@ Cyrnel coordinates two kinds of modules:
 - **[Environment modules](/content/modules/environments)** execute the code
   clients submit.
 
-Both implement the base `Module` interface from `@cyrnel/sdk` (`setup`,
-`teardown`); each adds its own contract on top.
+Both implement the base `Module` interface from `@cyrnel/sdk`.
+
 
 ## The Module Registry
 
 Modules are registered with the `ModuleService` at startup. There are two
 sources:
 
-1. **Built-in modules**, shipped as workspace packages. The current set:
-   - `openapi` — adapter, in `packages/modules/openapi`
-   - `typescript-ivm` — environment, in `packages/modules/typescript-ivm`
+1. **Built-in modules**, shipped as workspace packages.
 2. **Custom modules**, loaded from `$CYRNEL_DATA_DIR/modules/<name>/`. Each
    directory must contain a `module.json`:
 
    ```json
    {
-     "name": "my-adapter",
+     "id": "my-adapter",
      "type": "adapter",
-     "description": "Talks to my service",
-     "main": "./index.js"
+     "name": "My Adapter",
+     "description": "this is my my adapter",
+     "main": "./index.js",
+     "configSchema": { ... },
+     "secretsSchema": { ... },
    }
    ```
 
    `main` is an ES module exporting `instantiate(): AdapterModule` or
    `EnvironmentModule`. See
-   [Writing a custom module](/spec/writing-a-custom-module).
+   [Writing a custom module](/specs/writing-custom-modules).
 
 The registry is reflected to the `modules` table. Three things can happen
 during reconciliation:
 
-- **Insert** — a registered module that isn't in the DB yet. Default
+- **Insert**: A registered module that isn't in the DB yet. Default
   `enabled: true`, `orphaned: false`.
-- **Orphan** — a row in the DB whose module is no longer registered (e.g.
+- **Orphan**: a row in the DB whose module is no longer registered (e.g.
   the custom folder was removed). Set `orphaned: true, enabled: false`. The
   row stays so its config/enablement is preserved if the module reappears.
-- **Restore** — an orphaned row whose module is registered again. Clear
+- **Restore**: An orphaned row whose module is registered again. Clear
   `orphaned: false`.
 
 `POST /modules/reload` re-scans `$CYRNEL_DATA_DIR/modules/` and reruns
@@ -64,12 +65,12 @@ Activation = "this module is now ready to take work". It is per-module-type:
 
 ### Draining environments
 
-When the active environment is replaced or disabled, it doesn't disappear —
-it becomes **draining**. New executions go to the newly-active environment
-(or fail with `503` if none). The draining environment keeps running its
-in-flight executions; once all of them finish, cyrnel tears it down. This means
-a `POST /modules/:envId/enabled` with `enabled: false` returns immediately,
-but the actual teardown may happen seconds later.
+When the active environment is replaced or disabled, it doesn't disappear,
+instead, it becomes **draining**. New executions go to the newly-active
+environment (or fail with `503` if none). The draining environment keeps
+running its in-flight executions; once all of them finish, cyrnel tears it
+down. This means a disable request with returns immediately, but the actual
+teardown may happen seconds later.
 
 ## Configuration and Secrets
 
@@ -139,7 +140,3 @@ interface ModuleManifestRecord {
   **adapter**.
 - If you need to **change how code is executed** (different language,
   different sandbox, different permission model), write an **environment**.
-
-Most extension work in the wild is adapter work. Environment modules are a
-heavier commitment because they own the security boundary user code runs
-inside.

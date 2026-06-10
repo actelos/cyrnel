@@ -75,11 +75,11 @@ bindings:
 ```ts
 const tools = await cyrnel.discoverTools({ query: "weather", limit: 5 });
 const def = await cyrnel.services[tools[0].serviceId].tools[tools[0].id].getDefinition();
-const result = await cyrnel.services[tools[0].serviceId].tools[tools[0].id].invoke({ city: "Accra" });
+const result = await cyrnel.services[tools[0].serviceId].tools[tools[0].id].invoke({ city: "..." });
 cyrnel.output({ result });
 ```
 
-See [`EnvironmentBindings`](/spec/bindings).
+See [`EnvironmentBindings`](/specs/environment-bindings).
 
 ## Invocation Gating
 

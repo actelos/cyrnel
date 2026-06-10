@@ -3,13 +3,9 @@ title: "Services"
 description: "Installed services, their tools, configuration, and secrets"
 ---
 
-A **service** is an installed integration — a bundle of metadata, a set of
-tools, a configuration schema, a secrets schema, and the [adapter
-module](/content/modules/adapters) that knows how to talk to the underlying
-end service.
-
-Services are persistent: they live in SQLite (libSQL) along with their
-configuration and (encrypted) secrets.
+A **service** is an installed integration, it bundles metadata, a set of tools,
+configuration schema, a secrets schema, and the [adapter module](/content/modules/adapters)
+that knows how to talk to the underlying end service.
 
 ## Service Shape
 
@@ -29,8 +25,7 @@ On disk, cyrnel extends that with:
 - `id`: the service identifier the client chose at install time. Must be a
   valid identifier (`[A-Za-z_$][A-Za-z0-9_$]*`).
 - `hash`: SHA-256 of the definition file used at install/update time.
-- `source`: the URL the definition was fetched from (used by
-  `POST /services/:id/update`).
+- `source`: the URL the definition was fetched from (used for updates).
 - `adapter`: the id of the [adapter module](/content/modules/adapters) that
   parsed the definition and will handle invocations.
 - `enabled`: whether the service is active. Disabling a service hides its
@@ -56,7 +51,7 @@ outside.
 Server-side flow:
 
 1. Validate the `id` is a valid identifier (`[A-Za-z_$][A-Za-z0-9_$]*`).
-2. Fetch the URL in `source` (with size, timeout, and address-range guards —
+2. Fetch the URL in `source` (with size, timeout, and address-range guards,
    see [Security](/content/security)).
 3. Hash the content (SHA-256).
 4. Call `adapter.generateDefinition(content)` to produce a
@@ -77,7 +72,7 @@ Response (`201`):
 
 `POST /services/:serviceId/update`
 
-Re-fetches `source`, re-parses, and replaces the stored tools — preserving
+Re-fetches `source`, re-parses, and replaces the stored tools, preserving
 the previous per-tool `enabled` flag when a tool name carries over.
 Sets the service back to `enabled: false` and dehydrates it from the
 adapter; you'll need to re-enable it.
@@ -112,7 +107,7 @@ Deletes the row (cascading to tools, configuration, secrets) and calls
 | `GET` | `/services/:serviceId` | Full record (minus `adapterDomain`) |
 
 The list response strips `configSchema`, `secretsSchema`, `tools`, and
-`adapterDomain` — fetch a single service for those.
+`adapterDomain`, fetch a single service for those.
 
 ## Configuration
 
@@ -149,7 +144,7 @@ encrypted with AES-256-GCM using `CYRNEL_SECRETS_KEY`.
 | `GET` | `/services/:serviceId/secrets/schema` | `{ secretsSchema }` |
 | `PATCH` | `/services/:serviceId/secrets` | Apply an RFC 6902 JSON Patch |
 
-There is **no `GET /services/:serviceId/secrets`** — secret values never
+There is **no `GET /services/:serviceId/secrets`**, secret values never
 leave the server in plaintext through the API. Patches operate against the
 decrypted document in memory; the result is re-encrypted before being
 written back.
@@ -162,7 +157,7 @@ written back.
 
 ## How Services Are Used at Execution Time
 
-When user code calls `cyrnel.services[serviceId].tools[toolId].invoke(...)`:
+When client code calls a tool:
 
 1. The environment forwards the call to the host as an `invokeTool` binding.
 2. The `ModuleService` joins the `services` and `tools` tables on

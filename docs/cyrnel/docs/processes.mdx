@@ -97,10 +97,6 @@ Response (`200`): the process record.
 
 `POST /processes/:pid/signals/kill`
 
-```json
-{}
-```
-
 - If the process is `queued`, it transitions straight to `idle` with
   `exitState = "canceled"`.
 - If `running`, it moves to `terminating` first, then to `idle` with
@@ -127,9 +123,9 @@ Response (`200`): the process record.
 
 Query parameters:
 
-- `state` — one of `idle | queued | running | terminating`
-- `status` — one of `success | failed | timeout | canceled | null`
-- `ref` — exact match (trimmed, non-empty)
+- `state`: One of `idle | queued | running | terminating`
+- `status`: One of `success | failed | timeout | canceled | null`
+- `ref`: Exact match (trimmed, non-empty)
 
 ## Delete a Process
 
@@ -137,17 +133,3 @@ Query parameters:
 
 The process must be `idle`. The `pid` is recycled into the pool and reused
 by future creates.
-
-## Minimal Flow
-
-```bash
-# 1. submit code
-curl -X POST http://localhost:7687/processes \
-  -H 'content-type: application/json' \
-  -d '{"code":"cyrnel.output({ hello: 42 });","block":true}'
-# { "pid": 1 }
-
-# 2. fetch outputs
-curl http://localhost:7687/processes/1/output
-# { "hello": 42 }
-```

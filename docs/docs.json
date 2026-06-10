@@ -54,13 +54,6 @@
                         ]
                       }
                     ]
-                  },
-                  {
-                    "group": "Built-in Modules",
-                    "pages": [
-                      "cyrnel/docs/openapi-module",
-                      "cyrnel/docs/typescript-ivm-module"
-                    ]
                   }
                 ]
               },
@@ -81,11 +74,18 @@
                   },
                   {
                     "group": "Runtime Contracts",
-                    "pages": ["cyrnel/specs/bindings", "cyrnel/specs/execution"]
+                    "pages": [
+                      "cyrnel/specs/environment-bindings",
+                      "cyrnel/specs/environment-execution"
+                    ]
                   },
                   {
                     "group": "Authoring",
-                    "pages": ["cyrnel/specs/writing-a-custom-module"]
+                    "pages": [
+                      "cyrnel/specs/writing-custom-modules",
+                      "cyrnel/specs/writing-custom-adapter-module",
+                      "cyrnel/specs/writing-custom-environment-module"
+                    ]
                   }
                 ]
               },

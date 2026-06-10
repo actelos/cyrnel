@@ -24,10 +24,12 @@ user-facing description.
 
 ## Setup
 
-`setup({ bindings })` is called when the environment is activated.
-`bindings` is the host's [callback surface](/spec/bindings) — store it
-and use it to report execution state, capture I/O, and forward tool
-discovery / invocation requests.
+`setup({ config, secrets, bindings })` is called when the environment is
+activated. `config` and `secrets` carry the module-level settings from
+the `modules` database row. `bindings` is the host's
+[callback surface](/specs/environment-bindings), store it and use it to
+report execution state, capture I/O, and forward tool discovery /
+invocation requests.
 
 The host activates **at most one environment at a time**. A previously
 active environment is moved to draining state and torn down only after
@@ -47,7 +49,7 @@ interface ExecutionOptions {
 }
 ```
 
-Run one process. `input.eid` is the host-assigned execution id — it
+Run one process. `input.eid` is the host-assigned execution id, it
 matches the process `pid` exactly and **must** be the value passed to
 every `bindings.*` callback so the host can route stdout, stderr, output,
 and state changes to the right process record.
@@ -68,7 +70,7 @@ Inside `execute`, the environment is expected to:
 4. Call `bindings.setError(eid, message)` if execution fails.
 5. Resolve the promise with the final `ExecutionExitState`.
 
-Throwing from `execute` is also acceptable — the host wraps it as
+Throwing from `execute` is also acceptable, the host wraps it as
 `"failed"` and records the message as the process `error`.
 
 ## `kill(eid)`
@@ -81,7 +83,7 @@ Should be safe to call for an unknown `eid` (return without error).
 
 ## `generateDocs()`
 
-Return a Markdown string describing the runtime — globals available
+Return a Markdown string describing the runtime, globals available
 inside, idioms, examples. Served at `GET /environment/docs`.
 
 This is what AI clients read to learn how to write code for *this*
@@ -116,13 +118,12 @@ When the host activates a different environment, the previous one is
 
 - The host no longer dispatches new `execute` calls to it.
 - In-flight executions continue.
-- The host calls `kill(eid)` only when a process is explicitly killed —
-  not because of draining.
+- The host calls `kill(eid)` only when a process is explicitly killed.
 - Once `execute` has resolved for every in-flight `eid`, the host calls
   `teardown()`.
 
 Implementations should be safe to call after the active reference has
-moved on — there is a brief overlap when both environments exist.
+moved on, there is a brief overlap when both environments exist.
 
 ## Minimal Skeleton
 
@@ -179,5 +180,8 @@ export function instantiate(): EnvironmentModule {
 }
 ```
 
-See [`EnvironmentBindings`](/spec/bindings) for the callbacks and
-[Execution](/spec/execution) for the state machine details.
+See [Writing a custom environment module](/specs/writing-custom-environment-module)
+for a step-by-step walkthrough and a full working example.
+
+See [`EnvironmentBindings`](/specs/environment-bindings) for the callbacks and
+[Execution](/specs/environment-execution) for the state machine details.

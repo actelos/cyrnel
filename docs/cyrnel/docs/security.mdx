@@ -20,7 +20,6 @@ web UI) is a tool the operator chooses to trust.
 
 - **Authentication is one static bearer token** (`CYRNEL_API_KEY`). No scopes,
   no expiry. Anonymous mode is intended for `127.0.0.1` only.
-  See the [README](https://github.com/actelos/cyrnel#talk-to-the-api).
 - **No rate limiting** is enforced by the API. A noisy or hostile caller
   will be felt directly by adapters and end services.
 - **Error envelopes** are intentionally terse (`{ "error": "..." }`). They
@@ -44,7 +43,7 @@ three reasons:
    plaintext secret document the operator stored for a given service.
    Every enabled adapter sees every secret of every service it owns.
 3. **They can choose what to persist.** Adapters are expected to keep
-   per-service state in memory — but a malicious or careless adapter can
+   per-service state in memory, a malicious or careless adapter can
    write that state anywhere it pleases.
 
 <Warning>
@@ -55,13 +54,13 @@ three reasons:
 #### Operator guidance
 
 - Treat `modules` as part of the program. Review additions with the same
-  scrutiny you give to a `node_modules` or any program installed your computer.
+  scrutiny you give to a `node_modules` or any program installed your device.
 - Disable adapters you aren't actively using. A disabled adapter still has
   its row in `modules`, but its `setup()` is never called.
 - Don't share secrets across deployments. A leaked key plus a stolen db is
   equivalent to leaking every credential the deployment has stored.
 - If you're integrating a third-party adapter, verify what it does with
-  secrets — at minimum, that it does not log them, persist them to disk,
+  secrets, at minimum, that it does not log them, persist them to disk,
   or forward them anywhere outside the target service.
 
 See [Adapter Modules](/content/modules/adapters) for the interface and
@@ -117,23 +116,29 @@ guards:
 - IP-literal hostnames whose range is not `unicast` are rejected
   (loopback, link-local, multicast, private-v4 ranges).
 
-But:
+DNS hostnames are resolved and each address is checked. This includes
+redirect targets, every hop is validated before the request proceeds.
 
-- **DNS names are not resolved or pinned.** A caller can hand cyrnel any
-  hostname; the SSRF guard only triggers when the hostname is *already*
-  an IP literal. `http://internal.example.com/...` is fetched without
-  comment, even if it resolves to `10.0.0.5`. Likewise, `http://localhost/`
-  bypasses the guard because `localhost` is not a literal IP.
-- **There is no allowlist.** Anyone with API access can ask the server to
-  hit any URL.
+- **DNS names are resolved.** If the hostname is not an IP literal, the
+  guard resolves it via `dns.lookup` and checks every returned address
+  against the same range filter. `http://internal.example.com/` is blocked
+  if it resolves to `10.0.0.5`. `http://localhost/` is blocked because it
+  resolves to `127.0.0.1`.
+- **There is no domain allowlist.** The guard only checks IP ranges, not
+  the hostname itself. A hostname that resolves to public unicast
+  addresses will pass.
+- **Bypass on failure.** If DNS fails to resolve, the request is rejected
+  with `502`. If `CYRNEL_ALLOW_PRIVATE_REGISTRY=1` (or `true`) is set,
+  the guard is skipped entirely, use this for development only.
 
 #### Operator guidance
 
 - Treat the API key as the security boundary. Do not expose
   `/services/install` (or the API at all) to clients you wouldn't trust
   to make outbound network requests from the host.
-- If you need a stricter posture, run cyrnel inside a network namespace or
-  egress firewall that restricts which hosts it can reach.
+- If you need a stricter posture (e.g. a domain allowlist or egress
+  filtering), run cyrnel inside a network namespace or egress firewall
+  that restricts which hosts it can reach.
 
 ## Data at Rest
 
@@ -146,7 +151,7 @@ But:
 | Process records, stdout, stderr, output | In-memory only | Lost on restart. |
 
 If the db leaks, the encrypted secrets are protected by the key only.
-Configuration is not — operators must avoid storing credentials in
+Configuration is not, operators must avoid storing credentials in
 `config` blocks. The `secretsSchema` exists for that exact reason; use it.
 
 ## Defaults Worth Hardening
@@ -158,4 +163,4 @@ Configuration is not — operators must avoid storing credentials in
   reachable by untrusted callers.
 - Don't deploy the web UI publicly with credentials baked into the
   bundle.
-- Review adapters before dropping them into `$CYRNEL_DATA_DIR/modules/`.
+- Review adapters before installing them`.

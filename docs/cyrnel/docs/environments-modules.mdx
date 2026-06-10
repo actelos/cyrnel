@@ -16,7 +16,7 @@ An **environment module** runs the code clients submit through
    `options.timeoutMs`.
 
 Environment modules implement the SDK
-[`EnvironmentModule`](/spec/environment-module) interface.
+[`EnvironmentModule`](/specs/environment-module) interface.
 
 ## Lifecycle
 
@@ -31,25 +31,25 @@ interface EnvironmentModule extends Module {
 }
 ```
 
-1. **`setup({ bindings })`** — called when the environment is activated.
-   `bindings` is the [`EnvironmentBindings`](/spec/bindings) callback
+1. **`setup({ bindings })`** is called when the environment is activated.
+   `bindings` is the [`EnvironmentBindings`](/specs/environment-bindings) callback
    surface back into the host (discovery, invocation, state, output).
-2. **`execute(input)`** — called for each process. `input.eid` is the
+2. **`execute(input)`** is called for each process. `input.eid` is the
    process id; the environment must use it on every callback so the host
    can route stdout/stderr/output to the right process.
-3. **`kill(eid)`** — interrupt a running or queued execution. Should
+3. **`kill(eid)`** interrupts a running or queued execution. Should
    return promptly.
-4. **`generateDocs()`** — return a Markdown string describing the
+4. **`generateDocs()`** returns a Markdown string describing the
    environment's globals. Surfaced by `GET /environment/docs`.
-5. **`generateToolDocs(input)`** — return Markdown describing how to call a
+5. **`generateToolDocs(input)`** returns Markdown describing how to call a
    single tool inside this environment. Surfaced by
    `GET /tools/:serviceId/:toolId/docs`.
-6. **`teardown()`** — called when the environment is deactivated.
+6. **`teardown()`** is called when the environment is deactivated.
 
 ## Active environment vs draining
 
-Only one environment is active at a time — the one whose `modules` row has
-`enabled = true`. Switching environments (or disabling the active one)
+Only one environment is active at a time, the one whose `modules` row has
+`enabled = true`. Switching environments or disabling the active module
 moves it to a **draining** state: no new executions are dispatched to it,
 but in-flight ones run to completion. Once the last execution finishes, cyrnel
 calls `teardown()` on it.
@@ -88,12 +88,8 @@ See [Security](/content/security) for the broader picture.
 
 ## Authoring
 
-See [Writing a custom module](/spec/writing-a-custom-module) for file
-layout and registration. See
-[`EnvironmentModule`](/spec/environment-module) for the interface and
-[`EnvironmentBindings`](/spec/bindings) for the callback surface.
-
-## Built-in
-
-- **[`typescript-ivm`](/content/builtins/typescript-ivm)** — TypeScript /
-  JavaScript runtime backed by `isolated-vm`.
+See [Writing a custom environment module](/specs/writing-custom-environment-module)
+for the file layout, a skeleton, and a full working example.
+[`EnvironmentModule`](/specs/environment-module) covers the interface
+contract in full, and [`EnvironmentBindings`](/specs/environment-bindings)
+documents the callback surface.

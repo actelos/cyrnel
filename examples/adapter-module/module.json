@@ -1,0 +1,6 @@
+{
+  "name": "http-adapter",
+  "type": "adapter",
+  "description": "Call any HTTP API",
+  "main": "./index.js"
+}

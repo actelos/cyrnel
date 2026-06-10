@@ -21,11 +21,11 @@ description.
 ## `generateDefinition(input)`
 
 Convert a raw definition string (an OpenAPI document, a custom schema, a
-URL to fetch and parse — whatever this adapter understands) into a
-[`ServiceDefinition`](/spec/types#servicedefinition).
+URL to fetch and parse, whatever this adapter understands) into a
+[`ServiceDefinition`](/specs/types#servicedefinition).
 
 - Called from `POST /services/install` and `POST /services/:id/update`.
-- Expected to be **pure** — given the same input string, return the same
+- Expected to be **pure**, given the same input string, return the same
   definition. Adapters should not rely on instance state here.
 - Throw to reject the install. The host returns the thrown message in
   the error response.
@@ -58,7 +58,7 @@ Implementations should **replace** any internal state they kept for
 `state.id`, not merge into it. `secrets` is decrypted plaintext; do not
 log it.
 
-Throw to reject the operation — the host rolls back `enabled` on the
+Throw to reject the operation, the host rolls back `enabled` on the
 service before surfacing the error.
 
 ## `dehydrateService(id)`
@@ -90,8 +90,7 @@ Perform one tool call. The host has already verified:
 
 The adapter is free to validate `parameters` against the stored
 `inputSchema` itself (recommended) before issuing the outbound call. The
-returned value is whatever the environment receives back from
-`cyrnel.services[...].tools[...].invoke(...)`.
+returned value is whatever the environment receives back from tool invokes.
 
 Throw on any failure. Throwing an `Error` with a useful message is fine;
 the host surfaces it to the calling process.
@@ -105,12 +104,12 @@ operator-facing guidance and **what a well-behaved adapter must not do**.
 ## Minimal Skeleton
 
 ```ts
-import type { AdapterModule, InvokeInput, ServiceDefinition, ServiceState } from "@cyrnel/sdk";
+import type { AdapterModule, InvokeInput, ModuleSetupContext, ServiceDefinition, ServiceState } from "@cyrnel/sdk";
 
 class MyAdapter implements AdapterModule {
   private state = new Map<string, ServiceState>();
 
-  async setup() {}
+  async setup(_context: ModuleSetupContext) {}
   async teardown() { this.state.clear(); }
 
   async generateDefinition(input: string): Promise<ServiceDefinition> {
@@ -161,5 +160,5 @@ export function instantiate(): AdapterModule {
 }
 ```
 
-See [Writing a custom module](/spec/writing-a-custom-module) for how to
-drop this into a running cyrnel deployment.
+See [Writing a custom adapter module](/specs/writing-custom-adapter-module)
+for a step-by-step walkthrough and a full working example.
