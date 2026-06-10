@@ -20,7 +20,7 @@ A good report includes:
 
 ## What to expect
 
-- **Acknowledgement:** within **5 business days** of your report.
+- **Acknowledgment:** within **5 business days** of your report.
 - **Triage:** we will confirm whether the issue is in scope, ask follow-up
   questions if needed, and share an initial severity assessment.
 - **Status updates:** at least once every **30 days** until the report is

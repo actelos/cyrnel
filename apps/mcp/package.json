@@ -1,14 +1,36 @@
 {
   "name": "@cyrnel/mcp",
-  "private": true,
+  "version": "1.0.0",
   "type": "module",
+  "description": "Cyrnel MCP server",
+  "keywords": [
+    "cyrnel",
+    "ai",
+    "mcp",
+    "proxy",
+    "model-context-protocol"
+  ],
+  "homepage": "https://github.com/actelos/cyrnel/blob/main/apps/mcp/README.md",
+  "author": "0x15ba88ff",
+  "license": "MIT",
+  "main": "dist/index.js",
+  "bin": {
+    "cyrnel-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "check": "biome check .",
     "check:fix": "biome check --write .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm run build"
   },
   "packageManager": "pnpm@10.30.3",
   "dependencies": {

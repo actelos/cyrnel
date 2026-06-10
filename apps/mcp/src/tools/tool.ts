@@ -4,7 +4,6 @@ import { z } from "zod";
 import { ServiceId, ToolId } from "@/schemas";
 import { api, searchParams } from "@/utils/fetch";
 
-// biome-ignore lint/suspicious/noExplicitAny: tool params vary per entry
 export const toolTools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
   {
     name: "list_tools",

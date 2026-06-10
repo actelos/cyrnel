@@ -213,7 +213,7 @@ Whenever you add or change API endpoints, regenerate the spec and commit it:
 pnpm -C apps/api openapi:generate
 ```
 
-This updates `apps/api/openapi.json`, which is also served at `https://actelos.mintlify.app/cyrnel.openapi.json` for the public docs.
+This updates `apps/api/openapi.json`, which is also served for the public docs.
 
 **Auth:**
 

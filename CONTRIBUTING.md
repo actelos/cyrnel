@@ -8,7 +8,7 @@ Thank you for contributing to cyrnel! We'd love to have your help making cyrnel 
 
 ## Getting Started
 
-To ensure a positive and inclusive environment, please read our [Code of Conduct](./CODE_OF_CONDUCT.md) before contributing. For help setting up the repo locally, follow the [DEVELOPERS.md](./DEVELOPERS.md) guide.
+To ensure a positive and inclusive environment, please read our [Code of Conduct](./CODE_OF_CONDUCT.md) before contributing. For help setting up the repository locally, follow the [DEVELOPERS.md](./DEVELOPERS.md) guide.
 
 ## Issues
 
@@ -31,8 +31,8 @@ We actively welcome your Pull Requests! A couple of things to keep in mind befor
 Prior to submitting your PR, please run the following pre-flight checks locally:
 
 - Run `pnpm build` to make sure everything compiles across all workspaces.
-- Run `pnpm check:fix` to ensure Biome lint and formatting pass.
-- Run `pnpm typecheck` to catch any TypeScript errors.
+- Run `pnpm check:fix` to ensure biome lint and formatting pass.
+- Run `pnpm typecheck` to catch any typescript errors.
 - Run `pnpm test` to make sure no existing tests are broken.
 
 Running these before you open the PR will reduce back and forth with the team.
