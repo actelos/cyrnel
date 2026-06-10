@@ -1,5 +1,11 @@
 # @cyrnel/mcp
 
+## 1.1.1
+
+### Patch Changes
+
+- 7a43285: Fix runtime resolution of `@/` path aliases in published package by adding `tsc-alias` post-build step
+
 ## 1.1.0
 
 ### Minor Changes
