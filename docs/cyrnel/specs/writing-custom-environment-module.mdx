@@ -52,13 +52,6 @@ class MyEnvironment implements EnvironmentModule {
   }
 }
 
-export const manifest = {
-  name: "my-environment",
-  version: "1.0.0",
-  description: "...",
-  type: "environment" as const,
-};
-
 export function instantiate(): EnvironmentModule {
   return new MyEnvironment();
 }

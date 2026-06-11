@@ -56,13 +56,6 @@ class MyAdapter implements AdapterModule {
   }
 }
 
-export const manifest = {
-  name: "my-adapter",
-  version: "1.0.0",
-  description: "...",
-  type: "adapter" as const,
-};
-
 export function instantiate(): AdapterModule {
   return new MyAdapter();
 }
