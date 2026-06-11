@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import type { Operation } from "fast-json-patch";
 import { z } from "zod";
 
+import { logger } from "@/logger";
 import type { ServicesService } from "@/services/services.service";
 import { parseOrHttpError } from "@/utils/validation.util";
 
@@ -97,7 +98,18 @@ export async function listServices(req: Request, res: Response): Promise<void> {
   const servicesService = getServicesService(req);
   const query = parseQueryParam(req.query?.query);
   const enabled = parseEnabledQueryParam(req.query?.enabled);
+
+  logger.debug(
+    { query, enabled, ifNoneMatch: req.headers?.["if-none-match"] },
+    "listServices: fetching services",
+  );
+
   const services = await servicesService.listServices({ query, enabled });
+
+  logger.debug(
+    { count: services.length, ids: services.map((s) => s.id) },
+    "listServices: returning services",
+  );
 
   res.status(200).json({ services });
 }

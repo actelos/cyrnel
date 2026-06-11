@@ -1,6 +1,7 @@
 import type { z } from "zod";
+import { apiUrl } from "@/lib/env";
 
-export const apiBase = import.meta.env.VITE_CYRNEL_API_URL ?? "";
+export const apiBase = apiUrl();
 
 export class ApiError extends Error {
   constructor(

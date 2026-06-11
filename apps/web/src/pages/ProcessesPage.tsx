@@ -1,4 +1,4 @@
-import { Copy, Play, Plus, RotateCcw, Trash2 } from "lucide-react";
+import { Copy, Play, Plus, RotateCcw, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { z } from "zod";
@@ -163,6 +163,8 @@ export default function ProcessesPage() {
     null,
   );
   const [isRestartDialogOpen, setIsRestartDialogOpen] = useState(false);
+  const [deleteCandidate, setDeleteCandidate] = useState<Process | null>(null);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
 
   const parsedFilters = useMemo(() => {
     const raw = {
@@ -278,6 +280,10 @@ export default function ProcessesPage() {
     return process.state === "idle";
   };
 
+  const canDelete = (process: Process) => {
+    return process.state === "idle";
+  };
+
   const needsRestartConfirmation = (process: Process) => {
     return process.state === "idle" && process.exitState !== null;
   };
@@ -355,6 +361,18 @@ export default function ProcessesPage() {
       await mutate(processesUrl);
     } catch (error) {
       setActionError(errorMessageFrom(error, "Unable to kill process."));
+    }
+  };
+
+  const handleDeleteProcess = async (process: Process) => {
+    setActionError(null);
+    try {
+      await apiFetch(buildUrl(`/processes/${process.pid}`), {
+        method: "DELETE",
+      });
+      await mutate(processesUrl);
+    } catch (error) {
+      setActionError(errorMessageFrom(error, "Unable to delete process."));
     }
   };
 
@@ -534,14 +552,6 @@ export default function ProcessesPage() {
         </header>
         <div className="flex min-h-0 flex-1 flex-col gap-6 lg:flex-row">
           <Card className="flex min-h-0 flex-1 flex-col">
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle>Processes</CardTitle>
-              <div className="w-max px-2 bg-muted border-1 border-border">
-                {isLoadingProcesses
-                  ? "Loading..."
-                  : `${processes.length} total`}
-              </div>
-            </CardHeader>
             <CardContent className="min-h-0 flex-1">
               <ScrollArea className="h-full">
                 <Table>
@@ -560,7 +570,7 @@ export default function ProcessesPage() {
                         key={process.pid}
                         className={cn(
                           "cursor-pointer",
-                          process.pid === selectedPid ? "bg-muted/50" : "",
+                          process.pid === selectedPid ? "bg-primary/10" : "",
                         )}
                         onClick={() => setSelectedPid(process.pid)}
                       >
@@ -629,6 +639,23 @@ export default function ProcessesPage() {
                                 void handleKillProcess(process);
                               }}
                             >
+                              <X />
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              className="h-8 w-8 p-0 text-destructive"
+                              aria-label="Delete process"
+                              disabled={!canDelete(process)}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                if (!canDelete(process)) {
+                                  return;
+                                }
+                                setDeleteCandidate(process);
+                                setIsDeleteDialogOpen(true);
+                              }}
+                            >
                               <Trash2 />
                             </Button>
                           </div>
@@ -649,7 +676,7 @@ export default function ProcessesPage() {
             </CardContent>
           </Card>
           <aside className="flex w-full min-h-0 flex-col gap-4 lg:w-[22rem]">
-            <Card className="flex min-h-0 flex-1 flex-col">
+            <Card className="flex min-h-0 flex-1 flex-col overflow-hidden max-h-[calc(100vh-11rem)]">
               <CardHeader>
                 <CardTitle>Process details</CardTitle>
                 <CardDescription>
@@ -798,12 +825,13 @@ export default function ProcessesPage() {
             <AlertDialogTitle>Restart process?</AlertDialogTitle>
             <AlertDialogDescription>
               This process has existing outputs. Restarting will overwrite prior
-              stdout, stderr, and output unless you cancel.
+              outputs unless you cancel.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
+              variant="destructive"
               onClick={() => {
                 if (!restartCandidate) {
                   return;
@@ -813,7 +841,43 @@ export default function ProcessesPage() {
                 setRestartCandidate(null);
               }}
             >
-              Restart with force
+              Restart
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={isDeleteDialogOpen}
+        onOpenChange={(open) => {
+          setIsDeleteDialogOpen(open);
+          if (!open) {
+            setDeleteCandidate(null);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete process?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. The process record and its outputs
+              will be permanently removed.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                if (!deleteCandidate) {
+                  return;
+                }
+                void handleDeleteProcess(deleteCandidate);
+                setIsDeleteDialogOpen(false);
+                setDeleteCandidate(null);
+              }}
+            >
+              Delete
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
