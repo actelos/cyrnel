@@ -37,8 +37,6 @@ const serviceSchema = z.object({
   id: z.string(),
   name: z.string(),
   description: z.string(),
-  hash: z.string(),
-  source: z.string(),
   adapter: z.string(),
   enabled: z.boolean(),
 });
@@ -48,6 +46,8 @@ const serviceListSchema = z.object({
 });
 
 const serviceDetailsSchema = serviceSchema.extend({
+  hash: z.string(),
+  source: z.string(),
   configSchema: z.record(z.string(), z.unknown()),
   secretsSchema: z.record(z.string(), z.unknown()),
 });

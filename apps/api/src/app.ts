@@ -85,6 +85,7 @@ export class App {
     app.locals.processService = this.processService;
     app.locals.servicesService = this.servicesService;
 
+    app.set("etag", false);
     app.use(pinoHttp({ logger }));
     app.use(cors());
     app.use(express.json());
