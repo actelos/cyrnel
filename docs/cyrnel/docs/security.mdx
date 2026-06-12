@@ -127,18 +127,35 @@ redirect targets, every hop is validated before the request proceeds.
 - **There is no domain allowlist.** The guard only checks IP ranges, not
   the hostname itself. A hostname that resolves to public unicast
   addresses will pass.
-- **Bypass on failure.** If DNS fails to resolve, the request is rejected
-  with `502`. If `CYRNEL_ALLOW_PRIVATE_REGISTRY=1` (or `true`) is set,
-  the guard is skipped entirely, use this for development only.
+- **Configurable IP controls.** Registry downloads support CIDR-based
+  allow and block lists:
+  - `CYRNEL_BLOCKED_IPS` denies matching addresses and takes highest
+    priority.
+  - `CYRNEL_ALLOWED_IPS` allows matching addresses and bypasses the
+    default SSRF guard.
+  - `CYRNEL_BLOCK_ALL_REGISTRIES=true` denies all registry downloads
+    unless an address matches `CYRNEL_ALLOWED_IPS`.
 
+  Evaluation order is:
+
+  1. Blocked CIDRs
+  2. Allowed CIDRs
+  3. Block-all mode
+  4. Default unicast SSRF guard
+  5. Allow
+
+  Both IPv4 and IPv6 CIDR notation are supported.
 #### Operator guidance
 
 - Treat the API key as the security boundary. Do not expose
   `/services/install` (or the API at all) to clients you wouldn't trust
   to make outbound network requests from the host.
-- If you need a stricter posture (e.g. a domain allowlist or egress
-  filtering), run cyrnel inside a network namespace or egress firewall
-  that restricts which hosts it can reach.
+- Use `CYRNEL_ALLOWED_IPS`, `CYRNEL_BLOCKED_IPS`, and
+  `CYRNEL_BLOCK_ALL_REGISTRIES` to restrict which registry addresses
+  may be contacted.
+- For stricter controls (e.g. domain allowlists or network-level
+  restrictions), run cyrnel inside a network namespace or egress
+  firewall that restricts which hosts it can reach.
 
 ## Data at Rest
 

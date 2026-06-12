@@ -7,14 +7,63 @@ import { HttpError } from "@/models/error.model";
 export const MAX_REDIRECTS = 5;
 export const DOWNLOAD_TIMEOUT_MS = 10_000;
 
-export function isPrivateRegistryAllowed(): boolean {
-  const v = process.env.CYRNEL_ALLOW_PRIVATE_REGISTRY;
-  return v === "1" || v?.toLowerCase() === "true";
+type ParsedCIDR = [ipaddr.IPv4 | ipaddr.IPv6, number];
+
+let cachedAllowedIPs: string | undefined;
+let cachedAllowedCIDRs: ParsedCIDR[] = [];
+
+let cachedBlockedIPs: string | undefined;
+let cachedBlockedCIDRs: ParsedCIDR[] = [];
+
+function isTruthy(value?: string): boolean {
+  return value === "1" || value?.toLowerCase() === "true";
+}
+
+function parseCIDRList(value?: string): ParsedCIDR[] {
+  if (!value?.trim()) return [];
+
+  return value
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => ipaddr.parseCIDR(entry) as ParsedCIDR);
+}
+
+function getAllowedCIDRs(): ParsedCIDR[] {
+  const value = process.env.CYRNEL_ALLOWED_IPS;
+
+  if (value !== cachedAllowedIPs) {
+    cachedAllowedIPs = value;
+    cachedAllowedCIDRs = parseCIDRList(value);
+  }
+
+  return cachedAllowedCIDRs;
+}
+
+function getBlockedCIDRs(): ParsedCIDR[] {
+  const value = process.env.CYRNEL_BLOCKED_IPS;
+
+  if (value !== cachedBlockedIPs) {
+    cachedBlockedIPs = value;
+    cachedBlockedCIDRs = parseCIDRList(value);
+  }
+
+  return cachedBlockedCIDRs;
+}
+
+function isBlockAllRegistriesEnabled(): boolean {
+  return isTruthy(process.env.CYRNEL_BLOCK_ALL_REGISTRIES);
+}
+function matchesCIDRs(address: string, cidrs: ParsedCIDR[]): boolean {
+  const parsed = ipaddr.process(address);
+
+  return cidrs.some(
+    ([range, prefix]) =>
+      parsed.kind() === range.kind() && parsed.match(range, prefix),
+  );
 }
 
 export async function assertRegistryAddressAllowed(url: string): Promise<void> {
-  if (isPrivateRegistryAllowed()) return;
-
   let hostname: string;
 
   try {
@@ -33,25 +82,42 @@ export async function assertRegistryAddressAllowed(url: string): Promise<void> {
     "Registry download blocked: address is not publicly routable.",
   );
 
+  let addresses: string[];
+
   if (ipaddr.isValid(normalizedHost)) {
-    if (ipaddr.process(normalizedHost).range() !== "unicast") {
-      throw blockedError;
+    addresses = [normalizedHost];
+  } else {
+    let resolved: { address: string }[];
+
+    try {
+      resolved = await dns.lookup(normalizedHost, { all: true });
+    } catch {
+      throw new HttpError(502, "Failed to resolve registry hostname.");
     }
+
+    if (resolved.length === 0) throw blockedError;
+
+    addresses = resolved.map(({ address }) => address);
+  }
+  const blockedCIDRs = getBlockedCIDRs();
+  const allowedCIDRs = getAllowedCIDRs();
+
+  if (addresses.some((address) => matchesCIDRs(address, blockedCIDRs))) {
+    throw blockedError;
+  }
+
+  if (addresses.some((address) => matchesCIDRs(address, allowedCIDRs))) {
     return;
   }
 
-  let resolved: { address: string }[];
-  try {
-    resolved = await dns.lookup(normalizedHost, { all: true });
-  } catch {
-    throw new HttpError(502, "Failed to resolve registry hostname.");
+  if (isBlockAllRegistriesEnabled()) {
+    throw blockedError;
   }
-
-  if (resolved.length === 0) throw blockedError;
-
-  for (const { address } of resolved) {
+  for (const address of addresses) {
     if (!ipaddr.isValid(address)) throw blockedError;
-    if (ipaddr.process(address).range() !== "unicast") throw blockedError;
+    if (ipaddr.process(address).range() !== "unicast") {
+      throw blockedError;
+    }
   }
 }
 
