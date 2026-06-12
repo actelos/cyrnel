@@ -74,10 +74,11 @@ export interface ListServiceInput {
 /**
  * Service metadata returned by service discovery operations.
  */
-export interface ListServiceResult extends Omit<
-  ServiceDefinition,
-  "configSchema" | "secretsSchema" | "tools" | "adapterDomain"
-> {
+export interface ListServiceResult
+  extends Omit<
+    ServiceDefinition,
+    "configSchema" | "secretsSchema" | "tools" | "adapterDomain"
+  > {
   id: string;
   enabled: boolean;
 }
@@ -95,10 +96,11 @@ export interface ListToolInput {
 /**
  * Tool metadata returned by tool discovery operations.
  */
-export interface ListToolResult extends Omit<
-  ToolDefinition,
-  "inputSchema" | "outputSchema" | "adapterDomain"
-> {
+export interface ListToolResult
+  extends Omit<
+    ToolDefinition,
+    "inputSchema" | "outputSchema" | "adapterDomain"
+  > {
   serviceId: string;
   enabled: boolean;
   effectivelyEnabled: boolean;
@@ -107,10 +109,8 @@ export interface ListToolResult extends Omit<
 /**
  * Detailed service information returned by service lookup operations.
  */
-export interface GetServiceResult extends Omit<
-  ServiceDefinition,
-  "tools" | "adapterDomain"
-> {
+export interface GetServiceResult
+  extends Omit<ServiceDefinition, "tools" | "adapterDomain"> {
   enabled: boolean;
 }
 
@@ -125,10 +125,8 @@ export interface GetToolInput {
 /**
  * Detailed tool information returned by tool lookup operations.
  */
-export interface GetToolResult extends Omit<
-  ToolDefinition,
-  "id" | "adapterDomain"
-> {
+export interface GetToolResult
+  extends Omit<ToolDefinition, "id" | "adapterDomain"> {
   enabled: boolean;
 }
 
@@ -359,10 +357,11 @@ export type ToolState = Omit<
 /**
  * Persisted state for a hydrated service.
  */
-export interface ServiceState extends Omit<
-  ServiceDefinition,
-  "name" | "description" | "configSchema" | "secretsSchema" | "tools"
-> {
+export interface ServiceState
+  extends Omit<
+    ServiceDefinition,
+    "name" | "description" | "configSchema" | "secretsSchema" | "tools"
+  > {
   id: string;
   tools: Record<string, ToolState>;
   config: Record<string, unknown>;
