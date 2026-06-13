@@ -1,10 +1,10 @@
 # @cyrnel/web
 
-Cyrnel local web dashboard — a React UI for managing processes, services, and
+The cyrnel local web dashboard for managing processes, services, and
 modules on your Cyrnel instance.
 
 This package ships a static SPA built with Vite and a production Node.js server
-that serves it. Run it with a single command — no build step required.
+that serves it.
 
 ## Getting Started
 
@@ -33,7 +33,7 @@ The server reads runtime configuration from environment variables:
 | `CYRNEL_API_URL` | — | URL of the Cyrnel API instance |
 | `CYRNEL_API_KEY` | — | API key for the Cyrnel API |
 
-The dashboard connects to your Cyrnel API at the configured `CYRNEL_API_URL`. If
+The dashboard connects to your cyrnel API at the configured `CYRNEL_API_URL`. If
 not set, you can enter the URL and key in the Connect panel within the UI.
 
 ### Build-time variables (via `.env`)
@@ -41,17 +41,6 @@ not set, you can enter the URL and key in the Connect panel within the UI.
 When building from source, these can also be set as `VITE_CYRNEL_API_URL` and
 `VITE_CYRNEL_API_KEY` via `.env` or `VITE_` prefixed environment variables.
 Refer to `.example.env` for all available options.
-
-## From source
-
-```bash
-pnpm install
-pnpm build
-pnpm start
-```
-
-The `build` script runs `vite build` for the SPA then `tsc` for the server
-entry — output lands in `dist/`.
 
 ## Resources
 

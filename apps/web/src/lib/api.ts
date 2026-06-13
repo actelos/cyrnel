@@ -1,15 +1,15 @@
-import type { z } from "zod";
+import { z } from "zod";
 import { apiUrl } from "@/lib/env";
 
 export const apiBase = apiUrl();
 
 export class ApiError extends Error {
-  constructor(
-    message: string,
-    public readonly status: number,
-  ) {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
     super(message);
     this.name = "ApiError";
+    this.status = status;
   }
 }
 
@@ -39,9 +39,7 @@ async function readErrorMessage(response: Response): Promise<string> {
       if (typeof parsed?.error === "string" && parsed.error.length > 0) {
         return parsed.error;
       }
-    } catch {
-      // not JSON, fall through to raw text
-    }
+    } catch {}
     return text;
   } catch {
     return fallback;
