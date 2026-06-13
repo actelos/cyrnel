@@ -1,6 +1,17 @@
 {
-  "name": "http-adapter",
+  "id": "http-adapter",
+  "name": "HTTP Adapter",
   "type": "adapter",
   "description": "Call any HTTP API",
-  "main": "./index.js"
+  "main": "./index.js",
+  "configSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+  },
+  "secretsSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+  }
 }
