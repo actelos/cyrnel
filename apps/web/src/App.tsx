@@ -7,7 +7,9 @@ import {
   Routes,
   useLocation,
 } from "react-router-dom";
+import { Toaster } from "sonner";
 import { ModeToggle } from "@/components/mode-toggle";
+import { useTheme } from "@/components/theme-provider";
 import {
   Sidebar,
   SidebarContent,
@@ -25,8 +27,10 @@ import {
 } from "@/components/ui/sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import LoginPage from "@/pages/LoginPage";
+import ModuleDetailPage from "@/pages/ModuleDetailPage";
 import ModulesPage from "@/pages/ModulesPage";
 import ProcessesPage from "@/pages/ProcessesPage";
+import ServiceDetailPage from "@/pages/ServiceDetailPage";
 import ServicesPage from "@/pages/ServicesPage";
 
 const navItems = [
@@ -38,9 +42,11 @@ const navItems = [
 function App() {
   const location = useLocation();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const { theme } = useTheme();
 
   const isActive = (to: string) =>
     location.pathname === to ||
+    location.pathname.startsWith(`${to}/`) ||
     (to === "/processes" && location.pathname === "/");
 
   if (!isAuthenticated) {
@@ -96,12 +102,17 @@ function App() {
           <SidebarRail />
         </Sidebar>
         <SidebarInset>
-          <div className="flex flex-1 flex-col overflow-auto">
+          <div className="flex flex-1 flex-col">
             <Routes>
               <Route path="/" element={<Navigate to="/processes" replace />} />
               <Route path="/processes" element={<ProcessesPage />} />
               <Route path="/services" element={<ServicesPage />} />
+              <Route
+                path="/services/:serviceId"
+                element={<ServiceDetailPage />}
+              />
               <Route path="/modules" element={<ModulesPage />} />
+              <Route path="/modules/:moduleId" element={<ModuleDetailPage />} />
               <Route
                 path="/login"
                 element={<Navigate to="/processes" replace />}
@@ -110,6 +121,7 @@ function App() {
           </div>
         </SidebarInset>
       </SidebarProvider>
+      <Toaster theme={theme} />
     </TooltipProvider>
   );
 }
