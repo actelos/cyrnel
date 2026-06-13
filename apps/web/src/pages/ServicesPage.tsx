@@ -328,10 +328,7 @@ export default function ServicesPage() {
                 <SelectItem value="disabled">Disabled</SelectItem>
               </SelectContent>
             </Select>
-            <Select
-              onValueChange={setAdapterFilter}
-              value={adapterFilter}
-            >
+            <Select onValueChange={setAdapterFilter} value={adapterFilter}>
               <SelectTrigger className="w-[170px]">
                 <SelectValue placeholder="Adapter" />
               </SelectTrigger>

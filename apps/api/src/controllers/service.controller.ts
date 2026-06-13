@@ -98,7 +98,11 @@ export async function listServices(req: Request, res: Response): Promise<void> {
   const query = parseQueryParam(req.query?.query);
   const enabled = parseEnabledQueryParam(req.query?.enabled);
   const adapter = parseAdapterQueryParam(req.query?.adapter);
-  const services = await servicesService.listServices({ query, enabled, adapter });
+  const services = await servicesService.listServices({
+    query,
+    enabled,
+    adapter,
+  });
 
   res.status(200).json({ services });
 }
