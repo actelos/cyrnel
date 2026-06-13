@@ -1,3 +1,4 @@
+/* biome-ignore-all lint/complexity/noImportantStyles: override sonner inline styles */
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
