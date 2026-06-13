@@ -97,7 +97,8 @@ export async function listServices(req: Request, res: Response): Promise<void> {
   const servicesService = getServicesService(req);
   const query = parseQueryParam(req.query?.query);
   const enabled = parseEnabledQueryParam(req.query?.enabled);
-  const services = await servicesService.listServices({ query, enabled });
+  const adapter = parseAdapterQueryParam(req.query?.adapter);
+  const services = await servicesService.listServices({ query, enabled, adapter });
 
   res.status(200).json({ services });
 }
@@ -253,6 +254,14 @@ function parseEnabledQueryParam(raw: unknown): boolean | undefined {
   }
 
   return parseOrHttpError(enabledQuerySchema, raw);
+}
+
+function parseAdapterQueryParam(raw: unknown): string | undefined {
+  if (raw === undefined) {
+    return undefined;
+  }
+
+  return parseOrHttpError(querySchema, raw);
 }
 
 function getServicesService(req: Request): ServicesService {
