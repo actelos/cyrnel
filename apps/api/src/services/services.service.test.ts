@@ -1286,8 +1286,8 @@ describe("ServicesService", () => {
       ).rejects.toMatchObject({ statusCode: 502 });
     });
 
-    it("allows private addresses when CYRNEL_ALLOW_PRIVATE_REGISTRY=1", async () => {
-      vi.stubEnv("CYRNEL_ALLOW_PRIVATE_REGISTRY", "1");
+    it("allows private addresses in CYRNEL_ALLOWED_IPS", async () => {
+      vi.stubEnv("CYRNEL_ALLOWED_IPS", "10.0.0.0/8");
       mockFetchOnce("payload");
       const svc = new ServicesService(makeController());
 
@@ -1300,8 +1300,8 @@ describe("ServicesService", () => {
       ).resolves.toBeUndefined();
     });
 
-    it("allows resolving hostnames to private IPs when CYRNEL_ALLOW_PRIVATE_REGISTRY=true", async () => {
-      vi.stubEnv("CYRNEL_ALLOW_PRIVATE_REGISTRY", "true");
+    it("allows resolving hostnames to private IPs in CYRNEL_ALLOWED_IPS", async () => {
+      vi.stubEnv("CYRNEL_ALLOWED_IPS", "127.0.0.1/32");
       vi.spyOn(dns, "lookup").mockResolvedValue([
         { address: "127.0.0.1", family: 4 },
       ] as never);
