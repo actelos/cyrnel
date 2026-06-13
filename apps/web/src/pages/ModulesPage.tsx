@@ -1,12 +1,20 @@
-import { Loader2, RefreshCw, RotateCcw, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Plus, RefreshCw, RotateCcw } from "lucide-react";
+import { useMemo, useState } from "react";
+import Markdown from "react-markdown";
+import { Link } from "react-router-dom";
+import remarkGfm from "remark-gfm";
 import useSWR, { useSWRConfig } from "swr";
 import { z } from "zod";
-import ConfigEditor from "@/components/ConfigEditor";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
@@ -15,6 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useNotification } from "@/hooks/use-notification";
 import { apiFetch, apiFetchJson, buildUrl, errorMessageFrom } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -34,33 +43,6 @@ const moduleListSchema = z.object({
   modules: z.array(moduleSchema),
 });
 
-const moduleConfigSchema = z.object({
-  config: z.record(z.string(), z.unknown()),
-});
-
-const moduleConfigSchemaSchema = z.object({
-  configSchema: z.record(z.string(), z.unknown()),
-});
-
-const moduleSecretsSchemaSchema = z.object({
-  secretsSchema: z.record(z.string(), z.unknown()),
-});
-
-const moduleDetailSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  type: moduleTypeSchema,
-  description: z.string(),
-  hash: z.string(),
-  source: z.string(),
-  isBuiltin: z.boolean(),
-  enabled: z.boolean(),
-  orphaned: z.boolean(),
-  configSchema: z.record(z.string(), z.unknown()),
-  secretsSchema: z.record(z.string(), z.unknown()),
-});
-
-type Module = z.infer<typeof moduleSchema>;
 type ModuleType = z.infer<typeof moduleTypeSchema>;
 
 export default function ModulesPage() {
@@ -73,24 +55,11 @@ export default function ModulesPage() {
   const [builtinFilter, setBuiltinFilter] = useState<
     "all" | "builtin" | "custom"
   >("all");
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [selectedModuleId, setSelectedModuleId] = useState<string | null>(null);
-  const [togglingModuleId, setTogglingModuleId] = useState<string | null>(null);
+  const { addNotification } = useNotification();
   const [isReloading, setIsReloading] = useState(false);
-  const [configDraft, setConfigDraft] = useState<string>("{\n  \n}");
-  const [configDraftError, setConfigDraftError] = useState<string | null>(null);
-  const [isSavingConfig, setIsSavingConfig] = useState(false);
-  const [secretsDraft, setSecretsDraft] = useState<string>("{\n  \n}");
-  const [secretsDraftError, setSecretsDraftError] = useState<string | null>(
-    null,
-  );
-  const [isSavingSecrets, setIsSavingSecrets] = useState(false);
+  const [isInstallOpen, setIsInstallOpen] = useState(false);
   const [installSource, setInstallSource] = useState("");
   const [isInstalling, setIsInstalling] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [isUpdating, setIsUpdating] = useState(false);
-  const lastSeededConfigRef = useRef<string | null>(null);
-  const lastSeededConfigModuleRef = useRef<string | null>(null);
 
   const normalizedQuery = queryFilter.trim();
 
@@ -123,149 +92,7 @@ export default function ModulesPage() {
 
   const modules = moduleList?.modules ?? [];
 
-  useEffect(() => {
-    if (modules.length === 0) {
-      setSelectedModuleId(null);
-      return;
-    }
-
-    if (
-      selectedModuleId === null ||
-      !modules.some((module) => module.id === selectedModuleId)
-    ) {
-      setSelectedModuleId(modules[0]?.id ?? null);
-    }
-  }, [modules, selectedModuleId]);
-
-  const selectedModule = useMemo(() => {
-    return modules.find((module) => module.id === selectedModuleId) ?? null;
-  }, [modules, selectedModuleId]);
-
-  const configUrl = selectedModuleId
-    ? buildUrl(`/modules/${selectedModuleId}/config`)
-    : null;
-
-  const configSchemaUrl = selectedModuleId
-    ? buildUrl(`/modules/${selectedModuleId}/config/schema`)
-    : null;
-
-  const secretsSchemaUrl = selectedModuleId
-    ? buildUrl(`/modules/${selectedModuleId}/secrets/schema`)
-    : null;
-
-  const moduleDetailUrl = selectedModuleId
-    ? buildUrl(`/modules/${selectedModuleId}`)
-    : null;
-
-  const { data: moduleDetail } = useSWR(
-    moduleDetailUrl,
-    (url) => apiFetchJson(url, moduleDetailSchema),
-    { refreshInterval: 8000 },
-  );
-
-  const { data: moduleConfig } = useSWR(
-    configUrl,
-    (url) => apiFetchJson(url, moduleConfigSchema),
-    { refreshInterval: 8000 },
-  );
-
-  const { data: moduleConfigSchemaPayload } = useSWR(
-    configSchemaUrl,
-    (url) => apiFetchJson(url, moduleConfigSchemaSchema),
-    { refreshInterval: 8000 },
-  );
-
-  const { data: moduleSecretsSchemaPayload } = useSWR(
-    secretsSchemaUrl,
-    (url) => apiFetchJson(url, moduleSecretsSchemaSchema),
-    { refreshInterval: 8000 },
-  );
-
-  const currentConfigDisplay = JSON.stringify(
-    moduleConfig?.config ?? {},
-    null,
-    2,
-  );
-
-  useEffect(() => {
-    if (!selectedModuleId) {
-      return;
-    }
-
-    const normalized = JSON.stringify(moduleConfig?.config ?? {}, null, 2);
-    const moduleChanged =
-      lastSeededConfigModuleRef.current !== selectedModuleId;
-    const editorPristine = configDraft === lastSeededConfigRef.current;
-
-    if (moduleChanged || editorPristine) {
-      setConfigDraftError(null);
-      setConfigDraft(normalized);
-      lastSeededConfigRef.current = normalized;
-      lastSeededConfigModuleRef.current = selectedModuleId;
-    }
-  }, [selectedModuleId, moduleConfig?.config, configDraft]);
-
-  useEffect(() => {
-    if (!selectedModuleId) {
-      return;
-    }
-
-    setSecretsDraftError(null);
-    setSecretsDraft("{\n  \n}");
-  }, [selectedModuleId]);
-
-  const escapeJsonPointer = (value: string) =>
-    value.replace(/~/g, "~0").replace(/\//g, "~1");
-
-  const buildPatchFromObject = (
-    current: Record<string, unknown>,
-    next: Record<string, unknown>,
-  ): Array<Record<string, unknown>> => {
-    const patch: Array<Record<string, unknown>> = [];
-
-    for (const key of Object.keys(current)) {
-      if (!Object.hasOwn(next, key)) {
-        patch.push({ op: "remove", path: `/${escapeJsonPointer(key)}` });
-      }
-    }
-
-    for (const [key, value] of Object.entries(next)) {
-      const op = Object.hasOwn(current, key) ? "replace" : "add";
-      if (
-        Object.hasOwn(current, key) &&
-        JSON.stringify(current[key]) === JSON.stringify(value)
-      ) {
-        continue;
-      }
-      patch.push({ op, path: `/${escapeJsonPointer(key)}`, value });
-    }
-
-    return patch;
-  };
-
-  const handleSetEnabled = async (module: Module, enabled: boolean) => {
-    setActionError(null);
-    setTogglingModuleId(module.id);
-    try {
-      await apiFetch(buildUrl(`/modules/${module.id}/enabled`), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ enabled }),
-      });
-
-      await mutate(modulesUrl);
-      if (configUrl) {
-        await mutate(configUrl);
-      }
-    } catch (error) {
-      setActionError(errorMessageFrom(error, "Unable to update module state."));
-    } finally {
-      setTogglingModuleId(null);
-    }
-  };
-
   const handleReloadModules = async () => {
-    setActionError(null);
     setIsReloading(true);
     try {
       await apiFetch(buildUrl("/modules/reload"), {
@@ -274,123 +101,30 @@ export default function ModulesPage() {
         body: JSON.stringify({}),
       });
       await mutate(modulesUrl);
+      addNotification({
+        type: "success",
+        title: "Success",
+        message: "Modules reloaded.",
+      });
     } catch (error) {
-      setActionError(errorMessageFrom(error, "Unable to reload modules."));
+      addNotification({
+        type: "error",
+        title: "Error",
+        message: errorMessageFrom(error, "Unable to reload modules."),
+      });
     } finally {
       setIsReloading(false);
     }
   };
 
-  const handleSaveConfiguration = async (moduleId: string) => {
-    setActionError(null);
-    setConfigDraftError(null);
-
-    let desiredConfig: unknown;
-    try {
-      desiredConfig = JSON.parse(configDraft);
-    } catch (error) {
-      setConfigDraftError(
-        error instanceof Error
-          ? error.message
-          : "Configuration is not valid JSON.",
-      );
-      return;
-    }
-
-    let patch: Array<Record<string, unknown>>;
-
-    if (Array.isArray(desiredConfig)) {
-      patch = desiredConfig as Array<Record<string, unknown>>;
-    } else {
-      if (!desiredConfig || typeof desiredConfig !== "object") {
-        setConfigDraftError(
-          "Configuration must be a JSON object or JSON Patch array.",
-        );
-        return;
-      }
-
-      patch = buildPatchFromObject(
-        (moduleConfig?.config ?? {}) as Record<string, unknown>,
-        desiredConfig as Record<string, unknown>,
-      );
-    }
-
-    setIsSavingConfig(true);
-    try {
-      const saved = await apiFetchJson(
-        buildUrl(`/modules/${moduleId}/config`),
-        moduleConfigSchema,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(patch),
-        },
-      );
-      const normalized = JSON.stringify(saved.config ?? {}, null, 2);
-      setConfigDraft(normalized);
-      lastSeededConfigRef.current = normalized;
-      lastSeededConfigModuleRef.current = moduleId;
-
-      if (configUrl) await mutate(configUrl, saved, { revalidate: true });
-      await mutate(modulesUrl);
-    } catch (error) {
-      setActionError(errorMessageFrom(error, "Unable to save configuration."));
-    } finally {
-      setIsSavingConfig(false);
-    }
-  };
-
-  const handleSaveSecrets = async (moduleId: string) => {
-    setActionError(null);
-    setSecretsDraftError(null);
-
-    let desiredSecrets: unknown;
-    try {
-      desiredSecrets = JSON.parse(secretsDraft);
-    } catch (error) {
-      setSecretsDraftError(
-        error instanceof Error ? error.message : "Secrets are not valid JSON.",
-      );
-      return;
-    }
-
-    const patch: Array<Record<string, unknown>> = [];
-
-    if (Array.isArray(desiredSecrets)) {
-      patch.push(...(desiredSecrets as Array<Record<string, unknown>>));
-    } else {
-      if (!desiredSecrets || typeof desiredSecrets !== "object") {
-        setSecretsDraftError(
-          "Secrets must be a JSON object or JSON Patch array.",
-        );
-        return;
-      }
-
-      patch.push({ op: "replace", path: "", value: desiredSecrets });
-    }
-
-    setIsSavingSecrets(true);
-    try {
-      await apiFetch(buildUrl(`/modules/${moduleId}/secrets`), {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(patch),
-      });
-
-      setSecretsDraft("{\n  \n}");
-      await mutate(modulesUrl);
-    } catch (error) {
-      setActionError(errorMessageFrom(error, "Unable to save secrets."));
-    } finally {
-      setIsSavingSecrets(false);
-    }
-  };
-
   const handleInstall = async () => {
-    setActionError(null);
     const trimmed = installSource.trim();
     if (!trimmed) {
-      setActionError("Source URL is required.");
+      addNotification({
+        type: "error",
+        title: "Error",
+        message: "Source URL is required.",
+      });
       return;
     }
     setIsInstalling(true);
@@ -401,49 +135,45 @@ export default function ModulesPage() {
         body: JSON.stringify({ source: trimmed }),
       });
       setInstallSource("");
+      setIsInstallOpen(false);
       await mutate(modulesUrl);
+      addNotification({
+        type: "success",
+        title: "Success",
+        message: "Module installed.",
+      });
     } catch (error) {
-      setActionError(errorMessageFrom(error, "Unable to install module."));
+      addNotification({
+        type: "error",
+        title: "Error",
+        message: errorMessageFrom(error, "Unable to install module."),
+      });
     } finally {
       setIsInstalling(false);
     }
   };
 
-  const handleUpdate = async (moduleId: string) => {
-    setActionError(null);
-    setIsUpdating(true);
+  const handleToggleModule = async (moduleId: string, enabled: boolean) => {
     try {
-      await apiFetch(buildUrl(`/modules/${moduleId}/update`), {
+      await apiFetch(buildUrl(`/modules/${moduleId}/enabled`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ enabled: !enabled }),
       });
-      await mutate(moduleDetailUrl);
       await mutate(modulesUrl);
+      addNotification({
+        type: "success",
+        title: "Success",
+        message: `Module ${enabled ? "disabled" : "enabled"}.`,
+      });
     } catch (error) {
-      setActionError(errorMessageFrom(error, "Unable to update module."));
-    } finally {
-      setIsUpdating(false);
+      addNotification({
+        type: "error",
+        title: "Error",
+        message: errorMessageFrom(error, "Failed to toggle module."),
+      });
     }
   };
-
-  const handleDelete = async (moduleId: string) => {
-    setActionError(null);
-    setIsDeleting(true);
-    try {
-      await apiFetch(buildUrl(`/modules/${moduleId}`), {
-        method: "DELETE",
-      });
-      setSelectedModuleId(null);
-      await mutate(modulesUrl);
-    } catch (error) {
-      setActionError(errorMessageFrom(error, "Unable to delete module."));
-    } finally {
-      setIsDeleting(false);
-    }
-  };
-
-  const hasDetailPanel = selectedModuleId !== null;
 
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-6 p-6">
@@ -456,43 +186,69 @@ export default function ModulesPage() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-2">
-              <Input
-                placeholder="Source URL (.tar.zst)"
-                value={installSource}
-                onChange={(e) => setInstallSource(e.target.value)}
-                className="w-64"
-              />
-              <Button
-                type="button"
-                disabled={isInstalling || !installSource.trim()}
-                onClick={() => void handleInstall()}
-                aria-label={
-                  isInstalling ? "Installing module" : "Install module"
-                }
-              >
-                {isInstalling ? (
-                  <Loader2 className="animate-spin" />
-                ) : (
-                  "Install"
-                )}
-              </Button>
-            </div>
+            <Popover open={isInstallOpen} onOpenChange={setIsInstallOpen}>
+              <PopoverTrigger asChild>
+                <Button className="gap-2" type="button">
+                  <Plus />
+                  Install module
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-md">
+                <div className="space-y-4">
+                  <div className="space-y-1">
+                    <h3 className="text-sm font-medium">Install module</h3>
+                    <p className="text-muted-foreground text-xs">
+                      Provide a source URL (.tar.zst).
+                    </p>
+                  </div>
+                  <div className="space-y-3">
+                    <div className="space-y-2">
+                      <Label htmlFor="module-source">Source URL</Label>
+                      <Input
+                        id="module-source"
+                        onChange={(event) =>
+                          setInstallSource(event.target.value)
+                        }
+                        placeholder="https://example.com/module.tar.zst"
+                        value={installSource}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-end gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setIsInstallOpen(false)}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      type="button"
+                      disabled={isInstalling || !installSource.trim()}
+                      onClick={() => void handleInstall()}
+                    >
+                      {isInstalling ? "Installing" : "Install"}
+                    </Button>
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
             <Button
               type="button"
+              variant="secondary"
               className="gap-2"
               disabled={isReloading}
               onClick={() => void handleReloadModules()}
             >
               <RefreshCw />
-              {isReloading ? "Reloading" : "Reload modules"}
+              {isReloading ? "Reloading" : "Reload"}
             </Button>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex flex-1 items-center gap-2">
             <Input
-              placeholder="Filter by name or description"
+              placeholder="Filter by a query"
               value={queryFilter}
               onChange={(event) => setQueryFilter(event.target.value)}
             />
@@ -547,7 +303,26 @@ export default function ModulesPage() {
               type="button"
               variant="outline"
               className="gap-2"
-              onClick={() => void mutate(modulesUrl)}
+              onClick={() => {
+                mutate(modulesUrl)
+                  .then(() => {
+                    addNotification({
+                      type: "success",
+                      title: "Success",
+                      message: "Modules refreshed.",
+                    });
+                  })
+                  .catch((error) => {
+                    addNotification({
+                      type: "error",
+                      title: "Error",
+                      message: errorMessageFrom(
+                        error,
+                        "Failed to refresh modules.",
+                      ),
+                    });
+                  });
+              }}
               aria-label="Refresh modules"
             >
               <RotateCcw />
@@ -556,63 +331,83 @@ export default function ModulesPage() {
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-6 lg:flex-row">
-        <Card
-          className={cn(
-            "flex min-h-0 flex-1 flex-col",
-            hasDetailPanel ? "lg:max-w-[20rem]" : "",
-          )}
-        >
+      <div className="flex min-h-0 flex-1 flex-col gap-6">
+        <Card className="flex min-h-0 flex-1 flex-col">
           <CardContent className="min-h-0 flex-1">
             <ScrollArea className="h-full">
-              <div
-                className={cn(
-                  "grid gap-4",
-                  hasDetailPanel
-                    ? "grid-cols-1"
-                    : "grid-cols-1 md:grid-cols-2 xl:grid-cols-3",
-                )}
-              >
+              <div className="grid gap-4 grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
                 {modules.map((module) => (
-                  <button
+                  <div
                     key={module.id}
-                    type="button"
-                    onClick={() => setSelectedModuleId(module.id)}
                     className={cn(
-                      "text-left border bg-card p-4 space-y-3 hover:bg-muted",
-                      selectedModuleId === module.id
-                        ? "border-primary"
-                        : module.orphaned
-                          ? "border-destructive/50"
-                          : "border-border",
+                      "flex flex-col justify-between border bg-card p-4",
+                      module.orphaned
+                        ? "border-destructive/50"
+                        : "border-border",
                     )}
                   >
-                    <div className="space-y-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="text-sm font-semibold">{module.name}</h3>
-                        <Badge variant="secondary">{module.type}</Badge>
-                        {module.isBuiltin ? (
-                          <Badge variant="outline">built-in</Badge>
-                        ) : null}
-                        {module.orphaned ? (
-                          <Badge variant="destructive">orphaned</Badge>
-                        ) : null}
+                    <Link
+                      to={`/modules/${module.id}`}
+                      className="block -mx-4 -mt-4 -mr-4 mb-3 p-4"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="space-y-2 min-w-0">
+                          <div className="flex items-center justify-between flex-wrap gap-2">
+                            <h3 className="text-sm font-semibold">
+                              {module.name}
+                            </h3>
+                            <div className="flex items-center gap-1">
+                              <Badge variant="secondary">{module.type}</Badge>
+                              {module.isBuiltin ? (
+                                <Badge variant="outline">built-in</Badge>
+                              ) : null}
+                              {module.orphaned ? (
+                                <Badge variant="destructive">orphaned</Badge>
+                              ) : null}
+                            </div>
+                          </div>
+                          <p className="text-muted-foreground text-xs font-mono truncate max-w-full">
+                            {module.id}
+                          </p>
+                          <div className="text-muted-foreground text-xs line-clamp-3">
+                            {module.description ? (
+                              <Markdown
+                                components={{
+                                  p: ({ children }) => <>{children}</>,
+                                }}
+                                remarkPlugins={[remarkGfm]}
+                              >
+                                {module.description}
+                              </Markdown>
+                            ) : (
+                              "No description"
+                            )}
+                          </div>
+                        </div>
                       </div>
-                      <p className="text-muted-foreground text-xs font-mono">
-                        {module.id}
-                      </p>
-                      <p className="text-muted-foreground text-xs">
-                        {module.description || "No description"}
-                      </p>
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
+                    </Link>
+                    <div
+                      className="flex cursor-pointer items-center justify-between gap-2"
+                      onClick={() =>
+                        void handleToggleModule(module.id, module.enabled)
+                      }
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          void handleToggleModule(module.id, module.enabled);
+                        }
+                      }}
+                      role="switch"
+                      aria-checked={module.enabled}
+                      tabIndex={0}
+                    >
                       <span className="text-xs text-muted-foreground">
                         {module.enabled ? "Enabled" : "Disabled"}
                       </span>
                       <span
                         className={cn(
                           "inline-flex h-6 w-11 items-center transition",
-                          module.enabled ? "bg-primary" : "bg-muted",
+                          module.enabled ? "bg-primary" : "bg-secondary",
                         )}
                       >
                         <span
@@ -623,7 +418,7 @@ export default function ModulesPage() {
                         />
                       </span>
                     </div>
-                  </button>
+                  </div>
                 ))}
               </div>
 
@@ -637,232 +432,9 @@ export default function ModulesPage() {
                   No modules match the current filters.
                 </p>
               ) : null}
-              {actionError ? (
-                <p className="p-4 text-sm text-destructive">{actionError}</p>
-              ) : null}
             </ScrollArea>
           </CardContent>
         </Card>
-
-        {hasDetailPanel ? (
-          <aside className="flex w-full min-h-0 flex-col gap-4 lg:flex-1">
-            <Card className="flex min-h-0 flex-1 flex-col">
-              <CardContent className="min-h-0 flex-1">
-                <ScrollArea className="h-full">
-                  {selectedModule ? (
-                    <div className="space-y-6">
-                      <div className="space-y-4">
-                        <div className="space-y-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <h2 className="text-lg font-semibold">
-                              {selectedModule.name}
-                            </h2>
-                            <Badge variant="secondary">
-                              {selectedModule.type}
-                            </Badge>
-                            {selectedModule.isBuiltin ? (
-                              <Badge variant="outline">built-in</Badge>
-                            ) : null}
-                            {selectedModule.orphaned ? (
-                              <Badge variant="destructive">orphaned</Badge>
-                            ) : null}
-                          </div>
-                          <p className="text-muted-foreground text-xs font-mono">
-                            {selectedModule.id}
-                          </p>
-                          <p className="text-muted-foreground text-sm">
-                            {selectedModule.description || "No description"}
-                          </p>
-                          {moduleDetail ? (
-                            <div className="space-y-1 pt-1">
-                              <p className="text-muted-foreground text-xs font-mono break-all">
-                                Hash: {moduleDetail.hash}
-                              </p>
-                              <p className="text-muted-foreground text-xs font-mono break-all">
-                                Source: {moduleDetail.source}
-                              </p>
-                            </div>
-                          ) : null}
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Button
-                            type="button"
-                            variant={
-                              selectedModule.enabled ? "outline" : "default"
-                            }
-                            disabled={
-                              togglingModuleId === selectedModule.id ||
-                              (!selectedModule.enabled &&
-                                selectedModule.orphaned)
-                            }
-                            onClick={() =>
-                              void handleSetEnabled(
-                                selectedModule,
-                                !selectedModule.enabled,
-                              )
-                            }
-                          >
-                            {selectedModule.enabled ? "Disable" : "Enable"}
-                          </Button>
-                          {!selectedModule.isBuiltin ? (
-                            <>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                disabled={isUpdating}
-                                onClick={() =>
-                                  void handleUpdate(selectedModule.id)
-                                }
-                                aria-label={
-                                  isUpdating
-                                    ? "Updating module"
-                                    : "Update module"
-                                }
-                              >
-                                {isUpdating ? (
-                                  <Loader2 className="animate-spin" />
-                                ) : (
-                                  "Update"
-                                )}
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="destructive"
-                                disabled={isDeleting}
-                                onClick={() => {
-                                  if (
-                                    window.confirm(
-                                      `Delete module "${selectedModule.name}" (${selectedModule.id})? This will also remove all its services.`,
-                                    )
-                                  ) {
-                                    void handleDelete(selectedModule.id);
-                                  }
-                                }}
-                                aria-label={
-                                  isDeleting
-                                    ? "Deleting module"
-                                    : "Delete module"
-                                }
-                              >
-                                {isDeleting ? (
-                                  <Loader2 className="animate-spin" />
-                                ) : (
-                                  <Trash2 />
-                                )}
-                              </Button>
-                            </>
-                          ) : null}
-                        </div>
-                      </div>
-
-                      <div className="space-y-4">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <h3 className="text-sm font-semibold">
-                            Configuration
-                          </h3>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            disabled={isSavingConfig || !selectedModule}
-                            onClick={() => {
-                              if (!selectedModule) {
-                                return;
-                              }
-                              void handleSaveConfiguration(selectedModule.id);
-                            }}
-                          >
-                            {isSavingConfig ? "Saving" : "Save"}
-                          </Button>
-                        </div>
-
-                        {configDraftError ? (
-                          <p className="text-sm text-destructive">
-                            {configDraftError}
-                          </p>
-                        ) : null}
-
-                        <ConfigEditor
-                          idPrefix="module-config"
-                          config={currentConfigDisplay}
-                          schema={JSON.stringify(
-                            moduleConfigSchemaPayload?.configSchema ?? {},
-                            null,
-                            2,
-                          )}
-                          jsonPatch={configDraft}
-                          onJsonPatchChange={(value) => {
-                            setConfigDraftError(null);
-                            setConfigDraft(value);
-                          }}
-                          labels={{
-                            config: "Current Configuration",
-                            schema: "Schema",
-                            patch: "Edit Configuration (JSON or JSON Patch)",
-                          }}
-                        />
-                      </div>
-
-                      <div className="space-y-4">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <h3 className="text-sm font-semibold">Secrets</h3>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            disabled={isSavingSecrets || !selectedModule}
-                            onClick={() => {
-                              if (!selectedModule) {
-                                return;
-                              }
-                              void handleSaveSecrets(selectedModule.id);
-                            }}
-                          >
-                            {isSavingSecrets ? "Saving" : "Save"}
-                          </Button>
-                        </div>
-
-                        {secretsDraftError ? (
-                          <p className="text-sm text-destructive">
-                            {secretsDraftError}
-                          </p>
-                        ) : null}
-
-                        <p className="text-xs text-muted-foreground">
-                          Stored secrets are write-only. Provide a JSON object
-                          or JSON Patch array with the values to set.
-                        </p>
-
-                        <ConfigEditor
-                          idPrefix="module-secrets"
-                          labels={{
-                            config: "Current Secrets",
-                            schema: "Schema",
-                            patch: "Edit Secrets (JSON or JSON Patch)",
-                          }}
-                          hideConfig
-                          config={secretsDraft}
-                          schema={JSON.stringify(
-                            moduleSecretsSchemaPayload?.secretsSchema ?? {},
-                            null,
-                            2,
-                          )}
-                          jsonPatch={secretsDraft}
-                          onJsonPatchChange={(value) => {
-                            setSecretsDraftError(null);
-                            setSecretsDraft(value);
-                          }}
-                        />
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">
-                      Select a module to view details.
-                    </p>
-                  )}
-                </ScrollArea>
-              </CardContent>
-            </Card>
-          </aside>
-        ) : null}
       </div>
     </section>
   );
