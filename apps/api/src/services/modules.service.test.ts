@@ -290,6 +290,7 @@ describe("ModuleService", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllGlobals();
     downloadBinaryMock.mockReset();
     decompressMock.mockReset();
   });
@@ -1591,7 +1592,7 @@ describe("ModuleService", () => {
         const service = new ModuleService(makeBindings(), makeLifecycle());
         await service.initialize(dir);
 
-        const manifest = await service.installModule(
+        const manifest = await service.installModuleDirect(
           "https://example.com/mod.tar.zst",
         );
 
@@ -1652,13 +1653,13 @@ describe("ModuleService", () => {
         const service = new ModuleService(makeBindings(), makeLifecycle());
         await service.initialize(dir);
 
-        await service.installModule("https://example.com/first.tar.zst");
+        await service.installModuleDirect("https://example.com/first.tar.zst");
 
         downloadBinaryMock.mockResolvedValue(Buffer.from("mocked"));
         decompressMock.mockReturnValue(tarUint8);
 
         await expect(
-          service.installModule("https://example.com/dupe.tar.zst"),
+          service.installModuleDirect("https://example.com/dupe.tar.zst"),
         ).rejects.toMatchObject({
           statusCode: 409,
           message: "Module 'dupeMod' is already registered.",
@@ -1683,7 +1684,7 @@ describe("ModuleService", () => {
         await service.initialize(dir);
 
         await expect(
-          service.installModule("https://example.com/bad.tar.zst"),
+          service.installModuleDirect("https://example.com/bad.tar.zst"),
         ).rejects.toMatchObject({
           statusCode: 400,
           message: "Archive must contain a 'module.json' at its root.",
@@ -1708,7 +1709,7 @@ describe("ModuleService", () => {
         await service.initialize(dir);
 
         await expect(
-          service.installModule("https://example.com/bad.tar.zst"),
+          service.installModuleDirect("https://example.com/bad.tar.zst"),
         ).rejects.toMatchObject({
           statusCode: 400,
           message: "module.json contains invalid JSON.",
@@ -1739,7 +1740,7 @@ describe("ModuleService", () => {
         await service.initialize(dir);
 
         await expect(
-          service.installModule("https://example.com/escape.tar.zst"),
+          service.installModuleDirect("https://example.com/escape.tar.zst"),
         ).rejects.toMatchObject({
           statusCode: 400,
           message: "Manifest 'main' must point to a file inside the archive.",
@@ -1909,13 +1910,14 @@ describe("ModuleService", () => {
         const service = new ModuleService(makeBindings(), makeLifecycle());
         await service.initialize(dir);
 
-        const result = await service.installModule(
+        const result = await service.installModuleDirect(
           "https://example.com/hash-test.tar.zst",
         );
 
         // Return value should include hash and source
         expect(result.hash).toBeDefined();
-        expect(result.source).toBe("https://example.com/hash-test.tar.zst");
+        // Direct install stores empty source
+        expect(result.source).toBe("");
 
         // DB should have them
         const [row] = await db
@@ -1927,7 +1929,7 @@ describe("ModuleService", () => {
           .where(eq((await import("@/db/schema")).modules.id, "hashTestMod"))
           .limit(1);
         expect(row).toBeDefined();
-        expect(row?.source).toBe("https://example.com/hash-test.tar.zst");
+        expect(row?.source).toBe("");
 
         const { computeBinaryHash } = await import("@/utils/hash.util");
         expect(row?.hash).toBe(computeBinaryHash(downloadPayload));
@@ -1987,7 +1989,7 @@ describe("ModuleService", () => {
           {
             statusCode: 409,
             message:
-              "Module 'noSourceMod' has no stored install source and cannot be updated automatically.",
+              "Module 'noSourceMod' has no stored install source and cannot be updated automatically. Only registry-installed modules can be updated.",
           },
         );
       } finally {
@@ -2023,9 +2025,25 @@ describe("ModuleService", () => {
         downloadBinaryMock.mockResolvedValue(downloadPayload);
         decompressMock.mockReturnValue(tarUint8);
 
+        const registryResponse = {
+          downloadUrl: "https://example.com/download/stable.tar.zst",
+        };
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(
+            async () =>
+              new Response(JSON.stringify(registryResponse), {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              }),
+          ),
+        );
+
         const service = new ModuleService(makeBindings(), makeLifecycle());
         await service.initialize(dir);
-        await service.installModule("https://example.com/stable.tar.zst");
+        await service.installModuleFromRegistry(
+          "https://registry.example.com/stable",
+        );
 
         // Same payload → same hash → should skip
         downloadBinaryMock.mockResolvedValue(downloadPayload);
@@ -2064,9 +2082,25 @@ describe("ModuleService", () => {
         downloadBinaryMock.mockResolvedValue(Buffer.from("original-download"));
         decompressMock.mockReturnValue(tarUint8);
 
+        const registryResponse = {
+          downloadUrl: "https://example.com/download/changed.tar.zst",
+        };
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(
+            async () =>
+              new Response(JSON.stringify(registryResponse), {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              }),
+          ),
+        );
+
         const service = new ModuleService(makeBindings(), makeLifecycle());
         await service.initialize(dir);
-        await service.installModule("https://example.com/changed.tar.zst");
+        await service.installModuleFromRegistry(
+          "https://registry.example.com/changed",
+        );
 
         // New tar with updated name
         const newTarData = await createTestTar(dir, {
@@ -2150,9 +2184,25 @@ describe("ModuleService", () => {
         downloadBinaryMock.mockResolvedValue(Buffer.from("mismatch-download"));
         decompressMock.mockReturnValue(tarUint8);
 
+        const registryResponse = {
+          downloadUrl: "https://example.com/download/mismatch.tar.zst",
+        };
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(
+            async () =>
+              new Response(JSON.stringify(registryResponse), {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              }),
+          ),
+        );
+
         const service = new ModuleService(makeBindings(), makeLifecycle());
         await service.initialize(dir);
-        await service.installModule("https://example.com/mismatch.tar.zst");
+        await service.installModuleFromRegistry(
+          "https://registry.example.com/mismatch",
+        );
 
         // Create a new tar with a DIFFERENT id
         const mismatchedTarData = await createTestTar(dir, {

@@ -47,10 +47,20 @@ const enabledQuerySchema = z
     return z.NEVER;
   });
 
-const installPayloadSchema = z.object({
+const createServiceDirectBodySchema = z.object({
   id: nonEmptyTrimmedString("id"),
-  source: nonEmptyTrimmedString("source"),
+  url: nonEmptyTrimmedString("url"),
   adapter: nonEmptyTrimmedString("adapter"),
+});
+
+const installServiceRegistryBodySchema = z.object({
+  source: nonEmptyTrimmedString("source"),
+  adapter: nonEmptyTrimmedString("adapter").optional(),
+  id: nonEmptyTrimmedString("id").optional(),
+});
+
+const patchServiceBodySchema = z.object({
+  url: nonEmptyTrimmedString("url"),
 });
 
 const enabledBodySchema = z.object({
@@ -184,20 +194,50 @@ export async function patchServiceSecrets(
   res.status(200).json({ updated: true });
 }
 
-export async function createService(
+export async function createServiceDirect(
   req: Request,
   res: Response,
 ): Promise<void> {
   const servicesService = getServicesService(req);
   const payload = parseOrHttpError(
-    installPayloadSchema,
+    createServiceDirectBodySchema,
     req.body,
     "Request body must be an object.",
   );
 
-  await servicesService.createService(payload);
+  await servicesService.createServiceDirect(payload);
 
   res.status(201).json({ id: payload.id });
+}
+
+export async function installServiceRegistry(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const servicesService = getServicesService(req);
+  const payload = parseOrHttpError(
+    installServiceRegistryBodySchema,
+    req.body,
+    "Request body must be an object.",
+  );
+
+  const id = await servicesService.createServiceFromRegistry(payload);
+
+  res.status(201).json({ id });
+}
+
+export async function patchService(req: Request, res: Response): Promise<void> {
+  const servicesService = getServicesService(req);
+  const serviceId = parseServiceId(req.params.serviceId);
+  const { url } = parseOrHttpError(
+    patchServiceBodySchema,
+    req.body,
+    "Request body must be an object.",
+  );
+
+  const result = await servicesService.patchService(serviceId, url);
+
+  res.status(200).json(result);
 }
 
 export async function updateService(

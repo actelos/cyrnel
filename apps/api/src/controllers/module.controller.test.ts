@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  createModule,
   deleteModule as deleteModuleHandler,
   getModule,
   getModuleConfiguration,
@@ -9,6 +10,7 @@ import {
   getModuleSecretsSchema,
   installModule,
   listModules,
+  patchModule,
   patchModuleConfiguration,
   patchModuleSecrets,
   reloadModules,
@@ -27,7 +29,9 @@ const moduleService = {
   getSecretsSchema: vi.fn(),
   patchConfig: vi.fn(),
   patchSecrets: vi.fn(),
-  installModule: vi.fn(),
+  installModuleDirect: vi.fn(),
+  installModuleFromRegistry: vi.fn(),
+  patchModule: vi.fn(),
   deleteModule: vi.fn(),
   updateModule: vi.fn(),
 };
@@ -547,7 +551,7 @@ describe("module.controller", () => {
     });
   });
 
-  describe("installModule", () => {
+  describe("installModule (registry)", () => {
     it("parses source from body, delegates to service, responds 201 with manifest", async () => {
       const res = makeRes();
       const manifest = {
@@ -556,20 +560,20 @@ describe("module.controller", () => {
         type: "adapter",
         description: "test",
         hash: "abc123",
-        source: "https://example.com/mod.tar.zst",
+        source: "https://registry.example.com/mod",
         isBuiltin: false,
         enabled: false,
         orphaned: false,
       };
-      moduleService.installModule.mockResolvedValue(manifest);
+      moduleService.installModuleFromRegistry.mockResolvedValue(manifest);
 
       await installModule(
-        makeReq({ body: { source: "https://example.com/mod.tar.zst" } }),
+        makeReq({ body: { source: "https://registry.example.com/mod" } }),
         cast(res),
       );
 
-      expect(moduleService.installModule).toHaveBeenCalledWith(
-        "https://example.com/mod.tar.zst",
+      expect(moduleService.installModuleFromRegistry).toHaveBeenCalledWith(
+        "https://registry.example.com/mod",
       );
       expect(res.status).toHaveBeenCalledWith(201);
       expect(res.json).toHaveBeenCalledWith(manifest);
@@ -580,7 +584,7 @@ describe("module.controller", () => {
       await expect(
         installModule(makeReq({ body: { source: "" } }), cast(res)),
       ).rejects.toBeInstanceOf(HttpError);
-      expect(moduleService.installModule).not.toHaveBeenCalled();
+      expect(moduleService.installModuleFromRegistry).not.toHaveBeenCalled();
     });
 
     it("rejects a missing source", async () => {
@@ -588,7 +592,7 @@ describe("module.controller", () => {
       await expect(
         installModule(makeReq({ body: {} }), cast(res)),
       ).rejects.toBeInstanceOf(HttpError);
-      expect(moduleService.installModule).not.toHaveBeenCalled();
+      expect(moduleService.installModuleFromRegistry).not.toHaveBeenCalled();
     });
 
     it("rejects a null body", async () => {
@@ -596,6 +600,101 @@ describe("module.controller", () => {
       await expect(
         installModule(makeReq({ body: null }), cast(res)),
       ).rejects.toBeInstanceOf(HttpError);
+    });
+  });
+
+  describe("createModule (direct)", () => {
+    it("parses url from body, delegates to service, responds 201 with manifest", async () => {
+      const res = makeRes();
+      const manifest = {
+        id: "newMod",
+        name: "New Module",
+        type: "adapter",
+        description: "test",
+        hash: "abc123",
+        source: "",
+        isBuiltin: false,
+        enabled: false,
+        orphaned: false,
+      };
+      moduleService.installModuleDirect.mockResolvedValue(manifest);
+
+      await createModule(
+        makeReq({ body: { url: "https://example.com/mod.tar.zst" } }),
+        cast(res),
+      );
+
+      expect(moduleService.installModuleDirect).toHaveBeenCalledWith(
+        "https://example.com/mod.tar.zst",
+      );
+      expect(res.status).toHaveBeenCalledWith(201);
+      expect(res.json).toHaveBeenCalledWith(manifest);
+    });
+
+    it("rejects an empty url", async () => {
+      const res = makeRes();
+      await expect(
+        createModule(makeReq({ body: { url: "" } }), cast(res)),
+      ).rejects.toBeInstanceOf(HttpError);
+      expect(moduleService.installModuleDirect).not.toHaveBeenCalled();
+    });
+
+    it("rejects a missing url", async () => {
+      const res = makeRes();
+      await expect(
+        createModule(makeReq({ body: {} }), cast(res)),
+      ).rejects.toBeInstanceOf(HttpError);
+      expect(moduleService.installModuleDirect).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("patchModule (direct update)", () => {
+    it("parses url from body, delegates to service, responds 200 with result", async () => {
+      const res = makeRes();
+      moduleService.patchModule.mockResolvedValue({ updated: true });
+
+      await patchModule(
+        makeReq({
+          params: { moduleId: "myMod" },
+          body: { url: "https://example.com/new.tar.zst" },
+        }),
+        cast(res),
+      );
+
+      expect(moduleService.patchModule).toHaveBeenCalledWith(
+        "myMod",
+        "https://example.com/new.tar.zst",
+      );
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith({ updated: true });
+    });
+
+    it("rejects an empty url", async () => {
+      const res = makeRes();
+      await expect(
+        patchModule(
+          makeReq({
+            params: { moduleId: "myMod" },
+            body: { url: "" },
+          }),
+          cast(res),
+        ),
+      ).rejects.toBeInstanceOf(HttpError);
+      expect(moduleService.patchModule).not.toHaveBeenCalled();
+    });
+
+    it("rejects an empty moduleId", async () => {
+      const res = makeRes();
+      await expect(
+        patchModule(
+          makeReq({
+            params: { moduleId: "" },
+            body: { url: "https://example.com/new.tar.zst" },
+          }),
+          cast(res),
+        ),
+      ).rejects.toBeInstanceOf(HttpError);
+      expect(moduleService.patchModule).not.toHaveBeenCalled();
     });
   });
 

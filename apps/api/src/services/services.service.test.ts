@@ -180,6 +180,27 @@ function mockFetchOnce(
   );
 }
 
+function mockFetchRegistryThen(
+  hash: string | undefined,
+  downloadUrl: string,
+  definitionContent: string,
+) {
+  let callCount = 0;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_url: string) => {
+      callCount++;
+      if (callCount === 1) {
+        return new Response(JSON.stringify({ downloadUrl, hash }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(definitionContent, { status: 200 });
+    }),
+  );
+}
+
 describe("ServicesService", () => {
   beforeAll(async () => {
     process.env.CYRNEL_SECRETS_KEY = SECRETS_KEY;
@@ -503,9 +524,9 @@ describe("ServicesService", () => {
     it("rejects invalid service ids", async () => {
       const svc = new ServicesService(makeController());
       await expect(
-        svc.createService({
+        svc.createServiceDirect({
           id: "1bad",
-          source: "https://example.com/def.json",
+          url: "https://example.com/def.json",
           adapter: "test-adapter",
         }),
       ).rejects.toMatchObject({ statusCode: 400 });
@@ -516,9 +537,9 @@ describe("ServicesService", () => {
       const controller = makeController();
       const svc = new ServicesService(controller);
 
-      await svc.createService({
+      await svc.createServiceDirect({
         id: "alpha",
-        source: "https://example.com/def.json",
+        url: "https://example.com/def.json",
         adapter: "test-adapter",
       });
 
@@ -555,9 +576,9 @@ describe("ServicesService", () => {
       const svc = new ServicesService(controller);
 
       try {
-        await svc.createService({
+        await svc.createServiceDirect({
           id: "alpha",
-          source: "https://example.com/def.json",
+          url: "https://example.com/def.json",
           adapter: "test-adapter",
         });
         throw new Error("should have thrown");
@@ -576,9 +597,9 @@ describe("ServicesService", () => {
       const svc = new ServicesService(makeController());
 
       await expect(
-        svc.createService({
+        svc.createServiceDirect({
           id: "alpha",
-          source: "https://example.com/def.json",
+          url: "https://example.com/def.json",
           adapter: "test-adapter",
         }),
       ).rejects.toMatchObject({ statusCode: 409 });
@@ -611,7 +632,11 @@ describe("ServicesService", () => {
           { id: "drop", name: "drop", enabled: true },
         ],
       });
-      mockFetchOnce("payload");
+      mockFetchRegistryThen(
+        undefined,
+        "https://example.com/download",
+        "payload",
+      );
 
       const controller = makeController({
         generateDefinition: vi.fn(async () =>
@@ -665,7 +690,7 @@ describe("ServicesService", () => {
 
       await db.run(sql`UPDATE services SET hash = ${hash} WHERE id = 'alpha'`);
 
-      mockFetchOnce(content);
+      mockFetchRegistryThen(undefined, "https://example.com/download", content);
 
       const controller = makeController();
       const svc = new ServicesService(controller);
@@ -690,7 +715,11 @@ describe("ServicesService", () => {
         sql`UPDATE services SET hash = ${oldHash} WHERE id = 'alpha'`,
       );
 
-      mockFetchOnce("new-content");
+      mockFetchRegistryThen(
+        undefined,
+        "https://example.com/download",
+        "new-content",
+      );
 
       const controller = makeController();
       const svc = new ServicesService(controller);
@@ -1096,9 +1125,9 @@ describe("ServicesService", () => {
       const svc = new ServicesService(makeController());
 
       await expect(
-        svc.createService({
+        svc.createServiceDirect({
           id: "alpha",
-          source: "https://example.com/def.json",
+          url: "https://example.com/def.json",
           adapter: "test-adapter",
         }),
       ).rejects.toMatchObject({ statusCode: 502 });
@@ -1112,9 +1141,9 @@ describe("ServicesService", () => {
       const svc = new ServicesService(makeController());
 
       await expect(
-        svc.createService({
+        svc.createServiceDirect({
           id: "alpha",
-          source: "https://example.com/def.json",
+          url: "https://example.com/def.json",
           adapter: "test-adapter",
         }),
       ).rejects.toMatchObject({
@@ -1137,9 +1166,9 @@ describe("ServicesService", () => {
       const svc = new ServicesService(makeController());
 
       await expect(
-        svc.createService({
+        svc.createServiceDirect({
           id: "alpha",
-          source: "https://example.com/def.json",
+          url: "https://example.com/def.json",
           adapter: "test-adapter",
         }),
       ).rejects.toMatchObject({ statusCode: 413 });
@@ -1154,9 +1183,9 @@ describe("ServicesService", () => {
       const svc = new ServicesService(makeController());
 
       await expect(
-        svc.createService({
+        svc.createServiceDirect({
           id: "alpha",
-          source: "https://example.com/def.json",
+          url: "https://example.com/def.json",
           adapter: "test-adapter",
         }),
       ).rejects.toMatchObject({ statusCode: 413 });
@@ -1172,9 +1201,9 @@ describe("ServicesService", () => {
       const svc = new ServicesService(makeController());
 
       await expect(
-        svc.createService({
+        svc.createServiceDirect({
           id: "alpha",
-          source: "https://example.com/def.json",
+          url: "https://example.com/def.json",
           adapter: "test-adapter",
         }),
       ).rejects.toMatchObject({ statusCode: 502 });
@@ -1188,9 +1217,9 @@ describe("ServicesService", () => {
       const svc = new ServicesService(makeController());
 
       await expect(
-        svc.createService({
+        svc.createServiceDirect({
           id: "alpha",
-          source: "http://127.0.0.1/def.json",
+          url: "http://127.0.0.1/def.json",
           adapter: "test-adapter",
         }),
       ).rejects.toMatchObject({ statusCode: 502 });
@@ -1204,9 +1233,9 @@ describe("ServicesService", () => {
       const svc = new ServicesService(makeController());
 
       await expect(
-        svc.createService({
+        svc.createServiceDirect({
           id: "alpha",
-          source: "http://169.254.169.254/latest/meta-data/",
+          url: "http://169.254.169.254/latest/meta-data/",
           adapter: "test-adapter",
         }),
       ).rejects.toMatchObject({ statusCode: 502 });
@@ -1220,9 +1249,9 @@ describe("ServicesService", () => {
       const svc = new ServicesService(makeController());
 
       await expect(
-        svc.createService({
+        svc.createServiceDirect({
           id: "alpha",
-          source: "http://10.0.0.1/def.json",
+          url: "http://10.0.0.1/def.json",
           adapter: "test-adapter",
         }),
       ).rejects.toMatchObject({ statusCode: 502 });
@@ -1239,9 +1268,9 @@ describe("ServicesService", () => {
       const svc = new ServicesService(makeController());
 
       await expect(
-        svc.createService({
+        svc.createServiceDirect({
           id: "alpha",
-          source: "http://internal.corp/def.json",
+          url: "http://internal.corp/def.json",
           adapter: "test-adapter",
         }),
       ).rejects.toMatchObject({ statusCode: 502 });
@@ -1259,9 +1288,9 @@ describe("ServicesService", () => {
       const svc = new ServicesService(makeController());
 
       await expect(
-        svc.createService({
+        svc.createServiceDirect({
           id: "alpha",
-          source: "http://mixed.example.com/def.json",
+          url: "http://mixed.example.com/def.json",
           adapter: "test-adapter",
         }),
       ).rejects.toMatchObject({ statusCode: 502 });
@@ -1278,9 +1307,9 @@ describe("ServicesService", () => {
       const svc = new ServicesService(makeController());
 
       await expect(
-        svc.createService({
+        svc.createServiceDirect({
           id: "alpha",
-          source: "http://nope.invalid/def.json",
+          url: "http://nope.invalid/def.json",
           adapter: "test-adapter",
         }),
       ).rejects.toMatchObject({ statusCode: 502 });
@@ -1292,9 +1321,9 @@ describe("ServicesService", () => {
       const svc = new ServicesService(makeController());
 
       await expect(
-        svc.createService({
+        svc.createServiceDirect({
           id: "alpha",
-          source: "http://10.0.0.1/def.json",
+          url: "http://10.0.0.1/def.json",
           adapter: "test-adapter",
         }),
       ).resolves.toBeUndefined();
@@ -1309,9 +1338,9 @@ describe("ServicesService", () => {
       const svc = new ServicesService(makeController());
 
       await expect(
-        svc.createService({
+        svc.createServiceDirect({
           id: "beta",
-          source: "http://internal.corp/def.json",
+          url: "http://internal.corp/def.json",
           adapter: "test-adapter",
         }),
       ).resolves.toBeUndefined();
@@ -1332,9 +1361,9 @@ describe("ServicesService", () => {
       const svc = new ServicesService(makeController());
 
       await expect(
-        svc.createService({
+        svc.createServiceDirect({
           id: "alpha",
-          source: "https://example.com/def.json",
+          url: "https://example.com/def.json",
           adapter: "test-adapter",
         }),
       ).rejects.toMatchObject({ statusCode: 502 });
@@ -1368,9 +1397,9 @@ describe("ServicesService", () => {
       const svc = new ServicesService(makeController());
 
       await expect(
-        svc.createService({
+        svc.createServiceDirect({
           id: "alpha",
-          source: "https://example.com/def.json",
+          url: "https://example.com/def.json",
           adapter: "test-adapter",
         }),
       ).rejects.toMatchObject({ statusCode: 502 });
@@ -1396,9 +1425,9 @@ describe("ServicesService", () => {
       const svc = new ServicesService(makeController());
 
       await expect(
-        svc.createService({
+        svc.createServiceDirect({
           id: "alpha",
-          source: "https://example.com/def.json",
+          url: "https://example.com/def.json",
           adapter: "test-adapter",
         }),
       ).resolves.toBeUndefined();
@@ -1424,9 +1453,9 @@ describe("ServicesService", () => {
       const svc = new ServicesService(makeController());
 
       await expect(
-        svc.createService({
+        svc.createServiceDirect({
           id: "alpha",
-          source: "https://example.com/redirect-0.json",
+          url: "https://example.com/redirect-0.json",
           adapter: "test-adapter",
         }),
       ).rejects.toMatchObject({ statusCode: 502 });
@@ -1440,9 +1469,9 @@ describe("ServicesService", () => {
       const svc = new ServicesService(makeController());
 
       await expect(
-        svc.createService({
+        svc.createServiceDirect({
           id: "alpha",
-          source: "https://example.com/def.json",
+          url: "https://example.com/def.json",
           adapter: "test-adapter",
         }),
       ).rejects.toMatchObject({ statusCode: 502 });

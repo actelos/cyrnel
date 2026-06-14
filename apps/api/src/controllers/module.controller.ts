@@ -12,13 +12,24 @@ import {
 import type { ModuleService } from "@/services/modules.service";
 import { parseOrHttpError } from "@/utils/validation.util";
 
-const installModuleBodySchema = z.object({
-  source: z
-    .string({ error: "Field 'source' must be a string." })
-    .transform((v) => v.trim())
-    .refine((v) => v.length > 0, {
-      error: "Field 'source' must not be empty.",
-    }),
+const nonEmptyTrimmedString = (fieldName: string) =>
+  z
+    .string({ error: `Field '${fieldName}' must be a string.` })
+    .transform((value) => value.trim())
+    .refine((value) => value.length > 0, {
+      error: `Field '${fieldName}' must not be empty.`,
+    });
+
+const installModuleRegistryBodySchema = z.object({
+  source: nonEmptyTrimmedString("source"),
+});
+
+const createModuleBodySchema = z.object({
+  url: nonEmptyTrimmedString("url"),
+});
+
+const patchModuleBodySchema = z.object({
+  url: nonEmptyTrimmedString("url"),
 });
 
 const booleanSchema = (fieldName: string) =>
@@ -114,13 +125,38 @@ export async function installModule(
 ): Promise<void> {
   const moduleService = getModuleService(req);
   const { source } = parseOrHttpError(
-    installModuleBodySchema,
+    installModuleRegistryBodySchema,
     req.body,
     "Request body must be an object.",
   );
 
-  const manifest = await moduleService.installModule(source);
+  const manifest = await moduleService.installModuleFromRegistry(source);
   res.status(201).json(manifest);
+}
+
+export async function createModule(req: Request, res: Response): Promise<void> {
+  const moduleService = getModuleService(req);
+  const { url } = parseOrHttpError(
+    createModuleBodySchema,
+    req.body,
+    "Request body must be an object.",
+  );
+
+  const manifest = await moduleService.installModuleDirect(url);
+  res.status(201).json(manifest);
+}
+
+export async function patchModule(req: Request, res: Response): Promise<void> {
+  const moduleService = getModuleService(req);
+  const moduleId = parseOrHttpError(moduleIdSchema, req.params.moduleId);
+  const { url } = parseOrHttpError(
+    patchModuleBodySchema,
+    req.body,
+    "Request body must be an object.",
+  );
+
+  const result = await moduleService.patchModule(moduleId, url);
+  res.status(200).json(result);
 }
 
 export async function deleteModule(req: Request, res: Response): Promise<void> {

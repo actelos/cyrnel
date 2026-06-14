@@ -2,13 +2,15 @@ import type { Request, Response } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-  createService,
+  createServiceDirect,
   deleteService,
   getService,
   getServiceConfiguration,
   getServiceConfigurationSchema,
   getServiceSecretsSchema,
+  installServiceRegistry,
   listServices,
+  patchService,
   patchServiceConfiguration,
   patchServiceSecrets,
   setServiceEnabled,
@@ -24,7 +26,9 @@ const servicesService = {
   getServiceSecretsSchema: vi.fn(),
   patchServiceConfig: vi.fn(),
   patchServiceSecrets: vi.fn(),
-  createService: vi.fn(),
+  createServiceDirect: vi.fn(),
+  createServiceFromRegistry: vi.fn(),
+  patchService: vi.fn(),
   updateService: vi.fn(),
   setServiceEnabled: vi.fn(),
   deleteService: vi.fn(),
@@ -323,41 +327,41 @@ describe("service.controller", () => {
     });
   });
 
-  describe("createService", () => {
+  describe("createServiceDirect", () => {
     it("creates a service and returns 201 { id }", async () => {
       const res = makeRes();
       const body = {
         id: "svc",
-        source: "https://example.com/svc.json",
+        url: "https://example.com/svc.json",
         adapter: "adapter-a",
       };
-      servicesService.createService.mockResolvedValue(undefined);
+      servicesService.createServiceDirect.mockResolvedValue(undefined);
 
-      await createService(makeReq({ body }), cast(res));
+      await createServiceDirect(makeReq({ body }), cast(res));
 
-      expect(servicesService.createService).toHaveBeenCalledWith(body);
+      expect(servicesService.createServiceDirect).toHaveBeenCalledWith(body);
       expect(res.status).toHaveBeenCalledWith(201);
       expect(res.json).toHaveBeenCalledWith({ id: "svc" });
     });
 
-    it("trims whitespace from id/source/adapter", async () => {
+    it("trims whitespace from id/url/adapter", async () => {
       const res = makeRes();
-      servicesService.createService.mockResolvedValue(undefined);
+      servicesService.createServiceDirect.mockResolvedValue(undefined);
 
-      await createService(
+      await createServiceDirect(
         makeReq({
           body: {
             id: "  svc  ",
-            source: "  https://example.com  ",
+            url: "  https://example.com  ",
             adapter: "  a  ",
           },
         }),
         cast(res),
       );
 
-      expect(servicesService.createService).toHaveBeenCalledWith({
+      expect(servicesService.createServiceDirect).toHaveBeenCalledWith({
         id: "svc",
-        source: "https://example.com",
+        url: "https://example.com",
         adapter: "a",
       });
       expect(res.json).toHaveBeenCalledWith({ id: "svc" });
@@ -365,17 +369,81 @@ describe("service.controller", () => {
 
     it.each([
       { body: {}, why: "missing all fields" },
-      { body: { id: "svc" }, why: "missing source and adapter" },
-      { body: { id: "", source: "s", adapter: "a" }, why: "empty id" },
-      { body: { id: "svc", source: "  ", adapter: "a" }, why: "blank source" },
-      { body: { id: "svc", source: "s", adapter: "" }, why: "empty adapter" },
-      { body: { id: 1, source: "s", adapter: "a" }, why: "non-string id" },
+      { body: { id: "svc" }, why: "missing url and adapter" },
+      { body: { id: "", url: "s", adapter: "a" }, why: "empty id" },
+      { body: { id: "svc", url: "  ", adapter: "a" }, why: "blank url" },
+      { body: { id: "svc", url: "s", adapter: "" }, why: "empty adapter" },
+      { body: { id: 1, url: "s", adapter: "a" }, why: "non-string id" },
       { body: "not-an-object", why: "non-object body" },
     ])("rejects $why", async ({ body }) => {
       const res = makeRes();
       await expect(
-        createService(makeReq({ body }), cast(res)),
+        createServiceDirect(makeReq({ body }), cast(res)),
       ).rejects.toBeInstanceOf(HttpError);
+    });
+  });
+
+  describe("installServiceRegistry", () => {
+    it("creates a service from registry and returns 201", async () => {
+      const res = makeRes();
+      const body = {
+        source: "https://registry.example.com/svc",
+      };
+      servicesService.createServiceFromRegistry.mockResolvedValue(
+        "svc-from-registry",
+      );
+
+      await installServiceRegistry(makeReq({ body }), cast(res));
+
+      expect(servicesService.createServiceFromRegistry).toHaveBeenCalledWith(
+        body,
+      );
+      expect(res.status).toHaveBeenCalledWith(201);
+      expect(res.json).toHaveBeenCalledWith({ id: "svc-from-registry" });
+    });
+
+    it("rejects an empty source", async () => {
+      const res = makeRes();
+      await expect(
+        installServiceRegistry(makeReq({ body: { source: "" } }), cast(res)),
+      ).rejects.toBeInstanceOf(HttpError);
+      expect(servicesService.createServiceFromRegistry).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("patchService", () => {
+    it("patches a service via direct URL and returns { updated: boolean }", async () => {
+      const res = makeRes();
+      servicesService.patchService.mockResolvedValue({ updated: true });
+
+      await patchService(
+        makeReq({
+          params: { serviceId: "svc" },
+          body: { url: "https://example.com/new.json" },
+        }),
+        cast(res),
+      );
+
+      expect(servicesService.patchService).toHaveBeenCalledWith(
+        "svc",
+        "https://example.com/new.json",
+      );
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith({ updated: true });
+    });
+
+    it("rejects an empty url", async () => {
+      const res = makeRes();
+      await expect(
+        patchService(
+          makeReq({
+            params: { serviceId: "svc" },
+            body: { url: "" },
+          }),
+          cast(res),
+        ),
+      ).rejects.toBeInstanceOf(HttpError);
+      expect(servicesService.patchService).not.toHaveBeenCalled();
     });
   });
 
