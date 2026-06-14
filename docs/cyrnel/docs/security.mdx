@@ -107,9 +107,11 @@ fresh 12-byte IV per write. The auth tag is stored alongside.
 
 ## Service Installation (Definition Fetching)
 
-`POST /services/install` fetches the URL the caller supplies, hashes it,
-and passes it to the adapter's `generateDefinition`. The fetcher has a few
-guards:
+`POST /services` (direct install), `POST /services/install` (registry
+install), `PATCH /services/:serviceId` (direct update), and
+`POST /services/:serviceId/update` (registry update) all fetch a URL
+supplied by or resolved from caller input, hash the content, and pass it
+to the adapter's `generateDefinition`. The fetcher has a few guards:
 
 - Hard timeout of 10 seconds per request.
 - Maximum response body of 2 MiB.

@@ -24,7 +24,9 @@ Convert a raw definition string (an OpenAPI document, a custom schema, a
 URL to fetch and parse, whatever this adapter understands) into a
 [`ServiceDefinition`](/specs/types#servicedefinition).
 
-- Called from `POST /services/install` and `POST /services/:id/update`.
+- Called from `POST /services` (direct install), `POST /services/install`
+  (registry install), `PATCH /services/:serviceId` (direct update), and
+  `POST /services/:serviceId/update` (registry update).
 - Expected to be **pure**, given the same input string, return the same
   definition. Adapters should not rely on instance state here.
 - Throw to reject the install. The host returns the thrown message in
