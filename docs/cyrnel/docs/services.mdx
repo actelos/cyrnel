@@ -25,7 +25,8 @@ On disk, cyrnel extends that with:
 - `id`: the service identifier the client chose at install time. Must be a
   valid identifier (`[A-Za-z_$][A-Za-z0-9_$]*`).
 - `hash`: SHA-256 of the definition file used at install/update time.
-- `source`: the URL the definition was fetched from (used for updates).
+- `source`: the registry URL the service was installed from. `""` means the
+  service was direct-installed (no registry reference).
 - `adapter`: the id of the [adapter module](/content/modules/adapters) that
   parsed the definition and will handle invocations.
 - `enabled`: whether the service is active. Disabling a service hides its
@@ -38,27 +39,25 @@ outside.
 
 ## Install a Service
 
-`POST /services/install`
+Services can be installed in two modes.
+
+### Direct install
+
+`POST /services`
 
 ```json
 {
   "id": "petstore",
-  "source": "https://example.com/petstore.openapi.json",
+  "url": "https://example.com/petstore.openapi.json",
   "adapter": "openapi"
 }
 ```
 
-Server-side flow:
-
-1. Validate the `id` is a valid identifier (`[A-Za-z_$][A-Za-z0-9_$]*`).
-2. Fetch the URL in `source` (with size, timeout, and address-range guards,
-   see [Security](/content/security)).
-3. Hash the content (SHA-256).
-4. Call `adapter.generateDefinition(content)` to produce a
-   `ServiceDefinition`.
-5. Validate that every tool's `id` is also a valid identifier (`[A-Za-z_$][A-Za-z0-9_$]*`).
-6. Insert the service and its tools in a single DB transaction. The service
-   starts **disabled**.
+The `url` is a direct download URL to the definition file itself. It is
+ephemeral -- passed by the client, never stored. The server downloads the
+definition, hashes it, calls `adapter.generateDefinition(content)`, validates
+tool identifiers, and inserts the service with `source = ""`. The service
+starts disabled.
 
 Response (`201`):
 
@@ -68,14 +67,81 @@ Response (`201`):
 
 `409` on duplicate `id`.
 
+### Registry install
+
+`POST /services/install`
+
+```json
+{
+  "source": "https://registry.example.com/services/petstore",
+  "adapter": "openapi",
+  "id": "petstore"
+}
+```
+
+The `source` is a registry URL pointing to a metadata API endpoint. The server
+fetches `source`, expecting a JSON response:
+
+```ts
+interface ServiceRegistryResponse {
+  downloadUrl: string;   // URL to the definition file
+  hash?: string;         // SHA-256 of the definition text (skip + integrity)
+  id?: string;           // default service id (client can override)
+  adapter?: string;      // default adapter module id (client can override)
+}
+```
+
+If the response includes a `hash`, the server verifies the downloaded content
+matches it. The effective `id` and `adapter` are merged from the request body
+and registry response (body wins over registry default). The `source` URL is
+persisted in the database so the service can be re-resolved later for updates.
+The service starts disabled.
+
+Response (`201`):
+
+```json
+{ "id": "petstore" }
+```
+
+`409` on duplicate `id`. Either the request body or the registry must provide
+an `id` and `adapter` or the server returns `400`.
+
 ## Update a Service
+
+Services can be updated in two modes, matching the install mode.
+
+### Direct update
+
+`PATCH /services/:serviceId`
+
+```json
+{ "url": "https://example.com/petstore-v2.openapi.json" }
+```
+
+Downloads the new definition from the direct `url`, hashes it, re-parses
+through the adapter, replaces the stored tools (preserving per-tool `enabled`
+flags by name), and clears `source` to `""`. The service is set back to
+`enabled: false` and dehydrated from the adapter. Returns `{ id, updated: boolean }`.
+
+### Registry update
 
 `POST /services/:serviceId/update`
 
-Re-fetches `source`, re-parses, and replaces the stored tools, preserving
-the previous per-tool `enabled` flag when a tool name carries over.
-Sets the service back to `enabled: false` and dehydrates it from the
-adapter; you'll need to re-enable it.
+```json
+{}
+```
+
+Re-resolves the stored `source` URL by fetching the registry metadata again.
+If the registry returns a `hash` that matches the stored hash, the update is
+skipped. Otherwise the new definition is downloaded, verified, re-parsed, and
+stored. Direct-installed services (`source = ""`) return `409` -- use `PATCH`
+instead. The service is set back to `enabled: false` and dehydrated from the
+adapter.
+
+The `source` column semantics:
+
+- `source = ""` -- direct-installed item (no registry reference).
+- `source = <url>` -- registry-installed item (stored registry URL).
 
 ## Enable / Disable a Service
 

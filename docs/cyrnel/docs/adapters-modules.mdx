@@ -31,9 +31,11 @@ interface AdapterModule extends Module {
 ```
 
 1. **`setup({})`** is called once when the adapter is activated.
-2. **`generateDefinition(content)`** is called during `POST /services/install`
-   and `POST /services/:id/update`. Pure: given the same definition string,
-   should produce the same `ServiceDefinition`.
+2. **`generateDefinition(content)`** is called during `POST /services`
+   (direct install), `POST /services/install` (registry install),
+   `PATCH /services/:serviceId` (direct update), and
+   `POST /services/:serviceId/update` (registry update). Pure: given the
+   same definition string, should produce the same `ServiceDefinition`.
 3. **`hydrateService(state)`** is called whenever a service that targets this
    adapter is enabled, has its config or secrets patched, or this adapter is
    activated while the service is already enabled. Receives a snapshot:
