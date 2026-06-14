@@ -326,24 +326,66 @@ const ServiceInstallRequestSchema = registry.register(
   "ServiceInstallRequest",
   z
     .object({
+      source: z
+        .string()
+        .min(1)
+        .describe(
+          "Registry URL to resolve for service metadata, then download the definition.",
+        ),
+      adapter: z
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+          "Optional adapter module identifier. Overrides registry default.",
+        ),
+      id: z
+        .string()
+        .min(1)
+        .optional()
+        .describe("Optional service identifier. Overrides registry default."),
+    })
+    .describe("Request body used to install a service from a registry."),
+);
+
+const ServiceDirectInstallRequestSchema = registry.register(
+  "ServiceDirectInstallRequest",
+  z
+    .object({
       id: z
         .string()
         .min(1)
         .describe(
           "Identifier to assign to the new service. Must be a valid identifier matching /^[A-Za-z_$][A-Za-z0-9_$]*$/.",
         ),
-      source: z
+      url: z
         .string()
         .min(1)
         .describe(
-          "URL of the service definition file to download and install.",
+          "Direct URL of the service definition file to download and install.",
         ),
       adapter: z
         .string()
         .min(1)
         .describe("Adapter module identifier responsible for the service."),
     })
-    .describe("Request body used to install a new service definition."),
+    .describe("Request body used to install a service from a direct URL."),
+);
+
+const ServicePatchRequestSchema = registry.register(
+  "ServicePatchRequest",
+  z
+    .object({
+      url: z
+        .string()
+        .min(1)
+        .describe(
+          "Direct URL of the new definition file to replace the existing installation.",
+        ),
+    })
+    .describe(
+      "Request body used to replace a service via a direct download URL.",
+    ),
 );
 
 const ServiceCreatedResponseSchema = registry.register(
@@ -608,10 +650,40 @@ const ModuleInstallRequestSchema = registry.register(
         .string()
         .min(1)
         .describe(
-          "URL of the .tar.zst module archive to download and install.",
+          "Registry URL to resolve for module metadata, then download the .tar.zst archive.",
         ),
     })
-    .describe("Request body used to install a new module."),
+    .describe("Request body used to install a module from a registry."),
+);
+
+const ModuleDirectInstallRequestSchema = registry.register(
+  "ModuleDirectInstallRequest",
+  z
+    .object({
+      url: z
+        .string()
+        .min(1)
+        .describe(
+          "Direct URL of the .tar.zst module archive to download and install.",
+        ),
+    })
+    .describe("Request body used to install a module from a direct URL."),
+);
+
+const ModulePatchRequestSchema = registry.register(
+  "ModulePatchRequest",
+  z
+    .object({
+      url: z
+        .string()
+        .min(1)
+        .describe(
+          "Direct URL of the new .tar.zst module archive to replace the existing installation.",
+        ),
+    })
+    .describe(
+      "Request body used to replace a module via a direct download URL.",
+    ),
 );
 
 const ModuleUpdateResponseSchema = registry.register(
@@ -967,12 +1039,14 @@ registry.registerPath({
 
 registry.registerPath({
   method: "post",
-  path: "/services/install",
+  path: "/services",
   tags: ["Services"],
-  summary: "Install a service",
+  summary: "Install a service from a direct URL",
   description:
-    "Downloads the definition file from the supplied source URL, validates the manifest, and stores it as a new service under the supplied id and adapter. Installation does not automatically enable the service.",
-  request: { body: { content: jsonContent(ServiceInstallRequestSchema) } },
+    "Downloads the definition file from the supplied direct URL, validates the manifest, and stores it as a new service under the supplied id and adapter. No registry source is stored.",
+  request: {
+    body: { content: jsonContent(ServiceDirectInstallRequestSchema) },
+  },
   responses: {
     201: {
       description: "The service was installed and stored.",
@@ -995,11 +1069,41 @@ registry.registerPath({
 
 registry.registerPath({
   method: "post",
+  path: "/services/install",
+  tags: ["Services"],
+  summary: "Install a service from a registry",
+  description:
+    "Resolves the registry source URL, downloads the definition from the returned downloadUrl, validates the manifest, and stores it. Optional adapter and id override the registry defaults. The registry source URL is stored for future updates.",
+  request: { body: { content: jsonContent(ServiceInstallRequestSchema) } },
+  responses: {
+    201: {
+      description: "The service was installed and stored.",
+      content: jsonContent(ServiceCreatedResponseSchema),
+    },
+    400: apiErrorResponse(
+      "The install payload was invalid, the registry response was malformed, or the downloaded definition failed validation.",
+    ),
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    409: apiErrorResponse("A service already exists with the requested id."),
+    413: apiErrorResponse(
+      "The downloaded definition exceeded the configured size limit.",
+    ),
+    502: apiErrorResponse(
+      "The registry or definition file could not be downloaded.",
+    ),
+    500: apiErrorResponse("The service could not be installed."),
+  },
+});
+
+registry.registerPath({
+  method: "post",
   path: "/services/{serviceId}/update",
   tags: ["Services"],
-  summary: "Update a service manifest",
+  summary: "Update a service from its stored registry",
   description:
-    "Re-downloads the stored definition source and updates the manifest. Tool enabled flags are preserved by name where possible, and the service is disabled until it is explicitly re-enabled.",
+    "Re-resolves the stored registry source URL, compares the registry hash against the stored hash, and re-downloads and re-installs the definition if changed. Only works for registry-installed services.",
   request: { params: serviceIdParam },
   responses: {
     200: {
@@ -1014,8 +1118,41 @@ registry.registerPath({
     ),
     404: apiErrorResponse("The service could not be found."),
     409: apiErrorResponse(
-      "The service has no stored install source and cannot be updated automatically.",
+      "The service has no stored registry source and cannot be updated automatically.",
     ),
+    413: apiErrorResponse(
+      "The downloaded definition exceeded the configured size limit.",
+    ),
+    502: apiErrorResponse(
+      "The registry or definition file could not be downloaded.",
+    ),
+    500: apiErrorResponse("The service could not be updated."),
+  },
+});
+
+registry.registerPath({
+  method: "patch",
+  path: "/services/{serviceId}",
+  tags: ["Services"],
+  summary: "Replace a service via direct URL",
+  description:
+    "Downloads the definition file from the supplied direct URL and replaces the existing service. The stored registry source is cleared, making the service a direct-installed item.",
+  request: {
+    params: serviceIdParam,
+    body: { content: jsonContent(ServicePatchRequestSchema) },
+  },
+  responses: {
+    200: {
+      description: "Update result for the requested service.",
+      content: jsonContent(ServiceUpdateResponseSchema),
+    },
+    400: apiErrorResponse(
+      "The serviceId path parameter or request body was invalid.",
+    ),
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    404: apiErrorResponse("The service could not be found."),
     413: apiErrorResponse(
       "The downloaded definition exceeded the configured size limit.",
     ),
@@ -1386,12 +1523,12 @@ registry.registerPath({
 
 registry.registerPath({
   method: "post",
-  path: "/modules/install",
+  path: "/modules",
   tags: ["Modules"],
-  summary: "Install a module",
+  summary: "Install a module from a direct URL",
   description:
-    "Downloads a .tar.zst archive from the supplied source URL, validates the module.json manifest, and registers the module. Newly installed modules start disabled by default.",
-  request: { body: { content: jsonContent(ModuleInstallRequestSchema) } },
+    "Downloads a .tar.zst archive from the supplied direct URL, validates the module.json manifest, and registers the module. Newly installed modules start disabled by default. No registry source is stored.",
+  request: { body: { content: jsonContent(ModuleDirectInstallRequestSchema) } },
   responses: {
     201: {
       description: "The module manifest record for the newly installed module.",
@@ -1408,6 +1545,36 @@ registry.registerPath({
       "The downloaded archive exceeded the configured size limit.",
     ),
     502: apiErrorResponse("The archive file could not be downloaded."),
+    500: apiErrorResponse("The module could not be installed."),
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/modules/install",
+  tags: ["Modules"],
+  summary: "Install a module from a registry",
+  description:
+    "Resolves the registry source URL, downloads the .tar.zst archive from the returned downloadUrl, validates the module.json manifest, and registers the module. The registry source URL is stored for future updates via POST /modules/:id/update.",
+  request: { body: { content: jsonContent(ModuleInstallRequestSchema) } },
+  responses: {
+    201: {
+      description: "The module manifest record for the newly installed module.",
+      content: jsonContent(ModuleDetailsSchema),
+    },
+    400: apiErrorResponse(
+      "The request body was invalid, the registry response was malformed, or the archive failed validation.",
+    ),
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    409: apiErrorResponse("A module already exists with the requested id."),
+    413: apiErrorResponse(
+      "The downloaded archive exceeded the configured size limit.",
+    ),
+    502: apiErrorResponse(
+      "The registry or archive file could not be downloaded.",
+    ),
     500: apiErrorResponse("The module could not be installed."),
   },
 });
@@ -1435,9 +1602,9 @@ registry.registerPath({
   method: "post",
   path: "/modules/{moduleId}/update",
   tags: ["Modules"],
-  summary: "Update a module",
+  summary: "Update a module from its stored registry",
   description:
-    "Re-downloads the module archive from its stored source URL. If the archive hash has changed the module is re-installed and its instance reloaded. Returns updated: false when the archive is unchanged.",
+    "Re-resolves the stored registry source URL, compares the registry hash against the stored hash, and re-downloads and re-installs the archive if changed. Returns updated: false when the archive is unchanged. Only works for registry-installed modules.",
   request: { params: moduleIdParam },
   responses: {
     200: {
@@ -1450,8 +1617,39 @@ registry.registerPath({
     ),
     404: apiErrorResponse("The module could not be found."),
     409: apiErrorResponse(
-      "The module has no stored install source and cannot be updated automatically.",
+      "The module has no stored registry source and cannot be updated automatically.",
     ),
+    500: apiErrorResponse("The module could not be updated."),
+  },
+});
+
+registry.registerPath({
+  method: "patch",
+  path: "/modules/{moduleId}",
+  tags: ["Modules"],
+  summary: "Replace a module via direct URL",
+  description:
+    "Downloads a .tar.zst archive from the supplied direct URL and replaces the existing module installation. The stored registry source is cleared, making the module a direct-installed item.",
+  request: {
+    params: moduleIdParam,
+    body: { content: jsonContent(ModulePatchRequestSchema) },
+  },
+  responses: {
+    200: {
+      description: "Update result for the requested module.",
+      content: jsonContent(ModuleUpdateResponseSchema),
+    },
+    400: apiErrorResponse(
+      "The moduleId path parameter or request body was invalid.",
+    ),
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    404: apiErrorResponse("The module could not be found."),
+    413: apiErrorResponse(
+      "The downloaded archive exceeded the configured size limit.",
+    ),
+    502: apiErrorResponse("The archive file could not be downloaded."),
     500: apiErrorResponse("The module could not be updated."),
   },
 });

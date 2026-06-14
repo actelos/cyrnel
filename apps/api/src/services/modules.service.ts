@@ -552,78 +552,11 @@ export class ModuleService {
     return null;
   }
 
-  async installModule(source: string): Promise<ModuleManifestRecord> {
-    const buffer = await downloadBinary(source, MODULE_DOWNLOAD_MAX_BYTES);
+  async installModuleDirect(url: string): Promise<ModuleManifestRecord> {
+    const buffer = await downloadBinary(url, MODULE_DOWNLOAD_MAX_BYTES);
     const archiveHash = computeBinaryHash(buffer);
-    const decompressed = zstdDecompress(new Uint8Array(buffer));
 
-    if (!this.modulesPath) {
-      throw new HttpError(503, "ModuleService has not been initialized.");
-    }
-
-    const tmpDir = await fs.mkdtemp(join(this.modulesPath, ".install-"));
-    let manifest: ModuleManifestSchema;
-
-    try {
-      const { Readable } = await import("node:stream");
-      const { pipeline } = await import("node:stream/promises");
-
-      const readable = Readable.from([Buffer.from(decompressed)]);
-      const unpack = new Unpack({ cwd: tmpDir });
-      await pipeline(readable, unpack);
-
-      const moduleJsonPath = join(tmpDir, "module.json");
-      let rawManifest: string;
-      try {
-        rawManifest = await fs.readFile(moduleJsonPath, "utf8");
-      } catch {
-        throw new HttpError(
-          400,
-          "Archive must contain a 'module.json' at its root.",
-        );
-      }
-
-      let parsedManifest: Record<string, unknown>;
-      try {
-        parsedManifest = JSON.parse(rawManifest) as Record<string, unknown>;
-      } catch {
-        throw new HttpError(400, "module.json contains invalid JSON.");
-      }
-
-      const parsed = moduleManifestSchema.safeParse(parsedManifest);
-      if (!parsed.success) {
-        throw new HttpError(
-          400,
-          `Invalid module manifest: ${parsed.error.message}`,
-        );
-      }
-      manifest = parsed.data;
-
-      const mainPath = resolve(tmpDir, manifest.main);
-      if (!mainPath.startsWith(tmpDir + sep)) {
-        throw new HttpError(
-          400,
-          "Manifest 'main' must point to a file inside the archive.",
-        );
-      }
-      try {
-        const mainStat = await fs.stat(mainPath);
-        if (!mainStat.isFile()) {
-          throw new HttpError(
-            400,
-            "Manifest 'main' must point to a valid file.",
-          );
-        }
-      } catch {
-        throw new HttpError(
-          400,
-          `Manifest 'main' file '${manifest.main}' not found in archive.`,
-        );
-      }
-    } catch (err) {
-      await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
-      throw err;
-    }
+    const { manifest, tmpDir } = await this.extractModuleArchive(buffer);
 
     if (this.factories.has(manifest.id)) {
       await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
@@ -642,7 +575,124 @@ export class ModuleService {
       throw new HttpError(409, `Module '${manifest.id}' already exists.`);
     }
 
-    const installDir = join(this.modulesPath, manifest.id);
+    const modulesPath = this.modulesPath as string;
+    const installDir = join(modulesPath, manifest.id);
+    try {
+      await fs.rename(tmpDir, installDir);
+    } catch {
+      await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+      throw new HttpError(500, `Failed to install module '${manifest.id}'.`);
+    }
+
+    try {
+      const mainPath = resolve(installDir, manifest.main);
+      const imported = (await import(mainPath)) as {
+        instantiate: () => Module;
+      };
+      const configSchema = manifest.configSchema ?? EMPTY_OBJECT_SCHEMA;
+      const secretsSchema = manifest.secretsSchema ?? EMPTY_OBJECT_SCHEMA;
+
+      this.factories.set(manifest.id, {
+        type: manifest.type,
+        configSchema,
+        secretsSchema,
+        instantiate: imported.instantiate,
+      });
+      this.manifests.set(manifest.id, {
+        id: manifest.id,
+        name: manifest.name,
+        description: manifest.description,
+        type: manifest.type,
+        isBuiltin: false,
+        configSchema,
+        secretsSchema,
+      });
+    } catch (err) {
+      await fs.rm(installDir, { recursive: true, force: true }).catch(() => {});
+      this.factories.delete(manifest.id);
+      this.manifests.delete(manifest.id);
+      throw new HttpError(
+        500,
+        `Failed to register module '${manifest.id}': ${err instanceof Error ? err.message : "Unknown error"}`,
+      );
+    }
+
+    try {
+      await db.insert(modulesTable).values({
+        id: manifest.id,
+        name: manifest.name,
+        description: manifest.description,
+        type: manifest.type,
+        hash: archiveHash,
+        source: "",
+        enabled: false,
+        orphaned: false,
+      });
+    } catch {
+      await fs.rm(installDir, { recursive: true, force: true }).catch(() => {});
+      this.factories.delete(manifest.id);
+      this.manifests.delete(manifest.id);
+      throw new HttpError(
+        500,
+        `Failed to persist module '${manifest.id}' in database.`,
+      );
+    }
+
+    return {
+      id: manifest.id,
+      name: manifest.name,
+      description: manifest.description,
+      type: manifest.type,
+      hash: archiveHash,
+      source: "",
+      isBuiltin: false,
+      enabled: false,
+      orphaned: false,
+      configSchema: manifest.configSchema ?? EMPTY_OBJECT_SCHEMA,
+      secretsSchema: manifest.secretsSchema ?? EMPTY_OBJECT_SCHEMA,
+    };
+  }
+
+  async installModuleFromRegistry(
+    source: string,
+  ): Promise<ModuleManifestRecord> {
+    const { resolveModuleRegistry } = await import("@/utils/registry.util");
+    const registry = await resolveModuleRegistry(source);
+
+    const buffer = await downloadBinary(
+      registry.downloadUrl,
+      MODULE_DOWNLOAD_MAX_BYTES,
+    );
+    const archiveHash = computeBinaryHash(buffer);
+
+    if (registry.hash && archiveHash !== registry.hash) {
+      throw new HttpError(
+        400,
+        "Archive content hash does not match registry metadata hash.",
+      );
+    }
+
+    const { manifest, tmpDir } = await this.extractModuleArchive(buffer);
+
+    if (this.factories.has(manifest.id)) {
+      await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+      throw new HttpError(
+        409,
+        `Module '${manifest.id}' is already registered.`,
+      );
+    }
+    const [existing] = await db
+      .select({ id: modulesTable.id })
+      .from(modulesTable)
+      .where(eq(modulesTable.id, manifest.id))
+      .limit(1);
+    if (existing) {
+      await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+      throw new HttpError(409, `Module '${manifest.id}' already exists.`);
+    }
+
+    const modulesPath = this.modulesPath as string;
+    const installDir = join(modulesPath, manifest.id);
     try {
       await fs.rename(tmpDir, installDir);
     } catch {
@@ -741,96 +791,53 @@ export class ModuleService {
     if (!row.source)
       throw new HttpError(
         409,
-        `Module '${id}' has no stored install source and cannot be updated automatically.`,
+        `Module '${id}' has no stored install source and cannot be updated automatically. Only registry-installed modules can be updated.`,
       );
 
-    const buffer = await downloadBinary(row.source, MODULE_DOWNLOAD_MAX_BYTES);
+    let registry: { downloadUrl: string; hash?: string };
+    try {
+      const { resolveModuleRegistry } = await import("@/utils/registry.util");
+      registry = await resolveModuleRegistry(row.source);
+    } catch {
+      throw new HttpError(
+        409,
+        `Module '${id}' source is not a valid registry endpoint. Use PATCH to update with a direct download URL, or reinstall from a registry first.`,
+      );
+    }
+
+    if (registry.hash && registry.hash === row.hash) {
+      return { updated: false };
+    }
+
+    const buffer = await downloadBinary(
+      registry.downloadUrl,
+      MODULE_DOWNLOAD_MAX_BYTES,
+    );
     const newHash = computeBinaryHash(buffer);
 
     if (newHash === row.hash) {
       return { updated: false };
     }
 
-    const decompressed = zstdDecompress(new Uint8Array(buffer));
+    const { manifest, tmpDir } = await this.extractModuleArchive(buffer);
 
-    const tmpDir = await fs.mkdtemp(join(this.modulesPath, ".install-"));
-    let manifest: ModuleManifestSchema;
-
-    try {
-      const { Readable } = await import("node:stream");
-      const { pipeline } = await import("node:stream/promises");
-
-      const readable = Readable.from([Buffer.from(decompressed)]);
-      const unpack = new Unpack({ cwd: tmpDir });
-      await pipeline(readable, unpack);
-
-      const moduleJsonPath = join(tmpDir, "module.json");
-      let rawManifest: string;
-      try {
-        rawManifest = await fs.readFile(moduleJsonPath, "utf8");
-      } catch {
-        throw new HttpError(
-          400,
-          "Archive must contain a 'module.json' at its root.",
-        );
-      }
-
-      let parsedManifest: Record<string, unknown>;
-      try {
-        parsedManifest = JSON.parse(rawManifest) as Record<string, unknown>;
-      } catch {
-        throw new HttpError(400, "module.json contains invalid JSON.");
-      }
-
-      const parsed = moduleManifestSchema.safeParse(parsedManifest);
-      if (!parsed.success) {
-        throw new HttpError(
-          400,
-          `Invalid module manifest: ${parsed.error.message}`,
-        );
-      }
-      manifest = parsed.data;
-
-      if (manifest.id !== id) {
-        throw new HttpError(
-          400,
-          `Module manifest id '${manifest.id}' does not match requested id '${id}'.`,
-        );
-      }
-      if (manifest.type !== row.type) {
-        throw new HttpError(
-          400,
-          `Module manifest type '${manifest.type}' does not match existing type '${row.type}'.`,
-        );
-      }
-
-      const mainPath = resolve(tmpDir, manifest.main);
-      if (!mainPath.startsWith(tmpDir + sep)) {
-        throw new HttpError(
-          400,
-          "Manifest 'main' must point to a file inside the archive.",
-        );
-      }
-      try {
-        const mainStat = await fs.stat(mainPath);
-        if (!mainStat.isFile()) {
-          throw new HttpError(
-            400,
-            "Manifest 'main' must point to a valid file.",
-          );
-        }
-      } catch {
-        throw new HttpError(
-          400,
-          `Manifest 'main' file '${manifest.main}' not found in archive.`,
-        );
-      }
-    } catch (err) {
+    if (manifest.id !== id) {
       await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
-      throw err;
+      throw new HttpError(
+        400,
+        `Module manifest id '${manifest.id}' does not match requested id '${id}'.`,
+      );
+    }
+    if (manifest.type !== row.type) {
+      await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+      throw new HttpError(
+        400,
+        `Module manifest type '${manifest.type}' does not match existing type '${row.type}'.`,
+      );
     }
 
-    const installDir = join(this.modulesPath, manifest.id);
+    const modulesPath = this.modulesPath as string;
+    const installDir = join(modulesPath, manifest.id);
     const backupDir = `${installDir}.bak`;
     await fs.rm(backupDir, { recursive: true, force: true }).catch(() => {});
 
@@ -917,6 +924,144 @@ export class ModuleService {
       logger.warn(
         { err, moduleId: id },
         "Failed to reload active module after update",
+      );
+    }
+
+    return { updated: true };
+  }
+
+  async patchModule(id: string, url: string): Promise<{ updated: boolean }> {
+    if (!this.modulesPath) {
+      throw new HttpError(503, "ModuleService has not been initialized.");
+    }
+
+    const [row] = await db
+      .select({
+        hash: modulesTable.hash,
+        type: modulesTable.type,
+      })
+      .from(modulesTable)
+      .where(eq(modulesTable.id, id))
+      .limit(1)
+      .catch(() => {
+        throw new HttpError(500, `Failed to load module '${id}'.`);
+      });
+
+    if (!row) throw new HttpError(404, `Module '${id}' not found.`);
+
+    const buffer = await downloadBinary(url, MODULE_DOWNLOAD_MAX_BYTES);
+    const newHash = computeBinaryHash(buffer);
+
+    if (newHash === row.hash) {
+      return { updated: false };
+    }
+
+    const { manifest, tmpDir } = await this.extractModuleArchive(buffer);
+
+    if (manifest.id !== id) {
+      await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+      throw new HttpError(
+        400,
+        `Module manifest id '${manifest.id}' does not match requested id '${id}'.`,
+      );
+    }
+    if (manifest.type !== row.type) {
+      await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+      throw new HttpError(
+        400,
+        `Module manifest type '${manifest.type}' does not match existing type '${row.type}'.`,
+      );
+    }
+
+    const modulesPath = this.modulesPath as string;
+    const installDir = join(modulesPath, manifest.id);
+    const backupDir = `${installDir}.bak`;
+    await fs.rm(backupDir, { recursive: true, force: true }).catch(() => {});
+
+    try {
+      await fs.rename(installDir, backupDir);
+    } catch {
+      await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+      throw new HttpError(
+        500,
+        `Failed to back up existing module '${manifest.id}'.`,
+      );
+    }
+
+    try {
+      await fs.rename(tmpDir, installDir);
+    } catch {
+      await fs.rename(backupDir, installDir).catch(() => {});
+      await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+      throw new HttpError(
+        500,
+        `Failed to install updated module '${manifest.id}'.`,
+      );
+    }
+
+    try {
+      const mainPath = resolve(installDir, manifest.main);
+      const imported = (await import(mainPath)) as {
+        instantiate: () => Module;
+      };
+      const configSchema = manifest.configSchema ?? EMPTY_OBJECT_SCHEMA;
+      const secretsSchema = manifest.secretsSchema ?? EMPTY_OBJECT_SCHEMA;
+
+      this.factories.set(manifest.id, {
+        type: manifest.type,
+        configSchema,
+        secretsSchema,
+        instantiate: imported.instantiate,
+      });
+      this.manifests.set(manifest.id, {
+        id: manifest.id,
+        name: manifest.name,
+        description: manifest.description,
+        type: manifest.type,
+        isBuiltin: false,
+        configSchema,
+        secretsSchema,
+      });
+    } catch (err) {
+      await fs.rm(installDir, { recursive: true, force: true }).catch(() => {});
+      await fs.rename(backupDir, installDir).catch(() => {});
+      this.factories.delete(manifest.id);
+      this.manifests.delete(manifest.id);
+      throw new HttpError(
+        500,
+        `Failed to register updated module '${manifest.id}': ${err instanceof Error ? err.message : "Unknown error"}`,
+      );
+    }
+
+    try {
+      await db
+        .update(modulesTable)
+        .set({
+          name: manifest.name,
+          description: manifest.description,
+          hash: newHash,
+          source: "",
+        })
+        .where(eq(modulesTable.id, id));
+    } catch {
+      await fs.rm(installDir, { recursive: true, force: true }).catch(() => {});
+      await fs.rename(backupDir, installDir).catch(() => {});
+      this.factories.delete(manifest.id);
+      this.manifests.delete(manifest.id);
+      throw new HttpError(
+        500,
+        `Failed to persist updated module '${id}' in database.`,
+      );
+    }
+
+    await fs.rm(backupDir, { recursive: true, force: true }).catch(() => {});
+
+    try {
+      await this.reloadIfActive(id);
+    } catch (err) {
+      logger.warn(
+        { err, moduleId: id },
+        "Failed to reload active module after patch",
       );
     }
 
@@ -1265,6 +1410,81 @@ export class ModuleService {
       );
     }
     return factory;
+  }
+
+  private async extractModuleArchive(
+    buffer: Uint8Array,
+  ): Promise<{ manifest: ModuleManifestSchema; tmpDir: string }> {
+    if (!this.modulesPath) {
+      throw new HttpError(503, "ModuleService has not been initialized.");
+    }
+
+    const decompressed = zstdDecompress(new Uint8Array(buffer));
+
+    const tmpDir = await fs.mkdtemp(join(this.modulesPath, ".install-"));
+
+    try {
+      const { Readable } = await import("node:stream");
+      const { pipeline } = await import("node:stream/promises");
+
+      const readable = Readable.from([Buffer.from(decompressed)]);
+      const unpack = new Unpack({ cwd: tmpDir });
+      await pipeline(readable, unpack);
+
+      const moduleJsonPath = join(tmpDir, "module.json");
+      let rawManifest: string;
+      try {
+        rawManifest = await fs.readFile(moduleJsonPath, "utf8");
+      } catch {
+        throw new HttpError(
+          400,
+          "Archive must contain a 'module.json' at its root.",
+        );
+      }
+
+      let parsedManifest: Record<string, unknown>;
+      try {
+        parsedManifest = JSON.parse(rawManifest) as Record<string, unknown>;
+      } catch {
+        throw new HttpError(400, "module.json contains invalid JSON.");
+      }
+
+      const parsed = moduleManifestSchema.safeParse(parsedManifest);
+      if (!parsed.success) {
+        throw new HttpError(
+          400,
+          `Invalid module manifest: ${parsed.error.message}`,
+        );
+      }
+      const manifest = parsed.data;
+
+      const mainPath = resolve(tmpDir, manifest.main);
+      if (!mainPath.startsWith(tmpDir + sep)) {
+        throw new HttpError(
+          400,
+          "Manifest 'main' must point to a file inside the archive.",
+        );
+      }
+      try {
+        const mainStat = await fs.stat(mainPath);
+        if (!mainStat.isFile()) {
+          throw new HttpError(
+            400,
+            "Manifest 'main' must point to a valid file.",
+          );
+        }
+      } catch {
+        throw new HttpError(
+          400,
+          `Manifest 'main' file '${manifest.main}' not found in archive.`,
+        );
+      }
+
+      return { manifest, tmpDir };
+    } catch (err) {
+      await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+      throw err;
+    }
   }
 
   private registerBuiltinModules(): void {

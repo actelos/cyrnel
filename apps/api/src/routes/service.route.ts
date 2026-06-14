@@ -1,13 +1,15 @@
 import { type Router as ExpressRouter, Router } from "express";
 
 import {
-  createService,
+  createServiceDirect,
   deleteService,
   getService,
   getServiceConfiguration,
   getServiceConfigurationSchema,
   getServiceSecretsSchema,
+  installServiceRegistry,
   listServices,
+  patchService,
   patchServiceConfiguration,
   patchServiceSecrets,
   setServiceEnabled,
@@ -18,8 +20,10 @@ export const serviceRouter: ExpressRouter = Router();
 
 serviceRouter.get("/", listServices);
 serviceRouter.get("/:serviceId", getService);
-serviceRouter.post("/install", createService);
+serviceRouter.post("/", createServiceDirect);
+serviceRouter.post("/install", installServiceRegistry);
 serviceRouter.post("/:serviceId/update", updateService);
+serviceRouter.patch("/:serviceId", patchService);
 serviceRouter.post("/:serviceId/enabled", setServiceEnabled);
 serviceRouter.delete("/:serviceId", deleteService);
 
