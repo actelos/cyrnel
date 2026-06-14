@@ -87,6 +87,9 @@ export class ServicesService {
             input?.enabled !== undefined
               ? eq(services.enabled, input.enabled)
               : undefined,
+            input?.adapter !== undefined
+              ? eq(services.adapter, input.adapter)
+              : undefined,
             normalizedQuery
               ? or(
                   like(services.id, `%${normalizedQuery}%`),

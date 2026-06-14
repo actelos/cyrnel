@@ -1,7 +1,3 @@
-## I have read the [CONTRIBUTING.md](/CONTRIBUTING.md) file.
-
-YES/NO
-
 ## What kind of change does this PR introduce?
 
 Bug fix, feature, docs update, ...

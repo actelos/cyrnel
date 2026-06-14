@@ -2,3 +2,5 @@
 .turbo
 .pnpm-store
 node_modules
+dist
+build

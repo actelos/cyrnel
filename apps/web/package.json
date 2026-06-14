@@ -1,18 +1,50 @@
 {
   "name": "@cyrnel/web",
-  "private": true,
+  "version": "1.0.0",
+  "description": "Cyrnel local web dashboard",
+  "keywords": [
+    "cyrnel",
+    "dashboard"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/actelos/cyrnel.git",
+    "directory": "apps/web"
+  },
+  "homepage": "https://github.com/actelos/cyrnel/blob/main/apps/web/README.md",
+  "author": "0x15ba88ff",
+  "license": "MIT",
   "type": "module",
+  "main": "./dist/server/index.js",
+  "types": "./dist/server/index.d.ts",
+  "bin": {
+    "cyrnel-web": "./dist/server/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/server/index.d.ts",
+      "import": "./dist/server/index.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
-    "start": "vite preview",
-    "check": "biome check .",
-    "check:fix": "biome check --write .",
-    "typecheck": "tsc --noEmit"
+    "build": "vite build && tsc -p tsconfig.server.json",
+    "preview": "vite preview",
+    "start": "node dist/server/index.js",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm run build"
   },
-  "packageManager": "pnpm@10.30.3",
   "dependencies": {
     "@fontsource-variable/inter": "^5.2.8",
+    "@radix-ui/react-collapsible": "^1.1.13",
+    "@radix-ui/react-slot": "^1.2.5",
+    "@radix-ui/react-tooltip": "^1.2.9",
     "@tailwindcss/vite": "^4.3.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -20,8 +52,12 @@
     "radix-ui": "^1.5.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
+    "react-markdown": "^10.1.0",
     "react-router-dom": "^7.17.0",
+    "remark-gfm": "^4.0.1",
     "shadcn": "^4.11.0",
+    "sirv": "^3.0.2",
+    "sonner": "^2.0.7",
     "swr": "^2.4.1",
     "tailwind-merge": "^3.6.0",
     "tailwindcss": "^4.3.0",
@@ -29,12 +65,12 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.4.16",
     "@types/node": "^25.9.2",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.2",
     "typescript": "~6.0.3",
     "vite": "^8.0.16"
-  }
+  },
+  "packageManager": "pnpm@10.30.3"
 }

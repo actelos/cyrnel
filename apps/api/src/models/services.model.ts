@@ -20,6 +20,7 @@ export interface ListServicesInput {
   query?: string;
   limit?: number;
   enabled?: boolean;
+  adapter?: string;
 }
 
 export type ListServiceDefinitionResult = Omit<

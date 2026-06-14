@@ -1,4 +1,4 @@
-import { Copy, Play, Plus, RotateCcw, Trash2 } from "lucide-react";
+import { Copy, Play, Plus, RotateCcw, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { z } from "zod";
@@ -51,6 +51,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { useNotification } from "@/hooks/use-notification";
 import {
   apiFetch,
   apiFetchJson,
@@ -64,11 +65,11 @@ import { cn } from "@/lib/utils";
 const processStateSchema = z.enum(["idle", "queued", "running", "terminating"]);
 
 const processExitStateSchema = z.union([
+  z.null(),
   z.literal("failed"),
   z.literal("success"),
   z.literal("timeout"),
   z.literal("canceled"),
-  z.null(),
 ]);
 
 const processSchema = z.object({
@@ -112,11 +113,11 @@ const filterSchema = z.object({
   state: processStateSchema.optional(),
   status: z
     .union([
+      z.literal("null"),
       z.literal("failed"),
       z.literal("success"),
       z.literal("timeout"),
       z.literal("canceled"),
-      z.literal("null"),
     ])
     .optional(),
 });
@@ -157,12 +158,14 @@ export default function ProcessesPage() {
   const [createRef, setCreateRef] = useState("");
   const [createTimeout, setCreateTimeout] = useState("");
   const [createErrors, setCreateErrors] = useState<CreateProcessErrors>({});
+  const { addNotification } = useNotification();
   const [isCreating, setIsCreating] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
   const [restartCandidate, setRestartCandidate] = useState<Process | null>(
     null,
   );
   const [isRestartDialogOpen, setIsRestartDialogOpen] = useState(false);
+  const [deleteCandidate, setDeleteCandidate] = useState<Process | null>(null);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
 
   const parsedFilters = useMemo(() => {
     const raw = {
@@ -278,6 +281,10 @@ export default function ProcessesPage() {
     return process.state === "idle";
   };
 
+  const canDelete = (process: Process) => {
+    return process.state === "idle";
+  };
+
   const needsRestartConfirmation = (process: Process) => {
     return process.state === "idle" && process.exitState !== null;
   };
@@ -321,9 +328,16 @@ export default function ProcessesPage() {
       setCreateTimeout("");
       setIsCreateOpen(false);
       await mutate(processesUrl);
+      addNotification({
+        type: "success",
+        title: "Success",
+        message: "Process created.",
+      });
     } catch (error) {
-      setCreateErrors({
-        form: errorMessageFrom(error, "Unable to create process."),
+      addNotification({
+        type: "error",
+        title: "Error",
+        message: errorMessageFrom(error, "Unable to create process."),
       });
     } finally {
       setIsCreating(false);
@@ -331,7 +345,6 @@ export default function ProcessesPage() {
   };
 
   const handleRunProcess = async (process: Process, force: boolean) => {
-    setActionError(null);
     try {
       await apiFetch(buildUrl(`/processes/${process.pid}/signals/run`), {
         method: "POST",
@@ -339,13 +352,21 @@ export default function ProcessesPage() {
         body: JSON.stringify({ force }),
       });
       await mutate(processesUrl);
+      addNotification({
+        type: "success",
+        title: "Success",
+        message: "Process started.",
+      });
     } catch (error) {
-      setActionError(errorMessageFrom(error, "Unable to restart process."));
+      addNotification({
+        type: "error",
+        title: "Error",
+        message: errorMessageFrom(error, "Unable to start process."),
+      });
     }
   };
 
   const handleKillProcess = async (process: Process) => {
-    setActionError(null);
     try {
       await apiFetch(buildUrl(`/processes/${process.pid}/signals/kill`), {
         method: "POST",
@@ -353,8 +374,37 @@ export default function ProcessesPage() {
         body: JSON.stringify({}),
       });
       await mutate(processesUrl);
+      addNotification({
+        type: "success",
+        title: "Success",
+        message: "Process terminated.",
+      });
     } catch (error) {
-      setActionError(errorMessageFrom(error, "Unable to kill process."));
+      addNotification({
+        type: "error",
+        title: "Error",
+        message: errorMessageFrom(error, "Unable to kill process."),
+      });
+    }
+  };
+
+  const handleDeleteProcess = async (process: Process) => {
+    try {
+      await apiFetch(buildUrl(`/processes/${process.pid}`), {
+        method: "DELETE",
+      });
+      await mutate(processesUrl);
+      addNotification({
+        type: "success",
+        title: "Success",
+        message: "Process deleted.",
+      });
+    } catch (error) {
+      addNotification({
+        type: "error",
+        title: "Error",
+        message: errorMessageFrom(error, "Unable to delete process."),
+      });
     }
   };
 
@@ -370,7 +420,7 @@ export default function ProcessesPage() {
             <div className="space-y-1">
               <h1 className="text-xl font-semibold">Processes</h1>
               <p className="text-muted-foreground text-sm">
-                Monitor and inspect processes and their outputs.
+                Monitor, inspect and interact with processes.
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -440,11 +490,6 @@ export default function ProcessesPage() {
                           </p>
                         ) : null}
                       </div>
-                      {createErrors.form ? (
-                        <p className="text-xs text-destructive">
-                          {createErrors.form}
-                        </p>
-                      ) : null}
                     </div>
                     <div className="flex items-center justify-end gap-2">
                       <Button
@@ -524,7 +569,26 @@ export default function ProcessesPage() {
                 type="button"
                 variant="outline"
                 className="gap-2"
-                onClick={() => void mutate(processesUrl)}
+                onClick={() => {
+                  mutate(processesUrl)
+                    .then(() => {
+                      addNotification({
+                        type: "success",
+                        title: "Success",
+                        message: "Processes refreshed.",
+                      });
+                    })
+                    .catch((error) => {
+                      addNotification({
+                        type: "error",
+                        title: "Error",
+                        message: errorMessageFrom(
+                          error,
+                          "Failed to refresh processes.",
+                        ),
+                      });
+                    });
+                }}
                 aria-label="Refresh processes"
               >
                 <RotateCcw />
@@ -533,8 +597,8 @@ export default function ProcessesPage() {
           </div>
         </header>
         <div className="flex min-h-0 flex-1 flex-col gap-6 lg:flex-row">
-          <Card className="flex min-h-0 flex-1 flex-col">
-            <CardHeader className="flex flex-row items-center justify-between">
+          <Card className="flex min-h-0 max-h-[calc(100vh-3rem)] flex-1 flex-col lg:max-h-[calc(100vh-10.8rem)]">
+            <CardHeader className="flex w-full items-center justify-between">
               <CardTitle>Processes</CardTitle>
               <div className="w-max px-2 bg-muted border-1 border-border">
                 {isLoadingProcesses
@@ -560,7 +624,7 @@ export default function ProcessesPage() {
                         key={process.pid}
                         className={cn(
                           "cursor-pointer",
-                          process.pid === selectedPid ? "bg-muted/50" : "",
+                          process.pid === selectedPid ? "bg-primary/10" : "",
                         )}
                         onClick={() => setSelectedPid(process.pid)}
                       >
@@ -603,13 +667,11 @@ export default function ProcessesPage() {
                                 if (!canRun(process)) {
                                   return;
                                 }
-
                                 if (needsRestartConfirmation(process)) {
                                   setRestartCandidate(process);
                                   setIsRestartDialogOpen(true);
                                   return;
                                 }
-
                                 void handleRunProcess(process, false);
                               }}
                             >
@@ -629,6 +691,23 @@ export default function ProcessesPage() {
                                 void handleKillProcess(process);
                               }}
                             >
+                              <X />
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              className="h-8 w-8 p-0 text-destructive"
+                              aria-label="Delete process"
+                              disabled={!canDelete(process)}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                if (!canDelete(process)) {
+                                  return;
+                                }
+                                setDeleteCandidate(process);
+                                setIsDeleteDialogOpen(true);
+                              }}
+                            >
                               <Trash2 />
                             </Button>
                           </div>
@@ -642,14 +721,11 @@ export default function ProcessesPage() {
                     Failed to load processes.
                   </p>
                 ) : null}
-                {actionError ? (
-                  <p className="p-4 text-sm text-destructive">{actionError}</p>
-                ) : null}
               </ScrollArea>
             </CardContent>
           </Card>
           <aside className="flex w-full min-h-0 flex-col gap-4 lg:w-[22rem]">
-            <Card className="flex min-h-0 flex-1 flex-col">
+            <Card className="flex min-h-0 max-h-[calc(100vh-3rem)] flex-1 flex-col overflow-hidden lg:max-h-[calc(100vh-10.8rem)]">
               <CardHeader>
                 <CardTitle>Process details</CardTitle>
                 <CardDescription>
@@ -798,12 +874,13 @@ export default function ProcessesPage() {
             <AlertDialogTitle>Restart process?</AlertDialogTitle>
             <AlertDialogDescription>
               This process has existing outputs. Restarting will overwrite prior
-              stdout, stderr, and output unless you cancel.
+              outputs unless you cancel.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
+              variant="destructive"
               onClick={() => {
                 if (!restartCandidate) {
                   return;
@@ -813,7 +890,43 @@ export default function ProcessesPage() {
                 setRestartCandidate(null);
               }}
             >
-              Restart with force
+              Restart
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={isDeleteDialogOpen}
+        onOpenChange={(open) => {
+          setIsDeleteDialogOpen(open);
+          if (!open) {
+            setDeleteCandidate(null);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete process?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. The process record and its outputs
+              will be permanently removed.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                if (!deleteCandidate) {
+                  return;
+                }
+                void handleDeleteProcess(deleteCandidate);
+                setIsDeleteDialogOpen(false);
+                setDeleteCandidate(null);
+              }}
+            >
+              Delete
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
