@@ -20,15 +20,16 @@ import { logger } from "@/logger";
 import { HttpError } from "@/models/error.model";
 import type { GenerateDefinitionInput } from "@/models/modules.model";
 import type {
+  DirectInstallServiceInput,
   GetServiceDefinitionResult,
   GetToolInput,
   GetToolsResult,
-  InstallServiceDefinitionInput,
   ListServiceDefinitionResult,
   ListServicesInput,
   ListToolsInput,
   ListToolsResult,
   PatchInput,
+  RegistryInstallServiceInput,
   SetServiceEnabledInput,
   SetToolEnablesInput,
 } from "@/models/services.model";
@@ -249,7 +250,7 @@ export class ServicesService {
     return this.controller.generateToolDocs(docsInput);
   }
 
-  async createService(input: InstallServiceDefinitionInput): Promise<void> {
+  async createServiceDirect(input: DirectInstallServiceInput): Promise<void> {
     if (!IDENTIFIER_SCHEMA.safeParse(input.id).success) {
       throw new HttpError(
         400,
@@ -257,7 +258,7 @@ export class ServicesService {
       );
     }
 
-    const definitionContent = await this.downloadDefinition(input.source);
+    const definitionContent = await this.downloadDefinition(input.url);
     const hash = computeContentHash(definitionContent);
     const generatedDefinition = await this.controller.generateDefinition({
       definition: definitionContent,
@@ -279,7 +280,7 @@ export class ServicesService {
           ...generatedDefinition,
           id: input.id,
           hash,
-          source: input.source,
+          source: "",
           adapter: input.adapter,
           enabled: false,
         });
@@ -297,6 +298,90 @@ export class ServicesService {
       }
       throw new HttpError(500, `Failed to create service '${input.id}'.`);
     }
+  }
+
+  async createServiceFromRegistry(
+    input: RegistryInstallServiceInput,
+  ): Promise<string> {
+    const { resolveServiceRegistry } = await import("@/utils/registry.util");
+    const registry = await resolveServiceRegistry(input.source);
+
+    const effectiveId = input.id ?? registry.id;
+    const effectiveAdapter = input.adapter ?? registry.adapter;
+
+    if (!effectiveId) {
+      throw new HttpError(
+        400,
+        "Service id must be provided either in the request body or by the registry.",
+      );
+    }
+
+    if (!effectiveAdapter) {
+      throw new HttpError(
+        400,
+        "Adapter must be provided either in the request body or by the registry.",
+      );
+    }
+
+    if (!IDENTIFIER_SCHEMA.safeParse(effectiveId).success) {
+      throw new HttpError(
+        400,
+        `Service id '${effectiveId}' must be a valid TypeScript identifier.`,
+      );
+    }
+
+    const definitionContent = await this.downloadDefinition(
+      registry.downloadUrl,
+    );
+    const contentHash = computeContentHash(definitionContent);
+
+    if (registry.hash && contentHash !== registry.hash) {
+      throw new HttpError(
+        400,
+        "Definition content hash does not match registry metadata hash.",
+      );
+    }
+
+    const generatedDefinition = await this.controller.generateDefinition({
+      definition: definitionContent,
+      adapter: effectiveAdapter,
+    });
+
+    for (const tool of generatedDefinition.tools) {
+      if (!IDENTIFIER_SCHEMA.safeParse(tool.id).success) {
+        throw new HttpError(
+          400,
+          `Tool id '${tool.id}' must be a valid TypeScript identifier.`,
+        );
+      }
+    }
+
+    try {
+      await db.transaction(async (tx) => {
+        await tx.insert(services).values({
+          ...generatedDefinition,
+          id: effectiveId,
+          hash: contentHash,
+          source: input.source,
+          adapter: effectiveAdapter,
+          enabled: false,
+        });
+        await tx.insert(tools).values(
+          generatedDefinition.tools.map((tool) => ({
+            ...tool,
+            serviceId: effectiveId,
+            enabled: true,
+          })),
+        );
+      });
+    } catch (error) {
+      if (isUniqueConstraintError(error)) {
+        throw new HttpError(409, `Service '${effectiveId}' already exists.`);
+      }
+      throw new HttpError(500, `Failed to create service '${effectiveId}'.`);
+    }
+
+    return effectiveId;
   }
 
   async updateService(id: string): Promise<void> {
@@ -317,10 +402,31 @@ export class ServicesService {
     if (!service.source)
       throw new HttpError(
         409,
-        `Service '${id}' has no stored install source and cannot be updated automatically.`,
+        `Service '${id}' has no stored install source and cannot be updated automatically. Only registry-installed services can be updated.`,
       );
 
-    const definitionContent = await this.downloadDefinition(service.source);
+    let registry: { downloadUrl: string; hash?: string };
+    try {
+      const { resolveServiceRegistry } = await import("@/utils/registry.util");
+      registry = await resolveServiceRegistry(service.source);
+    } catch (err) {
+      if (err instanceof HttpError) {
+        throw new HttpError(
+          err.statusCode,
+          `Service '${id}' registry source error: ${err.message}. Use PATCH to update with a direct download URL, or reinstall from a registry first.`,
+        );
+      }
+      throw new HttpError(
+        502,
+        `Service '${id}' registry source is unreachable. Use PATCH to update with a direct download URL, or reinstall from a registry first.`,
+      );
+    }
+
+    if (registry.hash && registry.hash === service.hash) return;
+
+    const definitionContent = await this.downloadDefinition(
+      registry.downloadUrl,
+    );
     const hash = computeContentHash(definitionContent);
 
     if (hash === service.hash) return;
@@ -379,6 +485,86 @@ export class ServicesService {
         "Failed to dehydrate service on update",
       );
     }
+  }
+
+  async patchService(id: string, url: string): Promise<{ updated: boolean }> {
+    const [service] = await db
+      .select({
+        adapter: services.adapter,
+        hash: services.hash,
+      })
+      .from(services)
+      .where(eq(services.id, id))
+      .limit(1)
+      .catch(() => {
+        throw new HttpError(500, `Failed to load service '${id}'.`);
+      });
+
+    if (!service) throw new HttpError(404, `Service '${id}' not found.`);
+
+    const definitionContent = await this.downloadDefinition(url);
+    const hash = computeContentHash(definitionContent);
+
+    if (hash === service.hash) {
+      return { updated: false };
+    }
+
+    const generatedDefinition = await this.controller.generateDefinition({
+      definition: definitionContent,
+      adapter: service.adapter,
+    });
+
+    for (const tool of generatedDefinition.tools) {
+      if (!IDENTIFIER_SCHEMA.safeParse(tool.id).success) {
+        throw new HttpError(
+          400,
+          `Tool id '${tool.id}' must be a valid TypeScript identifier.`,
+        );
+      }
+    }
+
+    try {
+      await db.transaction(async (tx) => {
+        const existingTools = await tx
+          .select({ name: tools.name, enabled: tools.enabled })
+          .from(tools)
+          .where(eq(tools.serviceId, id));
+
+        const enabledMap = new Map(
+          existingTools.map((t) => [t.name, t.enabled]),
+        );
+
+        await tx
+          .update(services)
+          .set({ ...generatedDefinition, hash, source: "", enabled: false })
+          .where(eq(services.id, id));
+
+        await tx.delete(tools).where(eq(tools.serviceId, id));
+
+        if (generatedDefinition.tools.length) {
+          await tx.insert(tools).values(
+            generatedDefinition.tools.map((tool) => ({
+              ...tool,
+              serviceId: id,
+              enabled: enabledMap.get(tool.name) ?? false,
+            })),
+          );
+        }
+      });
+    } catch {
+      throw new HttpError(500, `Failed to patch service '${id}'.`);
+    }
+
+    try {
+      await this.controller.dehydrateService(service.adapter, id);
+    } catch (err) {
+      logger.warn(
+        { err, adapterId: service.adapter, serviceId: id },
+        "Failed to dehydrate service on patch",
+      );
+    }
+
+    return { updated: true };
   }
 
   async deleteService(id: string): Promise<void> {

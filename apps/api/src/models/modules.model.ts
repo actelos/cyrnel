@@ -54,6 +54,19 @@ export interface PatchModuleSecretsInput {
   patch: Operation[];
 }
 
+export interface DirectInstallModuleInput {
+  url: string;
+}
+
+export interface PatchModuleSourceInput {
+  id: string;
+  url: string;
+}
+
+export interface RegistryInstallModuleInput {
+  source: string;
+}
+
 export const moduleManifestSchema = z.object({
   id: z.string().regex(/^[A-Za-z_$][A-Za-z0-9_$-]*$/),
   name: z.string().min(1),

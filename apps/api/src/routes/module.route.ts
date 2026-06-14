@@ -1,6 +1,7 @@
 import { type Router as ExpressRouter, Router } from "express";
 
 import {
+  createModule,
   deleteModule,
   getModule,
   getModuleConfiguration,
@@ -8,6 +9,7 @@ import {
   getModuleSecretsSchema,
   installModule,
   listModules,
+  patchModule,
   patchModuleConfiguration,
   patchModuleSecrets,
   reloadModules,
@@ -19,9 +21,11 @@ export const moduleRouter: ExpressRouter = Router();
 
 moduleRouter.get("/", listModules);
 moduleRouter.get("/:moduleId", getModule);
+moduleRouter.post("/", createModule);
 moduleRouter.post("/reload", reloadModules);
 moduleRouter.post("/install", installModule);
 moduleRouter.post("/:moduleId/update", updateModule);
+moduleRouter.patch("/:moduleId", patchModule);
 moduleRouter.post("/:moduleId/enabled", setModuleEnabled);
 moduleRouter.delete("/:moduleId", deleteModule);
 

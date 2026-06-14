@@ -63,10 +63,21 @@ export interface GetToolsResult
   effectivelyEnabled: boolean;
 }
 
-export interface InstallServiceDefinitionInput {
+export interface DirectInstallServiceInput {
   id: string;
-  source: string;
+  url: string;
   adapter: string;
+}
+
+export interface RegistryInstallServiceInput {
+  source: string;
+  adapter?: string;
+  id?: string;
+}
+
+export interface PatchServiceSourceInput {
+  id: string;
+  url: string;
 }
 
 export interface SetServiceEnabledInput {
