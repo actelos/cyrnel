@@ -1,176 +1,176 @@
 {
-	"$schema": "https://mintlify.com/docs.json",
-	"theme": "mint",
-	"name": "Cyrnel",
-	"colors": {
-		"primary": "#a995c9",
-		"light": "#8a79ab",
-		"dark": "#a995c9"
-	},
-	"favicon": "/favicon.svg",
-	"navigation": {
-		"products": [
-			{
-				"product": "cyrnel",
-				"anchors": [
-					{
-						"anchor": "Documentation",
-						"icon": "book-open",
-						"tabs": [
-							{
-								"tab": "Getting Started"
-							},
-							{
-								"tab": "Documentation",
-								"groups": [
-									{
-										"group": "Overview",
-										"pages": [
-											"cyrnel/docs/introduction",
-											"cyrnel/docs/faq",
-											"cyrnel/docs/comparison"
-										]
-									},
-									{
-										"group": "Architecture",
-										"pages": [
-											"cyrnel/docs/architecture",
-											"cyrnel/docs/transport",
-											"cyrnel/docs/security"
-										]
-									},
-									{
-										"group": "Concepts",
-										"pages": [
-											"cyrnel/docs/processes",
-											"cyrnel/docs/services",
-											"cyrnel/docs/tools",
-											{
-												"group": "Modules",
-												"pages": [
-													"cyrnel/docs/modules",
-													"cyrnel/docs/adapters-modules",
-													"cyrnel/docs/environments-modules"
-												]
-											}
-										]
-									}
-								]
-							},
-							{
-								"tab": "Specification",
-								"groups": [
-									{
-										"group": "Overview",
-										"pages": ["cyrnel/specs/overview", "cyrnel/specs/types"]
-									},
-									{
-										"group": "Module Interfaces",
-										"pages": [
-											"cyrnel/specs/module",
-											"cyrnel/specs/adapter-module",
-											"cyrnel/specs/environment-module"
-										]
-									},
-									{
-										"group": "Runtime Contracts",
-										"pages": [
-											"cyrnel/specs/environment-bindings",
-											"cyrnel/specs/environment-execution"
-										]
-									},
-									{
-										"group": "Authoring",
-										"pages": [
-											"cyrnel/specs/writing-custom-modules",
-											"cyrnel/specs/writing-custom-adapter-module",
-											"cyrnel/specs/writing-custom-environment-module"
-										]
-									}
-								]
-							},
-							{
-								"tab": "API Reference",
-								"openapi": "./cyrnel/openapi.json"
-							},
-							{
-								"tab": "Registry"
-							}
-						]
-					},
-					{
-						"anchor": "Blog",
-						"icon": "newspaper",
-						"href": "https://actelos.github.io/blog/"
-					}
-				]
-			}
-		]
-	},
-	"logo": {
-		"light": "/logo/light.svg",
-		"dark": "/logo/dark.svg",
-		"href": "/"
-	},
-	"navbar": {
-		"links": []
-	},
-	"contextual": {
-		"options": [
-			"copy",
-			"view",
-			"chatgpt",
-			"claude",
-			"perplexity",
-			"mcp",
-			"cursor",
-			"vscode",
-			"assistant",
-			"download-pdf",
-			"download-spec",
-			"devin-mcp",
-			"add-mcp",
-			"windsurf",
-			"devin",
-			"aistudio",
-			"grok"
-		]
-	},
-	"footer": {
-		"socials": {
-			"github": "https://github.com/actelos"
-		}
-	},
-	"description": "Cyrnel is software that enables secure, fast, reliable, and efficient integration\nbetween LLM applications and external services.\n\nCyrnel is an interface that lets users plug in any service over any protocol with\nany standard and have models use it efficiently at low cost.\n\nRather than a USB-C for AI applications, think of cyrnel as a modular docking\nstation. Instead of expecting all devices to use USB-C ports, we have one\npowerful docking station that can connect to any port and communicate with any\nservice. If your port isn't on the existing docking station, just make an\nextension for it.",
-	"seo": {
-		"indexing": "all"
-	},
-	"metadata": {
-		"timestamp": true
-	},
-	"interaction": {
-		"drilldown": true
-	},
-	"api": {
-		"playground": {
-			"display": "interactive"
-		}
-	},
-	"background": {
-		"decoration": "grid",
-		"color": {
-			"light": "#f8f7fa",
-			"dark": "#1a1823"
-		}
-	},
-	"appearance": {
-		"default": "system"
-	},
-	"styling": {
-		"latex": true,
-		"eyebrows": "breadcrumbs"
-	},
-	"icons": {
-		"library": "lucide"
-	}
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Cyrnel",
+  "colors": {
+    "primary": "#a995c9",
+    "light": "#8a79ab",
+    "dark": "#a995c9"
+  },
+  "favicon": "/favicon.svg",
+  "navigation": {
+    "products": [
+      {
+        "product": "cyrnel",
+        "anchors": [
+          {
+            "anchor": "Documentation",
+            "icon": "book-open",
+            "tabs": [
+              {
+                "tab": "Getting Started"
+              },
+              {
+                "tab": "Documentation",
+                "groups": [
+                  {
+                    "group": "Overview",
+                    "pages": [
+                      "cyrnel/docs/introduction",
+                      "cyrnel/docs/faq",
+                      "cyrnel/docs/comparison"
+                    ]
+                  },
+                  {
+                    "group": "Architecture",
+                    "pages": [
+                      "cyrnel/docs/architecture",
+                      "cyrnel/docs/transport",
+                      "cyrnel/docs/security"
+                    ]
+                  },
+                  {
+                    "group": "Concepts",
+                    "pages": [
+                      "cyrnel/docs/processes",
+                      "cyrnel/docs/services",
+                      "cyrnel/docs/tools",
+                      {
+                        "group": "Modules",
+                        "pages": [
+                          "cyrnel/docs/modules",
+                          "cyrnel/docs/adapters-modules",
+                          "cyrnel/docs/environments-modules"
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "tab": "Specification",
+                "groups": [
+                  {
+                    "group": "Overview",
+                    "pages": ["cyrnel/specs/overview", "cyrnel/specs/types"]
+                  },
+                  {
+                    "group": "Module Interfaces",
+                    "pages": [
+                      "cyrnel/specs/module",
+                      "cyrnel/specs/adapter-module",
+                      "cyrnel/specs/environment-module"
+                    ]
+                  },
+                  {
+                    "group": "Runtime Contracts",
+                    "pages": [
+                      "cyrnel/specs/environment-bindings",
+                      "cyrnel/specs/environment-execution"
+                    ]
+                  },
+                  {
+                    "group": "Authoring",
+                    "pages": [
+                      "cyrnel/specs/writing-custom-modules",
+                      "cyrnel/specs/writing-custom-adapter-module",
+                      "cyrnel/specs/writing-custom-environment-module"
+                    ]
+                  }
+                ]
+              },
+              {
+                "tab": "API Reference",
+                "openapi": "./cyrnel/openapi.json"
+              },
+              {
+                "tab": "Registry"
+              }
+            ]
+          },
+          {
+            "anchor": "Blog",
+            "icon": "newspaper",
+            "href": "https://actelos.github.io/blog/"
+          }
+        ]
+      }
+    ]
+  },
+  "logo": {
+    "light": "/logo/light.svg",
+    "dark": "/logo/dark.svg",
+    "href": "/"
+  },
+  "navbar": {
+    "links": []
+  },
+  "contextual": {
+    "options": [
+      "copy",
+      "view",
+      "chatgpt",
+      "claude",
+      "perplexity",
+      "mcp",
+      "cursor",
+      "vscode",
+      "assistant",
+      "download-pdf",
+      "download-spec",
+      "devin-mcp",
+      "add-mcp",
+      "windsurf",
+      "devin",
+      "aistudio",
+      "grok"
+    ]
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/actelos"
+    }
+  },
+  "description": "Cyrnel is software that enables secure, fast, reliable, and efficient integration\nbetween LLM applications and external services.\n\nCyrnel is an interface that lets users plug in any service over any protocol with\nany standard and have models use it efficiently at low cost.\n\nRather than a USB-C for AI applications, think of cyrnel as a modular docking\nstation. Instead of expecting all devices to use USB-C ports, we have one\npowerful docking station that can connect to any port and communicate with any\nservice. If your port isn't on the existing docking station, just make an\nextension for it.",
+  "seo": {
+    "indexing": "all"
+  },
+  "metadata": {
+    "timestamp": true
+  },
+  "interaction": {
+    "drilldown": true
+  },
+  "api": {
+    "playground": {
+      "display": "interactive"
+    }
+  },
+  "background": {
+    "decoration": "grid",
+    "color": {
+      "light": "#f8f7fa",
+      "dark": "#1a1823"
+    }
+  },
+  "appearance": {
+    "default": "system"
+  },
+  "styling": {
+    "latex": true,
+    "eyebrows": "breadcrumbs"
+  },
+  "icons": {
+    "library": "lucide"
+  }
 }

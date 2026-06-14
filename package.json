@@ -1,22 +1,22 @@
 {
-	"scripts": {
-		"dev": "turbo dev",
-		"build": "turbo build",
-		"start": "turbo start",
-		"test": "turbo test",
-		"check": "biome check .",
-		"check:fix": "biome check --write .",
-		"typecheck": "turbo typecheck"
-	},
-	"packageManager": "pnpm@10.30.3",
-	"pnpm": {
-		"overrides": {
-			"esbuild": ">=0.25.0"
-		}
-	},
-	"devDependencies": {
-		"@biomejs/biome": "2.5.0",
-		"@changesets/cli": "^2.31.0",
-		"turbo": "^2.9.17"
-	}
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "start": "turbo start",
+    "test": "turbo test",
+    "check": "biome check .",
+    "check:fix": "biome check --write .",
+    "typecheck": "turbo typecheck"
+  },
+  "packageManager": "pnpm@10.30.3",
+  "pnpm": {
+    "overrides": {
+      "esbuild": ">=0.25.0"
+    }
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.0",
+    "@changesets/cli": "^2.31.0",
+    "turbo": "^2.9.17"
+  }
 }
