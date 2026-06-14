@@ -876,6 +876,9 @@ export class ModuleService {
       );
     }
 
+    const prevFactory = this.factories.get(manifest.id);
+    const prevManifest = this.manifests.get(manifest.id);
+
     try {
       const mainPath = resolve(installDir, manifest.main);
       const imported = (await import(mainPath)) as {
@@ -902,8 +905,10 @@ export class ModuleService {
     } catch (err) {
       await fs.rm(installDir, { recursive: true, force: true }).catch(() => {});
       await fs.rename(backupDir, installDir).catch(() => {});
-      this.factories.delete(manifest.id);
-      this.manifests.delete(manifest.id);
+      if (prevFactory) this.factories.set(manifest.id, prevFactory);
+      else this.factories.delete(manifest.id);
+      if (prevManifest) this.manifests.set(manifest.id, prevManifest);
+      else this.manifests.delete(manifest.id);
       throw new HttpError(
         500,
         `Failed to register updated module '${manifest.id}': ${err instanceof Error ? err.message : "Unknown error"}`,
@@ -922,8 +927,10 @@ export class ModuleService {
     } catch {
       await fs.rm(installDir, { recursive: true, force: true }).catch(() => {});
       await fs.rename(backupDir, installDir).catch(() => {});
-      this.factories.delete(manifest.id);
-      this.manifests.delete(manifest.id);
+      if (prevFactory) this.factories.set(manifest.id, prevFactory);
+      else this.factories.delete(manifest.id);
+      if (prevManifest) this.manifests.set(manifest.id, prevManifest);
+      else this.manifests.delete(manifest.id);
       throw new HttpError(
         500,
         `Failed to persist updated module '${id}' in database.`,
@@ -1013,6 +1020,9 @@ export class ModuleService {
       );
     }
 
+    const prevFactory = this.factories.get(manifest.id);
+    const prevManifest = this.manifests.get(manifest.id);
+
     try {
       const mainPath = resolve(installDir, manifest.main);
       const imported = (await import(mainPath)) as {
@@ -1039,8 +1049,10 @@ export class ModuleService {
     } catch (err) {
       await fs.rm(installDir, { recursive: true, force: true }).catch(() => {});
       await fs.rename(backupDir, installDir).catch(() => {});
-      this.factories.delete(manifest.id);
-      this.manifests.delete(manifest.id);
+      if (prevFactory) this.factories.set(manifest.id, prevFactory);
+      else this.factories.delete(manifest.id);
+      if (prevManifest) this.manifests.set(manifest.id, prevManifest);
+      else this.manifests.delete(manifest.id);
       throw new HttpError(
         500,
         `Failed to register updated module '${manifest.id}': ${err instanceof Error ? err.message : "Unknown error"}`,
@@ -1060,8 +1072,10 @@ export class ModuleService {
     } catch {
       await fs.rm(installDir, { recursive: true, force: true }).catch(() => {});
       await fs.rename(backupDir, installDir).catch(() => {});
-      this.factories.delete(manifest.id);
-      this.manifests.delete(manifest.id);
+      if (prevFactory) this.factories.set(manifest.id, prevFactory);
+      else this.factories.delete(manifest.id);
+      if (prevManifest) this.manifests.set(manifest.id, prevManifest);
+      else this.manifests.delete(manifest.id);
       throw new HttpError(
         500,
         `Failed to persist updated module '${id}' in database.`,
@@ -1487,7 +1501,8 @@ export class ModuleService {
             "Manifest 'main' must point to a valid file.",
           );
         }
-      } catch {
+      } catch (err) {
+        if (err instanceof HttpError) throw err;
         throw new HttpError(
           400,
           `Manifest 'main' file '${manifest.main}' not found in archive.`,

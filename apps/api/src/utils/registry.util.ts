@@ -1,4 +1,7 @@
 import { HttpError } from "@/models/error.model";
+import { assertRegistryAddressAllowed } from "@/utils/download.util";
+
+const REGISTRY_FETCH_TIMEOUT_MS = 10_000;
 
 export interface ModuleRegistryResponse {
   downloadUrl: string;
@@ -16,12 +19,22 @@ async function fetchRegistryJson(
   source: string,
   label: string,
 ): Promise<Record<string, unknown>> {
+  await assertRegistryAddressAllowed(source);
+
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    REGISTRY_FETCH_TIMEOUT_MS,
+  );
+
   let response: Response;
   try {
-    response = await fetch(source);
+    response = await fetch(source, { signal: controller.signal });
   } catch {
+    clearTimeout(timeout);
     throw new HttpError(502, `Failed to fetch ${label} registry metadata.`);
   }
+  clearTimeout(timeout);
 
   if (!response.ok) {
     throw new HttpError(

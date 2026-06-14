@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { HttpError } from "@/models/error.model";
+
+vi.mock("@/utils/download.util", () => ({
+  assertRegistryAddressAllowed: vi.fn(),
+}));
+
 import {
   resolveModuleRegistry,
   resolveServiceRegistry,

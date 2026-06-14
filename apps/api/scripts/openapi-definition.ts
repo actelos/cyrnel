@@ -642,7 +642,7 @@ const ModuleDetailsSchema = registry.register(
       .describe("Content hash of the installed module archive."),
     source: z
       .string()
-      .min(1)
+      .min(0)
       .describe("Install source URL used to fetch the module archive."),
     configSchema: jsonObjectSchema.describe(
       "JSON Schema describing the module configuration object.",
@@ -1631,6 +1631,12 @@ registry.registerPath({
     404: apiErrorResponse("The module could not be found."),
     409: apiErrorResponse(
       "The module has no stored registry source and cannot be updated automatically.",
+    ),
+    413: apiErrorResponse(
+      "The downloaded archive exceeded the configured size limit.",
+    ),
+    502: apiErrorResponse(
+      "The registry or archive file could not be downloaded.",
     ),
     500: apiErrorResponse("The module could not be updated."),
   },

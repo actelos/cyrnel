@@ -290,6 +290,7 @@ describe("ModuleService", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllGlobals();
     downloadBinaryMock.mockReset();
     decompressMock.mockReset();
   });
