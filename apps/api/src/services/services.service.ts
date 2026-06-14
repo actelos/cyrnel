@@ -409,10 +409,16 @@ export class ServicesService {
     try {
       const { resolveServiceRegistry } = await import("@/utils/registry.util");
       registry = await resolveServiceRegistry(service.source);
-    } catch {
+    } catch (err) {
+      if (err instanceof HttpError) {
+        throw new HttpError(
+          err.statusCode,
+          `Service '${id}' registry source error: ${err.message}. Use PATCH to update with a direct download URL, or reinstall from a registry first.`,
+        );
+      }
       throw new HttpError(
-        409,
-        `Service '${id}' source is not a valid registry endpoint. Use PATCH to update with a direct download URL, or reinstall from a registry first.`,
+        502,
+        `Service '${id}' registry source is unreachable. Use PATCH to update with a direct download URL, or reinstall from a registry first.`,
       );
     }
 

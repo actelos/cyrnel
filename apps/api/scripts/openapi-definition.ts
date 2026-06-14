@@ -417,6 +417,19 @@ const ServiceUpdateResponseSchema = registry.register(
     .describe("Response returned by the service update endpoint."),
 );
 
+const ServicePatchResponseSchema = registry.register(
+  "ServicePatchResponse",
+  z
+    .object({
+      updated: z
+        .boolean()
+        .describe(
+          "Whether the service was updated (false if no change detected).",
+        ),
+    })
+    .describe("Response returned by the service patch endpoint."),
+);
+
 const ServiceEnabledRequestSchema = registry.register(
   "ServiceEnabledRequest",
   z
@@ -1144,7 +1157,7 @@ registry.registerPath({
   responses: {
     200: {
       description: "Update result for the requested service.",
-      content: jsonContent(ServiceUpdateResponseSchema),
+      content: jsonContent(ServicePatchResponseSchema),
     },
     400: apiErrorResponse(
       "The serviceId path parameter or request body was invalid.",

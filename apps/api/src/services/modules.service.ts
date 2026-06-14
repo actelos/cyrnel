@@ -553,6 +553,10 @@ export class ModuleService {
   }
 
   async installModuleDirect(url: string): Promise<ModuleManifestRecord> {
+    if (!this.modulesPath) {
+      throw new HttpError(503, "ModuleService has not been initialized.");
+    }
+
     const buffer = await downloadBinary(url, MODULE_DOWNLOAD_MAX_BYTES);
     const archiveHash = computeBinaryHash(buffer);
 
@@ -656,6 +660,10 @@ export class ModuleService {
   async installModuleFromRegistry(
     source: string,
   ): Promise<ModuleManifestRecord> {
+    if (!this.modulesPath) {
+      throw new HttpError(503, "ModuleService has not been initialized.");
+    }
+
     const { resolveModuleRegistry } = await import("@/utils/registry.util");
     const registry = await resolveModuleRegistry(source);
 
@@ -798,10 +806,16 @@ export class ModuleService {
     try {
       const { resolveModuleRegistry } = await import("@/utils/registry.util");
       registry = await resolveModuleRegistry(row.source);
-    } catch {
+    } catch (err) {
+      if (err instanceof HttpError) {
+        throw new HttpError(
+          err.statusCode,
+          `Module '${id}' registry source error: ${err.message}. Use PATCH to update with a direct download URL, or reinstall from a registry first.`,
+        );
+      }
       throw new HttpError(
-        409,
-        `Module '${id}' source is not a valid registry endpoint. Use PATCH to update with a direct download URL, or reinstall from a registry first.`,
+        502,
+        `Module '${id}' registry source is unreachable. Use PATCH to update with a direct download URL, or reinstall from a registry first.`,
       );
     }
 
