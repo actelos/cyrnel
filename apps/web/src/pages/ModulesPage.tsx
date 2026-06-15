@@ -23,6 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useNotification } from "@/hooks/use-notification";
 import { apiFetch, apiFetchJson, buildUrl, errorMessageFrom } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -58,7 +59,9 @@ export default function ModulesPage() {
   const { addNotification } = useNotification();
   const [isReloading, setIsReloading] = useState(false);
   const [isInstallOpen, setIsInstallOpen] = useState(false);
-  const [installSource, setInstallSource] = useState("");
+  const [installTab, setInstallTab] = useState<"manual" | "registry">("registry");
+  const [manualUrl, setManualUrl] = useState("");
+  const [registrySource, setRegistrySource] = useState("");
   const [isInstalling, setIsInstalling] = useState(false);
 
   const normalizedQuery = queryFilter.trim();
@@ -117,8 +120,44 @@ export default function ModulesPage() {
     }
   };
 
-  const handleInstall = async () => {
-    const trimmed = installSource.trim();
+  const handleManualInstall = async () => {
+    const trimmed = manualUrl.trim();
+    if (!trimmed) {
+      addNotification({
+        type: "error",
+        title: "Error",
+        message: "URL is required.",
+      });
+      return;
+    }
+    setIsInstalling(true);
+    try {
+      await apiFetch(buildUrl("/modules"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: trimmed }),
+      });
+      setManualUrl("");
+      setIsInstallOpen(false);
+      await mutate(modulesUrl);
+      addNotification({
+        type: "success",
+        title: "Success",
+        message: "Module installed.",
+      });
+    } catch (error) {
+      addNotification({
+        type: "error",
+        title: "Error",
+        message: errorMessageFrom(error, "Unable to install module."),
+      });
+    } finally {
+      setIsInstalling(false);
+    }
+  };
+
+  const handleRegistryInstall = async () => {
+    const trimmed = registrySource.trim();
     if (!trimmed) {
       addNotification({
         type: "error",
@@ -134,7 +173,7 @@ export default function ModulesPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ source: trimmed }),
       });
-      setInstallSource("");
+      setRegistrySource("");
       setIsInstallOpen(false);
       await mutate(modulesUrl);
       addNotification({
@@ -198,38 +237,88 @@ export default function ModulesPage() {
                   <div className="space-y-1">
                     <h3 className="text-sm font-medium">Install module</h3>
                     <p className="text-muted-foreground text-xs">
-                      Provide a source URL (.tar.zst).
+                      Install from a registry or provide a direct URL.
                     </p>
                   </div>
-                  <div className="space-y-3">
-                    <div className="space-y-2">
-                      <Label htmlFor="module-source">Source URL</Label>
-                      <Input
-                        id="module-source"
-                        onChange={(event) =>
-                          setInstallSource(event.target.value)
-                        }
-                        placeholder="https://example.com/module.tar.zst"
-                        value={installSource}
-                      />
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-end gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setIsInstallOpen(false)}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      type="button"
-                      disabled={isInstalling || !installSource.trim()}
-                      onClick={() => void handleInstall()}
-                    >
-                      {isInstalling ? "Installing" : "Install"}
-                    </Button>
-                  </div>
+                  <Tabs
+                    value={installTab}
+                    onValueChange={(v) =>
+                      setInstallTab(v as "manual" | "registry")
+                    }
+                  >
+                    <TabsList className="w-full">
+                      <TabsTrigger className="flex-1" value="registry">
+                        Registry
+                      </TabsTrigger>
+                      <TabsTrigger className="flex-1" value="manual">
+                        Manual
+                      </TabsTrigger>
+                    </TabsList>
+                    <TabsContent value="registry">
+                      <div className="space-y-3 pt-2">
+                        <div className="space-y-2">
+                          <Label htmlFor="module-registry-source">
+                            Source URL
+                          </Label>
+                          <Input
+                            id="module-registry-source"
+                            onChange={(event) =>
+                              setRegistrySource(event.target.value)
+                            }
+                            placeholder="https://registry.example.com/module"
+                            value={registrySource}
+                          />
+                        </div>
+                        <div className="flex items-center justify-end gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => setIsInstallOpen(false)}
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            type="button"
+                            disabled={isInstalling || !registrySource.trim()}
+                            onClick={() => void handleRegistryInstall()}
+                          >
+                            {isInstalling ? "Installing" : "Install"}
+                          </Button>
+                        </div>
+                      </div>
+                    </TabsContent>
+                    <TabsContent value="manual">
+                      <div className="space-y-3 pt-2">
+                        <div className="space-y-2">
+                          <Label htmlFor="module-manual-url">Archive URL</Label>
+                          <Input
+                            id="module-manual-url"
+                            onChange={(event) =>
+                              setManualUrl(event.target.value)
+                            }
+                            placeholder="https://example.com/module.tar.zst"
+                            value={manualUrl}
+                          />
+                        </div>
+                        <div className="flex items-center justify-end gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => setIsInstallOpen(false)}
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            type="button"
+                            disabled={isInstalling || !manualUrl.trim()}
+                            onClick={() => void handleManualInstall()}
+                          >
+                            {isInstalling ? "Installing" : "Install"}
+                          </Button>
+                        </div>
+                      </div>
+                    </TabsContent>
+                  </Tabs>
                 </div>
               </PopoverContent>
             </Popover>
