@@ -1,4 +1,11 @@
-import { ArrowLeft, RotateCcw, Trash2 } from "lucide-react";
+import {
+  ArrowLeft,
+  ChevronDown,
+  Circle,
+  Loader2,
+  RotateCcw,
+  Trash2,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { useNavigate, useParams } from "react-router-dom";
@@ -19,6 +26,19 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useNotification } from "@/hooks/use-notification";
 import { apiFetch, apiFetchJson, buildUrl, errorMessageFrom } from "@/lib/api";
@@ -75,6 +95,12 @@ export default function ServiceDetailPage() {
   const [deleteCandidate, setDeleteCandidate] = useState<Service | null>(null);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [isUpdateDialogOpen, setIsUpdateDialogOpen] = useState(false);
+  const [hasUpdate, setHasUpdate] = useState(false);
+  const [isManualUpdateOpen, setIsManualUpdateOpen] = useState(false);
+  const [manualUpdateUrl, setManualUpdateUrl] = useState("");
+  const [isManualUpdating, setIsManualUpdating] = useState(false);
   const [configDraft, setConfigDraft] = useState<string>("{\n  \n}");
   const [configDraftError, setConfigDraftError] = useState<string | null>(null);
   const [isSavingConfig, setIsSavingConfig] = useState(false);
@@ -107,6 +133,28 @@ export default function ServiceDetailPage() {
     (url) => apiFetchJson(url, serviceDetailsSchema),
     { refreshInterval: 8000 },
   );
+
+  const { data: updateCheck } = useSWR(
+    serviceDetails?.source ? `service-update-${serviceId}` : null,
+    async () => {
+      if (!serviceDetails?.source) return { hasUpdate: false };
+      try {
+        const res = await fetch(serviceDetails.source);
+        const data = (await res.json()) as { hash?: string };
+        if (!data.hash) return { hasUpdate: false };
+        return { hasUpdate: data.hash !== serviceDetails.hash };
+      } catch {
+        return { hasUpdate: false };
+      }
+    },
+    { refreshInterval: 120_000 },
+  );
+
+  useEffect(() => {
+    if (updateCheck) {
+      setHasUpdate(updateCheck.hasUpdate);
+    }
+  }, [updateCheck]);
 
   const {
     data: toolList,
@@ -300,8 +348,43 @@ export default function ServiceDetailPage() {
     }
   };
 
-  const handleUpdateService = async (id: string) => {
+  const handleCheckForUpdate = async () => {
+    if (!serviceDetails?.source) {
+      setIsManualUpdateOpen(true);
+      return;
+    }
+
+    setIsCheckingUpdate(true);
+    try {
+      const res = await fetch(serviceDetails.source);
+      const data = (await res.json()) as { hash?: string };
+
+      if (data.hash && data.hash === serviceDetails.hash) {
+        addNotification({
+          type: "success",
+          title: "Up to date",
+          message: "Service is up to date.",
+        });
+        setHasUpdate(false);
+        return;
+      }
+
+      setHasUpdate(true);
+      setIsUpdateDialogOpen(true);
+    } catch (error) {
+      addNotification({
+        type: "error",
+        title: "Error",
+        message: errorMessageFrom(error, "Unable to check for updates."),
+      });
+    } finally {
+      setIsCheckingUpdate(false);
+    }
+  };
+
+  const handleConfirmUpdate = async (id: string) => {
     setIsUpdating(true);
+    setIsUpdateDialogOpen(false);
     try {
       await apiFetch(buildUrl(`/services/${id}/update`), {
         method: "POST",
@@ -329,6 +412,49 @@ export default function ServiceDetailPage() {
       });
     } finally {
       setIsUpdating(false);
+    }
+  };
+
+  const handleManualUpdate = async (id: string) => {
+    const trimmed = manualUpdateUrl.trim();
+    if (!trimmed) {
+      addNotification({
+        type: "error",
+        title: "Error",
+        message: "URL is required.",
+      });
+      return;
+    }
+    setIsManualUpdating(true);
+    try {
+      await apiFetch(buildUrl(`/services/${id}`), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: trimmed }),
+      });
+
+      setManualUpdateUrl("");
+      setIsManualUpdateOpen(false);
+      await mutate(buildUrl("/services"));
+      if (serviceDetailsUrl) {
+        await mutate(serviceDetailsUrl);
+      }
+      if (toolsUrl) {
+        await mutate(toolsUrl);
+      }
+      addNotification({
+        type: "success",
+        title: "Success",
+        message: "Service updated.",
+      });
+    } catch (error) {
+      addNotification({
+        type: "error",
+        title: "Error",
+        message: errorMessageFrom(error, "Unable to update service."),
+      });
+    } finally {
+      setIsManualUpdating(false);
     }
   };
 
@@ -473,17 +599,108 @@ export default function ServiceDetailPage() {
                     >
                       {serviceDetails.enabled ? "Disable" : "Enable"}
                     </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={isUpdating}
-                      onClick={() =>
-                        void handleUpdateService(serviceDetails.id)
-                      }
-                    >
-                      <RotateCcw />
-                      {isUpdating ? "Updating" : "Update"}
-                    </Button>
+                    {serviceDetails.source ? (
+                      <div className="flex items-center">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          disabled={isUpdating || isCheckingUpdate}
+                          onClick={() => void handleCheckForUpdate()}
+                          className="rounded-r-none"
+                        >
+                          {hasUpdate ? (
+                            <Circle className="fill-amber-500 text-amber-500" />
+                          ) : null}
+                          {isCheckingUpdate ? (
+                            <RotateCcw className="animate-spin" />
+                          ) : isUpdating ? (
+                            <Loader2 className="animate-spin" />
+                          ) : (
+                            "Check for update"
+                          )}
+                        </Button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="rounded-l-none border-l-0 px-2"
+                              disabled={isUpdating || isCheckingUpdate}
+                            >
+                              <ChevronDown />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem
+                              onClick={() => void handleCheckForUpdate()}
+                            >
+                              Check for update
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => setIsManualUpdateOpen(true)}
+                            >
+                              Manual update
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    ) : (
+                      <Popover
+                        open={isManualUpdateOpen}
+                        onOpenChange={setIsManualUpdateOpen}
+                      >
+                        <PopoverTrigger asChild>
+                          <Button type="button" variant="outline">
+                            Manual update
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent align="end" className="w-md">
+                          <div className="space-y-4">
+                            <div className="space-y-1">
+                              <h3 className="text-sm font-medium">
+                                Manual update
+                              </h3>
+                              <p className="text-muted-foreground text-xs">
+                                Provide a new definition URL.
+                              </p>
+                            </div>
+                            <div className="space-y-2">
+                              <Label htmlFor="service-update-url">
+                                Definition URL
+                              </Label>
+                              <Input
+                                id="service-update-url"
+                                onChange={(event) =>
+                                  setManualUpdateUrl(event.target.value)
+                                }
+                                placeholder="https://example.com/manifest.json"
+                                value={manualUpdateUrl}
+                              />
+                            </div>
+                            <div className="flex items-center justify-end gap-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => setIsManualUpdateOpen(false)}
+                              >
+                                Cancel
+                              </Button>
+                              <Button
+                                type="button"
+                                disabled={
+                                  isManualUpdating || !manualUpdateUrl.trim()
+                                }
+                                onClick={() =>
+                                  void handleManualUpdate(serviceDetails.id)
+                                }
+                              >
+                                {isManualUpdating ? "Updating" : "Update"}
+                              </Button>
+                            </div>
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+                    )}
                     <Button
                       type="button"
                       variant="destructive"
@@ -702,6 +919,32 @@ export default function ServiceDetailPage() {
         ) : null}
       </section>
 
+      <AlertDialog
+        open={isUpdateDialogOpen}
+        onOpenChange={(open) => {
+          setIsUpdateDialogOpen(open);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Update available</AlertDialogTitle>
+            <AlertDialogDescription>
+              A new version of this service is available. Update now?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (!serviceDetails) return;
+                void handleConfirmUpdate(serviceDetails.id);
+              }}
+            >
+              Update
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <AlertDialog
         open={isDeleteDialogOpen}
         onOpenChange={(open) => {
