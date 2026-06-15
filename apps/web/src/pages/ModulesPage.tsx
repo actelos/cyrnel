@@ -59,7 +59,9 @@ export default function ModulesPage() {
   const { addNotification } = useNotification();
   const [isReloading, setIsReloading] = useState(false);
   const [isInstallOpen, setIsInstallOpen] = useState(false);
-  const [installTab, setInstallTab] = useState<"manual" | "registry">("registry");
+  const [installTab, setInstallTab] = useState<"manual" | "registry">(
+    "registry",
+  );
   const [manualUrl, setManualUrl] = useState("");
   const [registrySource, setRegistrySource] = useState("");
   const [isInstalling, setIsInstalling] = useState(false);

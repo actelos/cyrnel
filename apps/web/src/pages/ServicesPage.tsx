@@ -85,7 +85,9 @@ export default function ServicesPage() {
   >("all");
   const [adapterFilter, setAdapterFilter] = useState("all");
   const [isInstallOpen, setIsInstallOpen] = useState(false);
-  const [installTab, setInstallTab] = useState<"manual" | "registry">("registry");
+  const [installTab, setInstallTab] = useState<"manual" | "registry">(
+    "registry",
+  );
   const [manualId, setManualId] = useState("");
   const [manualUrl, setManualUrl] = useState("");
   const [manualAdapter, setManualAdapter] = useState("");
@@ -347,7 +349,10 @@ export default function ServicesPage() {
                               onValueChange={setRegistryAdapter}
                               value={registryAdapter}
                             >
-                              <SelectTrigger id="service-registry-adapter" className="w-full">
+                              <SelectTrigger
+                                id="service-registry-adapter"
+                                className="w-full"
+                              >
                                 <SelectValue placeholder="From registry" />
                               </SelectTrigger>
                               <SelectContent>
@@ -440,7 +445,10 @@ export default function ServicesPage() {
                               onValueChange={setManualAdapter}
                               value={manualAdapter}
                             >
-                              <SelectTrigger id="service-manual-adapter" className="w-full">
+                              <SelectTrigger
+                                id="service-manual-adapter"
+                                className="w-full"
+                              >
                                 <SelectValue placeholder="Select an adapter" />
                               </SelectTrigger>
                               <SelectContent>
