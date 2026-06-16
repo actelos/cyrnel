@@ -293,6 +293,11 @@ const ServiceListItemSchema = registry.register(
       enabled: z
         .boolean()
         .describe("Whether the service is currently enabled."),
+      stale: z
+        .boolean()
+        .describe(
+          "Whether the service needs to be synced. Stale services cannot be enabled or invoked.",
+        ),
     })
     .describe(
       "Compact service summary returned by service list and detail endpoints.",
@@ -1001,7 +1006,7 @@ registry.registerPath({
   tags: ["Services"],
   summary: "List services",
   description:
-    "Returns the installed services. The query parameter is trimmed and matched against service id, name, and description. The enabled parameter accepts 'true' or 'false'; omit it to return all services.",
+    "Returns the installed services. The query parameter is trimmed and matched against service id, name, and description. The enabled and stale parameters accept 'true' or 'false'; omit either to return all services.",
   request: {
     query: z.object({
       query: z
@@ -1013,6 +1018,11 @@ registry.registerPath({
       enabled: booleanQuerySchema
         .optional()
         .describe("Enabled-state filter. Omit to return all services."),
+      stale: booleanQuerySchema
+        .optional()
+        .describe(
+          "Stale-state filter. true = stale only, false = fresh only. Omit to return all services.",
+        ),
     }),
   },
   responses: {
@@ -1617,7 +1627,7 @@ registry.registerPath({
   tags: ["Modules"],
   summary: "Update a module from its stored registry",
   description:
-    "Re-resolves the stored registry source URL, compares the registry hash against the stored hash, and re-downloads and re-installs the archive if changed. Returns updated: false when the archive is unchanged. Only works for registry-installed modules.",
+    "Re-resolves the stored registry source URL, compares the registry hash against the stored hash, and re-downloads and re-installs the archive if changed. Returns updated: false when the archive is unchanged. Only works for registry-installed modules. After a successful archive replacement every non-orphaned service targeting this adapter is regenerated via the new module's generateDefinition. Services that fail regeneration are marked stale and cannot be invoked until synced.",
   request: { params: moduleIdParam },
   responses: {
     200: {
@@ -1648,7 +1658,7 @@ registry.registerPath({
   tags: ["Modules"],
   summary: "Replace a module via direct URL",
   description:
-    "Downloads a .tar.zst archive from the supplied direct URL and replaces the existing module installation. The stored registry source is cleared, making the module a direct-installed item.",
+    "Downloads a .tar.zst archive from the supplied direct URL and replaces the existing module installation. The stored registry source is cleared, making the module a direct-installed item. After a successful archive replacement every non-orphaned service targeting this adapter is regenerated via the new module's generateDefinition. Services that fail regeneration are marked stale and cannot be invoked until synced.",
   request: {
     params: moduleIdParam,
     body: { content: jsonContent(ModulePatchRequestSchema) },

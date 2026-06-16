@@ -92,6 +92,7 @@ describe("service.controller", () => {
       expect(servicesService.listServices).toHaveBeenCalledWith({
         query: undefined,
         enabled: undefined,
+        stale: undefined,
       });
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith({ services: [] });
@@ -106,6 +107,7 @@ describe("service.controller", () => {
       expect(servicesService.listServices).toHaveBeenCalledWith({
         query: "svc",
         enabled: undefined,
+        stale: undefined,
       });
     });
 
@@ -118,6 +120,7 @@ describe("service.controller", () => {
       expect(servicesService.listServices).toHaveBeenCalledWith({
         query: undefined,
         enabled: undefined,
+        stale: undefined,
       });
     });
 
@@ -135,6 +138,7 @@ describe("service.controller", () => {
       expect(servicesService.listServices).toHaveBeenCalledWith({
         query: undefined,
         enabled: expected,
+        stale: undefined,
       });
     });
 

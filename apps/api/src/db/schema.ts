@@ -30,6 +30,8 @@ export const services = sqliteTable("services", {
     .$type<Record<string, unknown>>()
     .notNull(),
   orphaned: integer("orphaned", { mode: "boolean" }).notNull().default(false),
+  definitionContent: text("definition_content").notNull().default(""),
+  stale: integer("stale", { mode: "boolean" }).notNull().default(false),
 });
 
 export const serviceConfigurations = sqliteTable("service_configurations", {

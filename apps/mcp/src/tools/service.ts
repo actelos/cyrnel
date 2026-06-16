@@ -30,11 +30,19 @@ export const serviceTools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
         .optional()
         .describe('Optional search string. Example: "github".'),
       enabled: z.boolean().optional().describe("Optional enabled filter."),
+      stale: z
+        .boolean()
+        .optional()
+        .describe(
+          "Optional stale filter. true = stale only, false = fresh only.",
+        ),
     }),
-    execute: async ({ query, enabled }) =>
+    execute: async ({ query, enabled, stale }) =>
       JSON.stringify(
         await api
-          .get("services", { searchParams: searchParams({ query, enabled }) })
+          .get("services", {
+            searchParams: searchParams({ query, enabled, stale }),
+          })
           .json(),
       ),
   },
@@ -175,23 +183,49 @@ export const serviceTools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
       ),
   },
   {
-    name: "patch_service",
+    name: "sync_service",
     description: `
-    Replace a service with a new definition from a direct URL.
+    Re-generate a service's tools from its stored definition content.
 
-    Downloads the new manifest from \`url\`, regenerates the service
-    definition, updates the database record, and clears any stored registry
-    source. Existing tool enabled flags are preserved by name.
+    Re-runs the adapter's \`generateDefinition\` using the definition content
+    that was persisted at install/update time. No network IO — the definition
+    is read from the database. Clears the \`stale\` flag if the service was
+    marked stale after an adapter module update.
 
     When to use:
-      - Use to update a direct-installed service from a new URL.
+      - Use to recover a service that was marked \`stale\` after an adapter
+        module update failed to regenerate its tools.
+    When NOT to use:
+      - If the service is working fine, no need to sync.
+      - To pull a new version from a registry or URL, use \`update_service\`
+        or \`patch_service\` instead.
+    `,
+    annotations: { idempotentHint: false, openWorldHint: true },
+    parameters: z.object({ service_id: ServiceId }),
+    execute: async ({ service_id }) =>
+      JSON.stringify(
+        await api.post(`services/${service_id}/sync`, { json: {} }).json(),
+      ),
+  },
+  {
+    name: "patch_service",
+    description: `
+    Update a service's definition URL directly (manual update).
+
+    Sets a new definition URL on an existing service and re-installs it.
+    Existing tool enabled flags are preserved by name; the service itself is
+    set back to disabled and must be re-enabled.
+
+    When to use:
+      - Use to change a direct-installed service's manifest URL.
     When NOT to use:
       - For a registry-installed service, use \`update_service\` instead.
+      - If you just need to toggle enablement, use \`set_service_enabled\`.
     `,
     annotations: { idempotentHint: false, openWorldHint: true },
     parameters: z.object({
       service_id: ServiceId,
-      url: z.string().min(1).describe("New direct manifest definition URL."),
+      url: z.string().min(1).describe("New definition URL."),
     }),
     execute: async ({ service_id, url }) =>
       JSON.stringify(
