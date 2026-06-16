@@ -50,6 +50,7 @@ const serviceSchema = z.object({
   description: z.string(),
   adapter: z.string(),
   enabled: z.boolean(),
+  stale: z.boolean(),
 });
 
 const serviceDetailsSchema = serviceSchema.extend({
@@ -101,6 +102,7 @@ export default function ServiceDetailPage() {
   const [isManualUpdateOpen, setIsManualUpdateOpen] = useState(false);
   const [manualUpdateUrl, setManualUpdateUrl] = useState("");
   const [isManualUpdating, setIsManualUpdating] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [configDraft, setConfigDraft] = useState<string>("{\n  \n}");
   const [configDraftError, setConfigDraftError] = useState<string | null>(null);
   const [isSavingConfig, setIsSavingConfig] = useState(false);
@@ -458,6 +460,36 @@ export default function ServiceDetailPage() {
     }
   };
 
+  const handleSyncService = async (id: string) => {
+    setIsSyncing(true);
+    try {
+      await apiFetch(buildUrl(`/services/${id}/sync`), {
+        method: "POST",
+      });
+
+      await mutate(buildUrl("/services"));
+      if (serviceDetailsUrl) {
+        await mutate(serviceDetailsUrl);
+      }
+      if (toolsUrl) {
+        await mutate(toolsUrl);
+      }
+      addNotification({
+        type: "success",
+        title: "Success",
+        message: "Service synced.",
+      });
+    } catch (error) {
+      addNotification({
+        type: "error",
+        title: "Error",
+        message: errorMessageFrom(error, "Unable to sync service."),
+      });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   const handleSetServiceEnabled = async (id: string, enabled: boolean) => {
     try {
       await apiFetch(buildUrl(`/services/${id}/enabled`), {
@@ -582,6 +614,9 @@ export default function ServiceDetailPage() {
                       {serviceDetails.name}
                     </h2>
                     <Badge variant="secondary">{serviceDetails.adapter}</Badge>
+                    {serviceDetails.stale ? (
+                      <Badge variant="destructive">Stale</Badge>
+                    ) : null}
                   </div>
                   <p className="text-muted-foreground text-xs font-mono">
                     {serviceDetails.id}
@@ -701,6 +736,22 @@ export default function ServiceDetailPage() {
                         </PopoverContent>
                       </Popover>
                     )}
+                    {serviceDetails.stale ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={isSyncing}
+                        onClick={() =>
+                          void handleSyncService(serviceDetails.id)
+                        }
+                        className="gap-2"
+                      >
+                        <RotateCcw
+                          className={isSyncing ? "animate-spin" : undefined}
+                        />
+                        {isSyncing ? "Syncing" : "Sync"}
+                      </Button>
+                    ) : null}
                     <Button
                       type="button"
                       variant="destructive"

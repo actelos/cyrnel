@@ -34,6 +34,7 @@ const serviceSchema = z.object({
   description: z.string(),
   adapter: z.string(),
   enabled: z.boolean(),
+  stale: z.boolean(),
 });
 
 const serviceListSchema = z.object({
@@ -83,6 +84,9 @@ export default function ServicesPage() {
   const [enabledFilter, setEnabledFilter] = useState<
     "all" | "enabled" | "disabled"
   >("all");
+  const [staleFilter, setStaleFilter] = useState<"all" | "stale" | "fresh">(
+    "all",
+  );
   const [adapterFilter, setAdapterFilter] = useState("all");
   const [isInstallOpen, setIsInstallOpen] = useState(false);
   const [installTab, setInstallTab] = useState<"manual" | "registry">(
@@ -109,14 +113,21 @@ export default function ServicesPage() {
       : enabledFilter === "enabled"
         ? "true"
         : "false";
+  const staleParam =
+    staleFilter === "all"
+      ? undefined
+      : staleFilter === "stale"
+        ? "true"
+        : "false";
 
   const servicesUrl = useMemo(() => {
     return buildUrl("/services", {
       query: normalizedQuery.length > 0 ? normalizedQuery : undefined,
       enabled: enabledParam,
+      stale: staleParam,
       adapter: adapterFilter !== "all" ? adapterFilter : undefined,
     });
-  }, [normalizedQuery, enabledParam, adapterFilter]);
+  }, [normalizedQuery, enabledParam, staleParam, adapterFilter]);
 
   const adaptersUrl = useMemo(
     () => buildUrl("/modules", { type: "adapter", enabled: "true" }),
@@ -234,6 +245,26 @@ export default function ServicesPage() {
       });
     } finally {
       setIsInstalling(false);
+    }
+  };
+
+  const handleSyncService = async (serviceId: string) => {
+    try {
+      await apiFetch(buildUrl(`/services/${serviceId}/sync`), {
+        method: "POST",
+      });
+      await mutate(servicesUrl);
+      addNotification({
+        type: "success",
+        title: "Success",
+        message: "Service synced.",
+      });
+    } catch (error) {
+      addNotification({
+        type: "error",
+        title: "Error",
+        message: errorMessageFrom(error, "Unable to sync service."),
+      });
     }
   };
 
@@ -526,6 +557,21 @@ export default function ServicesPage() {
                 <SelectItem value="disabled">Disabled</SelectItem>
               </SelectContent>
             </Select>
+            <Select
+              onValueChange={(value) =>
+                setStaleFilter(value as "all" | "stale" | "fresh")
+              }
+              value={staleFilter}
+            >
+              <SelectTrigger className="w-[170px]">
+                <SelectValue placeholder="Stale" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All states</SelectItem>
+                <SelectItem value="stale">Stale</SelectItem>
+                <SelectItem value="fresh">Fresh</SelectItem>
+              </SelectContent>
+            </Select>
             <Select onValueChange={setAdapterFilter} value={adapterFilter}>
               <SelectTrigger className="w-[170px]">
                 <SelectValue placeholder="Adapter" />
@@ -591,6 +637,9 @@ export default function ServicesPage() {
                               {service.name}
                             </h3>
                             <Badge variant="secondary">{service.adapter}</Badge>
+                            {service.stale ? (
+                              <Badge variant="destructive">Stale</Badge>
+                            ) : null}
                           </div>
                           <p className="text-muted-foreground text-xs font-mono truncate max-w-full">
                             {service.id}
@@ -612,6 +661,18 @@ export default function ServicesPage() {
                         </div>
                       </div>
                     </Link>
+                    {service.stale ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="w-full mb-2 gap-2"
+                        onClick={() => void handleSyncService(service.id)}
+                      >
+                        <RotateCcw />
+                        Sync
+                      </Button>
+                    ) : null}
                     <div
                       className="flex cursor-pointer items-center justify-between gap-2"
                       onClick={() => {
