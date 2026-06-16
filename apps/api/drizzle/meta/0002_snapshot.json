@@ -36,12 +36,8 @@
           "name": "module_configurations_module_id_modules_id_fk",
           "tableFrom": "module_configurations",
           "tableTo": "modules",
-          "columnsFrom": [
-            "module_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["module_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -81,12 +77,8 @@
           "name": "module_secrets_module_id_modules_id_fk",
           "tableFrom": "module_secrets",
           "tableTo": "modules",
-          "columnsFrom": [
-            "module_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["module_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -163,9 +155,7 @@
       "indexes": {
         "modules_type_idx": {
           "name": "modules_type_idx",
-          "columns": [
-            "type"
-          ],
+          "columns": ["type"],
           "isUnique": false
         }
       },
@@ -206,12 +196,8 @@
           "name": "service_configurations_service_id_services_id_fk",
           "tableFrom": "service_configurations",
           "tableTo": "services",
-          "columnsFrom": [
-            "service_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["service_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -251,12 +237,8 @@
           "name": "service_secrets_service_id_services_id_fk",
           "tableFrom": "service_secrets",
           "tableTo": "services",
-          "columnsFrom": [
-            "service_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["service_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -372,12 +354,8 @@
           "name": "services_adapter_modules_id_fk",
           "tableFrom": "services",
           "tableTo": "modules",
-          "columnsFrom": [
-            "adapter"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["adapter"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -451,9 +429,7 @@
       "indexes": {
         "tools_name_idx": {
           "name": "tools_name_idx",
-          "columns": [
-            "name"
-          ],
+          "columns": ["name"],
           "isUnique": false
         }
       },
@@ -462,22 +438,15 @@
           "name": "tools_service_id_services_id_fk",
           "tableFrom": "tools",
           "tableTo": "services",
-          "columnsFrom": [
-            "service_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["service_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {
         "tools_service_id_id_pk": {
-          "columns": [
-            "service_id",
-            "id"
-          ],
+          "columns": ["service_id", "id"],
           "name": "tools_service_id_id_pk"
         }
       },

@@ -91,6 +91,9 @@ export class ServicesService {
             input?.adapter !== undefined
               ? eq(services.adapter, input.adapter)
               : undefined,
+            input?.stale !== undefined
+              ? eq(services.stale, input.stale)
+              : undefined,
             normalizedQuery
               ? or(
                   like(services.id, `%${normalizedQuery}%`),
@@ -440,6 +443,7 @@ export class ServicesService {
           .update(services)
           .set({
             ...generatedDefinition,
+            enabled: false,
             stale: false,
           })
           .where(eq(services.id, id));

@@ -1006,7 +1006,7 @@ registry.registerPath({
   tags: ["Services"],
   summary: "List services",
   description:
-    "Returns the installed services. The query parameter is trimmed and matched against service id, name, and description. The enabled parameter accepts 'true' or 'false'; omit it to return all services.",
+    "Returns the installed services. The query parameter is trimmed and matched against service id, name, and description. The enabled and stale parameters accept 'true' or 'false'; omit either to return all services.",
   request: {
     query: z.object({
       query: z
@@ -1018,6 +1018,11 @@ registry.registerPath({
       enabled: booleanQuerySchema
         .optional()
         .describe("Enabled-state filter. Omit to return all services."),
+      stale: booleanQuerySchema
+        .optional()
+        .describe(
+          "Stale-state filter. true = stale only, false = fresh only. Omit to return all services.",
+        ),
     }),
   },
   responses: {

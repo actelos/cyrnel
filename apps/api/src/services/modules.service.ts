@@ -1302,7 +1302,7 @@ export class ModuleService {
     id: string,
   ): Promise<{ updated: number; failed: number }> {
     const factory = this.factories.get(id);
-    if (!factory || factory.type !== "adapter") {
+    if (factory?.type !== "adapter") {
       return { updated: 0, failed: 0 };
     }
 

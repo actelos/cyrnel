@@ -22,30 +22,35 @@ const querySchema = z
   .transform((value) => value.trim())
   .transform((value) => (value.length > 0 ? value : undefined));
 
-const enabledQuerySchema = z
-  .union([z.boolean(), z.string()])
-  .transform((value, context): boolean | undefined => {
-    if (typeof value === "boolean") {
-      return value;
-    }
+function booleanQueryParamSchema(fieldName: string) {
+  return z
+    .union([z.boolean(), z.string()])
+    .transform((value, context): boolean | undefined => {
+      if (typeof value === "boolean") {
+        return value;
+      }
 
-    const normalized = value.trim().toLowerCase();
+      const normalized = value.trim().toLowerCase();
 
-    if (normalized === "true") {
-      return true;
-    }
+      if (normalized === "true") {
+        return true;
+      }
 
-    if (normalized === "false") {
-      return false;
-    }
+      if (normalized === "false") {
+        return false;
+      }
 
-    context.addIssue({
-      code: "custom",
-      message: "Field 'enabled' must be true or false.",
+      context.addIssue({
+        code: "custom",
+        message: `Field '${fieldName}' must be true or false.`,
+      });
+
+      return z.NEVER;
     });
+}
 
-    return z.NEVER;
-  });
+const enabledQuerySchema = booleanQueryParamSchema("enabled");
+const staleQuerySchema = booleanQueryParamSchema("stale");
 
 const createServiceDirectBodySchema = z.object({
   id: nonEmptyTrimmedString("id"),
@@ -108,10 +113,12 @@ export async function listServices(req: Request, res: Response): Promise<void> {
   const query = parseQueryParam(req.query?.query);
   const enabled = parseEnabledQueryParam(req.query?.enabled);
   const adapter = parseAdapterQueryParam(req.query?.adapter);
+  const stale = parseStaleQueryParam(req.query?.stale);
   const services = await servicesService.listServices({
     query,
     enabled,
     adapter,
+    stale,
   });
 
   res.status(200).json({ services });
@@ -240,10 +247,7 @@ export async function patchService(req: Request, res: Response): Promise<void> {
   res.status(200).json(result);
 }
 
-export async function syncService(
-  req: Request,
-  res: Response,
-): Promise<void> {
+export async function syncService(req: Request, res: Response): Promise<void> {
   const servicesService = getServicesService(req);
   const serviceId = parseServiceId(req.params.serviceId);
 
@@ -318,6 +322,14 @@ function parseAdapterQueryParam(raw: unknown): string | undefined {
   }
 
   return parseOrHttpError(querySchema, raw);
+}
+
+function parseStaleQueryParam(raw: unknown): boolean | undefined {
+  if (raw === undefined) {
+    return undefined;
+  }
+
+  return parseOrHttpError(staleQuerySchema, raw);
 }
 
 function getServicesService(req: Request): ServicesService {

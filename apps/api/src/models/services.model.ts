@@ -22,6 +22,7 @@ export interface ListServicesInput {
   limit?: number;
   enabled?: boolean;
   adapter?: string;
+  stale?: boolean;
 }
 
 export type ListServiceDefinitionResult = Omit<
@@ -43,10 +44,11 @@ export interface ListToolsInput {
   enabled?: boolean;
 }
 
-export interface ListToolsResult extends Omit<
-  ToolDefinitionRecord,
-  "inputSchema" | "outputSchema" | "adapterDomain"
-> {
+export interface ListToolsResult
+  extends Omit<
+    ToolDefinitionRecord,
+    "inputSchema" | "outputSchema" | "adapterDomain"
+  > {
   effectivelyEnabled: boolean;
 }
 
@@ -60,10 +62,8 @@ export interface GetToolInput {
   toolId: string;
 }
 
-export interface GetToolsResult extends Omit<
-  ToolDefinitionRecord,
-  "adapterDomain" | "serviceId"
-> {
+export interface GetToolsResult
+  extends Omit<ToolDefinitionRecord, "adapterDomain" | "serviceId"> {
   effectivelyEnabled: boolean;
 }
 
