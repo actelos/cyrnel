@@ -108,6 +108,13 @@ directory, extracts the new archive, registers the updated factory, and
 updates the database row (including clearing `source` to `""`). If the update
 fails partway, the backup is restored.
 
+After the module is installed, cyrnel **regenerates every service** that
+targets this adapter: for each non-orphaned service, the stored definition
+content is re-fed through the new adapter's `generateDefinition`. Services
+that succeed get fresh tools immediately. Services that fail are marked
+`stale` and cannot be invoked until they are manually synced
+(via `PATCH /services/:id` or `POST /services/:id/update`).
+
 ### Registry update
 
 `POST /modules/:moduleId/update`
@@ -121,6 +128,9 @@ If the registry returns a `hash` that matches the stored hash, the update is
 skipped and the response is `{ updated: false }`. Otherwise the new archive
 is downloaded, verified, extracted, and registered. Direct-installed modules
 (`source = ""`) return `409` -- use `PATCH` instead.
+
+Same service regeneration behavior as the direct update: every non-orphaned
+service is re-parsed through the new adapter. Failures are marked `stale`.
 
 The `source` column semantics:
 

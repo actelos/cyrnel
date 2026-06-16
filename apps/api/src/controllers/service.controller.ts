@@ -240,6 +240,18 @@ export async function patchService(req: Request, res: Response): Promise<void> {
   res.status(200).json(result);
 }
 
+export async function syncService(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const servicesService = getServicesService(req);
+  const serviceId = parseServiceId(req.params.serviceId);
+
+  await servicesService.syncService(serviceId);
+
+  res.status(200).json({ id: serviceId, updated: true });
+}
+
 export async function updateService(
   req: Request,
   res: Response,

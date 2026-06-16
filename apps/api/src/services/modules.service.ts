@@ -56,6 +56,7 @@ import {
 } from "@/utils/validation.util";
 
 const MODULE_DOWNLOAD_MAX_BYTES = 10 * 1024 * 1024;
+const IDENTIFIER_SCHEMA = z.string().regex(/^[A-Za-z_$][A-Za-z0-9_$]*$/);
 
 interface ModuleFactory {
   type: ModuleType;
@@ -225,6 +226,7 @@ export class ModuleService {
       .select({
         adapter: servicesTable.adapter,
         serviceEnabled: servicesTable.enabled,
+        serviceStale: servicesTable.stale,
         toolEnabled: toolsTable.enabled,
       })
       .from(servicesTable)
@@ -246,6 +248,13 @@ export class ModuleService {
       throw new HttpError(
         404,
         `Tool '${input.toolId}' not found in service '${input.serviceId}'.`,
+      );
+    }
+
+    if (row.serviceStale) {
+      throw new HttpError(
+        409,
+        `Service '${input.serviceId}' is stale and must be synced before it can be invoked.`,
       );
     }
 
@@ -937,6 +946,21 @@ export class ModuleService {
       );
     }
 
+    try {
+      const { updated, failed } = await this.regenerateAdapterServices(id);
+      if (failed > 0) {
+        logger.warn(
+          { moduleId: id, updated, failed },
+          "Some services failed to regenerate after module update and have been marked stale",
+        );
+      }
+    } catch (err) {
+      logger.warn(
+        { err, moduleId: id },
+        "Failed to regenerate services after module update",
+      );
+    }
+
     await fs.rm(backupDir, { recursive: true, force: true }).catch(() => {});
 
     try {
@@ -1079,6 +1103,21 @@ export class ModuleService {
       throw new HttpError(
         500,
         `Failed to persist updated module '${id}' in database.`,
+      );
+    }
+
+    try {
+      const { updated, failed } = await this.regenerateAdapterServices(id);
+      if (failed > 0) {
+        logger.warn(
+          { moduleId: id, updated, failed },
+          "Some services failed to regenerate after module patch and have been marked stale",
+        );
+      }
+    } catch (err) {
+      logger.warn(
+        { err, moduleId: id },
+        "Failed to regenerate services after module patch",
       );
     }
 
@@ -1257,6 +1296,117 @@ export class ModuleService {
     const previous = this.activeEnvironment;
     this.activeEnvironment = next;
     if (previous) this.markDraining(previous);
+  }
+
+  private async regenerateAdapterServices(
+    id: string,
+  ): Promise<{ updated: number; failed: number }> {
+    const factory = this.factories.get(id);
+    if (!factory || factory.type !== "adapter") {
+      return { updated: 0, failed: 0 };
+    }
+
+    const rows = await db
+      .select({
+        id: servicesTable.id,
+        definitionContent: servicesTable.definitionContent,
+      })
+      .from(servicesTable)
+      .where(
+        and(eq(servicesTable.adapter, id), eq(servicesTable.orphaned, false)),
+      )
+      .catch(() => []);
+
+    if (rows.length === 0) return { updated: 0, failed: 0 };
+
+    const setupCtx = await this.buildSetupContext(id);
+    const adapter = factory.instantiate() as AdapterModule;
+    await adapter.setup(setupCtx);
+
+    let updated = 0;
+    let failed = 0;
+
+    try {
+      for (const service of rows) {
+        if (!service.definitionContent) {
+          await db
+            .update(servicesTable)
+            .set({ stale: true })
+            .where(eq(servicesTable.id, service.id))
+            .catch(() => {});
+          failed++;
+          continue;
+        }
+
+        try {
+          const def = await adapter.generateDefinition(
+            service.definitionContent,
+          );
+
+          for (const tool of def.tools) {
+            if (!IDENTIFIER_SCHEMA.safeParse(tool.id).success) {
+              throw new Error(
+                `Tool id '${tool.id}' is not a valid identifier.`,
+              );
+            }
+          }
+
+          await db.transaction(async (tx) => {
+            const existingTools = await tx
+              .select({ name: toolsTable.name, enabled: toolsTable.enabled })
+              .from(toolsTable)
+              .where(eq(toolsTable.serviceId, service.id));
+
+            const enabledMap = new Map(
+              existingTools.map((t) => [t.name, t.enabled]),
+            );
+
+            await tx
+              .update(servicesTable)
+              .set({
+                ...def,
+                stale: false,
+              })
+              .where(eq(servicesTable.id, service.id));
+
+            await tx
+              .delete(toolsTable)
+              .where(eq(toolsTable.serviceId, service.id));
+
+            if (def.tools.length) {
+              await tx.insert(toolsTable).values(
+                def.tools.map((tool) => ({
+                  ...tool,
+                  serviceId: service.id,
+                  enabled: enabledMap.get(tool.name) ?? false,
+                })),
+              );
+            }
+          });
+
+          updated++;
+        } catch (err) {
+          await db
+            .update(servicesTable)
+            .set({ stale: true })
+            .where(eq(servicesTable.id, service.id))
+            .catch(() => {});
+          logger.warn(
+            { err, serviceId: service.id },
+            "Failed to regenerate service after module update",
+          );
+          failed++;
+        }
+      }
+    } finally {
+      await adapter.teardown().catch(() => {});
+    }
+
+    logger.info(
+      { moduleId: id, updated, failed },
+      "Adapter service regeneration complete",
+    );
+    return { updated, failed };
   }
 
   private async reloadIfActive(id: string): Promise<void> {

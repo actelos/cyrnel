@@ -8,6 +8,13 @@
       "when": 1780850482373,
       "tag": "0000_bizarre_green_goblin",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1781631470076,
+      "tag": "0002_spotty_juggernaut",
+      "breakpoints": true
     }
   ]
 }

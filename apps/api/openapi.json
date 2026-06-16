@@ -20,7 +20,9 @@
             "description": "Human-readable error message returned by the API."
           }
         },
-        "required": ["error"],
+        "required": [
+          "error"
+        ],
         "description": "Standard error envelope returned by the HTTP error middleware."
       },
       "Process": {
@@ -39,13 +41,24 @@
           },
           "state": {
             "type": "string",
-            "enum": ["queued", "running", "idle", "terminating"],
+            "enum": [
+              "queued",
+              "running",
+              "idle",
+              "terminating"
+            ],
             "description": "Current lifecycle state of the process."
           },
           "exitState": {
             "type": "string",
             "nullable": true,
-            "enum": ["failed", "success", "timeout", "canceled", null],
+            "enum": [
+              "failed",
+              "success",
+              "timeout",
+              "canceled",
+              null
+            ],
             "description": "Terminal exit state of the process. Null until the process becomes idle."
           },
           "error": {
@@ -54,7 +67,12 @@
             "description": "Error message captured during execution, or null if no error occurred."
           }
         },
-        "required": ["pid", "state", "exitState", "error"],
+        "required": [
+          "pid",
+          "state",
+          "exitState",
+          "error"
+        ],
         "description": "Process snapshot returned by the process management endpoints."
       },
       "ProcessListResponse": {
@@ -68,7 +86,9 @@
             "description": "Processes that match the provided query filters."
           }
         },
-        "required": ["processes"],
+        "required": [
+          "processes"
+        ],
         "description": "Collection wrapper for process listings."
       },
       "ProcessCreateRequest": {
@@ -101,7 +121,9 @@
             "description": "Optional execution options for the process."
           }
         },
-        "required": ["code"],
+        "required": [
+          "code"
+        ],
         "description": "Request body used to create a new process."
       },
       "ProcessCreatedResponse": {
@@ -114,7 +136,9 @@
             "description": "Identifier assigned to the newly created process."
           }
         },
-        "required": ["pid"],
+        "required": [
+          "pid"
+        ],
         "description": "Response returned after a process is created."
       },
       "ProcessOutput": {
@@ -180,6 +204,10 @@
           "enabled": {
             "type": "boolean",
             "description": "Whether the service is currently enabled."
+          },
+          "stale": {
+            "type": "boolean",
+            "description": "Whether the service needs to be synced. Stale services cannot be enabled or invoked."
           }
         },
         "required": [
@@ -189,7 +217,8 @@
           "hash",
           "source",
           "adapter",
-          "enabled"
+          "enabled",
+          "stale"
         ],
         "description": "Compact service summary returned by service list and detail endpoints."
       },
@@ -216,7 +245,10 @@
                 "description": "JSON Schema describing the service secrets object."
               }
             },
-            "required": ["configSchema", "secretsSchema"]
+            "required": [
+              "configSchema",
+              "secretsSchema"
+            ]
           }
         ],
         "description": "Service metadata including configuration and secrets schemas."
@@ -232,10 +264,36 @@
             "description": "Services that match the current query filters."
           }
         },
-        "required": ["services"],
+        "required": [
+          "services"
+        ],
         "description": "Collection wrapper for service listings."
       },
       "ServiceInstallRequest": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Registry URL to resolve for service metadata, then download the definition."
+          },
+          "adapter": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Optional adapter module identifier. Overrides registry default."
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Optional service identifier. Overrides registry default."
+          }
+        },
+        "required": [
+          "source"
+        ],
+        "description": "Request body used to install a service from a registry."
+      },
+      "ServiceDirectInstallRequest": {
         "type": "object",
         "properties": {
           "id": {
@@ -243,10 +301,10 @@
             "minLength": 1,
             "description": "Identifier to assign to the new service. Must be a valid identifier matching /^[A-Za-z_$][A-Za-z0-9_$]*$/."
           },
-          "source": {
+          "url": {
             "type": "string",
             "minLength": 1,
-            "description": "URL of the service definition file to download and install."
+            "description": "Direct URL of the service definition file to download and install."
           },
           "adapter": {
             "type": "string",
@@ -254,8 +312,26 @@
             "description": "Adapter module identifier responsible for the service."
           }
         },
-        "required": ["id", "source", "adapter"],
-        "description": "Request body used to install a new service definition."
+        "required": [
+          "id",
+          "url",
+          "adapter"
+        ],
+        "description": "Request body used to install a service from a direct URL."
+      },
+      "ServicePatchRequest": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Direct URL of the new definition file to replace the existing installation."
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "description": "Request body used to replace a service via a direct download URL."
       },
       "ServiceCreatedResponse": {
         "type": "object",
@@ -266,7 +342,9 @@
             "description": "Identifier assigned to the newly installed service."
           }
         },
-        "required": ["id"],
+        "required": [
+          "id"
+        ],
         "description": "Response returned after a service is installed."
       },
       "ServiceUpdateResponse": {
@@ -282,8 +360,24 @@
             "description": "Acknowledges that the update request was processed successfully."
           }
         },
-        "required": ["id", "updated"],
+        "required": [
+          "id",
+          "updated"
+        ],
         "description": "Response returned by the service update endpoint."
+      },
+      "ServicePatchResponse": {
+        "type": "object",
+        "properties": {
+          "updated": {
+            "type": "boolean",
+            "description": "Whether the service was updated (false if no change detected)."
+          }
+        },
+        "required": [
+          "updated"
+        ],
+        "description": "Response returned by the service patch endpoint."
       },
       "ServiceEnabledRequest": {
         "type": "object",
@@ -293,7 +387,9 @@
             "description": "Desired enabled state for the service."
           }
         },
-        "required": ["enabled"],
+        "required": [
+          "enabled"
+        ],
         "description": "Request body used to toggle a service enabled state."
       },
       "ServiceEnabledResponse": {
@@ -309,7 +405,10 @@
             "description": "The new enabled state stored for the service."
           }
         },
-        "required": ["id", "enabled"],
+        "required": [
+          "id",
+          "enabled"
+        ],
         "description": "Response returned after toggling a service enabled state."
       },
       "ServiceConfigurationResponse": {
@@ -323,7 +422,9 @@
             "description": "Current configuration payload stored for the service."
           }
         },
-        "required": ["config"],
+        "required": [
+          "config"
+        ],
         "description": "Wrapper for a service configuration document."
       },
       "ServiceConfigurationSchemaResponse": {
@@ -337,7 +438,9 @@
             "description": "JSON Schema used to validate the service configuration payload."
           }
         },
-        "required": ["configSchema"],
+        "required": [
+          "configSchema"
+        ],
         "description": "Wrapper for a service configuration schema document."
       },
       "ServiceSecretsSchemaResponse": {
@@ -351,7 +454,9 @@
             "description": "JSON Schema used to validate the service secrets payload."
           }
         },
-        "required": ["secretsSchema"],
+        "required": [
+          "secretsSchema"
+        ],
         "description": "Wrapper for a service secrets schema document."
       },
       "ServiceSecretsResponse": {
@@ -362,7 +467,9 @@
             "description": "Acknowledges that the secrets patch was accepted and persisted."
           }
         },
-        "required": ["updated"],
+        "required": [
+          "updated"
+        ],
         "description": "Response returned after patching service secrets."
       },
       "ToolListItem": {
@@ -468,7 +575,9 @@
             "description": "Tools that match the supplied filters."
           }
         },
-        "required": ["tools"],
+        "required": [
+          "tools"
+        ],
         "description": "Collection wrapper for tool listings."
       },
       "ToolEnabledRequest": {
@@ -479,7 +588,9 @@
             "description": "Desired enabled state for the tool."
           }
         },
-        "required": ["enabled"],
+        "required": [
+          "enabled"
+        ],
         "description": "Request body used to toggle a tool enabled state."
       },
       "ToolEnabledResponse": {
@@ -500,7 +611,11 @@
             "description": "The new enabled state stored for the tool."
           }
         },
-        "required": ["id", "serviceId", "enabled"],
+        "required": [
+          "id",
+          "serviceId",
+          "enabled"
+        ],
         "description": "Response returned after toggling a tool enabled state."
       },
       "Module": {
@@ -518,7 +633,10 @@
           },
           "type": {
             "type": "string",
-            "enum": ["adapter", "environment"],
+            "enum": [
+              "adapter",
+              "environment"
+            ],
             "description": "Module type."
           },
           "description": {
@@ -560,7 +678,9 @@
             "description": "Modules that match the supplied query filters."
           }
         },
-        "required": ["modules"],
+        "required": [
+          "modules"
+        ],
         "description": "Collection wrapper for module listings."
       },
       "ModuleDetails": {
@@ -578,7 +698,7 @@
               },
               "source": {
                 "type": "string",
-                "minLength": 1,
+                "minLength": 0,
                 "description": "Install source URL used to fetch the module archive."
               },
               "configSchema": {
@@ -596,7 +716,12 @@
                 "description": "JSON Schema describing the module secrets object."
               }
             },
-            "required": ["hash", "source", "configSchema", "secretsSchema"]
+            "required": [
+              "hash",
+              "source",
+              "configSchema",
+              "secretsSchema"
+            ]
           }
         ],
         "description": "Full module manifest record returned by the get module endpoint."
@@ -607,11 +732,41 @@
           "source": {
             "type": "string",
             "minLength": 1,
-            "description": "URL of the .tar.zst module archive to download and install."
+            "description": "Registry URL to resolve for module metadata, then download the .tar.zst archive."
           }
         },
-        "required": ["source"],
-        "description": "Request body used to install a new module."
+        "required": [
+          "source"
+        ],
+        "description": "Request body used to install a module from a registry."
+      },
+      "ModuleDirectInstallRequest": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Direct URL of the .tar.zst module archive to download and install."
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "description": "Request body used to install a module from a direct URL."
+      },
+      "ModulePatchRequest": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Direct URL of the new .tar.zst module archive to replace the existing installation."
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "description": "Request body used to replace a module via a direct download URL."
       },
       "ModuleUpdateResponse": {
         "type": "object",
@@ -621,7 +776,9 @@
             "description": "Whether the module was updated (false if no change detected)."
           }
         },
-        "required": ["updated"],
+        "required": [
+          "updated"
+        ],
         "description": "Response returned by the module update endpoint."
       },
       "ModuleEnabledRequest": {
@@ -632,7 +789,9 @@
             "description": "Desired enabled state for the module."
           }
         },
-        "required": ["enabled"],
+        "required": [
+          "enabled"
+        ],
         "description": "Request body used to toggle a module enabled state."
       }
     },
@@ -641,7 +800,9 @@
   "paths": {
     "/processes": {
       "get": {
-        "tags": ["Processes"],
+        "tags": [
+          "Processes"
+        ],
         "summary": "List processes",
         "description": "Returns process snapshots filtered by optional ref, state, and status query parameters. The status filter accepts the terminal exit states (success, failed, timeout, canceled) or 'null' to match processes that have not finished.",
         "parameters": [
@@ -658,7 +819,12 @@
           {
             "schema": {
               "type": "string",
-              "enum": ["queued", "running", "idle", "terminating"],
+              "enum": [
+                "queued",
+                "running",
+                "idle",
+                "terminating"
+              ],
               "description": "Current lifecycle state of a process."
             },
             "required": false,
@@ -669,7 +835,13 @@
           {
             "schema": {
               "type": "string",
-              "enum": ["failed", "success", "timeout", "canceled", "null"],
+              "enum": [
+                "failed",
+                "success",
+                "timeout",
+                "canceled",
+                "null"
+              ],
               "description": "Filter processes by terminal exit state. Use 'null' to match processes that have not finished."
             },
             "required": false,
@@ -722,7 +894,9 @@
         }
       },
       "post": {
-        "tags": ["Processes"],
+        "tags": [
+          "Processes"
+        ],
         "summary": "Create a process",
         "description": "Stages new code as a process. The optional block flag waits until execution becomes idle before responding. The optional options.timeout is expressed in milliseconds and may be null to explicitly clear it.",
         "requestBody": {
@@ -790,7 +964,9 @@
     },
     "/processes/{pid}": {
       "get": {
-        "tags": ["Processes"],
+        "tags": [
+          "Processes"
+        ],
         "summary": "Get a process",
         "description": "Returns the current process snapshot for the requested process identifier.",
         "parameters": [
@@ -859,7 +1035,9 @@
         }
       },
       "delete": {
-        "tags": ["Processes"],
+        "tags": [
+          "Processes"
+        ],
         "summary": "Delete a process",
         "description": "Deletes an idle process snapshot. Active processes must be stopped before they can be deleted.",
         "parameters": [
@@ -940,7 +1118,9 @@
     },
     "/processes/{pid}/code": {
       "get": {
-        "tags": ["Processes"],
+        "tags": [
+          "Processes"
+        ],
         "summary": "Get stored process code",
         "description": "Returns the exact source code stored for the process as plain text. Useful for debugging and auditing the code that produced the execution output.",
         "parameters": [
@@ -1012,7 +1192,9 @@
     },
     "/processes/{pid}/output": {
       "get": {
-        "tags": ["Processes"],
+        "tags": [
+          "Processes"
+        ],
         "summary": "Get process output",
         "description": "Returns the structured output collected during process execution. Output is only available once the process is idle.",
         "parameters": [
@@ -1093,7 +1275,9 @@
     },
     "/processes/{pid}/stdout": {
       "get": {
-        "tags": ["Processes"],
+        "tags": [
+          "Processes"
+        ],
         "summary": "Get process stdout",
         "description": "Returns the captured standard output for the process as plain text. Output is only available once the process is idle.",
         "parameters": [
@@ -1175,7 +1359,9 @@
     },
     "/processes/{pid}/stderr": {
       "get": {
-        "tags": ["Processes"],
+        "tags": [
+          "Processes"
+        ],
         "summary": "Get process stderr",
         "description": "Returns the captured standard error for the process as plain text. Output is only available once the process is idle.",
         "parameters": [
@@ -1257,7 +1443,9 @@
     },
     "/processes/{pid}/signals/run": {
       "post": {
-        "tags": ["Processes"],
+        "tags": [
+          "Processes"
+        ],
         "summary": "Run a process",
         "description": "Queues an idle process for execution. Set force to true to rerun a process that already produced output. Set block to true to wait for the process to return to the idle state before responding.",
         "parameters": [
@@ -1357,7 +1545,9 @@
     },
     "/processes/{pid}/signals/kill": {
       "post": {
-        "tags": ["Processes"],
+        "tags": [
+          "Processes"
+        ],
         "summary": "Kill a process",
         "description": "Signals an active process to terminate. The body is only validated as a JSON object; its contents are ignored.",
         "parameters": [
@@ -1447,7 +1637,9 @@
     },
     "/services": {
       "get": {
-        "tags": ["Services"],
+        "tags": [
+          "Services"
+        ],
         "summary": "List services",
         "description": "Returns the installed services. The query parameter is trimmed and matched against service id, name, and description. The enabled parameter accepts 'true' or 'false'; omit it to return all services.",
         "parameters": [
@@ -1464,7 +1656,10 @@
           {
             "schema": {
               "type": "string",
-              "enum": ["true", "false"],
+              "enum": [
+                "true",
+                "false"
+              ],
               "description": "Enabled-state filter. Omit to return all services."
             },
             "required": false,
@@ -1515,153 +1710,18 @@
             }
           }
         }
-      }
-    },
-    "/services/{serviceId}": {
-      "get": {
-        "tags": ["Services"],
-        "summary": "Get a service",
-        "description": "Returns full manifest metadata for a service, including configuration and secrets schemas.",
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "minLength": 1,
-              "description": "Service identifier matching the installed manifest id."
-            },
-            "required": true,
-            "description": "Service identifier matching the installed manifest id.",
-            "name": "serviceId",
-            "in": "path"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Service details.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ServiceDetails"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "The serviceId path parameter was invalid.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "A bearer token was required but missing or invalid.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "The service could not be found.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "The service details could not be loaded.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          }
-        }
       },
-      "delete": {
-        "tags": ["Services"],
-        "summary": "Delete a service",
-        "description": "Deletes a service manifest along with its tools, configuration, and secrets. The owning adapter is asked to dehydrate the service afterwards.",
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "minLength": 1,
-              "description": "Service identifier matching the installed manifest id."
-            },
-            "required": true,
-            "description": "Service identifier matching the installed manifest id.",
-            "name": "serviceId",
-            "in": "path"
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "The service was deleted successfully."
-          },
-          "400": {
-            "description": "The serviceId path parameter was invalid.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "A bearer token was required but missing or invalid.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "The service could not be found.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "The service could not be deleted.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/services/install": {
       "post": {
-        "tags": ["Services"],
-        "summary": "Install a service",
-        "description": "Downloads the definition file from the supplied source URL, validates the manifest, and stores it as a new service under the supplied id and adapter. Installation does not automatically enable the service.",
+        "tags": [
+          "Services"
+        ],
+        "summary": "Install a service from a direct URL",
+        "description": "Downloads the definition file from the supplied direct URL, validates the manifest, and stores it as a new service under the supplied id and adapter. No registry source is stored.",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ServiceInstallRequest"
+                "$ref": "#/components/schemas/ServiceDirectInstallRequest"
               }
             }
           }
@@ -1740,11 +1800,343 @@
         }
       }
     },
+    "/services/{serviceId}": {
+      "get": {
+        "tags": [
+          "Services"
+        ],
+        "summary": "Get a service",
+        "description": "Returns full manifest metadata for a service, including configuration and secrets schemas.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Service identifier matching the installed manifest id."
+            },
+            "required": true,
+            "description": "Service identifier matching the installed manifest id.",
+            "name": "serviceId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Service details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceDetails"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The serviceId path parameter was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A bearer token was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The service could not be found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The service details could not be loaded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Services"
+        ],
+        "summary": "Replace a service via direct URL",
+        "description": "Downloads the definition file from the supplied direct URL and replaces the existing service. The stored registry source is cleared, making the service a direct-installed item.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Service identifier matching the installed manifest id."
+            },
+            "required": true,
+            "description": "Service identifier matching the installed manifest id.",
+            "name": "serviceId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ServicePatchRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Update result for the requested service.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServicePatchResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The serviceId path parameter or request body was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A bearer token was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The service could not be found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The downloaded definition exceeded the configured size limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The service could not be updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The definition file could not be downloaded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Services"
+        ],
+        "summary": "Delete a service",
+        "description": "Deletes a service manifest along with its tools, configuration, and secrets. The owning adapter is asked to dehydrate the service afterwards.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Service identifier matching the installed manifest id."
+            },
+            "required": true,
+            "description": "Service identifier matching the installed manifest id.",
+            "name": "serviceId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The service was deleted successfully."
+          },
+          "400": {
+            "description": "The serviceId path parameter was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A bearer token was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The service could not be found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The service could not be deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/services/install": {
+      "post": {
+        "tags": [
+          "Services"
+        ],
+        "summary": "Install a service from a registry",
+        "description": "Resolves the registry source URL, downloads the definition from the returned downloadUrl, validates the manifest, and stores it. Optional adapter and id override the registry defaults. The registry source URL is stored for future updates.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ServiceInstallRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The service was installed and stored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceCreatedResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The install payload was invalid, the registry response was malformed, or the downloaded definition failed validation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A bearer token was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A service already exists with the requested id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The downloaded definition exceeded the configured size limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The service could not be installed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The registry or definition file could not be downloaded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/services/{serviceId}/update": {
       "post": {
-        "tags": ["Services"],
-        "summary": "Update a service manifest",
-        "description": "Re-downloads the stored definition source and updates the manifest. Tool enabled flags are preserved by name where possible, and the service is disabled until it is explicitly re-enabled.",
+        "tags": [
+          "Services"
+        ],
+        "summary": "Update a service from its stored registry",
+        "description": "Re-resolves the stored registry source URL, compares the registry hash against the stored hash, and re-downloads and re-installs the definition if changed. Only works for registry-installed services.",
         "parameters": [
           {
             "schema": {
@@ -1800,7 +2192,7 @@
             }
           },
           "409": {
-            "description": "The service has no stored install source and cannot be updated automatically.",
+            "description": "The service has no stored registry source and cannot be updated automatically.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1830,7 +2222,7 @@
             }
           },
           "502": {
-            "description": "The definition file could not be downloaded.",
+            "description": "The registry or definition file could not be downloaded.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1844,7 +2236,9 @@
     },
     "/services/{serviceId}/enabled": {
       "post": {
-        "tags": ["Services"],
+        "tags": [
+          "Services"
+        ],
         "summary": "Toggle a service",
         "description": "Sets whether a service is enabled. When enabling, the stored configuration and secrets are validated against their schemas before the change is persisted and the service is hydrated on its adapter.",
         "parameters": [
@@ -1935,7 +2329,9 @@
     },
     "/services/{serviceId}/config/schema": {
       "get": {
-        "tags": ["Services"],
+        "tags": [
+          "Services"
+        ],
         "summary": "Get a service configuration schema",
         "description": "Returns the JSON Schema used to validate the service configuration payload.",
         "parameters": [
@@ -2007,7 +2403,9 @@
     },
     "/services/{serviceId}/config": {
       "get": {
-        "tags": ["Services"],
+        "tags": [
+          "Services"
+        ],
         "summary": "Get service configuration",
         "description": "Returns the configuration payload stored for the service. If no configuration exists yet, an empty object is returned.",
         "parameters": [
@@ -2067,7 +2465,9 @@
         }
       },
       "patch": {
-        "tags": ["Services"],
+        "tags": [
+          "Services"
+        ],
         "summary": "Patch service configuration",
         "description": "Applies a JSON Patch document to the stored configuration, validates the result against the schema, persists it, and returns the resulting configuration payload. The patch body must be an array of RFC 6902 operations.",
         "parameters": [
@@ -2095,7 +2495,9 @@
                       "properties": {
                         "op": {
                           "type": "string",
-                          "enum": ["add"],
+                          "enum": [
+                            "add"
+                          ],
                           "description": "Insert a value at the target path."
                         },
                         "path": {
@@ -2108,14 +2510,19 @@
                           "description": "Value to insert or replace."
                         }
                       },
-                      "required": ["op", "path"]
+                      "required": [
+                        "op",
+                        "path"
+                      ]
                     },
                     {
                       "type": "object",
                       "properties": {
                         "op": {
                           "type": "string",
-                          "enum": ["remove"],
+                          "enum": [
+                            "remove"
+                          ],
                           "description": "Remove the value at the target path."
                         },
                         "path": {
@@ -2124,14 +2531,19 @@
                           "description": "JSON Pointer path to remove."
                         }
                       },
-                      "required": ["op", "path"]
+                      "required": [
+                        "op",
+                        "path"
+                      ]
                     },
                     {
                       "type": "object",
                       "properties": {
                         "op": {
                           "type": "string",
-                          "enum": ["replace"],
+                          "enum": [
+                            "replace"
+                          ],
                           "description": "Replace the value at the target path."
                         },
                         "path": {
@@ -2144,14 +2556,19 @@
                           "description": "Replacement value."
                         }
                       },
-                      "required": ["op", "path"]
+                      "required": [
+                        "op",
+                        "path"
+                      ]
                     },
                     {
                       "type": "object",
                       "properties": {
                         "op": {
                           "type": "string",
-                          "enum": ["move"],
+                          "enum": [
+                            "move"
+                          ],
                           "description": "Move a value from one path to another."
                         },
                         "path": {
@@ -2165,14 +2582,20 @@
                           "description": "Source JSON Pointer path."
                         }
                       },
-                      "required": ["op", "path", "from"]
+                      "required": [
+                        "op",
+                        "path",
+                        "from"
+                      ]
                     },
                     {
                       "type": "object",
                       "properties": {
                         "op": {
                           "type": "string",
-                          "enum": ["copy"],
+                          "enum": [
+                            "copy"
+                          ],
                           "description": "Copy a value from one path to another."
                         },
                         "path": {
@@ -2186,14 +2609,20 @@
                           "description": "Source JSON Pointer path."
                         }
                       },
-                      "required": ["op", "path", "from"]
+                      "required": [
+                        "op",
+                        "path",
+                        "from"
+                      ]
                     },
                     {
                       "type": "object",
                       "properties": {
                         "op": {
                           "type": "string",
-                          "enum": ["test"],
+                          "enum": [
+                            "test"
+                          ],
                           "description": "Assert that a path contains a value."
                         },
                         "path": {
@@ -2206,7 +2635,10 @@
                           "description": "Expected value."
                         }
                       },
-                      "required": ["op", "path"]
+                      "required": [
+                        "op",
+                        "path"
+                      ]
                     }
                   ]
                 },
@@ -2271,7 +2703,9 @@
     },
     "/services/{serviceId}/secrets/schema": {
       "get": {
-        "tags": ["Services"],
+        "tags": [
+          "Services"
+        ],
         "summary": "Get a service secrets schema",
         "description": "Returns the JSON Schema used to validate the service secrets payload.",
         "parameters": [
@@ -2343,7 +2777,9 @@
     },
     "/services/{serviceId}/secrets": {
       "patch": {
-        "tags": ["Services"],
+        "tags": [
+          "Services"
+        ],
         "summary": "Patch service secrets",
         "description": "Applies a JSON Patch document to the encrypted secrets payload, validates the result against the schema, and persists the updated secrets. The response only confirms success; secrets are never echoed back.",
         "parameters": [
@@ -2371,7 +2807,9 @@
                       "properties": {
                         "op": {
                           "type": "string",
-                          "enum": ["add"],
+                          "enum": [
+                            "add"
+                          ],
                           "description": "Insert a value at the target path."
                         },
                         "path": {
@@ -2384,14 +2822,19 @@
                           "description": "Value to insert or replace."
                         }
                       },
-                      "required": ["op", "path"]
+                      "required": [
+                        "op",
+                        "path"
+                      ]
                     },
                     {
                       "type": "object",
                       "properties": {
                         "op": {
                           "type": "string",
-                          "enum": ["remove"],
+                          "enum": [
+                            "remove"
+                          ],
                           "description": "Remove the value at the target path."
                         },
                         "path": {
@@ -2400,14 +2843,19 @@
                           "description": "JSON Pointer path to remove."
                         }
                       },
-                      "required": ["op", "path"]
+                      "required": [
+                        "op",
+                        "path"
+                      ]
                     },
                     {
                       "type": "object",
                       "properties": {
                         "op": {
                           "type": "string",
-                          "enum": ["replace"],
+                          "enum": [
+                            "replace"
+                          ],
                           "description": "Replace the value at the target path."
                         },
                         "path": {
@@ -2420,14 +2868,19 @@
                           "description": "Replacement value."
                         }
                       },
-                      "required": ["op", "path"]
+                      "required": [
+                        "op",
+                        "path"
+                      ]
                     },
                     {
                       "type": "object",
                       "properties": {
                         "op": {
                           "type": "string",
-                          "enum": ["move"],
+                          "enum": [
+                            "move"
+                          ],
                           "description": "Move a value from one path to another."
                         },
                         "path": {
@@ -2441,14 +2894,20 @@
                           "description": "Source JSON Pointer path."
                         }
                       },
-                      "required": ["op", "path", "from"]
+                      "required": [
+                        "op",
+                        "path",
+                        "from"
+                      ]
                     },
                     {
                       "type": "object",
                       "properties": {
                         "op": {
                           "type": "string",
-                          "enum": ["copy"],
+                          "enum": [
+                            "copy"
+                          ],
                           "description": "Copy a value from one path to another."
                         },
                         "path": {
@@ -2462,14 +2921,20 @@
                           "description": "Source JSON Pointer path."
                         }
                       },
-                      "required": ["op", "path", "from"]
+                      "required": [
+                        "op",
+                        "path",
+                        "from"
+                      ]
                     },
                     {
                       "type": "object",
                       "properties": {
                         "op": {
                           "type": "string",
-                          "enum": ["test"],
+                          "enum": [
+                            "test"
+                          ],
                           "description": "Assert that a path contains a value."
                         },
                         "path": {
@@ -2482,7 +2947,10 @@
                           "description": "Expected value."
                         }
                       },
-                      "required": ["op", "path"]
+                      "required": [
+                        "op",
+                        "path"
+                      ]
                     }
                   ]
                 },
@@ -2547,7 +3015,9 @@
     },
     "/tools": {
       "get": {
-        "tags": ["Tools"],
+        "tags": [
+          "Tools"
+        ],
         "summary": "List tools",
         "description": "Returns tools that match the supplied filters. The serviceId, query, limit, and enabled query parameters are all optional. The enabled filter accepts 'true' or 'false'.",
         "parameters": [
@@ -2584,7 +3054,10 @@
           {
             "schema": {
               "type": "string",
-              "enum": ["true", "false"],
+              "enum": [
+                "true",
+                "false"
+              ],
               "description": "Enabled-state filter. Omit to return all tools."
             },
             "required": false,
@@ -2639,7 +3112,9 @@
     },
     "/tools/{serviceId}/{toolId}": {
       "get": {
-        "tags": ["Tools"],
+        "tags": [
+          "Tools"
+        ],
         "summary": "Get a tool",
         "description": "Returns detailed metadata for a tool within a service, including input and output schemas.",
         "parameters": [
@@ -2722,7 +3197,9 @@
     },
     "/tools/{serviceId}/{toolId}/docs": {
       "get": {
-        "tags": ["Tools"],
+        "tags": [
+          "Tools"
+        ],
         "summary": "Get tool documentation",
         "description": "Returns generated documentation for the tool as Markdown text. Documentation is produced by the active environment module.",
         "parameters": [
@@ -2806,7 +3283,9 @@
     },
     "/tools/{serviceId}/{toolId}/enabled": {
       "post": {
-        "tags": ["Tools"],
+        "tags": [
+          "Tools"
+        ],
         "summary": "Toggle a tool",
         "description": "Sets whether a tool is enabled. The parent service can still disable the tool at runtime even if the stored tool flag is true.",
         "parameters": [
@@ -2898,7 +3377,9 @@
     },
     "/modules": {
       "get": {
-        "tags": ["Modules"],
+        "tags": [
+          "Modules"
+        ],
         "summary": "List modules",
         "description": "Returns module manifests filtered by optional query, type, isBuiltin, and enabled query parameters. The enabled filter accepts 'true', 'false', or 'null' to match orphaned modules.",
         "parameters": [
@@ -2915,7 +3396,10 @@
           {
             "schema": {
               "type": "string",
-              "enum": ["adapter", "environment"],
+              "enum": [
+                "adapter",
+                "environment"
+              ],
               "description": "Module type. Either 'adapter' or 'environment'."
             },
             "required": false,
@@ -2926,7 +3410,10 @@
           {
             "schema": {
               "type": "string",
-              "enum": ["true", "false"],
+              "enum": [
+                "true",
+                "false"
+              ],
               "description": "Filter by whether the module is bundled with the API."
             },
             "required": false,
@@ -2937,7 +3424,11 @@
           {
             "schema": {
               "type": "string",
-              "enum": ["true", "false", "null"],
+              "enum": [
+                "true",
+                "false",
+                "null"
+              ],
               "description": "Enabled-state filter for modules."
             },
             "required": false,
@@ -2988,185 +3479,18 @@
             }
           }
         }
-      }
-    },
-    "/modules/reload": {
-      "post": {
-        "tags": ["Modules"],
-        "summary": "Reload modules",
-        "description": "Reloads the on-disk module registry. The active environment is drained and the adapter pool is reconciled against the new manifests.",
-        "responses": {
-          "200": {
-            "description": "The module registry was reloaded successfully."
-          },
-          "401": {
-            "description": "A bearer token was required but missing or invalid.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "The modules could not be reloaded.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/modules/{moduleId}": {
-      "get": {
-        "tags": ["Modules"],
-        "summary": "Get a module",
-        "description": "Returns the module manifest record for the requested module id, including hash, source, and configuration/secrets schemas.",
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "minLength": 1,
-              "description": "Module identifier."
-            },
-            "required": true,
-            "description": "Module identifier.",
-            "name": "moduleId",
-            "in": "path"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Full module manifest record.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ModuleDetails"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "The moduleId path parameter was invalid.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "A bearer token was required but missing or invalid.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "The module could not be found.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "The module could not be loaded.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          }
-        }
       },
-      "delete": {
-        "tags": ["Modules"],
-        "summary": "Delete a module",
-        "description": "Deactivates the module's adapter or environment, deletes its database record, and removes its filesystem directory. Services belonging to the module are also removed.",
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "minLength": 1,
-              "description": "Module identifier."
-            },
-            "required": true,
-            "description": "Module identifier.",
-            "name": "moduleId",
-            "in": "path"
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "The module was deleted successfully."
-          },
-          "400": {
-            "description": "The moduleId path parameter was invalid.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "A bearer token was required but missing or invalid.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "The module could not be found.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "The module could not be deleted.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/modules/install": {
       "post": {
-        "tags": ["Modules"],
-        "summary": "Install a module",
-        "description": "Downloads a .tar.zst archive from the supplied source URL, validates the module.json manifest, and registers the module. Newly installed modules start disabled by default.",
+        "tags": [
+          "Modules"
+        ],
+        "summary": "Install a module from a direct URL",
+        "description": "Downloads a .tar.zst archive from the supplied direct URL, validates the module.json manifest, and registers the module. Newly installed modules start disabled by default. No registry source is stored.",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ModuleInstallRequest"
+                "$ref": "#/components/schemas/ModuleDirectInstallRequest"
               }
             }
           }
@@ -3245,11 +3569,377 @@
         }
       }
     },
+    "/modules/reload": {
+      "post": {
+        "tags": [
+          "Modules"
+        ],
+        "summary": "Reload modules",
+        "description": "Reloads the on-disk module registry. The active environment is drained and the adapter pool is reconciled against the new manifests.",
+        "responses": {
+          "200": {
+            "description": "The module registry was reloaded successfully."
+          },
+          "401": {
+            "description": "A bearer token was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The modules could not be reloaded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/modules/{moduleId}": {
+      "get": {
+        "tags": [
+          "Modules"
+        ],
+        "summary": "Get a module",
+        "description": "Returns the module manifest record for the requested module id, including hash, source, and configuration/secrets schemas.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Module identifier."
+            },
+            "required": true,
+            "description": "Module identifier.",
+            "name": "moduleId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Full module manifest record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleDetails"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The moduleId path parameter was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A bearer token was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The module could not be found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The module could not be loaded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Modules"
+        ],
+        "summary": "Delete a module",
+        "description": "Deactivates the module's adapter or environment, deletes its database record, and removes its filesystem directory. Services belonging to the module are also removed.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Module identifier."
+            },
+            "required": true,
+            "description": "Module identifier.",
+            "name": "moduleId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The module was deleted successfully."
+          },
+          "400": {
+            "description": "The moduleId path parameter was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A bearer token was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The module could not be found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The module could not be deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Modules"
+        ],
+        "summary": "Replace a module via direct URL",
+        "description": "Downloads a .tar.zst archive from the supplied direct URL and replaces the existing module installation. The stored registry source is cleared, making the module a direct-installed item. After a successful archive replacement every non-orphaned service targeting this adapter is regenerated via the new module's generateDefinition. Services that fail regeneration are marked stale and cannot be invoked until synced.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Module identifier."
+            },
+            "required": true,
+            "description": "Module identifier.",
+            "name": "moduleId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModulePatchRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Update result for the requested module.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleUpdateResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The moduleId path parameter or request body was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A bearer token was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The module could not be found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The downloaded archive exceeded the configured size limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The module could not be updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The archive file could not be downloaded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/modules/install": {
+      "post": {
+        "tags": [
+          "Modules"
+        ],
+        "summary": "Install a module from a registry",
+        "description": "Resolves the registry source URL, downloads the .tar.zst archive from the returned downloadUrl, validates the module.json manifest, and registers the module. The registry source URL is stored for future updates via POST /modules/:id/update.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModuleInstallRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The module manifest record for the newly installed module.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleDetails"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body was invalid, the registry response was malformed, or the archive failed validation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A bearer token was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A module already exists with the requested id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The downloaded archive exceeded the configured size limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The module could not be installed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The registry or archive file could not be downloaded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/modules/{moduleId}/update": {
       "post": {
-        "tags": ["Modules"],
-        "summary": "Update a module",
-        "description": "Re-downloads the module archive from its stored source URL. If the archive hash has changed the module is re-installed and its instance reloaded. Returns updated: false when the archive is unchanged.",
+        "tags": [
+          "Modules"
+        ],
+        "summary": "Update a module from its stored registry",
+        "description": "Re-resolves the stored registry source URL, compares the registry hash against the stored hash, and re-downloads and re-installs the archive if changed. Returns updated: false when the archive is unchanged. Only works for registry-installed modules. After a successful archive replacement every non-orphaned service targeting this adapter is regenerated via the new module's generateDefinition. Services that fail regeneration are marked stale and cannot be invoked until synced.",
         "parameters": [
           {
             "schema": {
@@ -3305,7 +3995,17 @@
             }
           },
           "409": {
-            "description": "The module has no stored install source and cannot be updated automatically.",
+            "description": "The module has no stored registry source and cannot be updated automatically.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The downloaded archive exceeded the configured size limit.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3323,13 +4023,25 @@
                 }
               }
             }
+          },
+          "502": {
+            "description": "The registry or archive file could not be downloaded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
           }
         }
       }
     },
     "/modules/{moduleId}/enabled": {
       "post": {
-        "tags": ["Modules"],
+        "tags": [
+          "Modules"
+        ],
         "summary": "Toggle a module",
         "description": "Sets whether a module is enabled. Orphaned modules cannot be enabled.",
         "parameters": [
@@ -3413,7 +4125,9 @@
     },
     "/environment/docs": {
       "get": {
-        "tags": ["Environment"],
+        "tags": [
+          "Environment"
+        ],
         "summary": "Get environment documentation",
         "description": "Returns Markdown documentation generated by the active environment module describing the runtime and the available bindings.",
         "responses": {
