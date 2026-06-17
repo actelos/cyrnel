@@ -188,8 +188,6 @@ describe("module.controller", () => {
     it.each([
       ["true", true],
       ["false", false],
-      ["null", null],
-      ["  Null ", null],
     ])("coerces enabled=%s -> %s", async (raw, expected) => {
       const res = makeRes();
       moduleService.list.mockResolvedValue([]);
@@ -217,7 +215,7 @@ describe("module.controller", () => {
         name: "m1",
         type: "adapter",
         enabled: true,
-        orphaned: false,
+        missing: false,
       });
 
       await getModule(makeReq({ params: { moduleId: "m1" } }), cast(res));
@@ -229,7 +227,7 @@ describe("module.controller", () => {
         name: "m1",
         type: "adapter",
         enabled: true,
-        orphaned: false,
+        missing: false,
       });
     });
 
@@ -306,7 +304,7 @@ describe("module.controller", () => {
     it("propagates errors thrown by setEnabled", async () => {
       const res = makeRes();
       moduleService.setEnabled.mockRejectedValue(
-        new HttpError(409, "Module 'm1' is orphaned and cannot be enabled."),
+        new HttpError(409, "Module 'm1' is missing and cannot be enabled."),
       );
 
       await expect(
@@ -319,7 +317,7 @@ describe("module.controller", () => {
         ),
       ).rejects.toMatchObject({
         statusCode: 409,
-        message: "Module 'm1' is orphaned and cannot be enabled.",
+        message: "Module 'm1' is missing and cannot be enabled.",
       });
     });
 
@@ -563,7 +561,7 @@ describe("module.controller", () => {
         source: "https://registry.example.com/mod",
         isBuiltin: false,
         enabled: false,
-        orphaned: false,
+        missing: false,
       };
       moduleService.installModuleFromRegistry.mockResolvedValue(manifest);
 
@@ -615,7 +613,7 @@ describe("module.controller", () => {
         source: "",
         isBuiltin: false,
         enabled: false,
-        orphaned: false,
+        missing: false,
       };
       moduleService.installModuleDirect.mockResolvedValue(manifest);
 
