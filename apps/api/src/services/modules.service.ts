@@ -129,7 +129,7 @@ export class ModuleService {
     await this.reconcile();
 
     const stateRows = await db.select().from(modulesTable);
-    const active = stateRows.filter((r) => r.enabled && !r.orphaned);
+    const active = stateRows.filter((r) => r.enabled && !r.missing);
 
     await Promise.all(
       active
@@ -279,8 +279,11 @@ export class ModuleService {
     if (filters.type !== undefined) {
       conditions.push(eq(modulesTable.type, filters.type));
     }
-    if (filters.enabled !== undefined && filters.enabled !== null) {
+    if (filters.enabled !== undefined) {
       conditions.push(eq(modulesTable.enabled, filters.enabled));
+    }
+    if (filters.missing !== undefined) {
+      conditions.push(eq(modulesTable.missing, filters.missing));
     }
 
     const rows = await db
@@ -325,10 +328,10 @@ export class ModuleService {
 
     if (!row) throw new HttpError(404, `Module '${input.id}' not found.`);
 
-    if (input.enabled && row.orphaned) {
+    if (input.enabled && row.missing) {
       throw new HttpError(
         409,
-        `Module '${input.id}' is orphaned and cannot be enabled.`,
+        `Module '${input.id}' is missing and cannot be enabled.`,
       );
     }
 
@@ -546,10 +549,10 @@ export class ModuleService {
     await this.registerCustomModules(this.modulesPath);
     await this.reconcile();
 
-    const orphanedAdapters = [...this.adapters.keys()].filter(
+    const missingAdapters = [...this.adapters.keys()].filter(
       (id) => !this.factories.has(id),
     );
-    await Promise.all(orphanedAdapters.map((id) => this.deactivateAdapter(id)));
+    await Promise.all(missingAdapters.map((id) => this.deactivateAdapter(id)));
 
     if (
       this.activeEnvironment &&
@@ -639,7 +642,7 @@ export class ModuleService {
         hash: archiveHash,
         source: "",
         enabled: false,
-        orphaned: false,
+        missing: false,
       });
     } catch {
       await fs.rm(installDir, { recursive: true, force: true }).catch(() => {});
@@ -660,7 +663,7 @@ export class ModuleService {
       source: "",
       isBuiltin: false,
       enabled: false,
-      orphaned: false,
+      missing: false,
       configSchema: manifest.configSchema ?? EMPTY_OBJECT_SCHEMA,
       secretsSchema: manifest.secretsSchema ?? EMPTY_OBJECT_SCHEMA,
     };
@@ -759,7 +762,7 @@ export class ModuleService {
         hash: archiveHash,
         source: source,
         enabled: false,
-        orphaned: false,
+        missing: false,
       });
     } catch {
       await fs.rm(installDir, { recursive: true, force: true }).catch(() => {});
@@ -780,7 +783,7 @@ export class ModuleService {
       source: source,
       isBuiltin: false,
       enabled: false,
-      orphaned: false,
+      missing: false,
       configSchema: manifest.configSchema ?? EMPTY_OBJECT_SCHEMA,
       secretsSchema: manifest.secretsSchema ?? EMPTY_OBJECT_SCHEMA,
     };
@@ -1187,11 +1190,11 @@ export class ModuleService {
     const dbIds = new Set(rows.map((r) => r.id));
 
     const toInsert = [...knownIds].filter((id) => !dbIds.has(id));
-    const toOrphan = rows
-      .filter((r) => !knownIds.has(r.id) && !r.orphaned)
+    const toMarkMissing = rows
+      .filter((r) => !knownIds.has(r.id) && !r.missing)
       .map((r) => r.id);
     const toRestore = rows
-      .filter((r) => knownIds.has(r.id) && r.orphaned)
+      .filter((r) => knownIds.has(r.id) && r.missing)
       .map((r) => r.id);
     const toSync = rows.filter((r) => {
       const manifest = this.manifests.get(r.id);
@@ -1210,32 +1213,24 @@ export class ModuleService {
             description: manifest.description,
             type: manifest.type,
             enabled: true,
-            orphaned: false,
+            missing: false,
           };
         }),
       );
     }
 
-    if (toOrphan.length > 0) {
+    if (toMarkMissing.length > 0) {
       await db
         .update(modulesTable)
-        .set({ orphaned: true, enabled: false })
-        .where(inArray(modulesTable.id, toOrphan));
-      await db
-        .update(servicesTable)
-        .set({ orphaned: true })
-        .where(inArray(servicesTable.adapter, toOrphan));
+        .set({ missing: true })
+        .where(inArray(modulesTable.id, toMarkMissing));
     }
 
     if (toRestore.length > 0) {
       await db
         .update(modulesTable)
-        .set({ orphaned: false })
+        .set({ missing: false })
         .where(inArray(modulesTable.id, toRestore));
-      await db
-        .update(servicesTable)
-        .set({ orphaned: false })
-        .where(inArray(servicesTable.adapter, toRestore));
     }
 
     if (toSync.length > 0) {
@@ -1312,9 +1307,7 @@ export class ModuleService {
         definitionContent: servicesTable.definitionContent,
       })
       .from(servicesTable)
-      .where(
-        and(eq(servicesTable.adapter, id), eq(servicesTable.orphaned, false)),
-      )
+      .where(eq(servicesTable.adapter, id))
       .catch(() => []);
 
     if (rows.length === 0) return { updated: 0, failed: 0 };
@@ -1800,7 +1793,7 @@ export class ModuleService {
       description: row.description,
       isBuiltin: this.isBuiltin(row.id),
       enabled: row.enabled,
-      orphaned: row.orphaned,
+      missing: row.missing,
     };
   }
 
