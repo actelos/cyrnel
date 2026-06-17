@@ -35,8 +35,9 @@ export const moduleTools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
       ),
       is_builtin: z.boolean().optional().describe("Optional builtin filter."),
       enabled: z.boolean().optional().describe("Optional enabled filter."),
+      missing: z.boolean().optional().describe("Optional missing filter."),
     }),
-    execute: async ({ query, type, is_builtin, enabled }) =>
+    execute: async ({ query, type, is_builtin, enabled, missing }) =>
       JSON.stringify(
         await api
           .get("modules", {
@@ -45,6 +46,7 @@ export const moduleTools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
               type,
               isBuiltin: is_builtin,
               enabled,
+              missing,
             }),
           })
           .json(),
@@ -57,7 +59,7 @@ export const moduleTools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
 
     When to use:
       - Use when you already know the exact module id and want the current
-        enabled/orphaned state or description.
+        enabled/missing state or description.
     When NOT to use:
       - If you only have a partial match, call \`list_modules\` first.
     `,
@@ -76,7 +78,7 @@ export const moduleTools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
     Enable or disable a module by id.
 
     Enabling an \`environment\` module deactivates any other currently active
-    environment module. Orphaned modules cannot be enabled — the API will
+    environment module. Missing modules cannot be enabled — the API will
     return 409.
 
     When to use:
@@ -105,7 +107,7 @@ export const moduleTools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
     Re-scan the modules directory and reconcile the module registry.
 
     Re-registers all builtin and on-disk modules, marks any rows whose factories
-    disappeared as orphaned, and clears the orphaned flag for any rows whose
+    disappeared as missing, and clears the missing flag for any rows whose
     factories have returned.
 
     When to use:

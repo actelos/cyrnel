@@ -42,12 +42,12 @@ The registry is reflected to the `modules` table. Three things can happen
 during reconciliation:
 
 - **Insert**: A registered module that isn't in the DB yet. Default
-  `enabled: true`, `orphaned: false`.
-- **Orphan**: a row in the DB whose module is no longer registered (e.g.
-  the custom folder was removed). Set `orphaned: true, enabled: false`. The
-  row stays so its config/enablement is preserved if the module reappears.
-- **Restore**: An orphaned row whose module is registered again. Clear
-  `orphaned: false`.
+  `enabled: true`, `missing: false`.
+- **Missing**: A row in the DB whose module is no longer registered (e.g.
+  the custom folder was removed). Set `missing: true`, preserving `enabled`.
+  The row stays so its config/enablement is preserved if the module reappears.
+- **Restore**: A missing row whose module is registered again. Clear
+  `missing: false`. Services recalculate `effectivelyEnabled`.
 
 `POST /modules/reload` re-scans `$CYRNEL_DATA_DIR/modules/` and reruns
 reconciliation. Use it after dropping a new custom module into the directory.
@@ -109,7 +109,7 @@ updates the database row (including clearing `source` to `""`). If the update
 fails partway, the backup is restored.
 
 After the module is installed, cyrnel **regenerates every service** that
-targets this adapter: for each non-orphaned service, the stored definition
+targets this adapter: for each non-missing service, the stored definition
 content is re-fed through the new adapter's `generateDefinition`. Services
 that succeed get fresh tools immediately. Services that fail are marked
 `stale` and cannot be invoked until they are manually synced
@@ -129,7 +129,7 @@ skipped and the response is `{ updated: false }`. Otherwise the new archive
 is downloaded, verified, extracted, and registered. Direct-installed modules
 (`source = ""`) return `409` -- use `PATCH` instead.
 
-Same service regeneration behavior as the direct update: every non-orphaned
+Same service regeneration behavior as the direct update: every non-missing
 service is re-parsed through the new adapter. Failures are marked `stale`.
 
 The `source` column semantics:
@@ -142,7 +142,7 @@ The `source` column semantics:
 Activation = "this module is now ready to take work". It is per-module-type:
 
 - **Adapters** activate eagerly. On startup cyrnel activates every adapter row
-  with `enabled = true, orphaned = false`, runs `setup({})`, then hydrates
+  with `enabled = true, missing = false`, runs `setup({})`, then hydrates
   every enabled service that targets it.
 - **Environments** activate one-at-a-time. Only the environment whose row is
   enabled gets activated. Enabling a different environment disables the
@@ -202,7 +202,7 @@ for non-sensitive values only; put credentials and tokens in secrets.
 | `PATCH` | `/modules/:moduleId/secrets` | -- | Patch encrypted module secrets |
 | `DELETE` | `/modules/:moduleId` | -- | Remove module and its filesystem directory |
 
-Enabling an orphaned module returns `409`. Direct-installed items (`source = ""`)
+Enabling a missing module returns `409`. Direct-installed items (`source = ""`)
 cannot use `POST /modules/:moduleId/update` -- they return `409`.
 
 The MCP server exposes the same module management surface through:
@@ -225,7 +225,7 @@ interface ModuleManifestRecord {
   source: string;
   isBuiltin: boolean;
   enabled: boolean;
-  orphaned: boolean;
+  missing: boolean;
   configSchema: JSONSchema;
   secretsSchema: JSONSchema;
 }
