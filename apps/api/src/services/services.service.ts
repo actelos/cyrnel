@@ -4,13 +4,14 @@ import type {
   ServiceState,
   ToolDocsInput,
 } from "@cyrnel/sdk";
-import { and, asc, eq, getTableColumns, like, or } from "drizzle-orm";
+import { and, asc, eq, getTableColumns, like, or, sql } from "drizzle-orm";
 import jsonpatch from "fast-json-patch";
 
 import { z } from "zod";
 
 import { db } from "@/db/client";
 import {
+  modules as modulesTable,
   serviceConfigurations,
   serviceSecrets,
   services,
@@ -75,14 +76,17 @@ export class ServicesService {
         adapterDomain,
         hash,
         source,
-        orphaned,
         definitionContent,
         ...serviceColumns
       } = getTableColumns(services);
 
       const query = db
-        .select(serviceColumns)
+        .select({
+          ...serviceColumns,
+          effectivelyEnabled: sql<boolean>`${services.enabled} AND ${modulesTable.enabled} AND NOT ${modulesTable.missing}`,
+        })
         .from(services)
+        .leftJoin(modulesTable, eq(services.adapter, modulesTable.id))
         .where(
           and(
             input?.enabled !== undefined
@@ -117,8 +121,12 @@ export class ServicesService {
     const { adapterDomain, definitionContent, ...serviceColumns } =
       getTableColumns(services);
     const [row] = await db
-      .select(serviceColumns)
+      .select({
+        ...serviceColumns,
+        effectivelyEnabled: sql<boolean>`${services.enabled} AND ${modulesTable.enabled} AND NOT ${modulesTable.missing}`,
+      })
       .from(services)
+      .leftJoin(modulesTable, eq(services.adapter, modulesTable.id))
       .where(eq(services.id, id))
       .limit(1)
       .catch(() => {
@@ -704,6 +712,35 @@ export class ServicesService {
         throw new HttpError(
           409,
           `Service '${input.id}' is stale and must be synced before it can be enabled.`,
+        );
+      }
+
+      const [moduleState] = await db
+        .select({
+          moduleEnabled: modulesTable.enabled,
+          moduleMissing: modulesTable.missing,
+          adapter: services.adapter,
+        })
+        .from(services)
+        .innerJoin(modulesTable, eq(services.adapter, modulesTable.id))
+        .where(eq(services.id, input.id))
+        .limit(1);
+
+      if (!moduleState) {
+        throw new HttpError(404, `Service '${input.id}' not found.`);
+      }
+
+      if (!moduleState.moduleEnabled) {
+        throw new HttpError(
+          409,
+          `Service '${input.id}' belongs to the disabled module '${moduleState.adapter}' and cannot be enabled.`,
+        );
+      }
+
+      if (moduleState.moduleMissing) {
+        throw new HttpError(
+          409,
+          `Service '${input.id}' belongs to the missing module '${moduleState.adapter}' and cannot be enabled.`,
         );
       }
 

@@ -9,9 +9,11 @@ export const serviceTools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
   {
     name: "list_services",
     description: `
-    List installed services with optional query/enabled filters.
+    List installed services with optional query/enabled/stale filters.
 
-    This tool is read-only and queries the services table directly. It does NOT
+    Results include an \`effectivelyEnabled\` field that reflects whether the
+    service is actually usable considering its own state, its parent module's
+    state, and whether the module is missing from disk. This tool does NOT
     expose tools — use \`list_tools\` for that.
 
     When to use:
