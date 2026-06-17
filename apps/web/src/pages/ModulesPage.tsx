@@ -37,7 +37,7 @@ const moduleSchema = z.object({
   description: z.string(),
   isBuiltin: z.boolean(),
   enabled: z.boolean(),
-  orphaned: z.boolean(),
+  missing: z.boolean(),
 });
 
 const moduleListSchema = z.object({
@@ -432,7 +432,7 @@ export default function ModulesPage() {
                     key={module.id}
                     className={cn(
                       "flex flex-col justify-between border bg-card p-4",
-                      module.orphaned
+                      module.missing
                         ? "border-destructive/50"
                         : "border-border",
                     )}
@@ -452,8 +452,8 @@ export default function ModulesPage() {
                               {module.isBuiltin ? (
                                 <Badge variant="outline">built-in</Badge>
                               ) : null}
-                              {module.orphaned ? (
-                                <Badge variant="destructive">orphaned</Badge>
+                              {module.missing ? (
+                                <Badge variant="destructive">missing</Badge>
                               ) : null}
                             </div>
                           </div>
@@ -479,9 +479,10 @@ export default function ModulesPage() {
                     </Link>
                     <div
                       className="flex cursor-pointer items-center justify-between gap-2"
-                      onClick={() =>
-                        void handleToggleModule(module.id, module.enabled)
-                      }
+                      onClick={() => {
+                        if (module.missing) return;
+                        void handleToggleModule(module.id, module.enabled);
+                      }}
                       onKeyDown={(e) => {
                         if (e.key === "Enter" || e.key === " ") {
                           e.preventDefault();

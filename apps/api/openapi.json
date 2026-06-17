@@ -208,6 +208,10 @@
           "stale": {
             "type": "boolean",
             "description": "Whether the service needs to be synced. Stale services cannot be enabled or invoked."
+          },
+          "effectivelyEnabled": {
+            "type": "boolean",
+            "description": "Whether the service is actually usable considering its own enabled state, its parent module's state, and whether the module is missing."
           }
         },
         "required": [
@@ -218,7 +222,8 @@
           "source",
           "adapter",
           "enabled",
-          "stale"
+          "stale",
+          "effectivelyEnabled"
         ],
         "description": "Compact service summary returned by service list and detail endpoints."
       },
@@ -651,9 +656,9 @@
             "type": "boolean",
             "description": "Whether the module is currently enabled."
           },
-          "orphaned": {
+          "missing": {
             "type": "boolean",
-            "description": "Whether the module record exists without a matching factory."
+            "description": "Whether the module is installed but has no matching factory loaded."
           }
         },
         "required": [
@@ -663,7 +668,7 @@
           "description",
           "isBuiltin",
           "enabled",
-          "orphaned"
+          "missing"
         ],
         "description": "Module manifest record returned by the modules endpoints."
       },
@@ -1641,7 +1646,7 @@
           "Services"
         ],
         "summary": "List services",
-        "description": "Returns the installed services. The query parameter is trimmed and matched against service id, name, and description. The enabled parameter accepts 'true' or 'false'; omit it to return all services.",
+        "description": "Returns the installed services. The query parameter is trimmed and matched against service id, name, and description. The enabled and stale parameters accept 'true' or 'false'; omit either to return all services.",
         "parameters": [
           {
             "schema": {
@@ -1665,6 +1670,20 @@
             "required": false,
             "description": "Enabled-state filter. Omit to return all services.",
             "name": "enabled",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "description": "Stale-state filter. true = stale only, false = fresh only. Omit to return all services."
+            },
+            "required": false,
+            "description": "Stale-state filter. true = stale only, false = fresh only. Omit to return all services.",
+            "name": "stale",
             "in": "query"
           }
         ],
@@ -3381,7 +3400,7 @@
           "Modules"
         ],
         "summary": "List modules",
-        "description": "Returns module manifests filtered by optional query, type, isBuiltin, and enabled query parameters. The enabled filter accepts 'true', 'false', or 'null' to match orphaned modules.",
+        "description": "Returns module manifests filtered by optional query, type, isBuiltin, enabled, and missing query parameters.",
         "parameters": [
           {
             "schema": {
@@ -3426,14 +3445,27 @@
               "type": "string",
               "enum": [
                 "true",
-                "false",
-                "null"
+                "false"
               ],
               "description": "Enabled-state filter for modules."
             },
             "required": false,
             "description": "Enabled-state filter for modules.",
             "name": "enabled",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "description": "Filter by whether the module is missing its factory."
+            },
+            "required": false,
+            "description": "Filter by whether the module is missing its factory.",
+            "name": "missing",
             "in": "query"
           }
         ],
@@ -3746,7 +3778,7 @@
           "Modules"
         ],
         "summary": "Replace a module via direct URL",
-        "description": "Downloads a .tar.zst archive from the supplied direct URL and replaces the existing module installation. The stored registry source is cleared, making the module a direct-installed item. After a successful archive replacement every non-orphaned service targeting this adapter is regenerated via the new module's generateDefinition. Services that fail regeneration are marked stale and cannot be invoked until synced.",
+        "description": "Downloads a .tar.zst archive from the supplied direct URL and replaces the existing module installation. The stored registry source is cleared, making the module a direct-installed item. After a successful archive replacement every non-missing service targeting this adapter is regenerated via the new module's generateDefinition. Services that fail regeneration are marked stale and cannot be invoked until synced.",
         "parameters": [
           {
             "schema": {
@@ -3939,7 +3971,7 @@
           "Modules"
         ],
         "summary": "Update a module from its stored registry",
-        "description": "Re-resolves the stored registry source URL, compares the registry hash against the stored hash, and re-downloads and re-installs the archive if changed. Returns updated: false when the archive is unchanged. Only works for registry-installed modules. After a successful archive replacement every non-orphaned service targeting this adapter is regenerated via the new module's generateDefinition. Services that fail regeneration are marked stale and cannot be invoked until synced.",
+        "description": "Re-resolves the stored registry source URL, compares the registry hash against the stored hash, and re-downloads and re-installs the archive if changed. Returns updated: false when the archive is unchanged. Only works for registry-installed modules. After a successful archive replacement every non-missing service targeting this adapter is regenerated via the new module's generateDefinition. Services that fail regeneration are marked stale and cannot be invoked until synced.",
         "parameters": [
           {
             "schema": {
@@ -4043,7 +4075,7 @@
           "Modules"
         ],
         "summary": "Toggle a module",
-        "description": "Sets whether a module is enabled. Orphaned modules cannot be enabled.",
+        "description": "Sets whether a module is enabled. Missing modules cannot be enabled.",
         "parameters": [
           {
             "schema": {
@@ -4101,7 +4133,7 @@
             }
           },
           "409": {
-            "description": "The module is orphaned and cannot be enabled.",
+            "description": "The module is missing and cannot be enabled.",
             "content": {
               "application/json": {
                 "schema": {
