@@ -81,6 +81,7 @@ export interface ListServiceResult
   > {
   id: string;
   enabled: boolean;
+  effectivelyEnabled: boolean;
 }
 
 /**
@@ -112,6 +113,7 @@ export interface ListToolResult
 export interface GetServiceResult
   extends Omit<ServiceDefinition, "tools" | "adapterDomain"> {
   enabled: boolean;
+  effectivelyEnabled: boolean;
 }
 
 /**
