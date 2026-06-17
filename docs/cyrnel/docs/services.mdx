@@ -174,7 +174,7 @@ Deletes the row (cascading to tools, configuration, secrets) and calls
 
 | Method | Path | Notes |
 | --- | --- | --- |
-| `GET` | `/services` | Filterable by `query`, `limit`, `enabled` |
+| `GET` | `/services` | Filterable by `query`, `limit`, `enabled`, `stale` |
 | `GET` | `/services/:serviceId` | Full record (minus `adapterDomain`) |
 
 The list response strips `configSchema`, `secretsSchema`, `tools`, and
