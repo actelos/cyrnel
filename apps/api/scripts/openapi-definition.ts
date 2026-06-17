@@ -87,10 +87,8 @@ const moduleTypeSchema = z
   .describe("Module type. Either 'adapter' or 'environment'.");
 
 const moduleEnabledQuerySchema = z
-  .enum(["true", "false", "null"])
-  .describe(
-    "Enabled-state filter. Accepts 'true', 'false', or 'null' to match orphaned modules.",
-  );
+  .enum(["true", "false"])
+  .describe("Enabled-state filter. Accepts 'true' or 'false'.");
 
 const pidParam = z.object({
   pid: z
@@ -297,6 +295,11 @@ const ServiceListItemSchema = registry.register(
         .boolean()
         .describe(
           "Whether the service needs to be synced. Stale services cannot be enabled or invoked.",
+        ),
+      effectivelyEnabled: z
+        .boolean()
+        .describe(
+          "Whether the service is actually usable considering its own enabled state, its parent module's state, and whether the module is missing.",
         ),
     })
     .describe(
@@ -618,10 +621,10 @@ const ModuleSchema = registry.register(
         .boolean()
         .describe("Whether the module is bundled with the API."),
       enabled: z.boolean().describe("Whether the module is currently enabled."),
-      orphaned: z
+      missing: z
         .boolean()
         .describe(
-          "Whether the module record exists without a matching factory.",
+          "Whether the module is installed but has no matching factory loaded.",
         ),
     })
     .describe("Module manifest record returned by the modules endpoints."),
@@ -1475,7 +1478,7 @@ registry.registerPath({
   tags: ["Modules"],
   summary: "List modules",
   description:
-    "Returns module manifests filtered by optional query, type, isBuiltin, and enabled query parameters. The enabled filter accepts 'true', 'false', or 'null' to match orphaned modules.",
+    "Returns module manifests filtered by optional query, type, isBuiltin, enabled, and missing query parameters.",
   request: {
     query: z.object({
       query: z
@@ -1491,6 +1494,9 @@ registry.registerPath({
       enabled: moduleEnabledQuerySchema
         .optional()
         .describe("Enabled-state filter for modules."),
+      missing: booleanQuerySchema
+        .optional()
+        .describe("Filter by whether the module is missing its factory."),
     }),
   },
   responses: {
@@ -1627,7 +1633,7 @@ registry.registerPath({
   tags: ["Modules"],
   summary: "Update a module from its stored registry",
   description:
-    "Re-resolves the stored registry source URL, compares the registry hash against the stored hash, and re-downloads and re-installs the archive if changed. Returns updated: false when the archive is unchanged. Only works for registry-installed modules. After a successful archive replacement every non-orphaned service targeting this adapter is regenerated via the new module's generateDefinition. Services that fail regeneration are marked stale and cannot be invoked until synced.",
+    "Re-resolves the stored registry source URL, compares the registry hash against the stored hash, and re-downloads and re-installs the archive if changed. Returns updated: false when the archive is unchanged. Only works for registry-installed modules. After a successful archive replacement every non-missing service targeting this adapter is regenerated via the new module's generateDefinition. Services that fail regeneration are marked stale and cannot be invoked until synced.",
   request: { params: moduleIdParam },
   responses: {
     200: {
@@ -1658,7 +1664,7 @@ registry.registerPath({
   tags: ["Modules"],
   summary: "Replace a module via direct URL",
   description:
-    "Downloads a .tar.zst archive from the supplied direct URL and replaces the existing module installation. The stored registry source is cleared, making the module a direct-installed item. After a successful archive replacement every non-orphaned service targeting this adapter is regenerated via the new module's generateDefinition. Services that fail regeneration are marked stale and cannot be invoked until synced.",
+    "Downloads a .tar.zst archive from the supplied direct URL and replaces the existing module installation. The stored registry source is cleared, making the module a direct-installed item. After a successful archive replacement every non-missing service targeting this adapter is regenerated via the new module's generateDefinition. Services that fail regeneration are marked stale and cannot be invoked until synced.",
   request: {
     params: moduleIdParam,
     body: { content: jsonContent(ModulePatchRequestSchema) },
@@ -1689,7 +1695,7 @@ registry.registerPath({
   tags: ["Modules"],
   summary: "Toggle a module",
   description:
-    "Sets whether a module is enabled. Orphaned modules cannot be enabled.",
+    "Sets whether a module is enabled. Missing modules cannot be enabled.",
   request: {
     params: moduleIdParam,
     body: { content: jsonContent(ModuleEnabledRequestSchema) },
@@ -1703,7 +1709,7 @@ registry.registerPath({
       "A bearer token was required but missing or invalid.",
     ),
     404: apiErrorResponse("The module could not be found."),
-    409: apiErrorResponse("The module is orphaned and cannot be enabled."),
+    409: apiErrorResponse("The module is missing and cannot be enabled."),
     500: apiErrorResponse("The module enabled state could not be updated."),
   },
 });

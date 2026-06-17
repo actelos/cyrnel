@@ -15,7 +15,7 @@ export interface ModuleManifestRecord {
   source: string;
   isBuiltin: boolean;
   enabled: boolean;
-  orphaned: boolean;
+  missing: boolean;
   configSchema: JSONSchema;
   secretsSchema: JSONSchema;
 }
@@ -24,7 +24,8 @@ export interface FilterModuleManifestInput {
   query?: string;
   type?: ModuleType;
   isBuiltin?: boolean;
-  enabled?: boolean | null;
+  enabled?: boolean;
+  missing?: boolean;
 }
 
 export interface GenerateDefinitionInput {
