@@ -47,7 +47,7 @@ const moduleDetailSchema = z.object({
   source: z.string(),
   isBuiltin: z.boolean(),
   enabled: z.boolean(),
-  orphaned: z.boolean(),
+  missing: z.boolean(),
   configSchema: z.record(z.string(), z.unknown()),
   secretsSchema: z.record(z.string(), z.unknown()),
 });
@@ -524,8 +524,8 @@ export default function ModuleDetailPage() {
                 {moduleDetail.isBuiltin ? (
                   <Badge variant="outline">built-in</Badge>
                 ) : null}
-                {moduleDetail.orphaned ? (
-                  <Badge variant="destructive">orphaned</Badge>
+                {moduleDetail.missing ? (
+                  <Badge variant="destructive">missing</Badge>
                 ) : null}
               </div>
               <p className="text-muted-foreground text-xs font-mono">
@@ -536,8 +536,7 @@ export default function ModuleDetailPage() {
                   type="button"
                   variant={moduleDetail.enabled ? "outline" : "default"}
                   disabled={
-                    togglingModuleId === moduleDetail.id ||
-                    (!moduleDetail.enabled && moduleDetail.orphaned)
+                    togglingModuleId === moduleDetail.id || moduleDetail.missing
                   }
                   onClick={() =>
                     void handleSetEnabled(

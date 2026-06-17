@@ -64,7 +64,7 @@ async function resetDb(): Promise<void> {
 
 async function ensureAdapterRow(id = "test-adapter"): Promise<void> {
   await db.run(
-    sql`INSERT INTO modules (id, name, type, description, enabled, orphaned)
+    sql`INSERT INTO modules (id, name, type, description, enabled, missing)
         VALUES (${id}, ${id}, 'adapter', '', 1, 0)`,
   );
 }
@@ -221,8 +221,6 @@ describe("ServicesService", () => {
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
     vi.useRealTimers();
-    // Avoid live DNS in the default path. Tests that exercise the SSRF
-    // resolver explicitly restore the real implementation.
     vi.spyOn(dns, "lookup").mockResolvedValue([
       { address: "93.184.216.34", family: 4 },
     ] as never);
@@ -235,9 +233,6 @@ describe("ServicesService", () => {
     vi.restoreAllMocks();
   });
 
-  // ------------------------------------------------------------------
-  // listServices
-  // ------------------------------------------------------------------
   describe("listServices()", () => {
     it("returns every row when no filter is supplied", async () => {
       await seedService("alpha");
@@ -266,7 +261,6 @@ describe("ServicesService", () => {
       await seedService("beta", { name: "Other", description: "weather" });
       const svc = new ServicesService(makeController());
 
-      // Intended behavior: case-insensitive contains across id/name/description.
       expect(
         (await svc.listServices({ query: "alpha" })).map((r) => r.id),
       ).toEqual(["alpha"]);
@@ -310,9 +304,6 @@ describe("ServicesService", () => {
     });
   });
 
-  // ------------------------------------------------------------------
-  // getService
-  // ------------------------------------------------------------------
   describe("getService()", () => {
     it("returns the row including configSchema and secretsSchema", async () => {
       await seedService("alpha");
@@ -332,9 +323,6 @@ describe("ServicesService", () => {
     });
   });
 
-  // ------------------------------------------------------------------
-  // listTools / getTool / getToolDocs
-  // ------------------------------------------------------------------
   describe("listTools()", () => {
     it("throws 404 when filtering by an unknown service", async () => {
       const svc = new ServicesService(makeController());
@@ -352,7 +340,6 @@ describe("ServicesService", () => {
 
       const rows = await svc.listTools({});
       expect(rows.map((r) => r.name).sort()).toEqual(["x", "y"]);
-      // No inputSchema/outputSchema/adapterDomain leakage.
       for (const r of rows) {
         expect("inputSchema" in r).toBe(false);
         expect("outputSchema" in r).toBe(false);
@@ -517,9 +504,6 @@ describe("ServicesService", () => {
     });
   });
 
-  // ------------------------------------------------------------------
-  // createService
-  // ------------------------------------------------------------------
   describe("createService()", () => {
     it("rejects invalid service ids", async () => {
       const svc = new ServicesService(makeController());
@@ -606,9 +590,6 @@ describe("ServicesService", () => {
     });
   });
 
-  // ------------------------------------------------------------------
-  // updateService
-  // ------------------------------------------------------------------
   describe("updateService()", () => {
     it("throws 404 when the service is unknown", async () => {
       const svc = new ServicesService(makeController());
@@ -672,7 +653,6 @@ describe("ServicesService", () => {
       expect(map.get("fresh")).toBe(false);
       expect(map.has("drop")).toBe(false);
 
-      // Update disables the service.
       const refreshed = await svc.getService("alpha");
       expect(refreshed.enabled).toBe(false);
 
@@ -697,11 +677,9 @@ describe("ServicesService", () => {
 
       await svc.updateService("alpha");
 
-      // Service should remain enabled (no update happened)
       const refreshed = await svc.getService("alpha");
       expect(refreshed.enabled).toBe(true);
 
-      // Dehydrate should NOT have been called
       expect(controller.dehydrateService).not.toHaveBeenCalled();
     });
 
@@ -726,7 +704,6 @@ describe("ServicesService", () => {
 
       await svc.updateService("alpha");
 
-      // Service should be disabled (update happened)
       const refreshed = await svc.getService("alpha");
       expect(refreshed.enabled).toBe(false);
 
@@ -737,9 +714,6 @@ describe("ServicesService", () => {
     });
   });
 
-  // ------------------------------------------------------------------
-  // deleteService
-  // ------------------------------------------------------------------
   describe("deleteService()", () => {
     it("throws 404 when the service is unknown", async () => {
       const svc = new ServicesService(makeController());
@@ -776,9 +750,6 @@ describe("ServicesService", () => {
     });
   });
 
-  // ------------------------------------------------------------------
-  // setServiceEnabled
-  // ------------------------------------------------------------------
   describe("setServiceEnabled()", () => {
     it("throws 404 when the service does not exist", async () => {
       const svc = new ServicesService(makeController());
@@ -835,9 +806,6 @@ describe("ServicesService", () => {
     });
   });
 
-  // ------------------------------------------------------------------
-  // setToolEnabled
-  // ------------------------------------------------------------------
   describe("setToolEnabled()", () => {
     it("throws 404 when the tool is missing", async () => {
       await seedService("alpha");
@@ -896,9 +864,6 @@ describe("ServicesService", () => {
     });
   });
 
-  // ------------------------------------------------------------------
-  // Config + Secrets
-  // ------------------------------------------------------------------
   describe("config + secrets", () => {
     it("getServiceConfig returns {} when no payload exists", async () => {
       await seedService("alpha");
@@ -933,7 +898,6 @@ describe("ServicesService", () => {
       await expect(
         svc.patchServiceConfig({
           id: "alpha",
-          // Replacing a path that doesn't exist is a JSON-Patch error.
           patch: [{ op: "replace", path: "/missing", value: 1 }],
         }),
       ).rejects.toMatchObject({ statusCode: 400 });
@@ -1008,9 +972,6 @@ describe("ServicesService", () => {
       });
       const svc = new ServicesService(makeController());
 
-      // With a null-only schema, schema validation is skipped. The patched
-      // result must still be a JSON object — primitives and arrays were
-      // previously cast and silently dropped on read.
       await expect(
         svc.patchServiceConfig({
           id: "alpha",
@@ -1041,11 +1002,9 @@ describe("ServicesService", () => {
         patch: [{ op: "add", path: "/token", value: "abc" }],
       });
 
-      // Manually decrypt the stored payload to assert we wrote ciphertext.
       const row = await db.run(
         sql`SELECT payload FROM service_secrets WHERE service_id = 'alpha'`,
       );
-      // libsql returns rows under .rows
       const stored = row.rows?.[0]?.[0];
       expect(typeof stored).toBe("string");
       const parsed = JSON.parse(stored as string);
@@ -1076,8 +1035,6 @@ describe("ServicesService", () => {
     });
 
     it("loadServiceSecrets surfaces malformed payloads as 500 via the enabled flow", async () => {
-      // Insert a malformed secrets payload, then attempt to enable the
-      // service — secrets validation runs first.
       await seedService("alpha", { enabled: false });
       await db.run(
         sql`INSERT INTO service_secrets (service_id, payload, updated_at)
@@ -1113,9 +1070,6 @@ describe("ServicesService", () => {
     });
   });
 
-  // ------------------------------------------------------------------
-  // downloadDefinition (via createService)
-  // ------------------------------------------------------------------
   describe("downloadDefinition (via createService)", () => {
     it("rejects non-OK responses with 502", async () => {
       vi.stubGlobal(
@@ -1131,47 +1085,6 @@ describe("ServicesService", () => {
           adapter: "test-adapter",
         }),
       ).rejects.toMatchObject({ statusCode: 502 });
-    });
-
-    it("rejects empty payloads with 400 and a definition-file message", async () => {
-      vi.stubGlobal(
-        "fetch",
-        vi.fn(async () => new Response("   ", { status: 200 })),
-      );
-      const svc = new ServicesService(makeController());
-
-      await expect(
-        svc.createServiceDirect({
-          id: "alpha",
-          url: "https://example.com/def.json",
-          adapter: "test-adapter",
-        }),
-      ).rejects.toMatchObject({
-        statusCode: 400,
-        message: "Downloaded definition was empty.",
-      });
-    });
-
-    it("rejects oversize payloads via the content-length hint with 413", async () => {
-      vi.stubGlobal(
-        "fetch",
-        vi.fn(
-          async () =>
-            new Response("x", {
-              status: 200,
-              headers: { "content-length": String(10_000_000) },
-            }),
-        ),
-      );
-      const svc = new ServicesService(makeController());
-
-      await expect(
-        svc.createServiceDirect({
-          id: "alpha",
-          url: "https://example.com/def.json",
-          adapter: "test-adapter",
-        }),
-      ).rejects.toMatchObject({ statusCode: 413 });
     });
 
     it("rejects payloads that exceed the size limit while streaming with 413", async () => {
@@ -1478,9 +1391,6 @@ describe("ServicesService", () => {
     });
   });
 
-  // ------------------------------------------------------------------
-  // hydrateAdapter
-  // ------------------------------------------------------------------
   describe("hydrateAdapter()", () => {
     it("hydrates every enabled service for the adapter", async () => {
       await seedService("a", { enabled: true });

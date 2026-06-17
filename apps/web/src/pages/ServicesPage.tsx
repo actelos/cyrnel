@@ -48,7 +48,7 @@ const moduleSchema = z.object({
   description: z.string(),
   isBuiltin: z.boolean(),
   enabled: z.boolean(),
-  orphaned: z.boolean(),
+  missing: z.boolean(),
 });
 
 const moduleListSchema = z.object({
