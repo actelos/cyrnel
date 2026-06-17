@@ -173,6 +173,7 @@ describe("bindings", () => {
         description: "Test service",
         enabled: true,
         effectivelyEnabled: true,
+        stale: false,
         configSchema: {},
         secretsSchema: {},
       };
@@ -197,6 +198,7 @@ describe("bindings", () => {
         name: "testTool",
         description: "Test tool",
         enabled: true,
+        effectivelyEnabled: true,
         inputSchema: {},
         outputSchema: {},
       };
@@ -354,6 +356,7 @@ describe("bindings", () => {
           description: "Calculator service",
           enabled: true,
           effectivelyEnabled: true,
+          stale: false,
         },
         {
           id: "weather",
@@ -361,6 +364,7 @@ describe("bindings", () => {
           description: "Weather service",
           enabled: false,
           effectivelyEnabled: false,
+          stale: false,
         },
       ];
 
