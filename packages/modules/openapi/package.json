@@ -1,8 +1,10 @@
 {
   "name": "@cyrnel/openapi",
   "version": "1.0.0",
-  "private": true,
   "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
   "main": "./dist/src/index.js",
   "types": "./dist/src/index.d.ts",
   "exports": {
@@ -14,7 +16,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json && tsc-alias -p tsconfig.json -f",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm run build"
   },
   "packageManager": "pnpm@10.30.3",
   "dependencies": {

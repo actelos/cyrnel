@@ -1,8 +1,10 @@
 {
   "name": "@cyrnel/typescript-ivm",
   "version": "1.0.0",
-  "private": true,
   "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -14,7 +16,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm run build"
   },
   "packageManager": "pnpm@10.30.3",
   "dependencies": {
