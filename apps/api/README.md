@@ -2,7 +2,7 @@
 
 Cyrnel is an open-source integration platform that connects AI applications to
 any API or service. Think of it as a universal docking station for your AI
-tools — instead of building custom integrations for every service, Cyrnel
+tools, instead of building custom integrations for every service, Cyrnel
 handles the connection so you can focus on what matters.
 
 This package is the **Cyrnel core API server**. It manages modules (adapter and
@@ -12,6 +12,15 @@ exposes a REST interface consumed by the web dashboard, MCP server, and
 opencode agent.
 
 ## Getting Started
+
+### npx
+
+```bash
+npx @cyrnel/api
+```
+
+The server listens on port 7687 by default. Set the `AUTH_TOKEN` and
+`ENCRYPTION_KEY` environment variables to secure your instance.
 
 ### From source
 
@@ -31,9 +40,6 @@ This starts the Cyrnel API, web dashboard, and MCP server together.
 pnpm -C apps/api build
 pnpm -C apps/api start
 ```
-
-The server listens on port 7687 by default. Copy `.example.env` to `.env` and
-adjust configuration as needed.
 
 ## Configuration
 
