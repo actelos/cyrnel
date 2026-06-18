@@ -12,6 +12,8 @@ type ParameterObject = OpenAPIV3_1.ParameterObject;
 type RequestBodyObject = OpenAPIV3_1.RequestBodyObject;
 type ResponseObject = OpenAPIV3_1.ResponseObject;
 type ReferenceObject = OpenAPIV3_1.ReferenceObject;
+type SecuritySchemeObject = OpenAPIV3_1.SecuritySchemeObject;
+type ServerVariableObject = OpenAPIV3_1.ServerVariableObject;
 
 const HTTP_METHODS = [
   "get",
@@ -260,6 +262,121 @@ function extractToolDescription(operation: Operation): string {
   return operation.description ?? "";
 }
 
+function buildConfigSchema(doc: Doc): JSONSchema {
+  const properties: Record<string, JSONSchema> = {
+    timeoutMs: {
+      type: "integer",
+      default: 30000,
+      minimum: 1,
+      description: "Request timeout in milliseconds",
+    },
+  };
+
+  const servers = doc.servers ?? [];
+  if (servers.length > 0) {
+    properties.serverUrl = {
+      type: "string",
+      description:
+        "Base URL override. Uses the first server from the spec if not set.",
+    };
+
+    const varNames = new Set<string>();
+    for (const server of servers) {
+      if (server.variables) {
+        for (const [name, variable] of Object.entries(server.variables)) {
+          if (varNames.has(name)) continue;
+          varNames.add(name);
+          const resolved = resolveAllRefs(
+            doc,
+            variable,
+          ) as ServerVariableObject;
+          const prop: JSONSchema = { type: "string" };
+          if (resolved.default !== undefined) prop.default = resolved.default;
+          if (resolved.enum) prop.enum = resolved.enum;
+          properties[`serverVar_${name}`] = prop;
+        }
+      }
+    }
+  }
+
+  return {
+    type: "object",
+    properties,
+    additionalProperties: false,
+  };
+}
+
+function buildSecretsSchema(doc: Doc): JSONSchema {
+  const securitySchemes = doc.components?.securitySchemes;
+  if (
+    !securitySchemes ||
+    (typeof securitySchemes === "object" &&
+      Object.keys(securitySchemes).length === 0)
+  ) {
+    return { type: "object", properties: {}, additionalProperties: false };
+  }
+
+  const properties: Record<string, JSONSchema> = {};
+
+  for (const [name, schemeOrRef] of Object.entries(securitySchemes)) {
+    if (!schemeOrRef) continue;
+    const resolved = resolveAllRefs(doc, schemeOrRef) as SecuritySchemeObject;
+
+    switch (resolved.type) {
+      case "apiKey":
+        properties[name] = {
+          type: "string",
+          description:
+            resolved.description ?? `${resolved.name} (${resolved.in})`,
+        };
+        break;
+      case "http":
+        if (resolved.scheme === "bearer") {
+          properties[name] = {
+            type: "string",
+            description: resolved.description ?? "Bearer token",
+          };
+        } else if (resolved.scheme === "basic") {
+          properties[name] = {
+            type: "object",
+            properties: {
+              username: { type: "string" },
+              password: { type: "string" },
+            },
+            required: ["username", "password"],
+            description:
+              resolved.description ??
+              "Basic auth credentials (username & password)",
+          };
+        } else {
+          properties[name] = {
+            type: "string",
+            description: resolved.description ?? `HTTP ${resolved.scheme} auth`,
+          };
+        }
+        break;
+      case "oauth2":
+        properties[name] = {
+          type: "string",
+          description: resolved.description ?? "OAuth2 access token",
+        };
+        break;
+      case "openIdConnect":
+        properties[name] = {
+          type: "string",
+          description: resolved.description ?? "OpenID Connect token",
+        };
+        break;
+    }
+  }
+
+  return {
+    type: "object",
+    properties,
+    additionalProperties: false,
+  };
+}
+
 export async function generateDefinition(
   input: string,
 ): Promise<ServiceDefinition> {
@@ -289,6 +406,7 @@ export async function generateDefinition(
       const inputSchema = buildInputSchema(doc, operation);
       const outputSchema = buildOutputSchema(doc, operation);
 
+      const operationSecurity = operation.security ?? doc.security ?? [];
       tools.push({
         id,
         name,
@@ -298,9 +416,22 @@ export async function generateDefinition(
         adapterDomain: {
           path,
           method,
+          security: operationSecurity,
         },
       });
     }
+  }
+
+  const adapterDomain: Record<string, unknown> = {
+    openapi,
+    servers: doc.servers ?? [],
+  };
+
+  if (doc.components?.securitySchemes) {
+    adapterDomain.securitySchemes = resolveAllRefs(
+      doc,
+      doc.components.securitySchemes,
+    ) as Record<string, unknown>;
   }
 
   return {
@@ -309,11 +440,8 @@ export async function generateDefinition(
       doc.info.summary && doc.info.description ? "\n" : ""
     }${doc.info.description ?? ""}`,
     tools,
-    configSchema: {},
-    secretsSchema: {},
-    adapterDomain: {
-      openapi,
-      servers: doc.servers ?? [],
-    },
+    configSchema: buildConfigSchema(doc),
+    secretsSchema: buildSecretsSchema(doc),
+    adapterDomain,
   };
 }
