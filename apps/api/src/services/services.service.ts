@@ -439,13 +439,11 @@ export class ServicesService {
     try {
       await db.transaction(async (tx) => {
         const existingTools = await tx
-          .select({ name: tools.name, enabled: tools.enabled })
+          .select({ id: tools.id, enabled: tools.enabled })
           .from(tools)
           .where(eq(tools.serviceId, id));
 
-        const enabledMap = new Map(
-          existingTools.map((t) => [t.name, t.enabled]),
-        );
+        const enabledMap = new Map(existingTools.map((t) => [t.id, t.enabled]));
 
         await tx
           .update(services)
@@ -463,7 +461,7 @@ export class ServicesService {
             generatedDefinition.tools.map((tool) => ({
               ...tool,
               serviceId: id,
-              enabled: enabledMap.get(tool.name) ?? false,
+              enabled: enabledMap.get(tool.id) ?? false,
             })),
           );
         }
@@ -546,13 +544,11 @@ export class ServicesService {
     try {
       await db.transaction(async (tx) => {
         const existingTools = await tx
-          .select({ name: tools.name, enabled: tools.enabled })
+          .select({ id: tools.id, enabled: tools.enabled })
           .from(tools)
           .where(eq(tools.serviceId, id));
 
-        const enabledMap = new Map(
-          existingTools.map((t) => [t.name, t.enabled]),
-        );
+        const enabledMap = new Map(existingTools.map((t) => [t.id, t.enabled]));
 
         await tx
           .update(services)
@@ -572,7 +568,7 @@ export class ServicesService {
             parsedDefinition.tools.map((tool) => ({
               ...tool,
               serviceId: id,
-              enabled: enabledMap.get(tool.name) ?? false,
+              enabled: enabledMap.get(tool.id) ?? false,
             })),
           );
         }
@@ -630,13 +626,11 @@ export class ServicesService {
     try {
       await db.transaction(async (tx) => {
         const existingTools = await tx
-          .select({ name: tools.name, enabled: tools.enabled })
+          .select({ id: tools.id, enabled: tools.enabled })
           .from(tools)
           .where(eq(tools.serviceId, id));
 
-        const enabledMap = new Map(
-          existingTools.map((t) => [t.name, t.enabled]),
-        );
+        const enabledMap = new Map(existingTools.map((t) => [t.id, t.enabled]));
 
         await tx
           .update(services)
@@ -657,7 +651,7 @@ export class ServicesService {
             generatedDefinition.tools.map((tool) => ({
               ...tool,
               serviceId: id,
-              enabled: enabledMap.get(tool.name) ?? false,
+              enabled: enabledMap.get(tool.id) ?? false,
             })),
           );
         }
@@ -1080,7 +1074,7 @@ export class ServicesService {
 
     const [toolRows, config, secrets] = await Promise.all([
       db
-        .select({ name: tools.name, adapterDomain: tools.adapterDomain })
+        .select({ id: tools.id, adapterDomain: tools.adapterDomain })
         .from(tools)
         .where(eq(tools.serviceId, id))
         .catch(() => {
@@ -1094,7 +1088,7 @@ export class ServicesService {
       id,
       adapterDomain: serviceRow.adapterDomain,
       tools: Object.fromEntries(
-        toolRows.map((t) => [t.name, { adapterDomain: t.adapterDomain }]),
+        toolRows.map((t) => [t.id, { adapterDomain: t.adapterDomain }]),
       ),
       config,
       secrets,

@@ -972,9 +972,54 @@ describe("generateDefinition", () => {
 
       const result = await generateDefinition(spec);
 
-      expect(result.tools[0].adapterDomain).toEqual({
+      expect(result.tools[0].adapterDomain).toMatchObject({
         path: "/pets/{petId}",
         method: "get",
+      });
+    });
+
+    it("includes empty security array in tool adapterDomain when no security is defined", async () => {
+      const spec = JSON.stringify({
+        openapi: "3.0.0",
+        info: { title: "API", version: "1.0.0" },
+        paths: {
+          "/pets": {
+            get: {
+              operationId: "listPets",
+              summary: "List pets",
+              responses: { "200": { description: "OK" } },
+            },
+          },
+        },
+      });
+
+      const result = await generateDefinition(spec);
+
+      expect(result.tools[0].adapterDomain).toMatchObject({
+        security: [],
+      });
+    });
+
+    it("includes security from operation-level override", async () => {
+      const spec = JSON.stringify({
+        openapi: "3.0.0",
+        info: { title: "API", version: "1.0.0" },
+        paths: {
+          "/pets": {
+            get: {
+              operationId: "listPets",
+              summary: "List pets",
+              security: [{ apiKey: [] }],
+              responses: { "200": { description: "OK" } },
+            },
+          },
+        },
+      });
+
+      const result = await generateDefinition(spec);
+
+      expect(result.tools[0].adapterDomain).toMatchObject({
+        security: [{ apiKey: [] }],
       });
     });
 
@@ -988,7 +1033,7 @@ describe("generateDefinition", () => {
 
       const result = await generateDefinition(spec);
 
-      expect(result.adapterDomain).toEqual({
+      expect(result.adapterDomain).toMatchObject({
         openapi: "3.0.0",
         servers: [{ url: "https://api.example.com/v1" }],
       });
@@ -1003,9 +1048,44 @@ describe("generateDefinition", () => {
 
       const result = await generateDefinition(spec);
 
-      expect(result.adapterDomain).toEqual({
+      expect(result.adapterDomain).toMatchObject({
         openapi: "3.0.3",
         servers: [],
+      });
+    });
+
+    it("omits securitySchemes in service adapterDomain when none are defined", async () => {
+      const spec = JSON.stringify({
+        openapi: "3.0.0",
+        info: { title: "API", version: "1.0.0" },
+        paths: {},
+      });
+
+      const result = await generateDefinition(spec);
+
+      expect(result.adapterDomain).not.toHaveProperty("securitySchemes");
+    });
+
+    it("includes resolved securitySchemes in service adapterDomain", async () => {
+      const spec = JSON.stringify({
+        openapi: "3.0.0",
+        info: { title: "API", version: "1.0.0" },
+        paths: {},
+        components: {
+          securitySchemes: {
+            ApiKey: { type: "apiKey", in: "header", name: "X-API-Key" },
+            Bearer: { type: "http", scheme: "bearer" },
+          },
+        },
+      });
+
+      const result = await generateDefinition(spec);
+
+      expect(result.adapterDomain).toMatchObject({
+        securitySchemes: {
+          ApiKey: { type: "apiKey", in: "header", name: "X-API-Key" },
+          Bearer: { type: "http", scheme: "bearer" },
+        },
       });
     });
   });
@@ -1084,7 +1164,7 @@ describe("generateDefinition", () => {
   });
 
   describe("schema defaults", () => {
-    it("returns empty configSchema and secretsSchema", async () => {
+    it("returns configSchema with default timeout and no servers", async () => {
       const spec = JSON.stringify({
         openapi: "3.0.0",
         info: { title: "API", version: "1.0.0" },
@@ -1093,8 +1173,100 @@ describe("generateDefinition", () => {
 
       const result = await generateDefinition(spec);
 
-      expect(result.configSchema).toEqual({});
-      expect(result.secretsSchema).toEqual({});
+      expect(result.configSchema).toEqual({
+        type: "object",
+        properties: {
+          timeoutMs: {
+            type: "integer",
+            default: 30000,
+            minimum: 1,
+            description: "Request timeout in milliseconds",
+          },
+        },
+        additionalProperties: false,
+      });
+    });
+
+    it("returns empty secretsSchema when no securitySchemes are defined", async () => {
+      const spec = JSON.stringify({
+        openapi: "3.0.0",
+        info: { title: "API", version: "1.0.0" },
+        paths: {},
+      });
+
+      const result = await generateDefinition(spec);
+
+      expect(result.secretsSchema).toEqual({
+        type: "object",
+        properties: {},
+        additionalProperties: false,
+      });
+    });
+
+    it("includes serverUrl and serverVar fields in configSchema when servers have variables", async () => {
+      const spec = JSON.stringify({
+        openapi: "3.0.0",
+        info: { title: "API", version: "1.0.0" },
+        servers: [
+          {
+            url: "https://{environment}.example.com/{version}",
+            variables: {
+              environment: {
+                default: "api",
+                enum: ["api", "staging"],
+              },
+              version: {
+                default: "v2",
+              },
+            },
+          },
+        ],
+        paths: {},
+      });
+
+      const result = await generateDefinition(spec);
+
+      expect(result.configSchema).toMatchObject({
+        type: "object",
+        properties: {
+          timeoutMs: { type: "integer" },
+          serverUrl: { type: "string" },
+          serverVar_environment: {
+            type: "string",
+            default: "api",
+            enum: ["api", "staging"],
+          },
+          serverVar_version: {
+            type: "string",
+            default: "v2",
+          },
+        },
+      });
+    });
+
+    it("generates secretsSchema from securitySchemes", async () => {
+      const spec = JSON.stringify({
+        openapi: "3.0.0",
+        info: { title: "API", version: "1.0.0" },
+        paths: {},
+        components: {
+          securitySchemes: {
+            ApiKey: { type: "apiKey", in: "header", name: "X-API-Key" },
+            BearerToken: { type: "http", scheme: "bearer" },
+          },
+        },
+      });
+
+      const result = await generateDefinition(spec);
+
+      expect(result.secretsSchema).toMatchObject({
+        type: "object",
+        properties: {
+          ApiKey: { type: "string" },
+          BearerToken: { type: "string" },
+        },
+        additionalProperties: false,
+      });
     });
   });
 

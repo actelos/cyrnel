@@ -173,7 +173,7 @@ describe("generateDefinition integration", () => {
 
       const deletePetTool = result.tools.find((t) => t.id === "deletePet");
       expect(deletePetTool).toBeDefined();
-      expect(deletePetTool?.adapterDomain).toEqual({
+      expect(deletePetTool?.adapterDomain).toMatchObject({
         path: "/pets/{petId}",
         method: "delete",
       });

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "18ca687c-de07-435d-9dcb-91645eadb432",
+  "id": "a14c2c37-0d66-4d51-937b-45a9c6222f61",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "module_configurations": {
@@ -143,8 +143,8 @@
           "autoincrement": false,
           "default": true
         },
-        "orphaned": {
-          "name": "orphaned",
+        "missing": {
+          "name": "missing",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
@@ -323,8 +323,16 @@
           "notNull": true,
           "autoincrement": false
         },
-        "orphaned": {
-          "name": "orphaned",
+        "definition_content": {
+          "name": "definition_content",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "stale": {
+          "name": "stale",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,

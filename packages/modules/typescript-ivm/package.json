@@ -1,21 +1,38 @@
 {
   "name": "@cyrnel/typescript-ivm",
-  "private": true,
+  "version": "1.0.0",
+  "description": "Cyrnel typescript isolated vm module",
+  "keywords": [
+    "typescript",
+    "cyrnel",
+    "module",
+    "vm"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/actelos/cyrnel.git",
+    "directory": "packages/modules/typescript-ivm"
+  },
+  "author": "0x15ba88ff",
+  "license": "MIT",
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./src/index.ts",
-      "import": "./src/index.ts"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
     }
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm run build"
   },
-  "packageManager": "pnpm@10.30.3",
   "dependencies": {
     "@cyrnel/sdk": "workspace:*",
     "isolated-vm": "^7.0.0",
@@ -24,5 +41,6 @@
   "devDependencies": {
     "@types/node": "^25.9.3",
     "vitest": "^4.1.8"
-  }
+  },
+  "packageManager": "pnpm@10.30.3"
 }

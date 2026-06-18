@@ -234,7 +234,7 @@ export class ModuleService {
         toolsTable,
         and(
           eq(toolsTable.serviceId, servicesTable.id),
-          eq(toolsTable.name, input.toolId),
+          eq(toolsTable.id, input.toolId),
         ),
       )
       .where(eq(servicesTable.id, input.serviceId))
@@ -1346,12 +1346,12 @@ export class ModuleService {
 
           await db.transaction(async (tx) => {
             const existingTools = await tx
-              .select({ name: toolsTable.name, enabled: toolsTable.enabled })
+              .select({ id: toolsTable.id, enabled: toolsTable.enabled })
               .from(toolsTable)
               .where(eq(toolsTable.serviceId, service.id));
 
             const enabledMap = new Map(
-              existingTools.map((t) => [t.name, t.enabled]),
+              existingTools.map((t) => [t.id, t.enabled]),
             );
 
             await tx
@@ -1371,7 +1371,7 @@ export class ModuleService {
                 def.tools.map((tool) => ({
                   ...tool,
                   serviceId: service.id,
-                  enabled: enabledMap.get(tool.name) ?? false,
+                  enabled: enabledMap.get(tool.id) ?? false,
                 })),
               );
             }
