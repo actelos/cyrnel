@@ -2,7 +2,7 @@
 
 Cyrnel is an open-source integration platform that connects AI applications to
 any API or service. Think of it as a universal docking station for your AI
-tools, instead of building custom integrations for every service, Cyrnel
+tools — instead of building custom integrations for every service, Cyrnel
 handles the connection so you can focus on what matters.
 
 This package is the **Cyrnel core API server**. It manages modules (adapter and
@@ -61,7 +61,7 @@ The REST API is organized around these resources:
 - **Modules**: Register, configure, enable/disable adapter and environment
   plugins
 - **Services**: Install API integrations from registries or direct URLs
-- **Tools** Discover and invoke operations provided by installed services
+- **Tools**: Discover and invoke operations provided by installed services
 - **Processes**: Execute sandboxed TypeScript code via the environment module
 
 An OpenAPI definition is generated at build time in `openapi.json`.
@@ -71,7 +71,7 @@ An OpenAPI definition is generated at build time in `openapi.json`.
 - [Cyrnel Documentation](https://actelos.mintlify.app/cyrnel/docs)
 - [FAQ](https://actelos.mintlify.app/cyrnel/docs/faq)
 - [Specifications](https://actelos.mintlify.app/cyrnel/specs)
-- [GitHub Repository](https://github.com/actelos/mci)
+- [GitHub Repository](https://github.com/actelos/cyrnel)
 
 ## License
 
