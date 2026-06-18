@@ -48,8 +48,8 @@ Copy `.example.env` to `.env` and configure at minimum:
 | Variable | Default | Description |
 |---|---|---|
 | `PORT` | `7687` | HTTP listen port |
-| `AUTH_TOKEN` | — | API authentication token (required) |
-| `ENCRYPTION_KEY` | — | Key for encrypting stored secrets |
+| `AUTH_TOKEN` | - | API authentication token (required) |
+| `ENCRYPTION_KEY` | - | Key for encrypting stored secrets |
 | `TURSO_DB_URL` | `file:data.db` | SQLite database path (libsql) |
 
 See `.example.env` for the full list.
@@ -58,11 +58,11 @@ See `.example.env` for the full list.
 
 The REST API is organized around these resources:
 
-- **Modules** — register, configure, enable/disable adapter and environment
+- **Modules**: Register, configure, enable/disable adapter and environment
   plugins
-- **Services** — install API integrations from registries or direct URLs
-- **Tools** — discover and invoke operations provided by installed services
-- **Processes** — execute sandboxed TypeScript code via the environment module
+- **Services**: Install API integrations from registries or direct URLs
+- **Tools** Discover and invoke operations provided by installed services
+- **Processes**: Execute sandboxed TypeScript code via the environment module
 
 An OpenAPI definition is generated at build time in `openapi.json`.
 
