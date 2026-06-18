@@ -1,17 +1,31 @@
 {
   "name": "@cyrnel/openapi",
   "version": "1.0.0",
-  "type": "module",
-  "publishConfig": {
-    "access": "public"
+  "description": "Cyrnel openapi adapter module",
+  "keywords": [
+    "openapi",
+    "cyrnel",
+    "adapter",
+    "module"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/actelos/cyrnel.git",
+    "directory": "packages/modules/openapi"
   },
-  "main": "./dist/src/index.js",
-  "types": "./dist/src/index.d.ts",
+  "author": "0x15ba88ff",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/src/index.d.ts",
       "import": "./dist/src/index.js"
     }
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json && tsc-alias -p tsconfig.json -f",
