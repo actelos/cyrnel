@@ -1,7 +1,6 @@
 import { FastMCP } from "fastmcp";
 
-import { environmentDocsResource } from "@/resources/environment.js";
-import { toolDocsResourceTemplate } from "@/resources/tool.js";
+import { environmentTools } from "@/tools/environment.js";
 import { moduleTools } from "@/tools/module.js";
 import { processTools } from "@/tools/process.js";
 import { serviceTools } from "@/tools/service.js";
@@ -18,13 +17,12 @@ export class App {
     this.server = new FastMCP({ name: "cyrnel", version: "1.0.0" });
 
     this.server.addTools([
+      ...environmentTools,
       ...processTools,
       ...serviceTools,
       ...toolTools,
       ...moduleTools,
     ]);
-    this.server.addResources([environmentDocsResource]);
-    this.server.addResourceTemplates([toolDocsResourceTemplate]);
   }
 
   async start(transport: Transport): Promise<void> {
