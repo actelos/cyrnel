@@ -1,0 +1,14 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "cyrnel": {
+      "type": "local",
+      "command": ["pnpm", "-C", "apps/mcp", "start"],
+      "cwd": "apps/mcp",
+      "enabled": true,
+      "environment": {
+        "MCP_TRANSPORT": "stdio"
+      }
+    }
+  }
+}
