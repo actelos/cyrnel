@@ -1,0 +1,43 @@
+name: Docker Check
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    paths:
+      - "apps/api/**"
+      - "apps/web/**"
+      - "apps/mcp/**"
+      - "packages/libs/**"
+      - "packages/modules/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "turbo.json"
+      - ".dockerignore"
+      - "Dockerfile*"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [api, web, mcp]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Build ${{ matrix.app }} image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/${{ matrix.app }}/Dockerfile
+          push: false
+          tags: cyrnel-${{ matrix.app }}:ci
