@@ -2,7 +2,7 @@ FROM node:24-alpine AS builder
 RUN corepack enable && corepack prepare pnpm@10.30.3 --activate
 WORKDIR /app
 
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
+COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
 
 COPY apps/api/package.json apps/api/package.json
 COPY packages/libs/sdk/package.json packages/libs/sdk/package.json
@@ -20,6 +20,7 @@ RUN pnpm deploy --filter=@cyrnel/api --prod --legacy /tmp/deploy
 FROM node:24-alpine
 WORKDIR /app
 COPY --from=builder /tmp/deploy .
+COPY --from=builder /app/apps/api/drizzle ./drizzle/
 
 ENV NODE_ENV=production
 ENV PORT=7687
