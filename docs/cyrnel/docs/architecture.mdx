@@ -45,7 +45,7 @@ The cyrnel server is composed of three cooperating services.
 Owns process lifecycle, responsible for creating processes, scheduling and
 terminating their execution, tracking state, and capturing outputs.
 
-See [Processes](/content/processes) for the full process model.
+See [Processes](/cyrnel/docs/processes) for the full process model.
 
 ### `Services`
 
@@ -53,7 +53,7 @@ Owns the **service registry**, responsible for installing, updating, and
 deleting services, retrieving service and tool data, and managing
 configuration and encrypted secrets.
 
-See [Services](/content/services) and [Tools](/content/tools) for the full
+See [Services](/cyrnel/docs/services) and [Tools](/cyrnel/docs/tools) for the full
 services model.
 
 ### `Modules`
@@ -62,7 +62,7 @@ Owns the **module registry**, responsible for installing, updating, and
 deleting modules, Loading built-in and any custom modules and dispatching
 commands to the different module types.
 
-See [Modules](/content/modules) for the full modules model.
+See [Modules](/cyrnel/docs/modules) for the full modules model.
 
 The different types of modules play different roles in cyrnel;
 
@@ -73,8 +73,8 @@ The different types of modules play different roles in cyrnel;
   bindings so that code can discover services, fetch tool metadata, and invoke
   tools.
 
-See [Adapter Modules](/content/modules/adapters) and
-[Environment Modules](/content/modules/environments) for the full models.
+See [Adapter Modules](/cyrnel/docs/adapters-modules) and
+[Environment Modules](/cyrnel/docs/environments-modules) for the full models.
 
 This model keeps the running surface small and deterministic: a single source
 of truth for "which environment runs new code", plus a known set of adapters

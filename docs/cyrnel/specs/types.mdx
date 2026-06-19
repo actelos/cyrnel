@@ -32,7 +32,7 @@ interface ServiceDefinition {
 
 The shape an adapter returns from `generateDefinition`. Cyrnel persists this
 into the `services` table along with an `id`, `hash`, `source`,
-`adapter`, and `enabled` flag. See [Services](/docs/services).
+`adapter`, and `enabled` flag. See [Services](/cyrnel/docs/services).
 
 - `configSchema` describes per-service configuration (validated on PATCH).
 - `secretsSchema` describes per-service secrets (validated on PATCH).
@@ -138,5 +138,5 @@ type ExecutionExitState = (typeof EXECUTION_EXIT_STATES)[number];
 
 The vocabulary an environment uses to report progress. `ProcessService`
 adds `idle` and `terminating` on top — those are host-side states, not
-environment-reported ones. See [Execution](/specs/environment-execution) and
-[Processes](/content/processes).
+environment-reported ones. See [Execution](/cyrnel/specs/environment-execution) and
+[Processes](/cyrnel/docs/processes).
