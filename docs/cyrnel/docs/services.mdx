@@ -4,7 +4,7 @@ description: "Installed services, their tools, configuration, and secrets"
 ---
 
 A **service** is an installed integration, it bundles metadata, a set of tools,
-configuration schema, a secrets schema, and the [adapter module](/content/modules/adapters)
+configuration schema, a secrets schema, and the [adapter module](/cyrnel/docs/modules/adapters)
 that knows how to talk to the underlying end service.
 
 ## Service Shape
@@ -27,7 +27,7 @@ On disk, cyrnel extends that with:
 - `hash`: SHA-256 of the definition file used at install/update time.
 - `source`: the registry URL the service was installed from. `""` means the
   service was direct-installed (no registry reference).
-- `adapter`: the id of the [adapter module](/content/modules/adapters) that
+- `adapter`: the id of the [adapter module](/cyrnel/docs/modules/adapters) that
   parsed the definition and will handle invocations.
 - `enabled`: whether the service is active. Disabling a service hides its
   tools from execution.
@@ -223,7 +223,7 @@ written back.
 <Warning>
   If `CYRNEL_SECRETS_KEY` is missing or the wrong size, both reading and
   writing secrets fail with `500`. See
-  [Security](/content/security#secrets).
+  [Security](/cyrnel/docs/security#secrets).
 </Warning>
 
 ## How Services Are Used at Execution Time

@@ -5,9 +5,9 @@ description: "Runtime modules. Adapters and environments"
 
 Cyrnel coordinates two kinds of modules:
 
-- **[Adapter modules](/content/modules/adapters)** translate environment
+- **[Adapter modules](/cyrnel/docs/modules/adapters)** translate environment
   invocations into calls to end services.
-- **[Environment modules](/content/modules/environments)** execute the code
+- **[Environment modules](/cyrnel/docs/modules/environments)** execute the code
   clients submit.
 
 Both implement the base `Module` interface from `@cyrnel/sdk`.
@@ -36,7 +36,7 @@ sources:
 
    `main` is an ES module exporting `instantiate(): AdapterModule` or
    `EnvironmentModule`. See
-   [Writing a custom module](/specs/writing-custom-modules).
+   [Writing a custom module](/cyrnel/specs/writing-custom-modules).
 
 The registry is reflected to the `modules` table. Three things can happen
 during reconciliation:

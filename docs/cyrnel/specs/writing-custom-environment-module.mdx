@@ -6,8 +6,8 @@ sidebarTitle: "Writing a custom environment"
 
 This page covers the environment-specific parts of writing a custom module.
 For the shared mechanics (file layout, registration, lifecycle) see
-[Writing a custom module](/specs/writing-custom-modules). For the full
-interface reference see [`EnvironmentModule`](/specs/environment-module).
+[Writing a custom module](/cyrnel/specs/writing-custom-modules). For the full
+interface reference see [`EnvironmentModule`](/cyrnel/specs/environment-module).
 
 ## Minimal Skeleton
 
@@ -64,6 +64,6 @@ in the repository for a complete, working environment that executes
 submitted code as shell commands via `sh -c`. It streams stdout and stderr
 back through the host bindings and reports the exit code on completion.
 
-See [`EnvironmentBindings`](/specs/environment-bindings) for the callback
-surface and [Execution](/specs/environment-execution) for the state machine
+See [`EnvironmentBindings`](/cyrnel/specs/environment-bindings) for the callback
+surface and [Execution](/cyrnel/specs/environment-execution) for the state machine
 and timeout contracts.

@@ -15,14 +15,14 @@ interface AdapterModule extends Module {
 
 Adapter modules translate service definitions and tool invocations into
 calls to the underlying end service. See
-[Adapter Modules](/content/modules/adapters) for the user-facing
+[Adapter Modules](/cyrnel/docs/modules/adapters) for the user-facing
 description.
 
 ## `generateDefinition(input)`
 
 Convert a raw definition string (an OpenAPI document, a custom schema, a
 URL to fetch and parse, whatever this adapter understands) into a
-[`ServiceDefinition`](/specs/types#servicedefinition).
+[`ServiceDefinition`](/cyrnel/specs/types#servicedefinition).
 
 - Called from `POST /services` (direct install), `POST /services/install`
   (registry install), `PATCH /services/:serviceId` (direct update),
@@ -102,7 +102,7 @@ the host surfaces it to the calling process.
 ## Security
 
 Adapters run with full host privileges and receive decrypted secrets.
-See [Security → Adapter modules](/content/security#adapter-modules) for
+See [Security → Adapter modules](/cyrnel/docs/security#adapter-modules) for
 operator-facing guidance and **what a well-behaved adapter must not do**.
 
 ## Minimal Skeleton
@@ -164,5 +164,5 @@ export function instantiate(): AdapterModule {
 }
 ```
 
-See [Writing a custom adapter module](/specs/writing-custom-adapter-module)
+See [Writing a custom adapter module](/cyrnel/specs/writing-custom-adapter-module)
 for a step-by-step walkthrough and a full working example.
