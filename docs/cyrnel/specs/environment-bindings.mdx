@@ -33,15 +33,15 @@ etc.) and proxy them through.
 
 | Callback | What it returns |
 | --- | --- |
-| `discoverServices` | Filtered service summaries (id, name, description, enabled). |
+| `discoverServices` | Filtered service summaries (id, name, description, enabled, stale). |
 | `discoverTools` | Filtered tool summaries across services. |
-| `getService` | Single service definition (no `tools`, no `adapterDomain`). |
-| `getTool` | Single tool with `inputSchema` and `outputSchema`. |
+| `getService` | Single service definition (no `tools`, no `adapterDomain`; includes `stale` and `effectivelyEnabled`). |
+| `getTool` | Single tool with `inputSchema` and `outputSchema` (includes `effectivelyEnabled`). |
 | `getToolDocs` | Markdown reference for one tool, usually produced by the active environment's own `generateToolDocs`. |
 | `invokeTool` | Whatever the adapter returns. Throws on disabled / missing service or tool. |
 
 The discovery callbacks are the same calls the HTTP API uses internally,
-so they apply the same `enabled` filters.
+so they apply the same `enabled` and `stale` filters.
 
 ## Execution Reporting
 

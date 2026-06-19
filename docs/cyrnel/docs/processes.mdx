@@ -5,7 +5,7 @@ description: "Creating, running, and inspecting processes"
 
 A process is a stateful execution unit in cyrnel. When a client submits code,
 cyrnel creates a process with a unique process id (`pid`), runs it on the active
-[environment module](/content/modules/environments), captures its output, and
+[environment module](/cyrnel/docs/environments-modules), captures its output, and
 exposes those outputs by `pid`. Process execution does not block the client
 request unless `block: true` is set.
 

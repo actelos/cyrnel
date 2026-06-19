@@ -80,6 +80,31 @@ export const toolTools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
       JSON.stringify(await api.get(`tools/${service_id}/${tool_id}`).json()),
   },
   {
+    name: "get_tool_docs",
+    description: `
+    Returns markdown docs for a single tool, rendered by the active execution
+    environment. Includes the tool's description, parameter list (with types
+    and required flags), return shape, and a worked example in the
+    environment's calling syntax. Read this before constructing a call to the
+    tool so the parameters match the schema.
+    `,
+    annotations: {
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+    parameters: z.object({
+      service_id: ServiceId,
+      tool_id: ToolId,
+    }),
+    execute: async ({ service_id, tool_id }) =>
+      api
+        .get(
+          `tools/${encodeURIComponent(service_id)}/${encodeURIComponent(tool_id)}/docs`,
+        )
+        .text(),
+  },
+  {
     name: "set_tool_enabled",
     description: `
     Enable or disable a specific tool within a service.

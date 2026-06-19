@@ -16,7 +16,7 @@ specific kind of end service. It is responsible for:
    `{ serviceId, toolId, parameters }` invocation into a real call to the
    underlying service.
 
-Adapter modules implement the SDK [`AdapterModule`](/specs/adapter-module)
+Adapter modules implement the SDK [`AdapterModule`](/cyrnel/specs/adapter-module)
 interface.
 
 ## Lifecycle
@@ -31,9 +31,11 @@ interface AdapterModule extends Module {
 ```
 
 1. **`setup({})`** is called once when the adapter is activated.
-2. **`generateDefinition(content)`** is called during `POST /services/install`
-   and `POST /services/:id/update`. Pure: given the same definition string,
-   should produce the same `ServiceDefinition`.
+2. **`generateDefinition(content)`** is called during `POST /services`
+   (direct install), `POST /services/install` (registry install),
+   `PATCH /services/:serviceId` (direct update), and
+   `POST /services/:serviceId/update` (registry update). Pure: given the
+   same definition string, should produce the same `ServiceDefinition`.
 3. **`hydrateService(state)`** is called whenever a service that targets this
    adapter is enabled, has its config or secrets patched, or this adapter is
    activated while the service is already enabled. Receives a snapshot:
@@ -97,11 +99,11 @@ which adapters to enable. Every enabled adapter can:
   credentials, not without them.
 - **Hold per-service state in a way that survives `dehydrateService`.**
 
-See [Security](/content/security) for the broader picture.
+See [Security](/cyrnel/docs/security) for the broader picture.
 
 ## Authoring
 
-See [Writing a custom adapter module](/specs/writing-custom-adapter-module)
+See [Writing a custom adapter module](/cyrnel/specs/writing-custom-adapter-module)
 for the file layout, a skeleton, and a full working example.
-[`AdapterModule`](/specs/adapter-module) covers the interface contract
+[`AdapterModule`](/cyrnel/specs/adapter-module) covers the interface contract
 in full.

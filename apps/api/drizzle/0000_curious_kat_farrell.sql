@@ -20,7 +20,7 @@ CREATE TABLE `modules` (
 	`hash` text DEFAULT '' NOT NULL,
 	`source` text DEFAULT '' NOT NULL,
 	`enabled` integer DEFAULT true NOT NULL,
-	`orphaned` integer DEFAULT false NOT NULL
+	`missing` integer DEFAULT false NOT NULL
 );
 --> statement-breakpoint
 CREATE INDEX `modules_type_idx` ON `modules` (`type`);--> statement-breakpoint
@@ -49,7 +49,8 @@ CREATE TABLE `services` (
 	`config_schema` text NOT NULL,
 	`secrets_schema` text NOT NULL,
 	`adapter_domain` text NOT NULL,
-	`orphaned` integer DEFAULT false NOT NULL,
+	`definition_content` text DEFAULT '' NOT NULL,
+	`stale` integer DEFAULT false NOT NULL,
 	FOREIGN KEY (`adapter`) REFERENCES `modules`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint

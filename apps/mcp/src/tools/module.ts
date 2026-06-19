@@ -35,8 +35,9 @@ export const moduleTools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
       ),
       is_builtin: z.boolean().optional().describe("Optional builtin filter."),
       enabled: z.boolean().optional().describe("Optional enabled filter."),
+      missing: z.boolean().optional().describe("Optional missing filter."),
     }),
-    execute: async ({ query, type, is_builtin, enabled }) =>
+    execute: async ({ query, type, is_builtin, enabled, missing }) =>
       JSON.stringify(
         await api
           .get("modules", {
@@ -45,6 +46,7 @@ export const moduleTools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
               type,
               isBuiltin: is_builtin,
               enabled,
+              missing,
             }),
           })
           .json(),
@@ -57,7 +59,7 @@ export const moduleTools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
 
     When to use:
       - Use when you already know the exact module id and want the current
-        enabled/orphaned state or description.
+        enabled/missing state or description.
     When NOT to use:
       - If you only have a partial match, call \`list_modules\` first.
     `,
@@ -76,7 +78,7 @@ export const moduleTools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
     Enable or disable a module by id.
 
     Enabling an \`environment\` module deactivates any other currently active
-    environment module. Orphaned modules cannot be enabled — the API will
+    environment module. Missing modules cannot be enabled — the API will
     return 409.
 
     When to use:
@@ -105,7 +107,7 @@ export const moduleTools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
     Re-scan the modules directory and reconcile the module registry.
 
     Re-registers all builtin and on-disk modules, marks any rows whose factories
-    disappeared as orphaned, and clears the orphaned flag for any rows whose
+    disappeared as missing, and clears the missing flag for any rows whose
     factories have returned.
 
     When to use:
@@ -240,15 +242,17 @@ export const moduleTools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
   {
     name: "install_module",
     description: `
-    Install a new module from a compressed tar archive (.tar.zst) URL.
+    Install a module by resolving a registry source URL.
 
-    Downloads the archive, validates its module.json manifest, and registers
-    the module. Newly installed modules start disabled by default.
+    Fetches the registry metadata API at \`source\`, resolves the download URL
+    and optional hash, then validates the archive hash (if provided) before
+    extracting and registering the module. Newly installed modules start
+    disabled by default.
 
     When to use:
-      - Use to add a new adapter or environment module from a remote URL.
+      - Use to install an adapter or environment module from a module registry.
     When NOT to use:
-      - If you already know the module id, use \`get_module\` for details.
+      - For a direct .tar.zst URL, use \`add_module\` instead.
     `,
     annotations: { destructiveHint: true, idempotentHint: false },
     parameters: z.object({
@@ -256,13 +260,40 @@ export const moduleTools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
         .string()
         .min(1)
         .describe(
-          'URL of the .tar.zst archive. Example: "https://example.com/module.tar.zst".',
+          'Registry URL that returns module metadata { downloadUrl, hash? }. Example: "https://registry.example.com/modules/my-module".',
         ),
     }),
     execute: async ({ source }) =>
       JSON.stringify(
         await api.post("modules/install", { json: { source } }).json(),
       ),
+  },
+  {
+    name: "add_module",
+    description: `
+    Install a new module directly from a compressed tar archive (.tar.zst) URL.
+
+    Downloads the archive, validates its module.json manifest, and registers
+    the module. No registry resolution — the URL must point directly at a
+    .tar.zst file. Newly installed modules start disabled by default.
+
+    When to use:
+      - Use to install an adapter or environment module from a direct download
+        URL without a registry.
+    When NOT to use:
+      - To install via a module registry, use \`install_module\` instead.
+    `,
+    annotations: { destructiveHint: true, idempotentHint: false },
+    parameters: z.object({
+      url: z
+        .string()
+        .min(1)
+        .describe(
+          'Direct URL of the .tar.zst archive. Example: "https://example.com/module.tar.zst".',
+        ),
+    }),
+    execute: async ({ url }) =>
+      JSON.stringify(await api.post("modules", { json: { url } }).json()),
   },
   {
     name: "delete_module",
@@ -289,22 +320,51 @@ export const moduleTools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
   {
     name: "update_module",
     description: `
-    Re-download and re-install a module from its stored source URL.
+    Re-resolve the stored registry source URL and re-install if changed.
 
-    Compares the new archive hash against the stored hash. If unchanged the
-    update is skipped. If changed, the module directory and database record
-    are refreshed and the module instance is reloaded.
+    Compares the registry's current hash against the stored hash. If unchanged
+    the update is skipped. Requires a registry-installed module (source !== "").
 
     When to use:
-      - Use to pull the latest version of a previously installed module.
+      - Use to pull the latest version of a registry-installed module.
     When NOT to use:
-      - If the module is not yet installed, use \`install_module\` instead.
+      - For a direct-installed module (no registry source), use \`patch_module\`
+        instead.
     `,
     annotations: { idempotentHint: true, openWorldHint: true },
     parameters: z.object({ module_id: ModuleId }),
     execute: async ({ module_id }) =>
       JSON.stringify(
         await api.post(`modules/${module_id}/update`, { json: {} }).json(),
+      ),
+  },
+  {
+    name: "patch_module",
+    description: `
+    Replace a module with a new archive from a direct .tar.zst URL.
+
+    Downloads the new archive, replaces the module directory, updates the
+    database record, and clears any stored registry source. The module is
+    reloaded with the new factory.
+
+    When to use:
+      - Use to update a direct-installed module from a new URL.
+    When NOT to use:
+      - For a registry-installed module, use \`update_module\` instead.
+    `,
+    annotations: { idempotentHint: false },
+    parameters: z.object({
+      module_id: ModuleId,
+      url: z
+        .string()
+        .min(1)
+        .describe(
+          'Direct URL of the new .tar.zst archive. Example: "https://example.com/module-v2.tar.zst".',
+        ),
+    }),
+    execute: async ({ module_id, url }) =>
+      JSON.stringify(
+        await api.patch(`modules/${module_id}`, { json: { url } }).json(),
       ),
   },
 ];

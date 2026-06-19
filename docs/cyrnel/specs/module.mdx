@@ -29,10 +29,10 @@ Called once when the module is activated.
 For adapter modules, `context` carries the module-level config and
 secrets from the `modules` database row. Service-level config and secrets
 are delivered separately through
-[`hydrateService`](/specs/adapter-module#hydrateservicestate).
+[`hydrateService`](/cyrnel/specs/adapter-module#hydrateservicestate).
 
 For environment modules, `context` is an
-[`EnvironmentSetupContext`](/specs/environment-module#setup) that adds
+[`EnvironmentSetupContext`](/cyrnel/specs/environment-module#setup) that adds
 `bindings`, the host's callback surface.
 
 The host awaits `setup` before declaring the module ready. Throw to abort
@@ -66,4 +66,4 @@ do not propagate to the caller.
   needs the module back.
 - For environment modules, `teardown` may be deferred while the module
   drains in-flight executions. See
-  [`EnvironmentModule`](/specs/environment-module#draining).
+  [`EnvironmentModule`](/cyrnel/specs/environment-module#draining).

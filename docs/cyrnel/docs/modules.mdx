@@ -5,9 +5,9 @@ description: "Runtime modules. Adapters and environments"
 
 Cyrnel coordinates two kinds of modules:
 
-- **[Adapter modules](/content/modules/adapters)** translate environment
+- **[Adapter modules](/cyrnel/docs/adapters-modules)** translate environment
   invocations into calls to end services.
-- **[Environment modules](/content/modules/environments)** execute the code
+- **[Environment modules](/cyrnel/docs/environments-modules)** execute the code
   clients submit.
 
 Both implement the base `Module` interface from `@cyrnel/sdk`.
@@ -36,28 +36,113 @@ sources:
 
    `main` is an ES module exporting `instantiate(): AdapterModule` or
    `EnvironmentModule`. See
-   [Writing a custom module](/specs/writing-custom-modules).
+   [Writing a custom module](/cyrnel/specs/writing-custom-modules).
 
 The registry is reflected to the `modules` table. Three things can happen
 during reconciliation:
 
 - **Insert**: A registered module that isn't in the DB yet. Default
-  `enabled: true`, `orphaned: false`.
-- **Orphan**: a row in the DB whose module is no longer registered (e.g.
-  the custom folder was removed). Set `orphaned: true, enabled: false`. The
-  row stays so its config/enablement is preserved if the module reappears.
-- **Restore**: An orphaned row whose module is registered again. Clear
-  `orphaned: false`.
+  `enabled: true`, `missing: false`.
+- **Missing**: A row in the DB whose module is no longer registered (e.g.
+  the custom folder was removed). Set `missing: true`, preserving `enabled`.
+  The row stays so its config/enablement is preserved if the module reappears.
+- **Restore**: A missing row whose module is registered again. Clear
+  `missing: false`. Services recalculate `effectivelyEnabled`.
 
 `POST /modules/reload` re-scans `$CYRNEL_DATA_DIR/modules/` and reruns
 reconciliation. Use it after dropping a new custom module into the directory.
+
+## Install
+
+Modules can be installed in two modes:
+
+### Direct install
+
+`POST /modules`
+
+```json
+{ "url": "https://example.com/my-module.tar.zst" }
+```
+
+The `url` is a direct download URL to the `.tar.zst` archive itself. It is
+ephemeral -- passed by the client, never stored. The downloaded archive is
+extracted, validated for a `module.json` manifest, registered in memory, and
+persisted to the database with `source = ""`.
+
+### Registry install
+
+`POST /modules/install`
+
+```json
+{ "source": "https://registry.example.com/modules/my-module" }
+```
+
+The `source` is a registry URL pointing to a metadata API endpoint. The server
+fetches `source`, expecting a JSON response:
+
+```ts
+interface ModuleRegistryResponse {
+  downloadUrl: string;   // URL to the .tar.zst archive
+  hash?: string;         // SHA-256 of the .tar.zst binary (skip + integrity)
+}
+```
+
+If the response includes a `hash`, the server verifies the downloaded archive
+content matches it. The `source` URL is persisted in the database so the module
+can be re-resolved later for updates. The module starts disabled.
+
+## Update
+
+Modules can be updated in two modes, matching the install mode.
+
+### Direct update
+
+`PATCH /modules/:moduleId`
+
+```json
+{ "url": "https://example.com/my-module-v2.tar.zst" }
+```
+
+Downloads the new archive from the direct `url`, backs up the existing module
+directory, extracts the new archive, registers the updated factory, and
+updates the database row (including clearing `source` to `""`). If the update
+fails partway, the backup is restored.
+
+After the module is installed, cyrnel **regenerates every service** that
+targets this adapter: for each non-missing service, the stored definition
+content is re-fed through the new adapter's `generateDefinition`. Services
+that succeed get fresh tools immediately. Services that fail are marked
+`stale` and cannot be invoked until they are manually synced
+(via `PATCH /services/:id` or `POST /services/:id/update`).
+
+### Registry update
+
+`POST /modules/:moduleId/update`
+
+```json
+{}
+```
+
+Re-resolves the stored `source` URL by fetching the registry metadata again.
+If the registry returns a `hash` that matches the stored hash, the update is
+skipped and the response is `{ updated: false }`. Otherwise the new archive
+is downloaded, verified, extracted, and registered. Direct-installed modules
+(`source = ""`) return `409` -- use `PATCH` instead.
+
+Same service regeneration behavior as the direct update: every non-missing
+service is re-parsed through the new adapter. Failures are marked `stale`.
+
+The `source` column semantics:
+
+- `source = ""` -- direct-installed item (no registry reference).
+- `source = <url>` -- registry-installed item (stored registry URL).
 
 ## Activation
 
 Activation = "this module is now ready to take work". It is per-module-type:
 
 - **Adapters** activate eagerly. On startup cyrnel activates every adapter row
-  with `enabled = true, orphaned = false`, runs `setup({})`, then hydrates
+  with `enabled = true, missing = false`, runs `setup({})`, then hydrates
   every enabled service that targets it.
 - **Environments** activate one-at-a-time. Only the environment whose row is
   enabled gets activated. Enabling a different environment disables the
@@ -100,25 +185,33 @@ for non-sensitive values only; put credentials and tokens in secrets.
 
 ## Module API
 
-| Method | Path | Notes |
-| --- | --- | --- |
-| `GET` | `/modules` | Filterable by `query`, `type`, `isBuiltin`, `enabled` |
-| `GET` | `/modules/:moduleId` | Single module |
-| `POST` | `/modules/:moduleId/enabled` | Toggle `{ enabled: boolean }` |
-| `POST` | `/modules/reload` | Re-scan custom modules from disk |
-| `GET` | `/modules/:moduleId/config/schema` | Module configuration schema |
-| `GET` | `/modules/:moduleId/config` | Current module configuration |
-| `PATCH` | `/modules/:moduleId/config` | Patch module configuration |
-| `GET` | `/modules/:moduleId/secrets/schema` | Module secrets schema |
-| `PATCH` | `/modules/:moduleId/secrets` | Patch encrypted module secrets |
+| Method | Path | Mode | Notes |
+| --- | --- | --- | --- |
+| `GET` | `/modules` | -- | Filterable by `query`, `type`, `isBuiltin`, `enabled` |
+| `GET` | `/modules/:moduleId` | -- | Single module |
+| `POST` | `/modules` | Direct | Install from a `.tar.zst` URL, stores `source = ""` |
+| `POST` | `/modules/install` | Registry | Resolve registry metadata URL, stores `source` |
+| `PATCH` | `/modules/:moduleId` | Direct | Update from a direct URL, clears `source` |
+| `POST` | `/modules/:moduleId/update` | Registry | Re-resolve stored registry source, re-download |
+| `POST` | `/modules/:moduleId/enabled` | -- | Toggle `{ enabled: boolean }` |
+| `POST` | `/modules/reload` | -- | Re-scan custom modules from disk |
+| `GET` | `/modules/:moduleId/config/schema` | -- | Module configuration schema |
+| `GET` | `/modules/:moduleId/config` | -- | Current module configuration |
+| `PATCH` | `/modules/:moduleId/config` | -- | Patch module configuration |
+| `GET` | `/modules/:moduleId/secrets/schema` | -- | Module secrets schema |
+| `PATCH` | `/modules/:moduleId/secrets` | -- | Patch encrypted module secrets |
+| `DELETE` | `/modules/:moduleId` | -- | Remove module and its filesystem directory |
 
-Enabling an orphaned module returns `409`.
+Enabling a missing module returns `409`. Direct-installed items (`source = ""`)
+cannot use `POST /modules/:moduleId/update` -- they return `409`.
 
 The MCP server exposes the same module management surface through:
 
 - `list_modules`, `get_module`, `set_module_enabled`, `reload_modules`
 - `get_module_config_schema`, `get_module_config`, `patch_module_config`
 - `get_module_secrets_schema`, `patch_module_secrets`
+- `install_module` (registry), `add_module` (direct), `update_module` (registry),
+  `patch_module` (direct), `delete_module`
 
 A module record:
 
@@ -128,9 +221,13 @@ interface ModuleManifestRecord {
   name: string;
   description: string;
   type: "adapter" | "environment";
+  hash: string;
+  source: string;
   isBuiltin: boolean;
   enabled: boolean;
-  orphaned: boolean;
+  missing: boolean;
+  configSchema: JSONSchema;
+  secretsSchema: JSONSchema;
 }
 ```
 

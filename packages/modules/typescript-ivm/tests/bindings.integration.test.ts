@@ -38,6 +38,8 @@ describe("bindings integration", () => {
         name: "calculator",
         description: "Calculator service",
         enabled: true,
+        effectivelyEnabled: true,
+        stale: false,
         configSchema: {},
         secretsSchema: {},
       };
@@ -46,6 +48,7 @@ describe("bindings integration", () => {
         name: "add",
         description: "Add two numbers",
         enabled: true,
+        effectivelyEnabled: true,
         inputSchema: {
           type: "object",
           properties: {
@@ -137,12 +140,19 @@ describe("bindings integration", () => {
       const environment = instantiate();
 
       const services: ListServiceResult[] = [
-        { id: "calc", name: "calc", description: "Calculator", enabled: true },
+        {
+          id: "calc",
+          name: "calc",
+          description: "Calculator",
+          enabled: true,
+          stale: false,
+        },
         {
           id: "weather",
           name: "weather",
           description: "Weather API",
           enabled: true,
+          stale: false,
         },
       ];
 
@@ -423,6 +433,7 @@ describe("bindings integration", () => {
         name: "test",
         description: "Test tool",
         enabled: true,
+        effectivelyEnabled: true,
         inputSchema: {},
         outputSchema: {},
       };

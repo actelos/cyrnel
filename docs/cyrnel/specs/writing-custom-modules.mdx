@@ -7,11 +7,11 @@ sidebarTitle: "Writing a custom module"
 This page covers the mechanics shared by every custom module, registration, and
 lifecycle. For type-specific skeletons and examples see:
 
-- [Writing a custom adapter module](/specs/writing-custom-adapter-module)
-- [Writing a custom environment module](/specs/writing-custom-environment-module)
+- [Writing a custom adapter module](/cyrnel/specs/writing-custom-adapter-module)
+- [Writing a custom environment module](/cyrnel/specs/writing-custom-environment-module)
 
-For the full interface reference, see [`AdapterModule`](/specs/adapter-module)
-and [`EnvironmentModule`](/specs/environment-module).
+For the full interface reference, see [`AdapterModule`](/cyrnel/specs/adapter-module)
+and [`EnvironmentModule`](/cyrnel/specs/environment-module).
 
 ## Installation
 
@@ -61,7 +61,7 @@ expectation is that you ship modules built ahead of time.
 
 `reload` re-scans `$CYRNEL_DATA_DIR/modules/`, registers any new directories,
 and reconciles the result against the `modules` table. A new module is
-inserted with `enabled: true, orphaned: false` by default.
+inserted with `enabled: true, missing: false` by default.
 
 ## Verifying
 
@@ -89,9 +89,9 @@ the active environment and drains the previous one.
 Stop the API, delete `$CYRNEL_DATA_DIR/modules/<id>/`, and restart. Or
 delete the directory and `POST /modules/reload`.
 
-The `modules` row is **not** deleted, it's marked `orphaned: true,
-enabled: false`. This preserves any settings if the module reappears.
-Trying to enable an orphaned module returns `409`.
+The `modules` row is **not** deleted, it's marked `missing: true`. The
+`enabled` flag is preserved so the module resumes at its previous state if it
+reappears. Trying to enable a missing module returns `409`.
 
 ## Module ID Collisions
 

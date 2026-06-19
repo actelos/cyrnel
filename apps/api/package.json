@@ -1,10 +1,9 @@
 {
   "name": "@cyrnel/api",
   "private": true,
-  "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && tsc-alias -p tsconfig.json -f",
     "start": "node dist/index.js",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
@@ -14,7 +13,6 @@
     "db:generate": "drizzle-kit generate",
     "openapi:generate": "tsx scripts/generate-definition.ts --out ./openapi.json ../../docs/cyrnel/openapi.json"
   },
-  "packageManager": "pnpm@10.30.3",
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^8.5.0",
     "@cyrnel/openapi": "workspace:*",
@@ -30,7 +28,7 @@
     "fast-json-patch": "^3.1.1",
     "fzstd": "^0.1.1",
     "ipaddr.js": "^2.4.0",
-    "multer": "^2.1.1",
+    "multer": "^2.2.0",
     "openapi3-ts": "^4.6.0",
     "pino": "^10.3.1",
     "pino-http": "^11.0.0",
@@ -42,13 +40,15 @@
     "@types/cors": "2.8.19",
     "@types/express": "5.0.6",
     "@types/multer": "2.1.0",
-    "@types/node": "25.9.2",
+    "@types/node": "25.9.3",
     "@types/supertest": "7.2.0",
     "drizzle-kit": "^0.31.10",
     "supertest": "7.2.2",
     "ts-node": "10.9.2",
+    "tsc-alias": "^1.8.17",
     "tsx": "4.22.4",
     "typescript": "6.0.3",
     "vitest": "4.1.8"
-  }
+  },
+  "packageManager": "pnpm@10.30.3"
 }

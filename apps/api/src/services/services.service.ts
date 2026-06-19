@@ -4,13 +4,14 @@ import type {
   ServiceState,
   ToolDocsInput,
 } from "@cyrnel/sdk";
-import { and, asc, eq, getTableColumns, like, or } from "drizzle-orm";
+import { and, asc, eq, getTableColumns, like, or, sql } from "drizzle-orm";
 import jsonpatch from "fast-json-patch";
 
 import { z } from "zod";
 
 import { db } from "@/db/client";
 import {
+  modules as modulesTable,
   serviceConfigurations,
   serviceSecrets,
   services,
@@ -75,13 +76,17 @@ export class ServicesService {
         adapterDomain,
         hash,
         source,
-        orphaned,
+        definitionContent,
         ...serviceColumns
       } = getTableColumns(services);
 
       const query = db
-        .select(serviceColumns)
+        .select({
+          ...serviceColumns,
+          effectivelyEnabled: sql<boolean>`${services.enabled} AND ${modulesTable.enabled} AND NOT ${modulesTable.missing}`,
+        })
         .from(services)
+        .leftJoin(modulesTable, eq(services.adapter, modulesTable.id))
         .where(
           and(
             input?.enabled !== undefined
@@ -89,6 +94,9 @@ export class ServicesService {
               : undefined,
             input?.adapter !== undefined
               ? eq(services.adapter, input.adapter)
+              : undefined,
+            input?.stale !== undefined
+              ? eq(services.stale, input.stale)
               : undefined,
             normalizedQuery
               ? or(
@@ -110,10 +118,15 @@ export class ServicesService {
   }
 
   async getService(id: string): Promise<GetServiceDefinitionResult> {
-    const { adapterDomain, ...serviceColumns } = getTableColumns(services);
+    const { adapterDomain, definitionContent, ...serviceColumns } =
+      getTableColumns(services);
     const [row] = await db
-      .select(serviceColumns)
+      .select({
+        ...serviceColumns,
+        effectivelyEnabled: sql<boolean>`${services.enabled} AND ${modulesTable.enabled} AND NOT ${modulesTable.missing}`,
+      })
       .from(services)
+      .leftJoin(modulesTable, eq(services.adapter, modulesTable.id))
       .where(eq(services.id, id))
       .limit(1)
       .catch(() => {
@@ -286,6 +299,7 @@ export class ServicesService {
           source: "",
           adapter: input.adapter,
           enabled: false,
+          definitionContent,
         });
         await tx.insert(tools).values(
           generatedDefinition.tools.map((tool) => ({
@@ -368,6 +382,7 @@ export class ServicesService {
           source: input.source,
           adapter: effectiveAdapter,
           enabled: false,
+          definitionContent,
         });
         await tx.insert(tools).values(
           generatedDefinition.tools.map((tool) => ({
@@ -385,6 +400,84 @@ export class ServicesService {
     }
 
     return effectiveId;
+  }
+
+  async syncService(id: string): Promise<void> {
+    const [service] = await db
+      .select({
+        adapter: services.adapter,
+        definitionContent: services.definitionContent,
+      })
+      .from(services)
+      .where(eq(services.id, id))
+      .limit(1)
+      .catch(() => {
+        throw new HttpError(500, `Failed to load service '${id}'.`);
+      });
+
+    if (!service) throw new HttpError(404, `Service '${id}' not found.`);
+    if (!service.definitionContent)
+      throw new HttpError(
+        409,
+        `Service '${id}' has no stored definition content and cannot be synced.`,
+      );
+
+    const generatedDefinition = await this.controller.generateDefinition({
+      definition: service.definitionContent,
+      adapter: service.adapter,
+    });
+
+    for (const tool of generatedDefinition.tools) {
+      if (!IDENTIFIER_SCHEMA.safeParse(tool.id).success) {
+        throw new HttpError(
+          400,
+          `Tool id '${tool.id}' must be a valid TypeScript identifier.`,
+        );
+      }
+    }
+
+    try {
+      await db.transaction(async (tx) => {
+        const existingTools = await tx
+          .select({ id: tools.id, enabled: tools.enabled })
+          .from(tools)
+          .where(eq(tools.serviceId, id));
+
+        const enabledMap = new Map(existingTools.map((t) => [t.id, t.enabled]));
+
+        await tx
+          .update(services)
+          .set({
+            ...generatedDefinition,
+            enabled: false,
+            stale: false,
+          })
+          .where(eq(services.id, id));
+
+        await tx.delete(tools).where(eq(tools.serviceId, id));
+
+        if (generatedDefinition.tools.length) {
+          await tx.insert(tools).values(
+            generatedDefinition.tools.map((tool) => ({
+              ...tool,
+              serviceId: id,
+              enabled: enabledMap.get(tool.id) ?? false,
+            })),
+          );
+        }
+      });
+    } catch {
+      throw new HttpError(500, `Failed to sync service '${id}'.`);
+    }
+
+    try {
+      await this.controller.dehydrateService(service.adapter, id);
+    } catch (err) {
+      logger.warn(
+        { err, adapterId: service.adapter, serviceId: id },
+        "Failed to dehydrate service on sync",
+      );
+    }
   }
 
   async updateService(id: string): Promise<void> {
@@ -451,17 +544,21 @@ export class ServicesService {
     try {
       await db.transaction(async (tx) => {
         const existingTools = await tx
-          .select({ name: tools.name, enabled: tools.enabled })
+          .select({ id: tools.id, enabled: tools.enabled })
           .from(tools)
           .where(eq(tools.serviceId, id));
 
-        const enabledMap = new Map(
-          existingTools.map((t) => [t.name, t.enabled]),
-        );
+        const enabledMap = new Map(existingTools.map((t) => [t.id, t.enabled]));
 
         await tx
           .update(services)
-          .set({ ...parsedDefinition, hash, enabled: false })
+          .set({
+            ...parsedDefinition,
+            hash,
+            enabled: false,
+            definitionContent,
+            stale: false,
+          })
           .where(eq(services.id, id));
 
         await tx.delete(tools).where(eq(tools.serviceId, id));
@@ -471,7 +568,7 @@ export class ServicesService {
             parsedDefinition.tools.map((tool) => ({
               ...tool,
               serviceId: id,
-              enabled: enabledMap.get(tool.name) ?? false,
+              enabled: enabledMap.get(tool.id) ?? false,
             })),
           );
         }
@@ -529,17 +626,22 @@ export class ServicesService {
     try {
       await db.transaction(async (tx) => {
         const existingTools = await tx
-          .select({ name: tools.name, enabled: tools.enabled })
+          .select({ id: tools.id, enabled: tools.enabled })
           .from(tools)
           .where(eq(tools.serviceId, id));
 
-        const enabledMap = new Map(
-          existingTools.map((t) => [t.name, t.enabled]),
-        );
+        const enabledMap = new Map(existingTools.map((t) => [t.id, t.enabled]));
 
         await tx
           .update(services)
-          .set({ ...generatedDefinition, hash, source: "", enabled: false })
+          .set({
+            ...generatedDefinition,
+            hash,
+            source: "",
+            enabled: false,
+            definitionContent,
+            stale: false,
+          })
           .where(eq(services.id, id));
 
         await tx.delete(tools).where(eq(tools.serviceId, id));
@@ -549,7 +651,7 @@ export class ServicesService {
             generatedDefinition.tools.map((tool) => ({
               ...tool,
               serviceId: id,
-              enabled: enabledMap.get(tool.name) ?? false,
+              enabled: enabledMap.get(tool.id) ?? false,
             })),
           );
         }
@@ -593,6 +695,49 @@ export class ServicesService {
 
   async setServiceEnabled(input: SetServiceEnabledInput): Promise<void> {
     if (input.enabled) {
+      const [row] = await db
+        .select({ stale: services.stale })
+        .from(services)
+        .where(eq(services.id, input.id))
+        .limit(1)
+        .catch(() => [] as { stale: boolean }[]);
+
+      if (row?.stale) {
+        throw new HttpError(
+          409,
+          `Service '${input.id}' is stale and must be synced before it can be enabled.`,
+        );
+      }
+
+      const [moduleState] = await db
+        .select({
+          moduleEnabled: modulesTable.enabled,
+          moduleMissing: modulesTable.missing,
+          adapter: services.adapter,
+        })
+        .from(services)
+        .innerJoin(modulesTable, eq(services.adapter, modulesTable.id))
+        .where(eq(services.id, input.id))
+        .limit(1);
+
+      if (!moduleState) {
+        throw new HttpError(404, `Service '${input.id}' not found.`);
+      }
+
+      if (!moduleState.moduleEnabled) {
+        throw new HttpError(
+          409,
+          `Service '${input.id}' belongs to the disabled module '${moduleState.adapter}' and cannot be enabled.`,
+        );
+      }
+
+      if (moduleState.moduleMissing) {
+        throw new HttpError(
+          409,
+          `Service '${input.id}' belongs to the missing module '${moduleState.adapter}' and cannot be enabled.`,
+        );
+      }
+
       const [config, schema] = await Promise.all([
         this.getServiceConfig(input.id),
         this.getServiceConfigSchema(input.id),
@@ -865,7 +1010,13 @@ export class ServicesService {
     const rows = await db
       .select({ id: services.id })
       .from(services)
-      .where(and(eq(services.adapter, adapterId), eq(services.enabled, true)))
+      .where(
+        and(
+          eq(services.adapter, adapterId),
+          eq(services.enabled, true),
+          eq(services.stale, false),
+        ),
+      )
       .catch((err) => {
         logger.warn(
           { err, adapterId },
@@ -891,13 +1042,19 @@ export class ServicesService {
 
   private async hydrateIfEnabled(id: string): Promise<void> {
     const [row] = await db
-      .select({ enabled: services.enabled, adapter: services.adapter })
+      .select({
+        enabled: services.enabled,
+        stale: services.stale,
+        adapter: services.adapter,
+      })
       .from(services)
       .where(eq(services.id, id))
       .limit(1)
-      .catch(() => [] as { enabled: boolean; adapter: string }[]);
+      .catch(
+        () => [] as { enabled: boolean; stale: boolean; adapter: string }[],
+      );
 
-    if (!row?.enabled) return;
+    if (!row?.enabled || row.stale) return;
 
     const state = await this.buildServiceState(id);
     await this.controller.hydrateService(row.adapter, state);
@@ -917,7 +1074,7 @@ export class ServicesService {
 
     const [toolRows, config, secrets] = await Promise.all([
       db
-        .select({ name: tools.name, adapterDomain: tools.adapterDomain })
+        .select({ id: tools.id, adapterDomain: tools.adapterDomain })
         .from(tools)
         .where(eq(tools.serviceId, id))
         .catch(() => {
@@ -931,7 +1088,7 @@ export class ServicesService {
       id,
       adapterDomain: serviceRow.adapterDomain,
       tools: Object.fromEntries(
-        toolRows.map((t) => [t.name, { adapterDomain: t.adapterDomain }]),
+        toolRows.map((t) => [t.id, { adapterDomain: t.adapterDomain }]),
       ),
       config,
       secrets,

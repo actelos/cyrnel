@@ -46,16 +46,15 @@ const booleanSchema = (fieldName: string) =>
   });
 
 const enabledSchema = z
-  .union([z.boolean(), z.null(), z.string()])
-  .transform((value, ctx): boolean | null => {
-    if (typeof value === "boolean" || value === null) return value;
+  .union([z.boolean(), z.string()])
+  .transform((value, ctx): boolean => {
+    if (typeof value === "boolean") return value;
     const normalized = value.trim().toLowerCase();
     if (normalized === "true") return true;
     if (normalized === "false") return false;
-    if (normalized === "null") return null;
     ctx.addIssue({
       code: "custom",
-      message: "Field 'enabled' must be true, false, or null.",
+      message: "Field 'enabled' must be true or false.",
     });
     return z.NEVER;
   });
@@ -196,6 +195,7 @@ export async function listModules(req: Request, res: Response): Promise<void> {
     ),
     isBuiltin: parseOptional(booleanSchema("isBuiltin"), req.query?.isBuiltin),
     enabled: parseOptional(enabledSchema, req.query?.enabled),
+    missing: parseOptional(booleanSchema("missing"), req.query?.missing),
   };
 
   const modules: ListModuleManifestResult[] =

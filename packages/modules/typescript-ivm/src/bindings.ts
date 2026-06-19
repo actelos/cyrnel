@@ -32,6 +32,7 @@
     query?: string;
     limit?: number;
     enabled?: boolean;
+    stale?: boolean;
   };
 
   type ListToolInput = {
@@ -46,6 +47,7 @@
     name: string;
     description: string;
     enabled: boolean;
+    stale: boolean;
   };
 
   type ListToolResult = {
@@ -60,6 +62,8 @@
     name: string;
     description: string;
     enabled: boolean;
+    effectivelyEnabled: boolean;
+    stale: boolean;
     configSchema: Record<string, unknown>;
     secretsSchema: Record<string, unknown>;
   };
@@ -73,6 +77,7 @@
     name: string;
     description: string;
     enabled: boolean;
+    effectivelyEnabled: boolean;
     inputSchema: Record<string, unknown>;
     outputSchema: Record<string, unknown>;
   };

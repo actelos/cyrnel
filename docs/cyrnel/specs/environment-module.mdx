@@ -19,7 +19,7 @@ interface EnvironmentModule extends Module {
 ```
 
 Environment modules execute submitted process code in a runtime they
-own. See [Environment Modules](/content/modules/environments) for the
+own. See [Environment Modules](/cyrnel/docs/environments-modules) for the
 user-facing description.
 
 ## Setup
@@ -27,7 +27,7 @@ user-facing description.
 `setup({ config, secrets, bindings })` is called when the environment is
 activated. `config` and `secrets` carry the module-level settings from
 the `modules` database row. `bindings` is the host's
-[callback surface](/specs/environment-bindings), store it and use it to
+[callback surface](/cyrnel/specs/environment-bindings), store it and use it to
 report execution state, capture I/O, and forward tool discovery /
 invocation requests.
 
@@ -180,8 +180,8 @@ export function instantiate(): EnvironmentModule {
 }
 ```
 
-See [Writing a custom environment module](/specs/writing-custom-environment-module)
+See [Writing a custom environment module](/cyrnel/specs/writing-custom-environment-module)
 for a step-by-step walkthrough and a full working example.
 
-See [`EnvironmentBindings`](/specs/environment-bindings) for the callbacks and
-[Execution](/specs/environment-execution) for the state machine details.
+See [`EnvironmentBindings`](/cyrnel/specs/environment-bindings) for the callbacks and
+[Execution](/cyrnel/specs/environment-execution) for the state machine details.

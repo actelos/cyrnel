@@ -69,6 +69,7 @@ export interface ListServiceInput {
   query?: string;
   limit?: number;
   enabled?: boolean;
+  stale?: boolean;
 }
 
 /**
@@ -81,6 +82,8 @@ export interface ListServiceResult
   > {
   id: string;
   enabled: boolean;
+  effectivelyEnabled: boolean;
+  stale: boolean;
 }
 
 /**
@@ -112,6 +115,8 @@ export interface ListToolResult
 export interface GetServiceResult
   extends Omit<ServiceDefinition, "tools" | "adapterDomain"> {
   enabled: boolean;
+  effectivelyEnabled: boolean;
+  stale: boolean;
 }
 
 /**
@@ -128,6 +133,7 @@ export interface GetToolInput {
 export interface GetToolResult
   extends Omit<ToolDefinition, "id" | "adapterDomain"> {
   enabled: boolean;
+  effectivelyEnabled: boolean;
 }
 
 /**

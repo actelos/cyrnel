@@ -1,4 +1,4 @@
-import { ArrowLeft, Loader2, Trash2 } from "lucide-react";
+import { ArrowLeft, ChevronDown, Circle, Loader2, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { useNavigate, useParams } from "react-router-dom";
@@ -19,6 +19,19 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useNotification } from "@/hooks/use-notification";
 import { apiFetch, apiFetchJson, buildUrl, errorMessageFrom } from "@/lib/api";
@@ -34,7 +47,7 @@ const moduleDetailSchema = z.object({
   source: z.string(),
   isBuiltin: z.boolean(),
   enabled: z.boolean(),
-  orphaned: z.boolean(),
+  missing: z.boolean(),
   configSchema: z.record(z.string(), z.unknown()),
   secretsSchema: z.record(z.string(), z.unknown()),
 });
@@ -61,6 +74,12 @@ export default function ModuleDetailPage() {
   const [isUpdating, setIsUpdating] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [isUpdateDialogOpen, setIsUpdateDialogOpen] = useState(false);
+  const [hasUpdate, setHasUpdate] = useState(false);
+  const [isManualUpdateOpen, setIsManualUpdateOpen] = useState(false);
+  const [manualUpdateUrl, setManualUpdateUrl] = useState("");
+  const [isManualUpdating, setIsManualUpdating] = useState(false);
   const [configDraft, setConfigDraft] = useState<string>("{\n  \n}");
   const [configDraftError, setConfigDraftError] = useState<string | null>(null);
   const [isSavingConfig, setIsSavingConfig] = useState(false);
@@ -87,6 +106,28 @@ export default function ModuleDetailPage() {
     (url) => apiFetchJson(url, moduleDetailSchema),
     { refreshInterval: 8000 },
   );
+
+  const { data: updateCheck } = useSWR(
+    moduleDetail?.source ? `module-update-${moduleId}` : null,
+    async () => {
+      if (!moduleDetail?.source) return { hasUpdate: false };
+      try {
+        const res = await fetch(moduleDetail.source);
+        const data = (await res.json()) as { hash?: string };
+        if (!data.hash) return { hasUpdate: false };
+        return { hasUpdate: data.hash !== moduleDetail.hash };
+      } catch {
+        return { hasUpdate: false };
+      }
+    },
+    { refreshInterval: 120_000 },
+  );
+
+  useEffect(() => {
+    if (updateCheck) {
+      setHasUpdate(updateCheck.hasUpdate);
+    }
+  }, [updateCheck]);
 
   const { data: moduleConfig } = useSWR(
     configUrl,
@@ -307,8 +348,43 @@ export default function ModuleDetailPage() {
     }
   };
 
-  const handleUpdate = async (id: string) => {
+  const handleCheckForUpdate = async () => {
+    if (!moduleDetail?.source) {
+      setIsManualUpdateOpen(true);
+      return;
+    }
+
+    setIsCheckingUpdate(true);
+    try {
+      const res = await fetch(moduleDetail.source);
+      const data = (await res.json()) as { hash?: string };
+
+      if (data.hash && data.hash === moduleDetail.hash) {
+        addNotification({
+          type: "success",
+          title: "Up to date",
+          message: "Module is up to date.",
+        });
+        setHasUpdate(false);
+        return;
+      }
+
+      setHasUpdate(true);
+      setIsUpdateDialogOpen(true);
+    } catch (error) {
+      addNotification({
+        type: "error",
+        title: "Error",
+        message: errorMessageFrom(error, "Unable to check for updates."),
+      });
+    } finally {
+      setIsCheckingUpdate(false);
+    }
+  };
+
+  const handleConfirmUpdate = async (id: string) => {
     setIsUpdating(true);
+    setIsUpdateDialogOpen(false);
     try {
       await apiFetch(buildUrl(`/modules/${id}/update`), {
         method: "POST",
@@ -332,6 +408,45 @@ export default function ModuleDetailPage() {
       });
     } finally {
       setIsUpdating(false);
+    }
+  };
+
+  const handleManualUpdate = async (id: string) => {
+    const trimmed = manualUpdateUrl.trim();
+    if (!trimmed) {
+      addNotification({
+        type: "error",
+        title: "Error",
+        message: "URL is required.",
+      });
+      return;
+    }
+    setIsManualUpdating(true);
+    try {
+      await apiFetch(buildUrl(`/modules/${id}`), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: trimmed }),
+      });
+      setManualUpdateUrl("");
+      setIsManualUpdateOpen(false);
+      if (moduleDetailUrl) {
+        await mutate(moduleDetailUrl);
+      }
+      await mutate(buildUrl("/modules"));
+      addNotification({
+        type: "success",
+        title: "Success",
+        message: "Module updated.",
+      });
+    } catch (error) {
+      addNotification({
+        type: "error",
+        title: "Error",
+        message: errorMessageFrom(error, "Unable to update module."),
+      });
+    } finally {
+      setIsManualUpdating(false);
     }
   };
 
@@ -409,8 +524,8 @@ export default function ModuleDetailPage() {
                 {moduleDetail.isBuiltin ? (
                   <Badge variant="outline">built-in</Badge>
                 ) : null}
-                {moduleDetail.orphaned ? (
-                  <Badge variant="destructive">orphaned</Badge>
+                {moduleDetail.missing ? (
+                  <Badge variant="destructive">missing</Badge>
                 ) : null}
               </div>
               <p className="text-muted-foreground text-xs font-mono">
@@ -421,8 +536,7 @@ export default function ModuleDetailPage() {
                   type="button"
                   variant={moduleDetail.enabled ? "outline" : "default"}
                   disabled={
-                    togglingModuleId === moduleDetail.id ||
-                    (!moduleDetail.enabled && moduleDetail.orphaned)
+                    togglingModuleId === moduleDetail.id || moduleDetail.missing
                   }
                   onClick={() =>
                     void handleSetEnabled(
@@ -435,21 +549,111 @@ export default function ModuleDetailPage() {
                 </Button>
                 {!moduleDetail.isBuiltin ? (
                   <>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={isUpdating}
-                      onClick={() => void handleUpdate(moduleDetail.id)}
-                      aria-label={
-                        isUpdating ? "Updating module" : "Update module"
-                      }
-                    >
-                      {isUpdating ? (
-                        <Loader2 className="animate-spin" />
-                      ) : (
-                        "Update"
-                      )}
-                    </Button>
+                    {moduleDetail.source ? (
+                      <div className="flex items-center">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          disabled={isUpdating || isCheckingUpdate}
+                          onClick={() => void handleCheckForUpdate()}
+                          className="rounded-r-none"
+                          aria-label={
+                            isUpdating ? "Updating module" : "Check for update"
+                          }
+                        >
+                          {hasUpdate ? (
+                            <Circle className="fill-amber-500 text-amber-500" />
+                          ) : null}
+                          {isCheckingUpdate ? (
+                            <Loader2 className="animate-spin" />
+                          ) : isUpdating ? (
+                            <Loader2 className="animate-spin" />
+                          ) : (
+                            "Check for update"
+                          )}
+                        </Button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="rounded-l-none border-l-0 px-2"
+                              disabled={isUpdating || isCheckingUpdate}
+                            >
+                              <ChevronDown />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem
+                              onClick={() => void handleCheckForUpdate()}
+                            >
+                              Check for update
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => setIsManualUpdateOpen(true)}
+                            >
+                              Manual update
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    ) : (
+                      <Popover
+                        open={isManualUpdateOpen}
+                        onOpenChange={setIsManualUpdateOpen}
+                      >
+                        <PopoverTrigger asChild>
+                          <Button type="button" variant="outline">
+                            Manual update
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent align="end" className="w-md">
+                          <div className="space-y-4">
+                            <div className="space-y-1">
+                              <h3 className="text-sm font-medium">
+                                Manual update
+                              </h3>
+                              <p className="text-muted-foreground text-xs">
+                                Provide a new archive URL.
+                              </p>
+                            </div>
+                            <div className="space-y-2">
+                              <Label htmlFor="module-update-url">
+                                Archive URL
+                              </Label>
+                              <Input
+                                id="module-update-url"
+                                onChange={(event) =>
+                                  setManualUpdateUrl(event.target.value)
+                                }
+                                placeholder="https://example.com/module.tar.zst"
+                                value={manualUpdateUrl}
+                              />
+                            </div>
+                            <div className="flex items-center justify-end gap-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => setIsManualUpdateOpen(false)}
+                              >
+                                Cancel
+                              </Button>
+                              <Button
+                                type="button"
+                                disabled={
+                                  isManualUpdating || !manualUpdateUrl.trim()
+                                }
+                                onClick={() =>
+                                  void handleManualUpdate(moduleDetail.id)
+                                }
+                              >
+                                {isManualUpdating ? "Updating" : "Update"}
+                              </Button>
+                            </div>
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+                    )}
                     <Button
                       type="button"
                       variant="destructive"
@@ -585,6 +789,31 @@ export default function ModuleDetailPage() {
           </Card>
         </div>
       </div>
+      <AlertDialog
+        open={isUpdateDialogOpen}
+        onOpenChange={(open) => {
+          setIsUpdateDialogOpen(open);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Update available</AlertDialogTitle>
+            <AlertDialogDescription>
+              A new version of this module is available. Update now?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                void handleConfirmUpdate(moduleDetail.id);
+              }}
+            >
+              Update
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <AlertDialog
         open={isDeleteDialogOpen}
         onOpenChange={(open) => {

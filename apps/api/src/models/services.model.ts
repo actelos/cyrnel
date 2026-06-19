@@ -12,7 +12,7 @@ export interface ServiceDefinitionRecord extends ServiceDefinition {
   source: string;
   adapter: string;
   enabled: boolean;
-  orphaned: boolean;
+  stale: boolean;
   tools: ToolDefinitionRecord[];
 }
 
@@ -21,18 +21,19 @@ export interface ListServicesInput {
   limit?: number;
   enabled?: boolean;
   adapter?: string;
+  stale?: boolean;
 }
 
 export type ListServiceDefinitionResult = Omit<
   ServiceDefinitionRecord,
   | "hash"
-  | "orphaned"
   | "source"
   | "tools"
   | "configSchema"
   | "secretsSchema"
   | "adapterDomain"
->;
+  | "definitionContent"
+> & { effectivelyEnabled: boolean };
 
 export interface ListToolsInput {
   serviceId?: string;
@@ -51,8 +52,8 @@ export interface ListToolsResult
 
 export type GetServiceDefinitionResult = Omit<
   ServiceDefinitionRecord,
-  "tools" | "adapterDomain"
->;
+  "tools" | "adapterDomain" | "definitionContent"
+> & { effectivelyEnabled: boolean };
 
 export interface GetToolInput {
   serviceId: string;

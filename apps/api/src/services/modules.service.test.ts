@@ -181,7 +181,6 @@ vi.mock("@cyrnel/typescript-ivm", () => ({
   },
 }));
 
-// These imports must come after vi.mock above.
 const { db } = await import("@/db/client");
 const { ModuleService } = await import("@/services/modules.service");
 const { HttpError } = await import("@/models/error.model");
@@ -295,9 +294,6 @@ describe("ModuleService", () => {
     decompressMock.mockReset();
   });
 
-  // ----------------------------------------------------------------------
-  // initialize()
-  // ----------------------------------------------------------------------
   describe("initialize()", () => {
     it("inserts manifest rows for built-in modules on a clean DB", async () => {
       const service = new ModuleService(makeBindings(), makeLifecycle());
@@ -313,7 +309,7 @@ describe("ModuleService", () => {
       ]);
       for (const row of rows) {
         expect(row.enabled).toBe(true);
-        expect(row.orphaned).toBe(false);
+        expect(row.missing).toBe(false);
       }
 
       const byId = new Map(rows.map((row) => [row.id, row]));
@@ -339,9 +335,8 @@ describe("ModuleService", () => {
     });
 
     it("does NOT activate modules whose DB row says enabled=false", async () => {
-      // Pre-insert a row with enabled=false so initialize respects it.
       await db.run(
-        sql`INSERT INTO modules (id, name, type, description, enabled, orphaned)
+        sql`INSERT INTO modules (id, name, type, description, enabled, missing)
             VALUES ('openapi', 'openapi', 'adapter', '', 0, 0),
                    ('typescript-ivm', 'typescript-ivm', 'environment', '', 0, 0)`,
       );
@@ -525,9 +520,6 @@ describe("ModuleService", () => {
     });
   });
 
-  // ----------------------------------------------------------------------
-  // shutdown()
-  // ----------------------------------------------------------------------
   describe("shutdown()", () => {
     it("tears down adapters and drains the active environment", async () => {
       const service = new ModuleService(makeBindings(), makeLifecycle());
@@ -576,15 +568,11 @@ describe("ModuleService", () => {
     });
   });
 
-  // ----------------------------------------------------------------------
-  // execute() / kill()
-  // ----------------------------------------------------------------------
   describe("execute()", () => {
     it("throws 503 when no environment is active", async () => {
       const service = new ModuleService(makeBindings(), makeLifecycle());
-      // Initialize with the environment disabled.
       await db.run(
-        sql`INSERT INTO modules (id, name, type, description, enabled, orphaned)
+        sql`INSERT INTO modules (id, name, type, description, enabled, missing)
             VALUES ('typescript-ivm', 'typescript-ivm', 'environment', '', 0, 0)`,
       );
       await service.initialize(MISSING_PATH);
@@ -615,7 +603,6 @@ describe("ModuleService", () => {
       await service.initialize(MISSING_PATH);
 
       await service.execute({ eid: 7, code: "x" });
-      // kill() of a finished execution is a no-op (not in executionMap).
       await expect(service.kill(7)).resolves.toBeUndefined();
     });
   });
@@ -649,9 +636,6 @@ describe("ModuleService", () => {
     });
   });
 
-  // ----------------------------------------------------------------------
-  // generate* / hydrate* / invoke
-  // ----------------------------------------------------------------------
   describe("generateEnvironmentDocs / generateToolDocs", () => {
     it("delegates to the active environment", async () => {
       const service = new ModuleService(makeBindings(), makeLifecycle());
@@ -672,7 +656,7 @@ describe("ModuleService", () => {
     it("throws 503 when no environment is active", async () => {
       const service = new ModuleService(makeBindings(), makeLifecycle());
       await db.run(
-        sql`INSERT INTO modules (id, name, type, description, enabled, orphaned)
+        sql`INSERT INTO modules (id, name, type, description, enabled, missing)
             VALUES ('typescript-ivm', 'typescript-ivm', 'environment', '', 0, 0)`,
       );
       await service.initialize(MISSING_PATH);
@@ -709,13 +693,11 @@ describe("ModuleService", () => {
     it("throws 503 when the adapter is not active", async () => {
       const service = new ModuleService(makeBindings(), makeLifecycle());
       await db.run(
-        sql`INSERT INTO modules (id, name, type, description, enabled, orphaned)
+        sql`INSERT INTO modules (id, name, type, description, enabled, missing)
             VALUES ('openapi', 'openapi', 'adapter', '', 0, 0)`,
       );
       await service.initialize(MISSING_PATH);
 
-      // generateDefinition() is NOT declared async — `requireAdapter` throws
-      // synchronously before a promise can be returned, so we wrap to capture.
       try {
         service.generateDefinition({
           adapter: "openapi",
@@ -764,9 +746,6 @@ describe("ModuleService", () => {
     });
   });
 
-  // ----------------------------------------------------------------------
-  // invoke()
-  // ----------------------------------------------------------------------
   describe("invoke()", () => {
     it("throws 404 when the service is unknown", async () => {
       const service = new ModuleService(makeBindings(), makeLifecycle());
@@ -869,9 +848,6 @@ describe("ModuleService", () => {
     });
   });
 
-  // ----------------------------------------------------------------------
-  // list() / get()
-  // ----------------------------------------------------------------------
   describe("list() / get()", () => {
     it("returns the registered manifests after initialize", async () => {
       const service = new ModuleService(makeBindings(), makeLifecycle());
@@ -936,9 +912,6 @@ describe("ModuleService", () => {
     });
   });
 
-  // ----------------------------------------------------------------------
-  // setEnabled()
-  // ----------------------------------------------------------------------
   describe("setEnabled()", () => {
     it("throws 404 when the module is unknown", async () => {
       const service = new ModuleService(makeBindings(), makeLifecycle());
@@ -949,14 +922,11 @@ describe("ModuleService", () => {
       ).rejects.toMatchObject({ statusCode: 404 });
     });
 
-    it("throws 409 when trying to enable an orphaned module", async () => {
+    it("throws 409 when trying to enable a missing module", async () => {
       const service = new ModuleService(makeBindings(), makeLifecycle());
       await service.initialize(MISSING_PATH);
 
-      // Manually orphan one of the built-ins for the test.
-      await db.run(
-        sql`UPDATE modules SET orphaned = 1, enabled = 0 WHERE id = 'openapi'`,
-      );
+      await db.run(sql`UPDATE modules SET missing = 1 WHERE id = 'openapi'`);
 
       await expect(
         service.setEnabled({ id: "openapi", enabled: true }),
@@ -975,7 +945,7 @@ describe("ModuleService", () => {
     it("activates an adapter on enable and deactivates on disable", async () => {
       const service = new ModuleService(makeBindings(), makeLifecycle());
       await db.run(
-        sql`INSERT INTO modules (id, name, type, description, enabled, orphaned)
+        sql`INSERT INTO modules (id, name, type, description, enabled, missing)
             VALUES ('openapi', 'openapi', 'adapter', '', 0, 0),
                    ('typescript-ivm', 'typescript-ivm', 'environment', '', 0, 0)`,
       );
@@ -993,7 +963,7 @@ describe("ModuleService", () => {
     it("activates an environment on enable and disables it cleanly", async () => {
       const service = new ModuleService(makeBindings(), makeLifecycle());
       await db.run(
-        sql`INSERT INTO modules (id, name, type, description, enabled, orphaned)
+        sql`INSERT INTO modules (id, name, type, description, enabled, missing)
             VALUES ('typescript-ivm', 'typescript-ivm', 'environment', '', 0, 0)`,
       );
       await service.initialize(MISSING_PATH);
@@ -1003,34 +973,28 @@ describe("ModuleService", () => {
       expect(envInstances).toHaveLength(1);
 
       await service.setEnabled({ id: "typescript-ivm", enabled: false });
-      // The environment drains; with no executions, teardown should be called.
-      // Wait microtasks for the drain → dispose chain.
       await new Promise((resolve) => setImmediate(resolve));
       expect(envInstances[0]?.teardownCalls.length).toBeGreaterThan(0);
     });
   });
 
-  // ----------------------------------------------------------------------
-  // reconcile / reload
-  // ----------------------------------------------------------------------
   describe("reconcile + reload", () => {
-    it("marks rows for unregistered modules as orphaned + disabled", async () => {
+    it("marks rows for unregistered modules as missing (preserving enabled state)", async () => {
       const service = new ModuleService(makeBindings(), makeLifecycle());
-      // Seed a row for a module that won't be registered.
       await db.run(
-        sql`INSERT INTO modules (id, name, type, description, enabled, orphaned)
+        sql`INSERT INTO modules (id, name, type, description, enabled, missing)
             VALUES ('legacy', 'legacy', 'adapter', '', 1, 0)`,
       );
       await service.initialize(MISSING_PATH);
 
       const row = unwrap(await service.get("legacy"), "module 'legacy'");
-      expect(row.orphaned).toBe(true);
-      expect(row.enabled).toBe(false);
+      expect(row.missing).toBe(true);
+      expect(row.enabled).toBe(true);
     });
 
     it("syncs human-readable names from manifests on reconcile", async () => {
       await db.run(
-        sql`INSERT INTO modules (id, name, type, description, enabled, orphaned)
+        sql`INSERT INTO modules (id, name, type, description, enabled, missing)
             VALUES ('openapi', 'openapi', 'adapter', 'old description', 1, 0),
                    ('typescript-ivm', 'typescript-ivm', 'environment', '', 1, 0)`,
       );
@@ -1049,17 +1013,16 @@ describe("ModuleService", () => {
       });
     });
 
-    it("clears the orphaned flag when a previously orphaned module reappears", async () => {
-      // Run 1: orphan a module.
+    it("clears the missing flag when a previously missing module reappears", async () => {
       const first = new ModuleService(makeBindings(), makeLifecycle());
       await db.run(
-        sql`INSERT INTO modules (id, name, type, description, enabled, orphaned)
+        sql`INSERT INTO modules (id, name, type, description, enabled, missing)
             VALUES ('openapi', 'openapi', 'adapter', '', 0, 1)`,
       );
       await first.initialize(MISSING_PATH);
 
       const row = unwrap(await first.get("openapi"), "module 'openapi'");
-      expect(row.orphaned).toBe(false);
+      expect(row.missing).toBe(false);
     });
 
     it("reload() re-runs reconcile and respects new manifests", async () => {
@@ -1067,14 +1030,12 @@ describe("ModuleService", () => {
       try {
         const service = new ModuleService(makeBindings(), makeLifecycle());
         await service.initialize(dir);
-        // No custom modules → only the builtins.
         let rows = await service.list();
         expect(rows.map((r) => r.id).sort()).toEqual([
           "openapi",
           "typescript-ivm",
         ]);
 
-        // Add a custom module on disk, then reload.
         const modDir = path.join(dir, "fresh");
         await fs.mkdir(modDir);
         await fs.writeFile(
@@ -1117,7 +1078,7 @@ describe("ModuleService", () => {
       await expect(service.reload()).rejects.toMatchObject({ statusCode: 503 });
     });
 
-    it("reload() does not deactivate in-memory state for now-orphaned modules", async () => {
+    it("reload() does not deactivate in-memory state for now-missing modules", async () => {
       const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-mod-"));
       try {
         const modDir = path.join(dir, "transient");
@@ -1148,7 +1109,6 @@ describe("ModuleService", () => {
 
         const service = new ModuleService(makeBindings(), makeLifecycle());
         await service.initialize(dir);
-        // Custom adapter is active.
         await db.run(
           sql`INSERT INTO services (id, name, description, hash, source, adapter, enabled, config_schema, secrets_schema, adapter_domain)
               VALUES ('alpha', 'alpha', '', 'h', '', 'transientMod', 1, '{}', '{}', '{}')`,
@@ -1158,7 +1118,6 @@ describe("ModuleService", () => {
               VALUES ('alpha', 't', 't', '', 1, '{}', '{}', '{}')`,
         );
 
-        // Now remove the custom module directory and reload.
         await fs.rm(modDir, { recursive: true, force: true });
         await service.reload();
 
@@ -1166,11 +1125,9 @@ describe("ModuleService", () => {
           await service.get("transientMod"),
           "module 'transientMod'",
         );
-        expect(row.orphaned).toBe(true);
-        expect(row.enabled).toBe(false);
+        expect(row.missing).toBe(true);
+        expect(row.enabled).toBe(true);
 
-        // The bug: the stale in-memory adapter still serves invokes. The fix
-        // should make this throw 503 (adapter no longer active).
         await expect(
           service.invoke({
             serviceId: "alpha",
@@ -1184,9 +1141,6 @@ describe("ModuleService", () => {
     });
   });
 
-  // ----------------------------------------------------------------------
-  // Environment swap / draining
-  // ----------------------------------------------------------------------
   describe("environment draining", () => {
     it("waits for in-flight executions before tearing down a deactivated environment", async () => {
       const service = new ModuleService(makeBindings(), makeLifecycle());
@@ -1202,20 +1156,15 @@ describe("ModuleService", () => {
       const exec = service.execute({ eid: 100, code: "x" });
       await service.setEnabled({ id: "typescript-ivm", enabled: false });
 
-      // Teardown shouldn't have fired yet — execution is still pending.
       expect(env.teardownCalls.length).toBe(0);
 
       release();
       await exec;
-      // Give the dispose chain a tick to settle.
       await new Promise((resolve) => setImmediate(resolve));
       expect(env.teardownCalls.length).toBeGreaterThan(0);
     });
   });
 
-  // ----------------------------------------------------------------------
-  // config / secrets
-  // ----------------------------------------------------------------------
   describe("config & secrets", () => {
     it("passes config and secrets to setup by default", async () => {
       const service = new ModuleService(makeBindings(), makeLifecycle());
@@ -1387,7 +1336,6 @@ describe("ModuleService", () => {
 
       expect(firstAdapter.teardownCalls.length).toBeGreaterThan(0);
       expect(firstAdapter.hydrateCalls).toHaveLength(1);
-      // A second instance should have been created with the new config.
       expect(adapterInstances).toHaveLength(2);
       const secondAdapter = unwrap(
         adapterInstances[1],
@@ -1433,7 +1381,7 @@ describe("ModuleService", () => {
     it("patchConfig does NOT reload when adapter is disabled", async () => {
       const service = new ModuleService(makeBindings(), makeLifecycle());
       await db.run(
-        sql`INSERT INTO modules (id, name, type, description, enabled, orphaned)
+        sql`INSERT INTO modules (id, name, type, description, enabled, missing)
             VALUES ('openapi', 'openapi', 'adapter', '', 0, 0),
                    ('typescript-ivm', 'typescript-ivm', 'environment', '', 0, 0)`,
       );
@@ -1464,7 +1412,6 @@ describe("ModuleService", () => {
         patch: [{ op: "add", path: "/poolSize", value: 4 }],
       });
 
-      // New environment instance created with updated config.
       expect(envInstances).toHaveLength(2);
       const secondEnv = unwrap(envInstances[1], "environment (post-reload)");
       expect(secondEnv.setupCalls[0]).toMatchObject({
@@ -1472,7 +1419,6 @@ describe("ModuleService", () => {
         secrets: {},
       });
 
-      // Old env drains then tears down.
       await new Promise((resolve) => setImmediate(resolve));
       expect(firstEnv.teardownCalls.length).toBeGreaterThan(0);
     });
@@ -1486,14 +1432,12 @@ describe("ModuleService", () => {
         patch: [{ op: "add", path: "/apiKey", value: "sekret" }],
       });
 
-      // The stored payload should be the encrypted blob, not the plaintext.
       const stored = await db.run(
         sql`SELECT payload FROM module_secrets WHERE module_id = 'openapi'`,
       );
       const payload = String(stored.rows?.[0]?.[0] ?? "");
       expect(payload).not.toContain("sekret");
 
-      // Reload should have provided the new secrets to the new adapter.
       const reloaded = unwrap(
         adapterInstances[1],
         "adapter (post-secrets-reload)",
@@ -1518,12 +1462,11 @@ describe("ModuleService", () => {
     it("setEnabled refuses to enable when config is invalid", async () => {
       const service = new ModuleService(makeBindings(), makeLifecycle());
       await db.run(
-        sql`INSERT INTO modules (id, name, type, description, enabled, orphaned)
+        sql`INSERT INTO modules (id, name, type, description, enabled, missing)
             VALUES ('openapi', 'openapi', 'adapter', '', 0, 0)`,
       );
       await service.initialize(MISSING_PATH);
 
-      // Seed a bad config (an unknown property) directly in the DB so that
       // the validation in setEnabled rejects it.
       await db.run(
         sql`INSERT INTO module_configurations (module_id, payload, updated_at)
@@ -1533,7 +1476,6 @@ describe("ModuleService", () => {
       await expect(
         service.setEnabled({ id: "openapi", enabled: true }),
       ).rejects.toBeInstanceOf(HttpError);
-      // Activation should not have happened.
       expect(adapterInstances).toHaveLength(0);
     });
 
@@ -1546,7 +1488,6 @@ describe("ModuleService", () => {
         patch: [{ op: "add", path: "/baseUrl", value: "https://kept" }],
       });
 
-      // Disable and re-enable should pass the persisted config through.
       await service.setEnabled({ id: "openapi", enabled: false });
       adapterInstances.length = 0;
       await service.setEnabled({ id: "openapi", enabled: true });
@@ -1558,9 +1499,6 @@ describe("ModuleService", () => {
     });
   });
 
-  // ----------------------------------------------------------------------
-  // installModule()
-  // ----------------------------------------------------------------------
   describe("installModule()", () => {
     it("installs a module from a valid archive and returns its manifest", async () => {
       const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-install-"));
@@ -1600,7 +1538,7 @@ describe("ModuleService", () => {
         expect(manifest.name).toBe("Installed Module");
         expect(manifest.type).toBe("adapter");
         expect(manifest.enabled).toBe(false);
-        expect(manifest.orphaned).toBe(false);
+        expect(manifest.missing).toBe(false);
         expect(manifest.isBuiltin).toBe(false);
 
         const record = unwrap(
@@ -1608,7 +1546,7 @@ describe("ModuleService", () => {
           "module 'installedMod'",
         );
         expect(record.enabled).toBe(false);
-        expect(record.orphaned).toBe(false);
+        expect(record.missing).toBe(false);
         expect(record.isBuiltin).toBe(false);
 
         const modDir = path.join(dir, "installedMod");
@@ -1751,9 +1689,6 @@ describe("ModuleService", () => {
     });
   });
 
-  // ----------------------------------------------------------------------
-  // deleteModule()
-  // ----------------------------------------------------------------------
   describe("deleteModule()", () => {
     it("deletes a module and its filesystem directory", async () => {
       const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-del-"));
@@ -1875,9 +1810,6 @@ describe("ModuleService", () => {
     });
   });
 
-  // ----------------------------------------------------------------------
-  // installModule — hash and source storage
-  // ----------------------------------------------------------------------
   describe("installModule hash/source", () => {
     it("stores hash and source in the database but omits them from the return value", async () => {
       const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-hash-"));
@@ -1914,12 +1846,9 @@ describe("ModuleService", () => {
           "https://example.com/hash-test.tar.zst",
         );
 
-        // Return value should include hash and source
         expect(result.hash).toBeDefined();
-        // Direct install stores empty source
         expect(result.source).toBe("");
 
-        // DB should have them
         const [row] = await db
           .select({
             hash: (await import("@/db/schema")).modules.hash,
@@ -1939,9 +1868,6 @@ describe("ModuleService", () => {
     });
   });
 
-  // ----------------------------------------------------------------------
-  // updateModule()
-  // ----------------------------------------------------------------------
   describe("updateModule()", () => {
     it("throws 404 when the module does not exist", async () => {
       const service = new ModuleService(makeBindings(), makeLifecycle());
@@ -2045,7 +1971,6 @@ describe("ModuleService", () => {
           "https://registry.example.com/stable",
         );
 
-        // Same payload → same hash → should skip
         downloadBinaryMock.mockResolvedValue(downloadPayload);
 
         const result = await service.updateModule("stableMod");
@@ -2102,7 +2027,6 @@ describe("ModuleService", () => {
           "https://registry.example.com/changed",
         );
 
-        // New tar with updated name
         const newTarData = await createTestTar(dir, {
           "module.json": JSON.stringify({
             id: "changedMod",
@@ -2130,14 +2054,12 @@ describe("ModuleService", () => {
         const result = await service.updateModule("changedMod");
         expect(result).toEqual({ updated: true });
 
-        // Description should be updated
         const record = unwrap(
           await service.get("changedMod"),
           "module 'changedMod'",
         );
         expect(record.description).toBe("updated");
 
-        // DB should also reflect the update
         const [row] = await db
           .select({
             description: (await import("@/db/schema")).modules.description,
@@ -2204,7 +2126,6 @@ describe("ModuleService", () => {
           "https://registry.example.com/mismatch",
         );
 
-        // Create a new tar with a DIFFERENT id
         const mismatchedTarData = await createTestTar(dir, {
           "module.json": JSON.stringify({
             id: "mismatchedId",
@@ -2224,14 +2145,12 @@ describe("ModuleService", () => {
           HttpError,
         );
 
-        // Original module state should be unchanged
         const record = unwrap(
           await service.get("mismatchMod"),
           "module 'mismatchMod'",
         );
         expect(record.description).toBe("original");
 
-        // DB row should be unchanged
         const [row] = await db
           .select({
             description: (await import("@/db/schema")).modules.description,
@@ -2243,7 +2162,6 @@ describe("ModuleService", () => {
         expect(row).toBeDefined();
         expect(row?.description).toBe("original");
 
-        // No directory for the mismatched id should exist
         await expect(
           fs.access(path.join(dir, "mismatchedId")),
         ).rejects.toThrow();

@@ -10,10 +10,10 @@ state) and the interfaces that adapter and environment modules implement.
 
 ## Who implements what
 
-- **Adapter authors** implement [`AdapterModule`](/specs/adapter-module).
+- **Adapter authors** implement [`AdapterModule`](/cyrnel/specs/adapter-module).
 - **Environment authors** implement
-  [`EnvironmentModule`](/specs/environment-module).
-- **Cyrnel itself** implements [`EnvironmentBindings`](/specs/environment-bindings),
+  [`EnvironmentModule`](/cyrnel/specs/environment-module).
+- **Cyrnel itself** implements [`EnvironmentBindings`](/cyrnel/specs/environment-bindings),
   which is what an environment module *calls into*.
 
 ## Module Manifests
@@ -38,4 +38,4 @@ export function instantiate(): AdapterModule {
 Built-ins are registered by cyrnel from their workspace exports. Custom
 modules are loaded from `$CYRNEL_DATA_DIR/modules/<name>/` based on a
 `module.json` file. See
-[Writing a custom module](/specs/writing-custom-modules) for more info.
+[Writing a custom module](/cyrnel/specs/writing-custom-modules) for more info.

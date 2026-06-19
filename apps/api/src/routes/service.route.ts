@@ -13,6 +13,7 @@ import {
   patchServiceConfiguration,
   patchServiceSecrets,
   setServiceEnabled,
+  syncService,
   updateService,
 } from "@/controllers/service.controller";
 
@@ -23,6 +24,7 @@ serviceRouter.get("/:serviceId", getService);
 serviceRouter.post("/", createServiceDirect);
 serviceRouter.post("/install", installServiceRegistry);
 serviceRouter.post("/:serviceId/update", updateService);
+serviceRouter.post("/:serviceId/sync", syncService);
 serviceRouter.patch("/:serviceId", patchService);
 serviceRouter.post("/:serviceId/enabled", setServiceEnabled);
 serviceRouter.delete("/:serviceId", deleteService);

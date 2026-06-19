@@ -63,7 +63,7 @@ three reasons:
   secrets, at minimum, that it does not log them, persist them to disk,
   or forward them anywhere outside the target service.
 
-See [Adapter Modules](/content/modules/adapters) for the interface and
+See [Adapter Modules](/cyrnel/docs/adapters-modules) for the interface and
 expectations.
 
 ### Environment modules
@@ -83,7 +83,7 @@ caveat:
   The sandbox limits what code can *do directly*, not what tools it can *ask
   cyrnel to call*.
 
-See [Environment Modules](/content/modules/environments).
+See [Environment Modules](/cyrnel/docs/environments-modules).
 
 ## Secrets
 
@@ -107,9 +107,11 @@ fresh 12-byte IV per write. The auth tag is stored alongside.
 
 ## Service Installation (Definition Fetching)
 
-`POST /services/install` fetches the URL the caller supplies, hashes it,
-and passes it to the adapter's `generateDefinition`. The fetcher has a few
-guards:
+`POST /services` (direct install), `POST /services/install` (registry
+install), `PATCH /services/:serviceId` (direct update), and
+`POST /services/:serviceId/update` (registry update) all fetch a URL
+supplied by or resolved from caller input, hash the content, and pass it
+to the adapter's `generateDefinition`. The fetcher has a few guards:
 
 - Hard timeout of 10 seconds per request.
 - Maximum response body of 2 MiB.
@@ -164,7 +166,7 @@ redirect targets, every hop is validated before the request proceeds.
 | Service metadata, tools, schemas | `services`, `tools` tables | None (plaintext). |
 | Service configuration (JSON-Patch-edited) | `service_configurations.payload` | None (plaintext). |
 | Service secrets | `service_secrets.payload` | AES-256-GCM with `CYRNEL_SECRETS_KEY`. |
-| Module enable/orphan state | `modules` | None (plaintext, but boolean flags only). |
+| Module enable/missing state | `modules` | None (plaintext, but boolean flags only). |
 | Process records, stdout, stderr, output | In-memory only | Lost on restart. |
 
 If the db leaks, the encrypted secrets are protected by the key only.

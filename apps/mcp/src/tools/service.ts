@@ -9,9 +9,11 @@ export const serviceTools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
   {
     name: "list_services",
     description: `
-    List installed services with optional query/enabled filters.
+    List installed services with optional query/enabled/stale filters.
 
-    This tool is read-only and queries the services table directly. It does NOT
+    Results include an \`effectivelyEnabled\` field that reflects whether the
+    service is actually usable considering its own state, its parent module's
+    state, and whether the module is missing from disk. This tool does NOT
     expose tools — use \`list_tools\` for that.
 
     When to use:
@@ -30,11 +32,19 @@ export const serviceTools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
         .optional()
         .describe('Optional search string. Example: "github".'),
       enabled: z.boolean().optional().describe("Optional enabled filter."),
+      stale: z
+        .boolean()
+        .optional()
+        .describe(
+          "Optional stale filter. true = stale only, false = fresh only.",
+        ),
     }),
-    execute: async ({ query, enabled }) =>
+    execute: async ({ query, enabled, stale }) =>
       JSON.stringify(
         await api
-          .get("services", { searchParams: searchParams({ query, enabled }) })
+          .get("services", {
+            searchParams: searchParams({ query, enabled, stale }),
+          })
           .json(),
       ),
   },
@@ -60,20 +70,73 @@ export const serviceTools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
   {
     name: "create_service",
     description: `
-    Install a service manifest from a source URL using the named adapter.
+    Install a service by resolving a registry source URL.
 
-    The API downloads the manifest from \`source\`, hands it to the named
-    \`adapter\` module, and persists the result. The installed service starts
-    disabled — call \`set_service_enabled\` once its configuration/secrets are
-    set.
+    Fetches the registry metadata API at \`source\`, resolves the download URL
+    and optional defaults (adapter, service id), then generates and persists
+    the service definition. The installed service starts disabled — call
+    \`set_service_enabled\` once its configuration/secrets are set.
 
     When to use:
-      - Use to add a new service from a known manifest URL.
+      - Use to install a service from a registry URL.
     When NOT to use:
+      - For a direct manifest URL, use \`add_service\` instead.
       - If the service is already installed and you want to refresh it from the
         stored source, use \`update_service\`.
     `,
     annotations: { idempotentHint: false, openWorldHint: true },
+    parameters: z.object({
+      source: z
+        .string()
+        .min(1)
+        .describe(
+          'Registry URL that returns service metadata { downloadUrl, hash?, id?, adapter? }. Example: "https://registry.example.com/services/my-service".',
+        ),
+      adapter: z
+        .string()
+        .optional()
+        .describe(
+          'Override the registry\'s default adapter module id. Example: "openapi".',
+        ),
+      service_id: z
+        .string()
+        .optional()
+        .describe(
+          'Override the registry\'s default service id. Must be a valid TypeScript identifier. Example: "my-service".',
+        ),
+    }),
+    execute: async ({ source, adapter, service_id }) => {
+      const body: Record<string, unknown> = { source };
+      if (adapter !== undefined) body.adapter = adapter;
+      if (service_id !== undefined) body.id = service_id;
+      return JSON.stringify(
+        await api.post("services/install", { json: body }).json(),
+      );
+    },
+  },
+  {
+    name: "add_service",
+    description: `
+    Install a service directly from a manifest URL using the named adapter.
+
+    The API downloads the manifest from \`url\`, hands it to the named
+    \`adapter\` module, and persists the result. No registry resolution — the
+    URL must point directly at a definition file. The installed service starts
+    disabled — call \`set_service_enabled\` once its configuration/secrets are
+    set.
+
+    When to use:
+      - Use to install a service from a direct manifest URL.
+    When NOT to use:
+      - To install via a registry, use \`create_service\` instead.
+      - If the service is already installed and you want to replace it from a
+        new URL, use \`patch_service\` instead.
+    `,
+    annotations: {
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
     parameters: z.object({
       service_id: z
         .string()
@@ -81,17 +144,17 @@ export const serviceTools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
         .describe(
           "Unique service identifier. Must be a valid TypeScript identifier.",
         ),
-      source: z.string().min(1).describe("Manifest definition source URL."),
+      url: z.string().min(1).describe("Direct manifest definition URL."),
       adapter: z
         .string()
         .min(1)
         .describe("Adapter module id used to generate the service definition."),
     }),
-    execute: async ({ service_id, source, adapter }) =>
+    execute: async ({ service_id, url, adapter }) =>
       JSON.stringify(
         await api
-          .post("services/install", {
-            json: { id: service_id, source, adapter },
+          .post("services", {
+            json: { id: service_id, url, adapter },
           })
           .json(),
       ),
@@ -99,21 +162,76 @@ export const serviceTools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
   {
     name: "update_service",
     description: `
-    Re-download a service manifest from its stored install source.
+    Re-resolve the stored registry source URL and re-install if changed.
 
-    Existing tool enabled flags are preserved by name; the service itself is
-    set back to disabled and must be re-enabled.
+    Fetches the registry metadata, compares hashes, and re-generates the
+    service definition if a new version is available. Requires a
+    registry-installed service (source !== ""). Existing tool enabled flags
+    are preserved by name; the service itself is set back to disabled and
+    must be re-enabled.
 
     When to use:
-      - Use to pull updated manifest contents from the stored source URL.
+      - Use to pull the latest version of a registry-installed service.
     When NOT to use:
-      - If you need to toggle enablement, use \`set_service_enabled\` instead.
+      - For a direct-installed service (no registry source), use
+        \`patch_service\` instead.
+      - If you just need to toggle enablement, use \`set_service_enabled\`.
     `,
     annotations: { idempotentHint: false, openWorldHint: true },
     parameters: z.object({ service_id: ServiceId }),
     execute: async ({ service_id }) =>
       JSON.stringify(
         await api.post(`services/${service_id}/update`, { json: {} }).json(),
+      ),
+  },
+  {
+    name: "sync_service",
+    description: `
+    Re-generate a service's tools from its stored definition content.
+
+    Re-runs the adapter's \`generateDefinition\` using the definition content
+    that was persisted at install/update time. No network IO — the definition
+    is read from the database. Clears the \`stale\` flag if the service was
+    marked stale after an adapter module update.
+
+    When to use:
+      - Use to recover a service that was marked \`stale\` after an adapter
+        module update failed to regenerate its tools.
+    When NOT to use:
+      - If the service is working fine, no need to sync.
+      - To pull a new version from a registry or URL, use \`update_service\`
+        or \`patch_service\` instead.
+    `,
+    annotations: { idempotentHint: false, openWorldHint: true },
+    parameters: z.object({ service_id: ServiceId }),
+    execute: async ({ service_id }) =>
+      JSON.stringify(
+        await api.post(`services/${service_id}/sync`, { json: {} }).json(),
+      ),
+  },
+  {
+    name: "patch_service",
+    description: `
+    Update a service's definition URL directly (manual update).
+
+    Sets a new definition URL on an existing service and re-installs it.
+    Existing tool enabled flags are preserved by name; the service itself is
+    set back to disabled and must be re-enabled.
+
+    When to use:
+      - Use to change a direct-installed service's manifest URL.
+    When NOT to use:
+      - For a registry-installed service, use \`update_service\` instead.
+      - If you just need to toggle enablement, use \`set_service_enabled\`.
+    `,
+    annotations: { idempotentHint: false, openWorldHint: true },
+    parameters: z.object({
+      service_id: ServiceId,
+      url: z.string().min(1).describe("New definition URL."),
+    }),
+    execute: async ({ service_id, url }) =>
+      JSON.stringify(
+        await api.patch(`services/${service_id}`, { json: { url } }).json(),
       ),
   },
   {

@@ -7,14 +7,17 @@ on:
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 
 permissions:
-  id-token: write
-  contents: write
-  pull-requests: write
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_TAG: ${{ github.sha }}
 
 jobs:
-  publish:
+  docker:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v6
@@ -28,18 +31,37 @@ jobs:
           node-version: 24
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
-          registry-url: https://registry.npmjs.org
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
 
-      - name: Create Release PR or Publish
-        uses: changesets/action@v1
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
         with:
-          publish: pnpm exec changeset publish
-          version: pnpm exec changeset version
-          commit: "chore: version packages"
-          title: "chore: version packages"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push cyrnel-api
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ github.repository }}/api:latest,${{ env.REGISTRY }}/${{ github.repository }}/api:${{ env.IMAGE_TAG }}
+
+      - name: Build and push cyrnel-web
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/web/Dockerfile
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ github.repository }}/web:latest,${{ env.REGISTRY }}/${{ github.repository }}/web:${{ env.IMAGE_TAG }}
+
+      - name: Build and push cyrnel-mcp
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/mcp/Dockerfile
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ github.repository }}/mcp:latest,${{ env.REGISTRY }}/${{ github.repository }}/mcp:${{ env.IMAGE_TAG }}
