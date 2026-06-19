@@ -8,15 +8,15 @@
     "check:fix": "biome check --write .",
     "typecheck": "turbo typecheck"
   },
-  "packageManager": "pnpm@10.30.3",
+  "devDependencies": {
+    "@biomejs/biome": "2.5.0",
+    "@changesets/cli": "^2.31.0",
+    "turbo": "^2.9.17"
+  },
   "pnpm": {
     "overrides": {
       "esbuild": ">=0.28.1"
     }
   },
-  "devDependencies": {
-    "@biomejs/biome": "2.5.0",
-    "@changesets/cli": "^2.31.0",
-    "turbo": "^2.9.17"
-  }
+  "packageManager": "pnpm@10.30.3"
 }
