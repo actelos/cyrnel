@@ -16,7 +16,7 @@ export function apiUrl(): string {
   return (
     runtimeConfig()?.CYRNEL_API_URL ??
     import.meta.env.VITE_CYRNEL_API_URL ??
-    "http://127.0.0.1:7687"
+    "http://127.0.0.1:9371"
   );
 }
 

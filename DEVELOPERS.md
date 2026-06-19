@@ -179,9 +179,9 @@ services in parallel:
 
 | Service | Workspace | Port |
 |---|---|---|
-| Express API | `@cyrnel/api` | `:7687` |
+| Express API | `@cyrnel/api` | `:9371` |
 | Vite + React web app | `@cyrnel/web` | `:5173` |
-| fastmcp HTTP server | `@cyrnel/mcp-ts` | `:3333` |
+| fastmcp HTTP server | `@cyrnel/mcp-ts` | `:9373` |
 
 ## Project structure
 

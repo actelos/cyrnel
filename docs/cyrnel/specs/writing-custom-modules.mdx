@@ -56,7 +56,7 @@ expectation is that you ship modules built ahead of time.
 3. Either restart the API or call:
 
    ```bash
-   curl -X POST http://localhost:7687/modules/reload
+   curl -X POST http://localhost:9371/modules/reload
    ```
 
 `reload` re-scans `$CYRNEL_DATA_DIR/modules/`, registers any new directories,
@@ -66,7 +66,7 @@ inserted with `enabled: true, missing: false` by default.
 ## Verifying
 
 ```bash
-curl http://localhost:7687/modules
+curl http://localhost:9371/modules
 ```
 
 You should see your module alongside the built-ins, with
@@ -75,7 +75,7 @@ You should see your module alongside the built-ins, with
 To explicitly enable / disable:
 
 ```bash
-curl -X POST http://localhost:7687/modules/my-adapter/enabled \
+curl -X POST http://localhost:9371/modules/my-adapter/enabled \
   -H 'content-type: application/json' \
   -d '{"enabled":true}'
 ```

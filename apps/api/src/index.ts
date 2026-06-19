@@ -7,7 +7,7 @@ import { logger } from "@/logger";
 
 const { PORT, SHUTDOWN_TIMEOUT_MS } = z
   .object({
-    PORT: z.coerce.number().default(7687),
+    PORT: z.coerce.number().default(9371),
     SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().nonnegative().default(10_000),
   })
   .parse(process.env);
