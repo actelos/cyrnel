@@ -6,18 +6,53 @@ on:
 
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 
-permissions:
-  contents: read
-  packages: write
-
-env:
-  REGISTRY: ghcr.io
-  IMAGE_TAG: ${{ github.sha }}
-
 jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.3
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm build --filter=@cyrnel/sdk
+
+      - name: Create Release Pull Request or Publish to npm
+        uses: changesets/action@v1
+        with:
+          publish: pnpm exec changeset publish
+          version: pnpm exec changeset version
+          commit: "chore: version packages"
+          title: "chore: version packages"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   docker:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_TAG: ${{ github.sha }}
 
     steps:
       - uses: actions/checkout@v6
