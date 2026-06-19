@@ -48,7 +48,7 @@ docker compose up
 ```
 
 This starts the API, web UI, and MCP server. The web UI is available at
-`http://localhost:4173` and the API at `http://localhost:7687`.
+`http://localhost:9372` and the API at `http://localhost:9371`.
 
 ### Configuration
 
@@ -65,7 +65,7 @@ Key variables:
 | `CYRNEL_API_KEY` | _(required)_ | api |
 | `CYRNEL_SECRETS_KEY` | _(required)_ | api |
 | `CYRNEL_DB_URL` | `file:/data/cyrnel.db` | api |
-| `CYRNEL_API_URL` | `http://api:7687` | web, mcp |
+| `CYRNEL_API_URL` | `http://api:9371` | web, mcp |
 | `LOG_LEVEL` | `info` | api, mcp |
 
 Full reference: [.example.env](apps/api/.example.env)

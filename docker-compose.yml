@@ -5,10 +5,10 @@ services:
       context: .
       dockerfile: apps/api/Dockerfile
     ports:
-      - "${API_PORT:-7687}:7687"
+      - "${API_PORT:-9371}:9371"
     environment:
       NODE_ENV: production
-      PORT: "7687"
+      PORT: "9371"
       LOG_LEVEL: ${LOG_LEVEL:-info}
       CYRNEL_DATA_DIR: /data
       CYRNEL_DB_URL: ${CYRNEL_DB_URL:-}
@@ -21,7 +21,7 @@ services:
       - cyrnel-data:/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:7687/health', r => {process.exit(r.statusCode === 200 ? 0 : 1)}).on('error', () => process.exit(1))"]
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:9371/health', r => {process.exit(r.statusCode === 200 ? 0 : 1)}).on('error', () => process.exit(1))"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -33,15 +33,15 @@ services:
       context: .
       dockerfile: apps/web/Dockerfile
       args:
-        VITE_CYRNEL_API_URL: http://api:7687
+        VITE_CYRNEL_API_URL: http://api:9371
         VITE_AUTH_USERNAME: ${VITE_AUTH_USERNAME:-}
         VITE_AUTH_PASSWORD: ${VITE_AUTH_PASSWORD:-}
     ports:
-      - "${WEB_PORT:-4173}:4173"
+      - "${WEB_PORT:-9372}:9372"
     environment:
-      PORT: "4173"
+      PORT: "9372"
       HOST: 0.0.0.0
-      CYRNEL_API_URL: http://api:7687
+      CYRNEL_API_URL: http://api:9371
       CYRNEL_API_KEY: ${CYRNEL_API_KEY:-}
     depends_on:
       api:
@@ -54,12 +54,12 @@ services:
       context: .
       dockerfile: apps/mcp/Dockerfile
     ports:
-      - "${MCP_PORT:-3333}:3333"
+      - "${MCP_PORT:-9373}:9373"
     environment:
       MCP_TRANSPORT: http
       MCP_HTTP_HOST: 0.0.0.0
-      MCP_HTTP_PORT: "3333"
-      CYRNEL_API_URL: http://api:7687
+      MCP_HTTP_PORT: "9373"
+      CYRNEL_API_URL: http://api:9371
       CYRNEL_API_KEY: ${CYRNEL_API_KEY:-}
       CYRNEL_API_TIMEOUT_MS: ${CYRNEL_API_TIMEOUT_MS:-30000}
       LOG_LEVEL: ${LOG_LEVEL:-info}

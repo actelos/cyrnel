@@ -95,6 +95,9 @@ export class App {
     app.use(pinoHttp({ logger }));
     app.use(cors());
     app.use(express.json());
+    app.get("/health", (_req, res) => {
+      res.json({ status: "ok" });
+    });
     app.use(apiKeyMiddleware);
     app.use("/modules", moduleRouter);
     app.use("/services", serviceRouter);

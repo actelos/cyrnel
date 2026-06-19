@@ -11,7 +11,7 @@ const { MCP_TRANSPORT, MCP_HTTP_HOST, MCP_HTTP_PORT } = z
   .object({
     MCP_TRANSPORT: z.enum(["stdio", "http"]).default("http"),
     MCP_HTTP_HOST: z.string().min(1).default("127.0.0.1"),
-    MCP_HTTP_PORT: z.coerce.number().int().positive().default(3333),
+    MCP_HTTP_PORT: z.coerce.number().int().positive().default(9373),
   })
   .parse(process.env);
 

@@ -1751,6 +1751,6 @@ export function generateOpenApiDoc(): OpenAPIObject {
       `,
       version: "1.0.0",
     },
-    servers: [{ url: "http://localhost:7687" }],
+    servers: [{ url: "http://localhost:9371" }],
   });
 }
