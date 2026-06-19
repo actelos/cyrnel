@@ -1,6 +1,5 @@
 allowlist
 allowlists
-API's
 CIDRs
 ciphertext
 cutover
