@@ -2,7 +2,7 @@ FROM node:24-alpine AS builder
 RUN corepack enable && corepack prepare pnpm@10.30.3 --activate
 WORKDIR /app
 
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
+COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
 
 COPY apps/web/package.json apps/web/package.json
 
@@ -27,6 +27,7 @@ ENV PORT=4173
 ENV HOST=0.0.0.0
 ENV CYRNEL_API_URL=http://api:7687
 ENV CYRNEL_API_KEY=
+
 
 EXPOSE 4173
 CMD ["node", "dist/server/index.js"]
