@@ -2,7 +2,7 @@ FROM node:24-alpine AS builder
 RUN corepack enable && corepack prepare pnpm@10.30.3 --activate
 WORKDIR /app
 
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
+COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
 
 COPY apps/mcp/package.json apps/mcp/package.json
 
@@ -25,6 +25,7 @@ ENV MCP_HTTP_PORT=3333
 ENV CYRNEL_API_URL=http://api:7687
 ENV CYRNEL_API_TIMEOUT_MS=30000
 ENV CYRNEL_API_KEY=
+
 
 EXPOSE 3333
 CMD ["node", "dist/index.js"]
