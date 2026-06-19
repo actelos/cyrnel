@@ -4,7 +4,22 @@ permissions:
   contents: read
 
 on:
+  push:
+    branches: [develop, main]
+    paths:
+      - "apps/api/**"
+      - "apps/web/**"
+      - "apps/mcp/**"
+      - "packages/libs/**"
+      - "packages/modules/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "turbo.json"
+      - ".dockerignore"
+      - "Dockerfile*"
   pull_request:
+    types: [opened, synchronize]
     paths:
       - "apps/api/**"
       - "apps/web/**"

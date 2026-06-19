@@ -15,7 +15,7 @@ COPY packages/ packages/
 COPY apps/ apps/
 
 RUN pnpm turbo build --filter=@cyrnel/api
-RUN pnpm deploy --filter=@cyrnel/api --prod /tmp/deploy
+RUN pnpm deploy --filter=@cyrnel/api --prod --legacy /tmp/deploy
 
 FROM node:24-alpine
 WORKDIR /app

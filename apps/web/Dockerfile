@@ -16,7 +16,7 @@ ARG VITE_CYRNEL_API_KEY=
 COPY apps/web/ apps/web/
 
 RUN pnpm turbo build --filter=@cyrnel/web
-RUN pnpm deploy --filter=@cyrnel/web --prod /tmp/deploy
+RUN pnpm deploy --filter=@cyrnel/web --prod --legacy /tmp/deploy
 
 FROM node:24-alpine
 WORKDIR /app

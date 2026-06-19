@@ -11,7 +11,7 @@ RUN pnpm install --frozen-lockfile
 COPY apps/mcp/ apps/mcp/
 
 RUN pnpm turbo build --filter=@cyrnel/mcp
-RUN pnpm deploy --filter=@cyrnel/mcp --prod /tmp/deploy
+RUN pnpm deploy --filter=@cyrnel/mcp --prod --legacy /tmp/deploy
 
 FROM node:24-alpine
 WORKDIR /app
