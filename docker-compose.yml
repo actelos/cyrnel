@@ -21,7 +21,7 @@ services:
       - cyrnel-data:/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "node", "-e", "http.get('http://localhost:7687/health', r => {process.exit(r.statusCode === 200 ? 0 : 1)}).on('error', () => process.exit(1))"]
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:7687/health', r => {process.exit(r.statusCode === 200 ? 0 : 1)}).on('error', () => process.exit(1))"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -44,7 +44,8 @@ services:
       CYRNEL_API_URL: http://api:7687
       CYRNEL_API_KEY: ${CYRNEL_API_KEY:-}
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     restart: unless-stopped
 
   mcp:
@@ -63,7 +64,8 @@ services:
       CYRNEL_API_TIMEOUT_MS: ${CYRNEL_API_TIMEOUT_MS:-30000}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:
