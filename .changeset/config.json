@@ -6,8 +6,7 @@
   "linked": [],
   "access": "public",
   "baseBranch": "main",
-  "changedFilePatterns": ["apps/**", "packages/libs/**"],
+  "changedFilePatterns": ["packages/libs/**"],
   "updateInternalDependencies": "patch",
-  "enableProvenance": true,
-  "ignore": []
+  "enableProvenance": true
 }
