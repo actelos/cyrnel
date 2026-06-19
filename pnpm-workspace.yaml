@@ -3,6 +3,8 @@ packages:
   - packages/libs/*
   - packages/modules/*
 
+inject-workspace-packages: true
+
 onlyBuiltDependencies:
   - esbuild
   - isolated-vm

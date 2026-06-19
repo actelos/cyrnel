@@ -45,7 +45,7 @@ In scope:
 Out of scope:
 
 - Vulnerabilities in third-party dependencies that do not have a viable
-  exploitation path through cyrnel — please report those upstream.
+  exploitation path through cyrnel, please report those upstream.
 - Issues that require a privileged account, attacker-controlled module
   installation, or other prerequisites that effectively grant code
   execution on the host.
