@@ -23,7 +23,7 @@ COPY --from=builder /tmp/deploy .
 COPY --from=builder /app/apps/api/drizzle ./drizzle/
 
 ENV NODE_ENV=production
-ENV PORT=7687
+ENV PORT=9371
 ENV SHUTDOWN_TIMEOUT_MS=10000
 ENV LOG_LEVEL=info
 ENV CYRNEL_DATA_DIR=/data
@@ -34,6 +34,6 @@ ENV CYRNEL_ALLOWED_IPS=
 ENV CYRNEL_BLOCKED_IPS=
 ENV CYRNEL_BLOCK_ALL_REGISTRIES=false
 
-EXPOSE 7687
+EXPOSE 9371
 VOLUME ["/data"]
 CMD ["node", "dist/index.js"]

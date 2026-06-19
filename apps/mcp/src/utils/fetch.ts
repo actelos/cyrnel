@@ -5,7 +5,7 @@ const env = z
   .object({
     CYRNEL_API_URL: z
       .url()
-      .default("http://localhost:7687")
+      .default("http://localhost:9371")
       .transform((v) => v.replace(/\/+$/, "")),
     CYRNEL_API_KEY: z.string().optional(),
     CYRNEL_API_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
