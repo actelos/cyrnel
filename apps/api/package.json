@@ -1,5 +1,6 @@
 {
   "name": "@cyrnel/api",
+  "type": "module",
   "private": true,
   "scripts": {
     "dev": "tsx watch src/index.ts",

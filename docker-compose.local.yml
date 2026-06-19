@@ -1,6 +1,5 @@
 services:
   api:
-    image: ${IMAGE_REGISTRY:-ghcr.io}/${IMAGE_REPO:-actelos/cyrnel}/api:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: apps/api/Dockerfile
@@ -9,14 +8,12 @@ services:
     environment:
       NODE_ENV: production
       PORT: "7687"
-      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_LEVEL: ${LOG_LEVEL:-debug}
       CYRNEL_DATA_DIR: /data
-      CYRNEL_DB_URL: ${CYRNEL_DB_URL:-}
       CYRNEL_API_KEY: ${CYRNEL_API_KEY:-}
       CYRNEL_SECRETS_KEY: ${CYRNEL_SECRETS_KEY:-}
       CYRNEL_ALLOWED_IPS: ${CYRNEL_ALLOWED_IPS:-}
       CYRNEL_BLOCKED_IPS: ${CYRNEL_BLOCKED_IPS:-}
-      CYRNEL_BLOCK_ALL_REGISTRIES: ${CYRNEL_BLOCK_ALL_REGISTRIES:-false}
     volumes:
       - cyrnel-data:/data
     restart: unless-stopped
@@ -24,18 +21,15 @@ services:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:7687/health', r => {process.exit(r.statusCode === 200 ? 0 : 1)}).on('error', () => process.exit(1))"]
       interval: 10s
       timeout: 5s
-      retries: 5
-      start_period: 15s
+      retries: 10
+      start_period: 30s
 
   web:
-    image: ${IMAGE_REGISTRY:-ghcr.io}/${IMAGE_REPO:-actelos/cyrnel}/web:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: apps/web/Dockerfile
       args:
         VITE_CYRNEL_API_URL: http://api:7687
-        VITE_AUTH_USERNAME: ${VITE_AUTH_USERNAME:-}
-        VITE_AUTH_PASSWORD: ${VITE_AUTH_PASSWORD:-}
     ports:
       - "${WEB_PORT:-4173}:4173"
     environment:
@@ -49,7 +43,6 @@ services:
     restart: unless-stopped
 
   mcp:
-    image: ${IMAGE_REGISTRY:-ghcr.io}/${IMAGE_REPO:-actelos/cyrnel}/mcp:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: apps/mcp/Dockerfile
@@ -61,8 +54,8 @@ services:
       MCP_HTTP_PORT: "3333"
       CYRNEL_API_URL: http://api:7687
       CYRNEL_API_KEY: ${CYRNEL_API_KEY:-}
-      CYRNEL_API_TIMEOUT_MS: ${CYRNEL_API_TIMEOUT_MS:-30000}
-      LOG_LEVEL: ${LOG_LEVEL:-info}
+      CYRNEL_API_TIMEOUT_MS: ${CYRNEL_API_TIMEOUT_MS:-60000}
+      LOG_LEVEL: ${LOG_LEVEL:-debug}
     depends_on:
       api:
         condition: service_healthy
