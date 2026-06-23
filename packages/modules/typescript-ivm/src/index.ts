@@ -591,7 +591,7 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
 
   private async loadIsolatePreludeJs(): Promise<string | null> {
     try {
-      const url = new URL("./bindings.ts", import.meta.url);
+      const url = new URL("../src/bindings.ts", import.meta.url);
       const source = await fs.readFile(url, "utf8");
       return transpileTypeScript(source);
     } catch {
@@ -609,12 +609,6 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
   }
 }
 
-const EMPTY_OBJECT_SCHEMA: JSONSchema = {
-  type: "object",
-  properties: {},
-  additionalProperties: false,
-};
-
 const CONFIG_SCHEMA: JSONSchema = {
   type: "object",
   properties: {
@@ -623,13 +617,15 @@ const CONFIG_SCHEMA: JSONSchema = {
   additionalProperties: false,
 };
 
+const SECRETS_SCHEMA: JSONSchema = { type: "null" };
+
 export const manifest = {
   id: "typescript-ivm",
   name: "Typescript Isolated VM",
   description: "TypeScript environment powered by isolated-vm",
   type: "environment" as const,
   configSchema: CONFIG_SCHEMA,
-  secretsSchema: EMPTY_OBJECT_SCHEMA,
+  secretsSchema: SECRETS_SCHEMA,
 };
 
 export function instantiate(): EnvironmentModule {

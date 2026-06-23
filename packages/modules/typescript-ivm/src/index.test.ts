@@ -20,10 +20,9 @@ describe("typescript-ivm manifest", () => {
     });
   });
 
-  it("declares an empty object secretsSchema", () => {
+  it("declares a null secretsSchema", () => {
     expect(manifest.secretsSchema).toMatchObject({
-      type: "object",
-      additionalProperties: false,
+      type: "null",
     });
   });
 });
