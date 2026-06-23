@@ -1,19 +1,11 @@
 import type { EnvironmentBindings, ExecutionInput } from "@cyrnel/sdk";
 import { describe, expect, it, vi } from "vitest";
 
-import { instantiate, manifest, toBuffer } from "@/index";
+import tsivm, { toBuffer } from "@/index";
 
-describe("typescript-ivm manifest", () => {
-  it("uses id as the stable identifier and name as the display label", () => {
-    expect(manifest).toMatchObject({
-      id: "typescript-ivm",
-      name: "Typescript Isolated VM",
-      type: "environment",
-    });
-  });
-
+describe("typescript-ivm default export", () => {
   it("declares the supported configSchema", () => {
-    expect(manifest.configSchema).toMatchObject({
+    expect(tsivm.configSchema).toMatchObject({
       type: "object",
       properties: { poolSize: { type: "integer", minimum: 1 } },
       additionalProperties: false,
@@ -21,7 +13,7 @@ describe("typescript-ivm manifest", () => {
   });
 
   it("declares a null secretsSchema", () => {
-    expect(manifest.secretsSchema).toMatchObject({
+    expect(tsivm.secretsSchema).toMatchObject({
       type: "null",
     });
   });
@@ -102,7 +94,7 @@ describe("environment module", () => {
 
   it("queues then runs executions", async () => {
     const { bindings, setState } = createBindings();
-    const environment = instantiate();
+    const environment = tsivm.instantiate();
 
     await environment.setup({ bindings, config: {}, secrets: {} });
 
@@ -123,7 +115,7 @@ describe("environment module", () => {
 
   it("limits concurrent executions to two", async () => {
     const { bindings, setState } = createBindings();
-    const environment = instantiate();
+    const environment = tsivm.instantiate();
 
     await environment.setup({ bindings, config: {}, secrets: {} });
 
@@ -173,7 +165,7 @@ describe("environment module", () => {
 
   it("continues after teardown", async () => {
     const { bindings } = createBindings();
-    const environment = instantiate();
+    const environment = tsivm.instantiate();
 
     await environment.setup({ bindings, config: {}, secrets: {} });
 
@@ -202,7 +194,7 @@ describe("environment module", () => {
 
   it("returns failed for runtime errors", async () => {
     const { bindings } = createBindings();
-    const environment = instantiate();
+    const environment = tsivm.instantiate();
 
     await environment.setup({ bindings, config: {}, secrets: {} });
 
@@ -219,7 +211,7 @@ describe("environment module", () => {
 
   it("returns failed for transpile errors", async () => {
     const { bindings } = createBindings();
-    const environment = instantiate();
+    const environment = tsivm.instantiate();
 
     await environment.setup({ bindings, config: {}, secrets: {} });
 
@@ -236,7 +228,7 @@ describe("environment module", () => {
 
   it("cancels queued executions on kill", async () => {
     const { bindings } = createBindings();
-    const environment = instantiate();
+    const environment = tsivm.instantiate();
 
     await environment.setup({ bindings, config: {}, secrets: {} });
 
@@ -272,7 +264,7 @@ describe("environment module", () => {
 
   it("cancels running executions on kill", async () => {
     const { bindings } = createBindings();
-    const environment = instantiate();
+    const environment = tsivm.instantiate();
 
     await environment.setup({ bindings, config: {}, secrets: {} });
 
@@ -292,7 +284,7 @@ describe("environment module", () => {
 
   it("continues executing after a kill", async () => {
     const { bindings } = createBindings();
-    const environment = instantiate();
+    const environment = tsivm.instantiate();
 
     await environment.setup({ bindings, config: {}, secrets: {} });
 
@@ -317,7 +309,7 @@ describe("environment module", () => {
 
   it("times out when timeoutMs is provided", async () => {
     const { bindings } = createBindings();
-    const environment = instantiate();
+    const environment = tsivm.instantiate();
 
     await environment.setup({ bindings, config: {}, secrets: {} });
 
@@ -332,7 +324,7 @@ describe("environment module", () => {
 
   it("returns failed when execution throws an error", async () => {
     const { bindings } = createBindings();
-    const environment = instantiate();
+    const environment = tsivm.instantiate();
 
     await environment.setup({ bindings, config: {}, secrets: {} });
 
@@ -347,7 +339,7 @@ describe("environment module", () => {
 
   it("rejects duplicate execution IDs", async () => {
     const { bindings } = createBindings();
-    const environment = instantiate();
+    const environment = tsivm.instantiate();
 
     await environment.setup({ bindings, config: {}, secrets: {} });
 
@@ -372,7 +364,7 @@ describe("environment module", () => {
   });
 
   it("throws when executing without setup", async () => {
-    const environment = instantiate();
+    const environment = tsivm.instantiate();
 
     await expect(
       environment.execute({
@@ -385,7 +377,7 @@ describe("environment module", () => {
 
   it("cancels queued work during teardown", async () => {
     const { bindings } = createBindings();
-    const environment = instantiate();
+    const environment = tsivm.instantiate();
 
     await environment.setup({ bindings, config: {}, secrets: {} });
 

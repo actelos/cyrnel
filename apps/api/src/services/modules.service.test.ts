@@ -119,11 +119,7 @@ const { downloadBinaryMock, decompressMock } = vi.hoisted(() => ({
 }));
 
 vi.mock("@cyrnel/openapi", () => ({
-  manifest: {
-    id: "openapi",
-    name: "OpenAPI Adapter",
-    description: "Fake openapi adapter",
-    type: "adapter" as const,
+  default: {
     configSchema: {
       type: "object",
       properties: {
@@ -137,11 +133,11 @@ vi.mock("@cyrnel/openapi", () => ({
       properties: { apiKey: { type: "string" } },
       additionalProperties: false,
     },
-  },
-  instantiate: () => {
-    const instance = new FakeAdapter();
-    adapterInstances.push(instance);
-    return instance;
+    instantiate: () => {
+      const instance = new FakeAdapter();
+      adapterInstances.push(instance);
+      return instance;
+    },
   },
 }));
 
@@ -158,11 +154,7 @@ vi.mock("fzstd", () => ({
 }));
 
 vi.mock("@cyrnel/typescript-ivm", () => ({
-  manifest: {
-    id: "typescript-ivm",
-    name: "Typescript Isolated VM",
-    description: "Fake TS environment",
-    type: "environment" as const,
+  default: {
     configSchema: {
       type: "object",
       properties: { poolSize: { type: "number" } },
@@ -173,11 +165,11 @@ vi.mock("@cyrnel/typescript-ivm", () => ({
       properties: {},
       additionalProperties: false,
     },
-  },
-  instantiate: () => {
-    const instance = new FakeEnvironment();
-    envInstances.push(instance);
-    return instance;
+    instantiate: () => {
+      const instance = new FakeEnvironment();
+      envInstances.push(instance);
+      return instance;
+    },
   },
 }));
 
@@ -358,16 +350,20 @@ describe("ModuleService", () => {
         );
         await fs.writeFile(
           path.join(moduleDir, "index.mjs"),
-          `export function instantiate() {
-             return {
-               async setup() {},
-               async teardown() {},
-               async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
-               async hydrateService() {},
-               async dehydrateService() {},
-               async invoke() { return null; },
-             };
-           }`,
+          `export default {
+            configSchema: { type: "object", properties: {}, additionalProperties: false },
+            secretsSchema: { type: "null" },
+            instantiate() {
+              return {
+                async setup() {},
+                async teardown() {},
+                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async hydrateService() {},
+                async dehydrateService() {},
+                async invoke() { return null; },
+              };
+            },
+          }`,
         );
 
         const service = new ModuleService(makeBindings(), makeLifecycle());
@@ -405,16 +401,20 @@ describe("ModuleService", () => {
         );
         await fs.writeFile(
           path.join(moduleDir, "index.mjs"),
-          `export function instantiate() {
-             return {
-               async setup() {},
-               async teardown() {},
-               async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
-               async hydrateService() {},
-               async dehydrateService() {},
-               async invoke() { return null; },
-             };
-           }`,
+          `export default {
+            configSchema: { type: "object", properties: {}, additionalProperties: false },
+            secretsSchema: { type: "null" },
+            instantiate() {
+              return {
+                async setup() {},
+                async teardown() {},
+                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async hydrateService() {},
+                async dehydrateService() {},
+                async invoke() { return null; },
+              };
+            },
+          }`,
         );
 
         const service = new ModuleService(makeBindings(), makeLifecycle());
@@ -996,7 +996,7 @@ describe("ModuleService", () => {
       expect(await service.get("openapi")).toMatchObject({
         id: "openapi",
         name: "OpenAPI Adapter",
-        description: "Fake openapi adapter",
+        description: "Adapter for interacting with OpenAPI services",
       });
       expect(await service.get("typescript-ivm")).toMatchObject({
         id: "typescript-ivm",
@@ -1041,16 +1041,20 @@ describe("ModuleService", () => {
         );
         await fs.writeFile(
           path.join(modDir, "index.mjs"),
-          `export function instantiate() {
-             return {
-               async setup() {},
-               async teardown() {},
-               async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
-               async hydrateService() {},
-               async dehydrateService() {},
-               async invoke() { return null; },
-             };
-           }`,
+          `export default {
+            configSchema: { type: "object", properties: {}, additionalProperties: false },
+            secretsSchema: { type: "null" },
+            instantiate() {
+              return {
+                async setup() {},
+                async teardown() {},
+                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async hydrateService() {},
+                async dehydrateService() {},
+                async invoke() { return null; },
+              };
+            },
+          }`,
         );
 
         await service.reload();
@@ -1086,16 +1090,20 @@ describe("ModuleService", () => {
         );
         await fs.writeFile(
           path.join(modDir, "index.mjs"),
-          `export function instantiate() {
-             return {
-               async setup() {},
-               async teardown() {},
-               async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
-               async hydrateService() {},
-               async dehydrateService() {},
-               async invoke() { return { stale: true }; },
-             };
-           }`,
+          `export default {
+            configSchema: { type: "object", properties: {}, additionalProperties: false },
+            secretsSchema: { type: "null" },
+            instantiate() {
+              return {
+                async setup() {},
+                async teardown() {},
+                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async hydrateService() {},
+                async dehydrateService() {},
+                async invoke() { return { stale: true }; },
+              };
+            },
+          }`,
         );
 
         const service = new ModuleService(makeBindings(), makeLifecycle());
@@ -1266,21 +1274,24 @@ describe("ModuleService", () => {
             description: "null config",
             type: "adapter",
             main: "index.mjs",
-            configSchema: { type: "null" },
           }),
         );
         await fs.writeFile(
           path.join(moduleDir, "index.mjs"),
-          `export function instantiate() {
-             return {
-               async setup() {},
-               async teardown() {},
-               async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
-               async hydrateService() {},
-               async dehydrateService() {},
-               async invoke() { return null; },
-             };
-           }`,
+          `export default {
+            configSchema: { type: "null" },
+            secretsSchema: { type: "null" },
+            instantiate() {
+              return {
+                async setup() {},
+                async teardown() {},
+                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async hydrateService() {},
+                async dehydrateService() {},
+                async invoke() { return null; },
+              };
+            },
+          }`,
         );
 
         const service = new ModuleService(makeBindings(), makeLifecycle());
@@ -1502,15 +1513,19 @@ describe("ModuleService", () => {
             type: "adapter",
             main: "index.mjs",
           }),
-          "index.mjs": `export function instantiate() {
-            return {
-              async setup() {},
-              async teardown() {},
-              async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
-              async hydrateService() {},
-              async dehydrateService() {},
-              async invoke() { return null; },
-            };
+          "index.mjs": `export default {
+            configSchema: { type: "object", properties: {}, additionalProperties: false },
+            secretsSchema: { type: "null" },
+            instantiate() {
+              return {
+                async setup() {},
+                async teardown() {},
+                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async hydrateService() {},
+                async dehydrateService() {},
+                async invoke() { return null; },
+              };
+            },
           }`,
         });
 
@@ -1563,15 +1578,19 @@ describe("ModuleService", () => {
             type: "adapter",
             main: "index.mjs",
           }),
-          "index.mjs": `export function instantiate() {
-            return {
-              async setup() {},
-              async teardown() {},
-              async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
-              async hydrateService() {},
-              async dehydrateService() {},
-              async invoke() { return null; },
-            };
+          "index.mjs": `export default {
+            configSchema: { type: "object", properties: {}, additionalProperties: false },
+            secretsSchema: { type: "null" },
+            instantiate() {
+              return {
+                async setup() {},
+                async teardown() {},
+                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async hydrateService() {},
+                async dehydrateService() {},
+                async invoke() { return null; },
+              };
+},
           }`,
         });
 
@@ -1602,7 +1621,7 @@ describe("ModuleService", () => {
       const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-install-"));
       try {
         const tarData = await createTestTar(dir, {
-          "index.mjs": `export function instantiate() { return {}; }`,
+          "index.mjs": `export default { configSchema: {}, secretsSchema: {}, instantiate() { return {}; } }`,
         });
 
         const tarUint8 = new Uint8Array(tarData);
@@ -1698,15 +1717,19 @@ describe("ModuleService", () => {
         );
         await fs.writeFile(
           path.join(modDir, "index.mjs"),
-          `export function instantiate() {
-            return {
-              async setup() {},
-              async teardown() {},
-              async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
-              async hydrateService() {},
-              async dehydrateService() {},
-              async invoke() { return null; },
-            };
+          `export default {
+            configSchema: { type: "object", properties: {}, additionalProperties: false },
+            secretsSchema: { type: "null" },
+            instantiate() {
+              return {
+                async setup() {},
+                async teardown() {},
+                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async hydrateService() {},
+                async dehydrateService() {},
+                async invoke() { return null; },
+              };
+            },
           }`,
         );
 
@@ -1749,15 +1772,19 @@ describe("ModuleService", () => {
         );
         await fs.writeFile(
           path.join(modDir, "index.mjs"),
-          `export function instantiate() {
-            return {
-              async setup() {},
-              async teardown() {},
-              async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
-              async hydrateService() {},
-              async dehydrateService() {},
-              async invoke() { return null; },
-            };
+          `export default {
+            configSchema: { type: "object", properties: {}, additionalProperties: false },
+            secretsSchema: { type: "null" },
+            instantiate() {
+              return {
+                async setup() {},
+                async teardown() {},
+                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async hydrateService() {},
+                async dehydrateService() {},
+                async invoke() { return null; },
+              };
+            },
           }`,
         );
 
@@ -1813,15 +1840,19 @@ describe("ModuleService", () => {
             type: "adapter",
             main: "index.mjs",
           }),
-          "index.mjs": `export function instantiate() {
-            return {
-              async setup() {},
-              async teardown() {},
-              async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
-              async hydrateService() {},
-              async dehydrateService() {},
-              async invoke() { return null; },
-            };
+          "index.mjs": `export default {
+            configSchema: { type: "object", properties: {}, additionalProperties: false },
+            secretsSchema: { type: "null" },
+            instantiate() {
+              return {
+                async setup() {},
+                async teardown() {},
+                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async hydrateService() {},
+                async dehydrateService() {},
+                async invoke() { return null; },
+              };
+            },
           }`,
         });
 
@@ -1887,15 +1918,19 @@ describe("ModuleService", () => {
         );
         await fs.writeFile(
           path.join(modDir, "index.mjs"),
-          `export function instantiate() {
-            return {
-              async setup() {},
-              async teardown() {},
-              async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
-              async hydrateService() {},
-              async dehydrateService() {},
-              async invoke() { return null; },
-            };
+          `export default {
+            configSchema: { type: "object", properties: {}, additionalProperties: false },
+            secretsSchema: { type: "null" },
+            instantiate() {
+              return {
+                async setup() {},
+                async teardown() {},
+                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async hydrateService() {},
+                async dehydrateService() {},
+                async invoke() { return null; },
+              };
+            },
           }`,
         );
 
@@ -1925,15 +1960,19 @@ describe("ModuleService", () => {
             type: "adapter",
             main: "index.mjs",
           }),
-          "index.mjs": `export function instantiate() {
-            return {
-              async setup() {},
-              async teardown() {},
-              async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
-              async hydrateService() {},
-              async dehydrateService() {},
-              async invoke() { return null; },
-            };
+          "index.mjs": `export default {
+            configSchema: { type: "object", properties: {}, additionalProperties: false },
+            secretsSchema: { type: "null" },
+            instantiate() {
+              return {
+                async setup() {},
+                async teardown() {},
+                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async hydrateService() {},
+                async dehydrateService() {},
+                async invoke() { return null; },
+              };
+            },
           }`,
         });
 
@@ -1982,15 +2021,19 @@ describe("ModuleService", () => {
             type: "adapter",
             main: "index.mjs",
           }),
-          "index.mjs": `export function instantiate() {
-            return {
-              async setup() {},
-              async teardown() {},
-              async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
-              async hydrateService() {},
-              async dehydrateService() {},
-              async invoke() { return null; },
-            };
+          "index.mjs": `export default {
+            configSchema: { type: "object", properties: {}, additionalProperties: false },
+            secretsSchema: { type: "null" },
+            instantiate() {
+              return {
+                async setup() {},
+                async teardown() {},
+                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async hydrateService() {},
+                async dehydrateService() {},
+                async invoke() { return null; },
+              };
+            },
           }`,
         });
 
@@ -2026,15 +2069,19 @@ describe("ModuleService", () => {
             type: "adapter",
             main: "index.mjs",
           }),
-          "index.mjs": `export function instantiate() {
-            return {
-              async setup() {},
-              async teardown() {},
-              async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
-              async hydrateService() {},
-              async dehydrateService() {},
-              async invoke() { return null; },
-            };
+          "index.mjs": `export default {
+            configSchema: { type: "object", properties: {}, additionalProperties: false },
+            secretsSchema: { type: "null" },
+            instantiate() {
+              return {
+                async setup() {},
+                async teardown() {},
+                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async hydrateService() {},
+                async dehydrateService() {},
+                async invoke() { return null; },
+              };
+            },
           }`,
         });
 
@@ -2081,15 +2128,19 @@ describe("ModuleService", () => {
             type: "adapter",
             main: "index.mjs",
           }),
-          "index.mjs": `export function instantiate() {
-            return {
-              async setup() {},
-              async teardown() {},
-              async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
-              async hydrateService() {},
-              async dehydrateService() {},
-              async invoke() { return null; },
-            };
+          "index.mjs": `export default {
+            configSchema: { type: "object", properties: {}, additionalProperties: false },
+            secretsSchema: { type: "null" },
+            instantiate() {
+              return {
+                async setup() {},
+                async teardown() {},
+                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async hydrateService() {},
+                async dehydrateService() {},
+                async invoke() { return null; },
+              };
+            },
           }`,
         });
 
@@ -2125,7 +2176,7 @@ describe("ModuleService", () => {
             type: "adapter",
             main: "index.mjs",
           }),
-          "index.mjs": `export function instantiate() { return {}; }`,
+          "index.mjs": `export default { configSchema: {}, secretsSchema: {}, instantiate() { return {}; } }`,
         });
 
         const mismatchedTarUint8 = new Uint8Array(mismatchedTarData);

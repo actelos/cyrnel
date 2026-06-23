@@ -87,6 +87,46 @@ export type ExecutionState = (typeof EXECUTION_STATES)[number];
  */
 export interface EnvironmentBindings {
   /**
+   * Sets the state of an execution.
+   *
+   * @param eid - Execution identifier.
+   * @param state - The new execution state.
+   */
+  setState(eid: number, state: ExecutionState): void;
+
+  /**
+   * Marks an execution as failed.
+   *
+   * @param eid - Execution identifier.
+   * @param error - The error message.
+   */
+  setError(eid: number, error: string): void;
+
+  /**
+   * Appends data to stdout for an execution.
+   *
+   * @param eid - Execution identifier.
+   * @param data - Data to append.
+   */
+  emitStdout(eid: number, data: Buffer): void;
+
+  /**
+   * Appends data to stderr for an execution.
+   *
+   * @param eid - Execution identifier.
+   * @param data - Data to append.
+   */
+  emitStderr(eid: number, data: Buffer): void;
+
+  /**
+   * Sets the structured output for an execution.
+   *
+   * @param eid - Execution identifier.
+   * @param data - Output data.
+   */
+  emitOutput(eid: number, data: Record<string, unknown>): void;
+
+  /**
    * Invokes a tool.
    *
    * @param input - Tool invocation request.
@@ -94,46 +134,21 @@ export interface EnvironmentBindings {
    * @throws Error if invocation fails.
    */
   invokeTool(input: InvokeInput): Promise<unknown>;
+}
 
-  /**
-   * Updates the current execution state.
-   *
-   * @param eid - Execution identifier.
-   * @param data - New execution state.
-   */
-  setState(eid: number, data: ExecutionState): void;
-
-  /**
-   * Reports an execution error.
-   *
-   * @param eid - Execution identifier.
-   * @param data - Error message.
-   */
-  setError(eid: number, data: string): void;
-
-  /**
-   * Emits stdout data for an execution.
-   *
-   * @param eid - Execution identifier.
-   * @param data - Output bytes written to stdout.
-   */
-  emitStdout(eid: number, data: Buffer): void;
-
-  /**
-   * Emits stderr data for an execution.
-   *
-   * @param eid - Execution identifier.
-   * @param data - Output bytes written to stderr.
-   */
-  emitStderr(eid: number, data: Buffer): void;
-
-  /**
-   * Emits structured execution output.
-   *
-   * @param eid - Execution identifier.
-   * @param data - Output payload.
-   */
-  emitOutput(eid: number, data: Record<string, unknown>): void;
+/**
+ * The default export contract for every module.
+ *
+ * A module's entry file must default-export an object matching this
+ * interface. The host extracts the schemas for config/secrets validation
+ * and the `instantiate` factory from it.
+ *
+ * Both `configSchema` and `secretsSchema` must be plain JSON Schema objects.
+ */
+export interface ModuleExport {
+  configSchema: JSONSchema;
+  secretsSchema: JSONSchema;
+  instantiate(): Module;
 }
 
 /**
@@ -246,11 +261,10 @@ export type ToolState = Omit<
 /**
  * Persisted state for a hydrated service.
  */
-export interface ServiceState
-  extends Omit<
-    ServiceDefinition,
-    "name" | "description" | "configSchema" | "secretsSchema" | "tools"
-  > {
+export interface ServiceState extends Omit<
+  ServiceDefinition,
+  "name" | "description" | "configSchema" | "secretsSchema" | "tools"
+> {
   id: string;
   tools: Record<string, ToolState>;
   config: Record<string, unknown>;

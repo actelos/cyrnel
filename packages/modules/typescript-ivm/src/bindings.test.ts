@@ -5,7 +5,7 @@ import type {
 } from "@cyrnel/sdk";
 import { describe, expect, it, vi } from "vitest";
 
-import { instantiate } from "@/index";
+import tsivm from "@/index";
 
 describe("bindings", () => {
   const createBindings = () => {
@@ -33,7 +33,7 @@ describe("bindings", () => {
   describe("console overrides", () => {
     it("emits stdout when console.log is called", async () => {
       const { bindings, emitStdout } = createBindings();
-      const environment = instantiate();
+      const environment = tsivm.instantiate();
 
       await environment.setup({ bindings, config: {}, secrets: {} });
 
@@ -51,7 +51,7 @@ describe("bindings", () => {
 
     it("emits stderr when console.error is called", async () => {
       const { bindings, emitStderr } = createBindings();
-      const environment = instantiate();
+      const environment = tsivm.instantiate();
 
       await environment.setup({ bindings, config: {}, secrets: {} });
 
@@ -69,7 +69,7 @@ describe("bindings", () => {
 
     it("formats multiple console.log arguments", async () => {
       const { bindings, emitStdout } = createBindings();
-      const environment = instantiate();
+      const environment = tsivm.instantiate();
 
       await environment.setup({ bindings, config: {}, secrets: {} });
 
@@ -90,7 +90,7 @@ describe("bindings", () => {
 
     it("handles null and undefined in console.log", async () => {
       const { bindings, emitStdout } = createBindings();
-      const environment = instantiate();
+      const environment = tsivm.instantiate();
 
       await environment.setup({ bindings, config: {}, secrets: {} });
 
@@ -110,7 +110,7 @@ describe("bindings", () => {
   describe("cyrnel.output", () => {
     it("emits output when cyrnel.output is called", async () => {
       const { bindings, emitOutput } = createBindings();
-      const environment = instantiate();
+      const environment = tsivm.instantiate();
 
       await environment.setup({ bindings, config: {}, secrets: {} });
 
@@ -128,7 +128,7 @@ describe("bindings", () => {
 
     it("passes through the eid to emitOutput", async () => {
       const { bindings, emitOutput } = createBindings();
-      const environment = instantiate();
+      const environment = tsivm.instantiate();
 
       await environment.setup({ bindings, config: {}, secrets: {} });
 
@@ -145,7 +145,7 @@ describe("bindings", () => {
   describe("cyrnel.services", () => {
     it("calls invokeTool with correct input", async () => {
       const { bindings, invokeTool } = createBindings();
-      const environment = instantiate();
+      const environment = tsivm.instantiate();
 
       invokeTool.mockResolvedValue({ result: "success" });
 
@@ -165,7 +165,7 @@ describe("bindings", () => {
 
     it("throws TypeError when service id is a symbol", async () => {
       const { bindings } = createBindings();
-      const environment = instantiate();
+      const environment = tsivm.instantiate();
 
       await environment.setup({ bindings, config: {}, secrets: {} });
 
@@ -179,7 +179,7 @@ describe("bindings", () => {
 
     it("throws TypeError when tool id is a symbol", async () => {
       const { bindings } = createBindings();
-      const environment = instantiate();
+      const environment = tsivm.instantiate();
 
       await environment.setup({ bindings, config: {}, secrets: {} });
 
@@ -195,7 +195,7 @@ describe("bindings", () => {
   describe("eid isolation", () => {
     it("passes correct eid for different executions", async () => {
       const { bindings, emitStdout } = createBindings();
-      const environment = instantiate();
+      const environment = tsivm.instantiate();
 
       await environment.setup({ bindings, config: {}, secrets: {} });
 
@@ -225,7 +225,7 @@ describe("bindings", () => {
 
     it("isolates eid for multiple binding calls in same execution", async () => {
       const { bindings, emitStdout, emitOutput } = createBindings();
-      const environment = instantiate();
+      const environment = tsivm.instantiate();
 
       await environment.setup({ bindings, config: {}, secrets: {} });
 
@@ -254,7 +254,7 @@ describe("bindings", () => {
   describe("cyrnel global immutability", () => {
     it("prevents modification of cyrnel object", async () => {
       const { bindings } = createBindings();
-      const environment = instantiate();
+      const environment = tsivm.instantiate();
 
       await environment.setup({ bindings, config: {}, secrets: {} });
 
@@ -276,7 +276,7 @@ describe("bindings", () => {
 
     it("prevents reassignment of cyrnel", async () => {
       const { bindings } = createBindings();
-      const environment = instantiate();
+      const environment = tsivm.instantiate();
 
       await environment.setup({ bindings, config: {}, secrets: {} });
 
@@ -298,7 +298,7 @@ describe("bindings", () => {
 
     it("makes cyrnel enumerable", async () => {
       const { bindings, emitStdout } = createBindings();
-      const environment = instantiate();
+      const environment = tsivm.instantiate();
 
       await environment.setup({ bindings, config: {}, secrets: {} });
 

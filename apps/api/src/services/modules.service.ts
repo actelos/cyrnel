@@ -1,7 +1,7 @@
 import type { Dirent } from "node:fs";
 import fs from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
-import * as oapi from "@cyrnel/openapi";
+import oapi from "@cyrnel/openapi";
 import type {
   AdapterModule,
   EnvironmentBindings,
@@ -11,12 +11,13 @@ import type {
   InvokeInput,
   JSONSchema,
   Module,
+  ModuleExport,
   ModuleSetupContext,
   ServiceDefinition,
   ServiceState,
   ToolDocsInput,
 } from "@cyrnel/sdk";
-import * as tsivm from "@cyrnel/typescript-ivm";
+import tsivm from "@cyrnel/typescript-ivm";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import jsonpatch from "fast-json-patch";
 import { decompress as zstdDecompress } from "fzstd";
@@ -52,6 +53,7 @@ import { computeBinaryHash } from "@/utils/hash.util";
 import { decryptSecrets, encryptSecrets } from "@/utils/secrets.util";
 import {
   applyJsonSchemaDefaults,
+  assertPlainJsonSchema,
   validateJsonSchema,
 } from "@/utils/validation.util";
 
@@ -600,19 +602,31 @@ export class ModuleService {
       throw new HttpError(500, `Failed to install module '${manifest.id}'.`);
     }
 
+    let configSchema: JSONSchema;
+    let secretsSchema: JSONSchema;
+
     try {
       const mainPath = resolve(installDir, manifest.main);
       const imported = (await import(mainPath)) as {
-        instantiate: () => Module;
+        default: ModuleExport;
       };
-      const configSchema = manifest.configSchema ?? EMPTY_OBJECT_SCHEMA;
-      const secretsSchema = manifest.secretsSchema ?? EMPTY_OBJECT_SCHEMA;
+      const def = imported.default;
+      assertPlainJsonSchema(
+        def.configSchema,
+        `configSchema for module '${manifest.id}'`,
+      );
+      assertPlainJsonSchema(
+        def.secretsSchema,
+        `secretsSchema for module '${manifest.id}'`,
+      );
+      configSchema = def.configSchema;
+      secretsSchema = def.secretsSchema;
 
       this.factories.set(manifest.id, {
         type: manifest.type,
         configSchema,
         secretsSchema,
-        instantiate: imported.instantiate,
+        instantiate: def.instantiate,
       });
       this.manifests.set(manifest.id, {
         id: manifest.id,
@@ -664,8 +678,8 @@ export class ModuleService {
       isBuiltin: false,
       enabled: false,
       missing: false,
-      configSchema: manifest.configSchema ?? EMPTY_OBJECT_SCHEMA,
-      secretsSchema: manifest.secretsSchema ?? EMPTY_OBJECT_SCHEMA,
+      configSchema,
+      secretsSchema,
     };
   }
 
@@ -720,19 +734,31 @@ export class ModuleService {
       throw new HttpError(500, `Failed to install module '${manifest.id}'.`);
     }
 
+    let configSchema: JSONSchema;
+    let secretsSchema: JSONSchema;
+
     try {
       const mainPath = resolve(installDir, manifest.main);
       const imported = (await import(mainPath)) as {
-        instantiate: () => Module;
+        default: ModuleExport;
       };
-      const configSchema = manifest.configSchema ?? EMPTY_OBJECT_SCHEMA;
-      const secretsSchema = manifest.secretsSchema ?? EMPTY_OBJECT_SCHEMA;
+      const def = imported.default;
+      assertPlainJsonSchema(
+        def.configSchema,
+        `configSchema for module '${manifest.id}'`,
+      );
+      assertPlainJsonSchema(
+        def.secretsSchema,
+        `secretsSchema for module '${manifest.id}'`,
+      );
+      configSchema = def.configSchema;
+      secretsSchema = def.secretsSchema;
 
       this.factories.set(manifest.id, {
         type: manifest.type,
         configSchema,
         secretsSchema,
-        instantiate: imported.instantiate,
+        instantiate: def.instantiate,
       });
       this.manifests.set(manifest.id, {
         id: manifest.id,
@@ -784,8 +810,8 @@ export class ModuleService {
       isBuiltin: false,
       enabled: false,
       missing: false,
-      configSchema: manifest.configSchema ?? EMPTY_OBJECT_SCHEMA,
-      secretsSchema: manifest.secretsSchema ?? EMPTY_OBJECT_SCHEMA,
+      configSchema,
+      secretsSchema,
     };
   }
 
@@ -894,16 +920,23 @@ export class ModuleService {
     try {
       const mainPath = resolve(installDir, manifest.main);
       const imported = (await import(mainPath)) as {
-        instantiate: () => Module;
+        default: ModuleExport;
       };
-      const configSchema = manifest.configSchema ?? EMPTY_OBJECT_SCHEMA;
-      const secretsSchema = manifest.secretsSchema ?? EMPTY_OBJECT_SCHEMA;
+      const def = imported.default;
+      assertPlainJsonSchema(
+        def.configSchema,
+        `configSchema for module '${manifest.id}'`,
+      );
+      assertPlainJsonSchema(
+        def.secretsSchema,
+        `secretsSchema for module '${manifest.id}'`,
+      );
 
       this.factories.set(manifest.id, {
         type: manifest.type,
-        configSchema,
-        secretsSchema,
-        instantiate: imported.instantiate,
+        configSchema: def.configSchema,
+        secretsSchema: def.secretsSchema,
+        instantiate: def.instantiate,
       });
       this.manifests.set(manifest.id, {
         id: manifest.id,
@@ -911,8 +944,8 @@ export class ModuleService {
         description: manifest.description,
         type: manifest.type,
         isBuiltin: false,
-        configSchema,
-        secretsSchema,
+        configSchema: def.configSchema,
+        secretsSchema: def.secretsSchema,
       });
     } catch (err) {
       await fs.rm(installDir, { recursive: true, force: true }).catch(() => {});
@@ -1053,16 +1086,23 @@ export class ModuleService {
     try {
       const mainPath = resolve(installDir, manifest.main);
       const imported = (await import(mainPath)) as {
-        instantiate: () => Module;
+        default: ModuleExport;
       };
-      const configSchema = manifest.configSchema ?? EMPTY_OBJECT_SCHEMA;
-      const secretsSchema = manifest.secretsSchema ?? EMPTY_OBJECT_SCHEMA;
+      const def = imported.default;
+      assertPlainJsonSchema(
+        def.configSchema,
+        `configSchema for module '${manifest.id}'`,
+      );
+      assertPlainJsonSchema(
+        def.secretsSchema,
+        `secretsSchema for module '${manifest.id}'`,
+      );
 
       this.factories.set(manifest.id, {
         type: manifest.type,
-        configSchema,
-        secretsSchema,
-        instantiate: imported.instantiate,
+        configSchema: def.configSchema,
+        secretsSchema: def.secretsSchema,
+        instantiate: def.instantiate,
       });
       this.manifests.set(manifest.id, {
         id: manifest.id,
@@ -1070,8 +1110,8 @@ export class ModuleService {
         description: manifest.description,
         type: manifest.type,
         isBuiltin: false,
-        configSchema,
-        secretsSchema,
+        configSchema: def.configSchema,
+        secretsSchema: def.secretsSchema,
       });
     } catch (err) {
       await fs.rm(installDir, { recursive: true, force: true }).catch(() => {});
@@ -1661,35 +1701,50 @@ export class ModuleService {
 
   private registerBuiltinModules(): void {
     const builtins: {
-      manifest: {
-        id: string;
-        name: string;
-        description: string;
-        type: ModuleType;
-        configSchema?: JSONSchema;
-        secretsSchema?: JSONSchema;
-      };
+      id: string;
+      name: string;
+      description: string;
+      type: ModuleType;
+      configSchema: JSONSchema;
+      secretsSchema: JSONSchema;
       instantiate: () => Module;
     }[] = [
-      { manifest: oapi.manifest, instantiate: oapi.instantiate },
-      { manifest: tsivm.manifest, instantiate: tsivm.instantiate },
+      {
+        id: "openapi",
+        name: "OpenAPI Adapter",
+        description: "Adapter for interacting with OpenAPI services",
+        type: "adapter",
+        ...oapi,
+      },
+      {
+        id: "typescript-ivm",
+        name: "Typescript Isolated VM",
+        description: "TypeScript environment powered by isolated-vm",
+        type: "environment",
+        ...tsivm,
+      },
     ];
 
-    for (const { manifest, instantiate } of builtins) {
-      const id = manifest.id;
-      const configSchema = manifest.configSchema ?? EMPTY_OBJECT_SCHEMA;
-      const secretsSchema = manifest.secretsSchema ?? EMPTY_OBJECT_SCHEMA;
+    for (const {
+      id,
+      name,
+      description,
+      type,
+      configSchema,
+      secretsSchema,
+      instantiate,
+    } of builtins) {
       this.factories.set(id, {
-        type: manifest.type,
+        type,
         configSchema,
         secretsSchema,
         instantiate,
       });
       this.manifests.set(id, {
         id,
-        name: manifest.name,
-        description: manifest.description,
-        type: manifest.type,
+        name,
+        description,
+        type,
         isBuiltin: true,
         configSchema,
         secretsSchema,
@@ -1737,8 +1792,7 @@ export class ModuleService {
         );
       }
 
-      const { id, name, description, type, main, configSchema, secretsSchema } =
-        parsed.data;
+      const { id, name, description, type, main } = parsed.data;
 
       if (this.factories.has(id)) {
         throw new HttpError(
@@ -1757,17 +1811,17 @@ export class ModuleService {
       }
 
       const imported = (await import(mainPath)) as {
-        instantiate: () => Module;
+        default: ModuleExport;
       };
-
-      const resolvedConfigSchema = configSchema ?? EMPTY_OBJECT_SCHEMA;
-      const resolvedSecretsSchema = secretsSchema ?? EMPTY_OBJECT_SCHEMA;
+      const { configSchema, secretsSchema, instantiate } = imported.default;
+      assertPlainJsonSchema(configSchema, `configSchema for module '${id}'`);
+      assertPlainJsonSchema(secretsSchema, `secretsSchema for module '${id}'`);
 
       this.factories.set(id, {
         type,
-        configSchema: resolvedConfigSchema,
-        secretsSchema: resolvedSecretsSchema,
-        instantiate: imported.instantiate,
+        configSchema,
+        secretsSchema,
+        instantiate,
       });
       this.manifests.set(id, {
         id,
@@ -1775,8 +1829,8 @@ export class ModuleService {
         description,
         type,
         isBuiltin: false,
-        configSchema: resolvedConfigSchema,
-        secretsSchema: resolvedSecretsSchema,
+        configSchema,
+        secretsSchema,
       });
     }
   }

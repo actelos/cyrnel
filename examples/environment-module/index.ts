@@ -62,6 +62,16 @@ class ShellEnvironment implements EnvironmentModule {
   }
 }
 
-export function instantiate(): EnvironmentModule {
-  return new ShellEnvironment();
-}
+export default {
+  configSchema: {
+    type: "object",
+    properties: {},
+    additionalProperties: false,
+  },
+  secretsSchema: {
+    type: "object",
+    properties: {},
+    additionalProperties: false,
+  },
+  instantiate: (): EnvironmentModule => new ShellEnvironment(),
+};

@@ -3,15 +3,5 @@
   "name": "Shell Environment",
   "type": "environment",
   "description": "Run shell commands",
-  "main": "./index.js",
-  "configSchema": {
-    "type": "object",
-    "properties": {},
-    "additionalProperties": false
-  },
-  "secretsSchema": {
-    "type": "object",
-    "properties": {},
-    "additionalProperties": false
-  }
+  "main": "./index.js"
 }

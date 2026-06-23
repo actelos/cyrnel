@@ -74,8 +74,6 @@ export const moduleManifestSchema = z.object({
   description: z.string(),
   type: z.enum(MODULE_TYPES),
   main: z.string().min(1),
-  configSchema: z.record(z.string(), z.unknown()).optional(),
-  secretsSchema: z.record(z.string(), z.unknown()).optional(),
 });
 
 export type ModuleManifestSchema = z.infer<typeof moduleManifestSchema>;

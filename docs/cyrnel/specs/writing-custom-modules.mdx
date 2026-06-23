@@ -44,7 +44,7 @@ Fields:
 - `type`: `Adapter` or `environment`.
 - `description`: Surfaced in `GET /modules`.
 - `main`: Path to the built module file the host can `import()`. The file must
-  export `instantiate()`.
+  default-export the module object (see below).
 
 The host expects compiled JavaScript here, not TypeScript. The
 expectation is that you ship modules built ahead of time.
@@ -98,6 +98,37 @@ reappears. Trying to enable a missing module returns `409`.
 If a custom module declares a `name` that already exists (built-in or
 otherwise registered), the host keeps the first registration and skips
 the duplicate. Built-ins are registered first.
+
+## Module Entry File
+
+The file pointed to by `main` must default-export an object with the
+following shape:
+
+```ts
+import type { ModuleExport } from "@cyrnel/sdk";
+
+// For adapter modules:
+import type { AdapterModule } from "@cyrnel/sdk";
+
+export default {
+  configSchema: { /* JSON Schema for module-level config */ },
+  secretsSchema: { /* JSON Schema for module-level secrets */ },
+  instantiate(): AdapterModule {
+    return new MyAdapter();
+  },
+} satisfies ModuleExport;
+```
+
+- `configSchema` and `secretsSchema` must be **plain JSON-only objects**.
+  No functions, class instances, Proxies, symbols, or circular references.
+  The host validates this at registration time.
+- `instantiate` is a zero-argument factory that returns a fresh module
+  instance. The host calls it each time the module is activated.
+
+For the type-specific skeletons see:
+
+- [Writing a custom adapter module](/cyrnel/specs/writing-custom-adapter-module)
+- [Writing a custom environment module](/cyrnel/specs/writing-custom-environment-module)
 
 ## Iteration Workflow
 

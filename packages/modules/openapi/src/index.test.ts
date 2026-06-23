@@ -1,30 +1,19 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { instantiate, manifest } from "@/index";
+import oapi from "@/index";
 
-describe("openapi module manifest", () => {
-  it("uses id as the stable identifier and name as the display label", () => {
-    expect(manifest).toMatchObject({
-      id: "openapi",
-      name: "OpenAPI Adapter",
-      type: "adapter",
-    });
-  });
-
-  it("declares the supported configSchema", () => {
-    expect(manifest.configSchema).toMatchObject({
+describe("openapi module default export", () => {
+  it("has configSchema and secretsSchema", () => {
+    expect(oapi.configSchema).toMatchObject({
       type: "object",
       properties: { defaultTimeoutMs: { type: "integer" } },
       additionalProperties: false,
     });
-  });
-
-  it("declares the supported secretsSchema", () => {
-    expect(manifest.secretsSchema).toEqual({ type: "null" });
+    expect(oapi.secretsSchema).toEqual({ type: "null" });
   });
 
   it("instantiates an adapter that accepts the new setup context", async () => {
-    const adapter = instantiate();
+    const adapter = oapi.instantiate();
     await expect(
       adapter.setup({ config: {}, secrets: {} }),
     ).resolves.toBeUndefined();
@@ -78,7 +67,7 @@ describe("OpenapiAdapter invoke", () => {
   }
 
   function makeAdapter() {
-    const adapter = instantiate();
+    const adapter = oapi.instantiate();
     hydrate(adapter, "petstore", mockServiceState);
     return adapter;
   }
@@ -145,8 +134,7 @@ describe("OpenapiAdapter invoke", () => {
     const fetchMock = vi.fn().mockResolvedValue(mockResponse);
     vi.stubGlobal("fetch", fetchMock);
 
-    // Create a custom adapter for this test with listPets tool
-    const adapter = instantiate();
+    const adapter = oapi.instantiate();
     const listPetsState = {
       ...mockServiceState,
       tools: {
@@ -181,7 +169,7 @@ describe("OpenapiAdapter invoke", () => {
     const fetchMock = vi.fn().mockResolvedValue(mockResponse);
     vi.stubGlobal("fetch", fetchMock);
 
-    const adapter = instantiate();
+    const adapter = oapi.instantiate();
     const cookieState = {
       ...mockServiceState,
       tools: {
@@ -239,7 +227,7 @@ describe("OpenapiAdapter invoke", () => {
     });
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(mockResponse));
 
-    const adapter = instantiate();
+    const adapter = oapi.instantiate();
     const deleteState = {
       ...mockServiceState,
       tools: {

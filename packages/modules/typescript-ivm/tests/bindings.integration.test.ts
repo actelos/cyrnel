@@ -1,7 +1,7 @@
 import type { EnvironmentBindings, ExecutionInput } from "@cyrnel/sdk";
 import { describe, expect, it, vi } from "vitest";
 
-import { instantiate } from "@/index";
+import mod from "@/index";
 
 describe("bindings integration", () => {
   const createBindings = () => {
@@ -18,7 +18,7 @@ describe("bindings integration", () => {
   describe("end-to-end service invocation", () => {
     it("handles errors in tool invocation", async () => {
       const bindings = createBindings();
-      const environment = instantiate();
+      const environment = mod.instantiate();
 
       bindings.invokeTool.mockRejectedValue(
         new Error("Tool invocation failed"),
@@ -49,7 +49,7 @@ describe("bindings integration", () => {
   describe("complex console usage", () => {
     it("handles mixed console.log and console.error", async () => {
       const bindings = createBindings();
-      const environment = instantiate();
+      const environment = mod.instantiate();
 
       await environment.setup({ bindings, config: {}, secrets: {} });
 
@@ -76,7 +76,7 @@ describe("bindings integration", () => {
 
     it("formats complex objects in console", async () => {
       const bindings = createBindings();
-      const environment = instantiate();
+      const environment = mod.instantiate();
 
       await environment.setup({ bindings, config: {}, secrets: {} });
 
@@ -104,7 +104,7 @@ describe("bindings integration", () => {
 
     it("handles circular references in console", async () => {
       const bindings = createBindings();
-      const environment = instantiate();
+      const environment = mod.instantiate();
 
       await environment.setup({ bindings, config: {}, secrets: {} });
 
@@ -125,7 +125,7 @@ describe("bindings integration", () => {
   describe("multiple executions with different eids", () => {
     it("keeps bindings isolated per execution", async () => {
       const bindings = createBindings();
-      const environment = instantiate();
+      const environment = mod.instantiate();
 
       await environment.setup({ bindings, config: {}, secrets: {} });
 
@@ -164,7 +164,7 @@ describe("bindings integration", () => {
   describe("async operations", () => {
     it("handles async tool invocation", async () => {
       const bindings = createBindings();
-      const environment = instantiate();
+      const environment = mod.instantiate();
 
       bindings.invokeTool.mockImplementation(
         async () =>
@@ -189,7 +189,7 @@ describe("bindings integration", () => {
 
     it("handles parallel async operations", async () => {
       const bindings = createBindings();
-      const environment = instantiate();
+      const environment = mod.instantiate();
 
       bindings.invokeTool.mockResolvedValue({ value: 1 });
 
@@ -216,7 +216,7 @@ describe("bindings integration", () => {
   describe("TypeScript support", () => {
     it("executes TypeScript code with type annotations", async () => {
       const bindings = createBindings();
-      const environment = instantiate();
+      const environment = mod.instantiate();
 
       await environment.setup({ bindings, config: {}, secrets: {} });
 

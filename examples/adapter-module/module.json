@@ -3,15 +3,5 @@
   "name": "HTTP Adapter",
   "type": "adapter",
   "description": "Call any HTTP API",
-  "main": "./index.js",
-  "configSchema": {
-    "type": "object",
-    "properties": {},
-    "additionalProperties": false
-  },
-  "secretsSchema": {
-    "type": "object",
-    "properties": {},
-    "additionalProperties": false
-  }
+  "main": "./index.js"
 }

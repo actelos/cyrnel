@@ -56,9 +56,10 @@ class MyAdapter implements AdapterModule {
   }
 }
 
-export function instantiate(): AdapterModule {
-  return new MyAdapter();
-}
+const configSchema = { type: "object", properties: {} } as const;
+const secretsSchema = { type: "null" } as const;
+
+export default { configSchema, secretsSchema, instantiate: () => new MyAdapter() };
 ```
 
 ## Full Example

@@ -1,7 +1,7 @@
 import type { EnvironmentBindings, ExecutionInput } from "@cyrnel/sdk";
 import { describe, expect, it, vi } from "vitest";
 
-import { instantiate } from "@/index";
+import mod from "@/index";
 
 const infiniteCode = "while (true) {}";
 const tick = () => new Promise((resolve) => setTimeout(resolve, 10));
@@ -18,7 +18,7 @@ describe("typescript-ivm integration", () => {
     }) satisfies EnvironmentBindings;
 
   it("executes via the public entrypoint", async () => {
-    const environment = instantiate();
+    const environment = mod.instantiate();
     const bindings = createBindings();
 
     await environment.setup({ bindings, config: {}, secrets: {} });
@@ -35,7 +35,7 @@ describe("typescript-ivm integration", () => {
   });
 
   it("kills executions via the public entrypoint", async () => {
-    const environment = instantiate();
+    const environment = mod.instantiate();
     const bindings = createBindings();
 
     await environment.setup({ bindings, config: {}, secrets: {} });

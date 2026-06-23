@@ -1,7 +1,6 @@
 import type {
   AdapterModule,
   InvokeInput,
-  JSONSchema,
   ModuleSetupContext,
   ServiceDefinition,
   ServiceState,
@@ -108,30 +107,19 @@ class OpenapiAdapter implements AdapterModule {
   }
 }
 
-const CONFIG_SCHEMA: JSONSchema = {
-  type: "object",
-  properties: {
-    defaultTimeoutMs: {
-      type: "integer",
-      default: 30000,
-      minimum: 1,
-      description: "Default request timeout in milliseconds for all services",
+export default {
+  configSchema: {
+    type: "object",
+    properties: {
+      defaultTimeoutMs: {
+        type: "integer",
+        default: 30000,
+        minimum: 1,
+        description: "Default request timeout in milliseconds for all services",
+      },
     },
+    additionalProperties: false,
   },
-  additionalProperties: false,
+  secretsSchema: { type: "null" },
+  instantiate: () => new OpenapiAdapter(),
 };
-
-const SECRETS_SCHEMA: JSONSchema = { type: "null" };
-
-export const manifest = {
-  id: "openapi",
-  name: "OpenAPI Adapter",
-  description: "Adapter for interacting with OpenAPI services",
-  type: "adapter" as const,
-  configSchema: CONFIG_SCHEMA,
-  secretsSchema: SECRETS_SCHEMA,
-};
-
-export function instantiate(): AdapterModule {
-  return new OpenapiAdapter();
-}

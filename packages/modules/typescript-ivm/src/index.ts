@@ -545,25 +545,14 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
   }
 }
 
-const CONFIG_SCHEMA: JSONSchema = {
-  type: "object",
-  properties: {
-    poolSize: { type: "integer", minimum: 1 },
+export default {
+  configSchema: {
+    type: "object",
+    properties: {
+      poolSize: { type: "integer", minimum: 1 },
+    },
+    additionalProperties: false,
   },
-  additionalProperties: false,
+  secretsSchema: { type: "null" },
+  instantiate: () => new TypescriptIvmEnvironment(),
 };
-
-const SECRETS_SCHEMA: JSONSchema = { type: "null" };
-
-export const manifest = {
-  id: "typescript-ivm",
-  name: "Typescript Isolated VM",
-  description: "TypeScript environment powered by isolated-vm",
-  type: "environment" as const,
-  configSchema: CONFIG_SCHEMA,
-  secretsSchema: SECRETS_SCHEMA,
-};
-
-export function instantiate(): EnvironmentModule {
-  return new TypescriptIvmEnvironment();
-}

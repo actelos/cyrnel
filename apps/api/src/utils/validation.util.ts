@@ -36,6 +36,63 @@ function formatAjvErrors(validate: ValidateFunction): string {
   );
 }
 
+/**
+ * Asserts that `value` is a plain JSON-safe object (no functions, class
+ * instances, symbols, or Proxies). Throws an HttpError if not.
+ *
+ * This is used to verify that module-exported config/secrets schemas are
+ * pure data and cannot execute code.
+ */
+export function assertPlainJsonSchema(
+  value: unknown,
+  label = "Schema",
+): asserts value is Record<string, unknown> {
+  const seen = new Set<unknown>();
+  function check(v: unknown, path: string): void {
+    if (
+      v === null ||
+      typeof v === "boolean" ||
+      typeof v === "number" ||
+      typeof v === "string"
+    )
+      return;
+    if (Array.isArray(v)) {
+      if (seen.has(v))
+        throw new HttpError(
+          400,
+          `${label} at ${path || "/"} contains a circular reference.`,
+        );
+      seen.add(v);
+      for (let i = 0; i < v.length; i++) check(v[i], `${path}/${i}`);
+      return;
+    }
+    if (typeof v === "object" && v !== null) {
+      if (seen.has(v))
+        throw new HttpError(
+          400,
+          `${label} at ${path || "/"} contains a circular reference.`,
+        );
+      const proto = Object.getPrototypeOf(v);
+      if (proto !== Object.prototype && proto !== null) {
+        throw new HttpError(
+          400,
+          `${label} at ${path || "/"} is a class instance or non-plain object.`,
+        );
+      }
+      seen.add(v);
+      for (const key of Object.keys(v as Record<string, unknown>)) {
+        check((v as Record<string, unknown>)[key], `${path}/${key}`);
+      }
+      return;
+    }
+    throw new HttpError(
+      400,
+      `${label} at ${path} contains a non-JSON value (${typeof v}).`,
+    );
+  }
+  check(value, "");
+}
+
 export function parseOrHttpError<T>(
   schema: ZodType<T>,
   value: unknown,

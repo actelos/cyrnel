@@ -112,6 +112,16 @@ class HttpAdapter implements AdapterModule {
   }
 }
 
-export function instantiate(): AdapterModule {
-  return new HttpAdapter();
-}
+export default {
+  configSchema: {
+    type: "object",
+    properties: {},
+    additionalProperties: false,
+  },
+  secretsSchema: {
+    type: "object",
+    properties: {},
+    additionalProperties: false,
+  },
+  instantiate: (): AdapterModule => new HttpAdapter(),
+};
