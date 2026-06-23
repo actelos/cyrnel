@@ -1,0 +1,403 @@
+import { Loader2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
+import { useNotification } from "@/hooks/use-notification";
+import { apiFetch, errorMessageFrom } from "@/lib/api";
+
+type JSONSchema = Record<string, unknown>;
+
+interface JsonSchemaFormProps {
+  title: string;
+  schema: JSONSchema;
+  currentValues: Record<string, unknown>;
+  patchUrl: string;
+  onSaved?: () => void | Promise<void>;
+}
+
+function jsonPointer(path: string): string {
+  return `/${path.replace(/~/g, "~0").replace(/\//g, "~1")}`;
+}
+
+function buildPatch(
+  current: Record<string, unknown>,
+  next: Record<string, unknown>,
+): Array<Record<string, unknown>> {
+  const patch: Array<Record<string, unknown>> = [];
+  for (const key of Object.keys(current)) {
+    if (!Object.hasOwn(next, key)) {
+      patch.push({ op: "remove", path: jsonPointer(key) });
+    }
+  }
+  for (const [key, value] of Object.entries(next)) {
+    if (
+      Object.hasOwn(current, key) &&
+      JSON.stringify(current[key]) === JSON.stringify(value)
+    ) {
+      continue;
+    }
+    const op = Object.hasOwn(current, key) ? "replace" : "add";
+    patch.push({ op, path: jsonPointer(key), value });
+  }
+  return patch;
+}
+
+function renderField(
+  name: string,
+  prop: JSONSchema,
+  value: unknown,
+  onChange: (name: string, value: unknown) => void,
+  depth: number,
+): React.ReactNode {
+  const propType = Array.isArray(prop.type) ? prop.type[0] : prop.type;
+  const _required = Array.isArray(prop.required)
+    ? (prop.required as string[])
+    : [];
+  const description =
+    typeof prop.description === "string" ? prop.description : undefined;
+
+  const indent = `ml-${Math.min(depth * 4, 8)}`;
+
+  if (propType === "object" && prop.properties) {
+    const subProps = prop.properties as Record<string, JSONSchema>;
+    const subValues = (value as Record<string, unknown>) ?? {};
+    return (
+      <fieldset key={name} className={`space-y-3 border-l-2 pl-4 ${indent}`}>
+        <legend className="text-sm font-medium flex items-center gap-2">
+          {name}
+          {description ? (
+            <span className="text-xs text-muted-foreground font-normal">
+              — {description}
+            </span>
+          ) : null}
+        </legend>
+        {Object.entries(subProps).map(([subName, subProp]) =>
+          renderField(
+            subName,
+            subProp as JSONSchema,
+            subValues[subName],
+            (k, v) => {
+              onChange(name, { ...subValues, [k]: v });
+            },
+            depth + 1,
+          ),
+        )}
+      </fieldset>
+    );
+  }
+
+  if (propType === "boolean") {
+    return (
+      <div key={name} className={`flex items-center gap-3 ${indent}`}>
+        <Switch
+          checked={value === true}
+          onCheckedChange={(v) => onChange(name, v)}
+        />
+        <div className="space-y-0.5">
+          <Label className="text-sm font-medium">{name}</Label>
+          {description ? (
+            <p className="text-xs text-muted-foreground">{description}</p>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
+  if (prop.enum && Array.isArray(prop.enum)) {
+    return (
+      <div key={name} className={`space-y-1.5 ${indent}`}>
+        <Label className="text-sm font-medium">
+          {name}
+          {description ? (
+            <span className="text-xs text-muted-foreground font-normal ml-2">
+              — {description}
+            </span>
+          ) : null}
+        </Label>
+        <div className="flex flex-wrap gap-1.5">
+          {prop.enum.map((option) => {
+            const strOption = String(option);
+            const selected = value === option;
+            return (
+              <Badge
+                key={strOption}
+                variant={selected ? "default" : "outline"}
+                className="cursor-pointer text-xs"
+                onClick={() => onChange(name, option)}
+              >
+                {strOption}
+              </Badge>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  if (propType === "array") {
+    const items = Array.isArray(value) ? value : [];
+    return (
+      <div key={name} className={`space-y-2 ${indent}`}>
+        <Label className="text-sm font-medium">
+          {name}
+          {description ? (
+            <span className="text-xs text-muted-foreground font-normal ml-2">
+              — {description}
+            </span>
+          ) : null}
+        </Label>
+        <div className="space-y-2">
+          {items.map((item, i) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: primitives managed by index
+            <div key={i} className="flex items-center gap-2">
+              <Input
+                value={typeof item === "string" ? item : JSON.stringify(item)}
+                onChange={(e) => {
+                  const next = [...items];
+                  next[i] = e.target.value;
+                  onChange(name, next);
+                }}
+                className="flex-1 font-mono text-xs"
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="text-destructive h-8 w-8 p-0"
+                onClick={() => {
+                  const next = items.filter((_, j) => j !== i);
+                  onChange(name, next);
+                }}
+              >
+                ×
+              </Button>
+            </div>
+          ))}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => onChange(name, [...items, ""])}
+          >
+            + Add
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  const isNumber = propType === "number" || propType === "integer";
+  const isSecret =
+    name.toLowerCase().includes("secret") ||
+    name.toLowerCase().includes("token") ||
+    name.toLowerCase().includes("key") ||
+    name.toLowerCase().includes("password");
+
+  if (propType === "object" && !prop.properties) {
+    return (
+      <div key={name} className={`space-y-1.5 ${indent}`}>
+        <Label className="text-sm font-medium">
+          {name}
+          {description ? (
+            <span className="text-xs text-muted-foreground font-normal ml-2">
+              — {description}
+            </span>
+          ) : null}
+        </Label>
+        <Textarea
+          value={value !== undefined ? JSON.stringify(value, null, 2) : "{}"}
+          onChange={(e) => {
+            try {
+              onChange(name, JSON.parse(e.target.value));
+            } catch {
+              onChange(name, e.target.value);
+            }
+          }}
+          className="min-h-[100px] font-mono text-xs resize-none"
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div key={name} className={`space-y-1.5 ${indent}`}>
+      <Label className="text-sm font-medium">
+        {name}
+        {description ? (
+          <span className="text-xs text-muted-foreground font-normal ml-2">
+            — {description}
+          </span>
+        ) : null}
+      </Label>
+      {isSecret ? (
+        <div className="relative">
+          <Input
+            type="password"
+            value={typeof value === "string" ? value : ""}
+            onChange={(e) => onChange(name, e.target.value)}
+            placeholder="(hidden)"
+            className="font-mono text-xs pr-16"
+          />
+          <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground pointer-events-none">
+            secret
+          </span>
+        </div>
+      ) : (
+        <Input
+          type={isNumber ? "number" : "text"}
+          value={
+            value !== undefined && value !== null
+              ? isNumber
+                ? String(value)
+                : (value as string)
+              : ""
+          }
+          onChange={(e) => {
+            const val = e.target.value;
+            onChange(
+              name,
+              isNumber ? (val === "" ? undefined : Number(val)) : val,
+            );
+          }}
+          placeholder={
+            typeof prop.default !== "undefined"
+              ? `Default: ${JSON.stringify(prop.default)}`
+              : ""
+          }
+          className="font-mono text-xs"
+        />
+      )}
+    </div>
+  );
+}
+
+export default function JsonSchemaForm({
+  title,
+  schema,
+  currentValues,
+  patchUrl,
+  onSaved,
+}: JsonSchemaFormProps) {
+  const { addNotification } = useNotification();
+  const [values, setValues] = useState<Record<string, unknown>>({});
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const properties = (schema.properties ?? {}) as Record<string, JSONSchema>;
+
+  useEffect(() => {
+    setValues({ ...currentValues });
+    setError(null);
+  }, [currentValues]);
+
+  const patch = useMemo(
+    () => buildPatch(currentValues, values),
+    [currentValues, values],
+  );
+
+  const hasChanges = patch.length > 0;
+
+  const handleChange = (name: string, value: unknown) => {
+    setValues((prev) => ({ ...prev, [name]: value }));
+    setError(null);
+  };
+
+  const handleSave = async () => {
+    if (patch.length === 0) {
+      addNotification({
+        type: "success",
+        title: "No changes",
+        message: "No changes to save.",
+      });
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+    try {
+      await apiFetch(patchUrl, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+
+      addNotification({
+        type: "success",
+        title: "Saved",
+        message: `${title} updated.`,
+      });
+
+      await onSaved?.();
+    } catch (err) {
+      const msg = errorMessageFrom(
+        err,
+        `Unable to save ${title.toLowerCase()}.`,
+      );
+      setError(msg);
+      addNotification({ type: "error", title: "Error", message: msg });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const isEmpty = Object.keys(properties).length === 0;
+
+  return (
+    <Card className="flex flex-col">
+      <CardHeader className="flex flex-row items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold">{title}</h3>
+        <div className="flex items-center gap-2">
+          {patch.length > 0 ? (
+            <span className="text-xs text-muted-foreground">
+              {patch.length} change{patch.length !== 1 ? "s" : ""}
+            </span>
+          ) : null}
+          <Button
+            type="button"
+            size="sm"
+            disabled={saving || !hasChanges}
+            onClick={handleSave}
+          >
+            {saving ? (
+              <>
+                <Loader2 className="animate-spin" />
+                Saving
+              </>
+            ) : (
+              "Save"
+            )}
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="min-h-0 flex-1 overflow-hidden">
+        <ScrollArea className="h-full">
+          <div className="space-y-4 pr-4">
+            {error ? <p className="text-sm text-destructive">{error}</p> : null}
+
+            {isEmpty ? (
+              <p className="text-sm text-muted-foreground">
+                No configuration options available.
+              </p>
+            ) : (
+              Object.entries(properties).map(([name, prop]) =>
+                renderField(
+                  name,
+                  prop as JSONSchema,
+                  values[name],
+                  handleChange,
+                  0,
+                ),
+              )
+            )}
+          </div>
+        </ScrollArea>
+      </CardContent>
+    </Card>
+  );
+}

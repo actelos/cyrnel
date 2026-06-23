@@ -12,7 +12,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import remarkGfm from "remark-gfm";
 import useSWR, { useSWRConfig } from "swr";
 import { z } from "zod";
-import ConfigEditor from "@/components/ConfigEditor";
+import JsonSchemaForm from "@/components/JsonSchemaForm";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -103,14 +103,6 @@ export default function ServiceDetailPage() {
   const [manualUpdateUrl, setManualUpdateUrl] = useState("");
   const [isManualUpdating, setIsManualUpdating] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [configDraft, setConfigDraft] = useState<string>("{\n  \n}");
-  const [configDraftError, setConfigDraftError] = useState<string | null>(null);
-  const [isSavingConfig, setIsSavingConfig] = useState(false);
-  const [secretsDraft, setSecretsDraft] = useState<string>("{\n  \n}");
-  const [secretsDraftError, setSecretsDraftError] = useState<string | null>(
-    null,
-  );
-  const [isSavingSecrets, setIsSavingSecrets] = useState(false);
 
   const serviceDetailsUrl = serviceId
     ? buildUrl(`/services/${serviceId}`)
@@ -186,168 +178,13 @@ export default function ServiceDetailPage() {
     { refreshInterval: 8000 },
   );
 
-  const currentConfigDisplay = JSON.stringify(
-    serviceConfig?.config ?? {},
-    null,
-    2,
-  );
-
-  useEffect(() => {
-    if (!serviceId) {
-      return;
-    }
-
-    setConfigDraftError(null);
-    const normalized = JSON.stringify(serviceConfig?.config ?? {}, null, 2);
-    setConfigDraft(normalized);
-  }, [serviceId, serviceConfig?.config]);
-
-  useEffect(() => {
-    if (!serviceId) {
-      return;
-    }
-
-    setSecretsDraftError(null);
-    setSecretsDraft("{\n  \n}");
-  }, [serviceId]);
-
-  const escapeJsonPointer = (value: string) =>
-    value.replace(/~/g, "~0").replace(/\//g, "~1");
-
-  const handleSaveConfiguration = async (id: string) => {
-    setConfigDraftError(null);
-
-    let desiredConfig: unknown;
-    try {
-      desiredConfig = JSON.parse(configDraft);
-    } catch (error) {
-      setConfigDraftError(
-        error instanceof Error
-          ? error.message
-          : "Configuration is not valid JSON.",
-      );
-      return;
-    }
-
-    const patch: Array<Record<string, unknown>> = [];
-
-    if (Array.isArray(desiredConfig)) {
-      patch.push(...(desiredConfig as Array<Record<string, unknown>>));
-    } else {
-      if (!desiredConfig || typeof desiredConfig !== "object") {
-        setConfigDraftError(
-          "Configuration must be a JSON object or JSON Patch array.",
-        );
-        return;
-      }
-
-      const currentConfig = (serviceConfig?.config ?? {}) as Record<
-        string,
-        unknown
-      >;
-      const nextConfig = desiredConfig as Record<string, unknown>;
-
-      for (const key of Object.keys(currentConfig)) {
-        if (!Object.hasOwn(nextConfig, key)) {
-          patch.push({ op: "remove", path: `/${escapeJsonPointer(key)}` });
-        }
-      }
-
-      for (const [key, value] of Object.entries(nextConfig)) {
-        const op = Object.hasOwn(currentConfig, key) ? "replace" : "add";
-        if (Object.hasOwn(currentConfig, key) && currentConfig[key] === value) {
-          continue;
-        }
-        patch.push({ op, path: `/${escapeJsonPointer(key)}`, value });
-      }
-    }
-
-    setIsSavingConfig(true);
-    try {
-      await apiFetch(buildUrl(`/services/${id}/config`), {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(patch),
-      });
-
-      if (configUrl) {
-        await mutate(configUrl);
-      }
-      addNotification({
-        type: "success",
-        title: "Success",
-        message: "Configuration saved.",
-      });
-    } catch (error) {
-      addNotification({
-        type: "error",
-        title: "Error",
-        message: errorMessageFrom(error, "Unable to save configuration."),
-      });
-    } finally {
-      setIsSavingConfig(false);
-    }
-  };
-
-  const handleSaveSecrets = async (id: string) => {
-    setSecretsDraftError(null);
-
-    let desiredSecrets: unknown;
-    try {
-      desiredSecrets = JSON.parse(secretsDraft);
-    } catch (error) {
-      setSecretsDraftError(
-        error instanceof Error ? error.message : "Secrets are not valid JSON.",
-      );
-      return;
-    }
-
-    const patch: Array<Record<string, unknown>> = [];
-
-    if (Array.isArray(desiredSecrets)) {
-      patch.push(...(desiredSecrets as Array<Record<string, unknown>>));
-    } else {
-      if (!desiredSecrets || typeof desiredSecrets !== "object") {
-        setSecretsDraftError(
-          "Secrets must be a JSON object or JSON Patch array.",
-        );
-        return;
-      }
-
-      const nextSecrets = desiredSecrets as Record<string, unknown>;
-
-      for (const [key, value] of Object.entries(nextSecrets)) {
-        patch.push({
-          op: "add",
-          path: `/${escapeJsonPointer(key)}`,
-          value,
-        });
-      }
-    }
-
-    setIsSavingSecrets(true);
-    try {
-      await apiFetch(buildUrl(`/services/${id}/secrets`), {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(patch),
-      });
-
-      setSecretsDraft("{\n  \n}");
-      addNotification({
-        type: "success",
-        title: "Success",
-        message: "Secrets saved.",
-      });
-    } catch (error) {
-      addNotification({
-        type: "error",
-        title: "Error",
-        message: errorMessageFrom(error, "Unable to save secrets."),
-      });
-    } finally {
-      setIsSavingSecrets(false);
-    }
+  const handleRefetchAll = async () => {
+    if (configUrl) await mutate(configUrl);
+    if (secretsSchemaUrl) await mutate(secretsSchemaUrl);
+    if (configSchemaUrl) await mutate(configSchemaUrl);
+    if (serviceDetailsUrl) await mutate(serviceDetailsUrl);
+    if (toolsUrl) await mutate(toolsUrl);
+    await mutate(buildUrl("/services"));
   };
 
   const handleCheckForUpdate = async () => {
@@ -873,97 +710,22 @@ export default function ServiceDetailPage() {
                 </CardContent>
               </Card>
               <div className="max-h-[calc(100vh-3rem)] flex flex-1 flex-col gap-6 h-full min-h-0">
-                <Card className="h-1/2 flex flex-col">
-                  <CardHeader className="flex flex-wrap items-center justify-between gap-2">
-                    <h3 className="text-sm font-semibold">Configuration</h3>
-                    <Button
-                      type="button"
-                      disabled={isSavingConfig}
-                      onClick={() => {
-                        void handleSaveConfiguration(serviceDetails.id);
-                      }}
-                    >
-                      {isSavingConfig ? "Saving" : "Save"}
-                    </Button>
-                  </CardHeader>
-                  <CardContent className="min-h-0 flex-1">
-                    <ScrollArea className="h-full">
-                      <div className="space-y-4">
-                        {configDraftError ? (
-                          <p className="text-sm text-destructive">
-                            {configDraftError}
-                          </p>
-                        ) : null}
-                        <ConfigEditor
-                          idPrefix="config"
-                          config={currentConfigDisplay}
-                          schema={JSON.stringify(
-                            serviceConfigSchemaPayload?.configSchema ?? {},
-                            null,
-                            2,
-                          )}
-                          jsonPatch={configDraft}
-                          onJsonPatchChange={(value) => {
-                            setConfigDraftError(null);
-                            setConfigDraft(value);
-                          }}
-                          labels={{
-                            config: "Current Configuration",
-                            schema: "Schema",
-                            patch: "Edit Configuration (JSON or JSON Patch)",
-                          }}
-                        />
-                      </div>
-                    </ScrollArea>
-                  </CardContent>
-                </Card>
-
-                <Card className="h-1/2 flex flex-col">
-                  <CardHeader className="flex flex-wrap items-center justify-between gap-2">
-                    <h3 className="text-sm font-semibold">Secrets</h3>
-                    <Button
-                      type="button"
-                      disabled={isSavingSecrets}
-                      onClick={() => {
-                        void handleSaveSecrets(serviceDetails.id);
-                      }}
-                    >
-                      {isSavingSecrets ? "Saving" : "Save"}
-                    </Button>
-                  </CardHeader>
-                  <CardContent className="min-h-0 flex-1">
-                    <ScrollArea className="h-full">
-                      <div className="space-y-4">
-                        {secretsDraftError ? (
-                          <p className="text-sm text-destructive">
-                            {secretsDraftError}
-                          </p>
-                        ) : null}
-
-                        <ConfigEditor
-                          idPrefix="secrets"
-                          labels={{
-                            config: "Current Secrets",
-                            schema: "Schema",
-                            patch: "Edit Secrets (JSON or JSON Patch)",
-                          }}
-                          hideConfig
-                          config={secretsDraft}
-                          schema={JSON.stringify(
-                            serviceSecretsSchemaPayload?.secretsSchema ?? {},
-                            null,
-                            2,
-                          )}
-                          jsonPatch={secretsDraft}
-                          onJsonPatchChange={(value) => {
-                            setSecretsDraftError(null);
-                            setSecretsDraft(value);
-                          }}
-                        />
-                      </div>
-                    </ScrollArea>
-                  </CardContent>
-                </Card>
+                <JsonSchemaForm
+                  title="Configuration"
+                  schema={serviceConfigSchemaPayload?.configSchema ?? {}}
+                  currentValues={
+                    (serviceConfig?.config ?? {}) as Record<string, unknown>
+                  }
+                  patchUrl={buildUrl(`/services/${serviceDetails.id}/config`)}
+                  onSaved={handleRefetchAll}
+                />
+                <JsonSchemaForm
+                  title="Secrets"
+                  schema={serviceSecretsSchemaPayload?.secretsSchema ?? {}}
+                  currentValues={{} as Record<string, unknown>}
+                  patchUrl={buildUrl(`/services/${serviceDetails.id}/secrets`)}
+                  onSaved={handleRefetchAll}
+                />
               </div>
             </div>
           </div>
