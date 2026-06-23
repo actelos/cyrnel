@@ -27,7 +27,7 @@ On disk:
 - `(serviceId, id)` is the composite primary key. Tool `id` must be a valid
   TypeScript identifier.
 - `name` is human-friendly; `id` is what code addresses.
-- `enabled` is per-tool — a service can be enabled with some of its tools
+- `enabled` is per-tool, a service can be enabled with some of its tools
   disabled.
 
 ## Endpoints
@@ -43,10 +43,10 @@ On disk:
 
 Query parameters (all optional):
 
-- `serviceId` — restrict to one service
-- `query` — case-insensitive substring match against `name` and `description`
-- `enabled` — `true` / `false`
-- `limit` — positive integer
+- `serviceId`: Restrict to one service
+- `query`: Case-insensitive substring match against `name` and `description`
+- `enabled`: `true` / `false`
+- `limit`: Positive integer
 
 The list response includes a derived `effectivelyEnabled` flag:
 `tool.enabled && service.enabled`. Use it when deciding what to surface to

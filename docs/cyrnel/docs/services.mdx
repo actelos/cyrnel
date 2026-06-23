@@ -158,7 +158,7 @@ The `source` column semantics:
 Enable validates configuration and secrets against their schemas (applying
 defaults), then calls `adapter.hydrateService(state)`. If hydration throws,
 the `enabled` flag is rolled back. Stale services (`stale = true`) cannot
-be enabled — use `PATCH` or `POST /update` to sync the service first.
+be enabled, use `PATCH` or `POST /update` to sync the service first.
 
 Disable calls `adapter.dehydrateService(serviceId)` and best-efforts logs
 any failure.

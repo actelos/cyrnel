@@ -102,7 +102,7 @@ environment lies about exit state, the process record lies too.
 
 - The bundled `typescript-ivm` enforces the timeout by racing the
   isolate against a `setTimeout`, then disposing the isolate.
-- Custom environments are free to use any mechanism — process group
+- Custom environments are free to use any mechanism, process group
   signals, worker thread interrupts, whatever fits the runtime.
 
 ## Cancellation Contract

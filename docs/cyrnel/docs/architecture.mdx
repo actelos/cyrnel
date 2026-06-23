@@ -83,8 +83,8 @@ for outbound calls.
 ## Process Lifecycle
 
 From the client's perspective, process execution is asynchronous. The client
-creates a process and either gets a `pid` back immediately, or — with
-`block: true` — waits until the process reaches `idle`. Outputs are retrieved
+creates a process and either gets a `pid` back immediately, or, with
+`block: true`, waits until the process reaches `idle`. Outputs are retrieved
 by `pid` from the `/processes/:pid/{output,stdout,stderr}` routes once the
 process is idle.
 
