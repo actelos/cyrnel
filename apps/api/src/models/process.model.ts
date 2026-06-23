@@ -22,6 +22,7 @@ export interface ProcessRecord {
   options: {
     timeoutMs?: number | null;
   };
+  autorun?: boolean;
   output: Record<string, unknown>;
   stdout: Buffer;
   stderr: Buffer;

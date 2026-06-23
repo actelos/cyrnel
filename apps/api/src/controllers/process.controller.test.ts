@@ -193,6 +193,7 @@ describe("process.controller", () => {
         ref: undefined,
         code: "console.log(1)",
         options: { timeoutMs: undefined },
+        autorun: true,
       });
       expect(res.status).toHaveBeenCalledWith(201);
       expect(res.json).toHaveBeenCalledWith({ pid: 42 });
@@ -218,6 +219,7 @@ describe("process.controller", () => {
         ref: "job-1",
         code: "x",
         options: { timeoutMs: 5000 },
+        autorun: true,
       });
     });
 
@@ -234,7 +236,57 @@ describe("process.controller", () => {
         ref: undefined,
         code: "x",
         options: { timeoutMs: null },
+        autorun: true,
       });
+    });
+
+    it("defaults autorun to true", async () => {
+      const res = makeRes();
+      processService.create.mockReturnValue(5);
+
+      await createProcess(makeReq({ body: { code: "x" } }), cast(res));
+
+      expect(processService.create).toHaveBeenCalledWith(
+        expect.objectContaining({ autorun: true }),
+      );
+    });
+
+    it("passes autorun=false from the body", async () => {
+      const res = makeRes();
+      processService.create.mockReturnValue(6);
+
+      await createProcess(
+        makeReq({ body: { code: "x", autorun: false } }),
+        cast(res),
+      );
+
+      expect(processService.create).toHaveBeenCalledWith(
+        expect.objectContaining({ autorun: false }),
+      );
+    });
+
+    it("passes autorun=true from the body", async () => {
+      const res = makeRes();
+      processService.create.mockReturnValue(7);
+
+      await createProcess(
+        makeReq({ body: { code: "x", autorun: true } }),
+        cast(res),
+      );
+
+      expect(processService.create).toHaveBeenCalledWith(
+        expect.objectContaining({ autorun: true }),
+      );
+    });
+
+    it("rejects non-boolean autorun", async () => {
+      const res = makeRes();
+      await expect(
+        createProcess(
+          makeReq({ body: { code: "x", autorun: "yes" } }),
+          cast(res),
+        ),
+      ).rejects.toBeInstanceOf(HttpError);
     });
 
     it("returns { pid }", async () => {

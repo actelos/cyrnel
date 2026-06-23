@@ -39,6 +39,10 @@ const createProcessBodySchema = z
           .optional(),
       })
       .optional(),
+    autorun: z
+      .boolean({ error: "Field 'autorun' must be a boolean." })
+      .optional()
+      .default(true),
   })
   .superRefine((value, ctx) => {
     if (value.code === undefined)
@@ -52,6 +56,7 @@ const createProcessBodySchema = z
     code: value.code as string,
     ref: value.ref,
     options: value.options,
+    autorun: value.autorun,
   }));
 
 const forceBodySchema = z.object({
@@ -136,6 +141,7 @@ export async function createProcess(
     ref: parseOptional(refSchema("body"), body.ref),
     code: body.code,
     options: { timeoutMs: body.options?.timeout },
+    autorun: body.autorun,
   });
   res.status(201).json({ pid });
 }

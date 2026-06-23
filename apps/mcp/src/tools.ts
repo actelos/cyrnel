@@ -122,6 +122,12 @@ const tools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
         .default(30)
         .optional()
         .describe("Execution timeout in seconds (defaults to 30)."),
+      autorun: z
+        .boolean()
+        .default(true)
+        .describe(
+          "Whether to start the process immediately. When false, the process is created in idle state and must be started via run_process.",
+        ),
       block: z
         .boolean()
         .default(true)
@@ -150,6 +156,7 @@ const tools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
       code,
       ref,
       timeout,
+      autorun,
       block,
       with_output,
       with_stdout,
@@ -158,10 +165,11 @@ const tools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
       const body: Record<string, unknown> = { code };
       if (ref !== undefined) body.ref = ref;
       if (timeout !== undefined) body.options = { timeout: timeout * 1000 };
+      body.autorun = autorun;
       const { pid } = (await api.post("processes", { json: body }).json()) as {
         pid: number;
       };
-      if (!block) return JSON.stringify({ pid });
+      if (!block || !autorun) return JSON.stringify({ pid });
       const process = await pollUntilIdle(pid, timeout);
       const result: Record<string, unknown> = { ...process };
       if (with_output) {

@@ -115,6 +115,11 @@
               }
             },
             "description": "Optional execution options for the process."
+          },
+          "autorun": {
+            "type": "boolean",
+            "default": true,
+            "description": "Whether to start execution immediately. When false, the process is created in idle state and must be started via the run signal."
           }
         },
         "required": [
@@ -895,7 +900,7 @@
           "Processes"
         ],
         "summary": "Create a process",
-        "description": "Stages new code as a process and runs it. The optional options.timeout is expressed in milliseconds and may be null to explicitly clear it.",
+        "description": "Stages new code as a process and optionally runs it immediately (see autorun). The optional options.timeout is expressed in milliseconds and may be null to explicitly clear it.",
         "requestBody": {
           "content": {
             "application/json": {

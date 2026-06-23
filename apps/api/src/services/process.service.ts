@@ -67,18 +67,23 @@ export class ProcessService {
     }
 
     const pid = this.createPid();
+    const autorun = input.autorun ?? true;
 
     this.processes.set(pid, {
       ...input,
       pid,
-      state: "queued",
+      autorun,
+      state: autorun ? "queued" : "idle",
       exitState: null,
       error: null,
       output: {},
       stdout: Buffer.alloc(0),
       stderr: Buffer.alloc(0),
     });
-    this.startExecution(pid);
+
+    if (autorun) {
+      this.startExecution(pid);
+    }
 
     return pid;
   }

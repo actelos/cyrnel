@@ -154,6 +154,61 @@ describe("ProcessService", () => {
       expect(controller.executeCalls[0]?.options?.timeoutMs).toBe(30_000);
     });
 
+    it("defaults autorun to true when not provided", () => {
+      const controller = makeController();
+      controller.executeImpl = () => new Promise(() => {});
+      const { service } = makeService(controller);
+
+      const pid = service.create(BASE_CREATE_INPUT);
+      const record = service.get(pid);
+      expect(record.state).toBe("queued");
+      expect(controller.executeCalls).toHaveLength(1);
+    });
+
+    it("autorun=true starts execution immediately", () => {
+      const controller = makeController();
+      controller.executeImpl = () => new Promise(() => {});
+      const { service } = makeService(controller);
+
+      const pid = service.create({ ...BASE_CREATE_INPUT, autorun: true });
+      expect(controller.executeCalls).toHaveLength(1);
+      expect(service.get(pid).state).toBe("queued");
+    });
+
+    it("autorun=false creates the process in idle state without executing", () => {
+      const controller = makeController();
+      controller.executeImpl = () => new Promise(() => {});
+      const { service } = makeService(controller);
+
+      const pid = service.create({ ...BASE_CREATE_INPUT, autorun: false });
+      expect(controller.executeCalls).toHaveLength(0);
+      const record = service.get(pid);
+      expect(record.state).toBe("idle");
+      expect(record.exitState).toBeNull();
+      expect(record.error).toBeNull();
+    });
+
+    it("autorun=false process can be run later", () => {
+      const controller = makeController();
+      controller.executeImpl = () => new Promise(() => {});
+      const { service } = makeService(controller);
+
+      const pid = service.create({ ...BASE_CREATE_INPUT, autorun: false });
+      expect(controller.executeCalls).toHaveLength(0);
+
+      const result = service.run(pid, false);
+      expect(result.state).toBe("queued");
+      expect(controller.executeCalls).toHaveLength(1);
+    });
+
+    it("autorun=false process can be deleted while idle", () => {
+      const { service } = makeService();
+      const pid = service.create({ ...BASE_CREATE_INPUT, autorun: false });
+
+      expect(() => service.delete(pid)).not.toThrow();
+      expect(() => service.get(pid)).toThrow(HttpError);
+    });
+
     it("throws HttpError(503) once the service is shutting down", async () => {
       const { service } = makeService();
       await service.shutdown();

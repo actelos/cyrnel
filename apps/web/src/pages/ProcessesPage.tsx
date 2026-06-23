@@ -106,6 +106,7 @@ const createProcessSchema = z.object({
   code: z.string().min(1, "Code is required."),
   ref: refInputSchema,
   timeout: timeoutInputSchema,
+  autorun: z.boolean().default(true),
 });
 
 const filterSchema = z.object({
@@ -157,6 +158,7 @@ export default function ProcessesPage() {
   const [createCode, setCreateCode] = useState("");
   const [createRef, setCreateRef] = useState("");
   const [createTimeout, setCreateTimeout] = useState("");
+  const [createAutorun, setCreateAutorun] = useState(true);
   const [createErrors, setCreateErrors] = useState<CreateProcessErrors>({});
   const { addNotification } = useNotification();
   const [isCreating, setIsCreating] = useState(false);
@@ -296,6 +298,7 @@ export default function ProcessesPage() {
       code: createCode,
       ref: createRef,
       timeout: createTimeout,
+      autorun: createAutorun,
     });
 
     if (!parsed.success) {
@@ -320,12 +323,14 @@ export default function ProcessesPage() {
           ...(parsed.data.timeout !== undefined
             ? { options: { timeout: parsed.data.timeout } }
             : {}),
+          autorun: parsed.data.autorun,
         }),
       });
 
       setCreateCode("");
       setCreateRef("");
       setCreateTimeout("");
+      setCreateAutorun(true);
       setIsCreateOpen(false);
       await mutate(processesUrl);
       addNotification({
@@ -489,6 +494,20 @@ export default function ProcessesPage() {
                             {createErrors.timeout}
                           </p>
                         ) : null}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          id="process-autorun"
+                          type="checkbox"
+                          checked={createAutorun}
+                          onChange={(event) =>
+                            setCreateAutorun(event.target.checked)
+                          }
+                          className="h-4 w-4 rounded border-border"
+                        />
+                        <Label htmlFor="process-autorun">
+                          Start immediately
+                        </Label>
                       </div>
                     </div>
                     <div className="flex items-center justify-end gap-2">

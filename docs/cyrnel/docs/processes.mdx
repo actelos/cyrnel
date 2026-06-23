@@ -54,7 +54,7 @@ Each process is an in-memory record with the following fields:
 {
   "code": "string",
   "ref": "optional string",
-  "block": false,
+  "autorun": true,
   "options": {
     "timeout": 30000
   }
@@ -67,7 +67,10 @@ Rules:
 - `ref` is optional, trimmed, and must be non-empty if present.
 - `options.timeout` is in milliseconds. Must be a **positive integer**, or
   `null` to disable. Default: `30000`.
-- `block` defaults to `false`.
+- `autorun` controls whether execution starts immediately. When `true`
+  (default), the process is queued and runs right away. When `false`, the
+  process is created in `idle` state and must be started via the
+  [run signal](/cyrnel/docs/processes#run-an-existing-process).
 
 Response (`201`):
 
@@ -76,7 +79,8 @@ Response (`201`):
 ```
 
 If `block: true`, cyrnel polls until `state === "idle"` before responding. The
-HTTP status is still `201`.
+HTTP status is still `201`. Note that `block` has no effect when `autorun` is
+`false`, the process is already idle.
 
 ## Run an Existing Process
 

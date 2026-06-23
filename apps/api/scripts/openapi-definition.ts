@@ -202,6 +202,13 @@ const ProcessCreateRequestSchema = registry.register(
         })
         .optional()
         .describe("Optional execution options for the process."),
+      autorun: z
+        .boolean()
+        .optional()
+        .default(true)
+        .describe(
+          "Whether to start execution immediately. When false, the process is created in idle state and must be started via the run signal.",
+        ),
     })
     .describe("Request body used to create a new process."),
 );
@@ -766,7 +773,7 @@ registry.registerPath({
   tags: ["Processes"],
   summary: "Create a process",
   description:
-    "Stages new code as a process and runs it. The optional options.timeout is expressed in milliseconds and may be null to explicitly clear it.",
+    "Stages new code as a process and optionally runs it immediately (see autorun). The optional options.timeout is expressed in milliseconds and may be null to explicitly clear it.",
   request: { body: { content: jsonContent(ProcessCreateRequestSchema) } },
   responses: {
     201: {
