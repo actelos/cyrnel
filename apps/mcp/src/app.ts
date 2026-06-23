@@ -1,10 +1,6 @@
 import { FastMCP } from "fastmcp";
 
-import { environmentTools } from "@/tools/environment.js";
-import { moduleTools } from "@/tools/module.js";
-import { processTools } from "@/tools/process.js";
-import { serviceTools } from "@/tools/service.js";
-import { toolTools } from "@/tools/tool.js";
+import tools from "@/tools.js";
 
 export type Transport =
   | { type: "stdio" }
@@ -15,14 +11,7 @@ export class App {
 
   constructor() {
     this.server = new FastMCP({ name: "cyrnel", version: "1.0.0" });
-
-    this.server.addTools([
-      ...environmentTools,
-      ...processTools,
-      ...serviceTools,
-      ...toolTools,
-      ...moduleTools,
-    ]);
+    this.server.addTools(tools);
   }
 
   async start(transport: Transport): Promise<void> {

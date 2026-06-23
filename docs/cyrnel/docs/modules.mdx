@@ -205,14 +205,6 @@ for non-sensitive values only; put credentials and tokens in secrets.
 Enabling a missing module returns `409`. Direct-installed items (`source = ""`)
 cannot use `POST /modules/:moduleId/update` -- they return `409`.
 
-The MCP server exposes the same module management surface through:
-
-- `list_modules`, `get_module`, `set_module_enabled`, `reload_modules`
-- `get_module_config_schema`, `get_module_config`, `patch_module_config`
-- `get_module_secrets_schema`, `patch_module_secrets`
-- `install_module` (registry), `add_module` (direct), `update_module` (registry),
-  `patch_module` (direct), `delete_module`
-
 A module record:
 
 ```ts

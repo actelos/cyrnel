@@ -15,7 +15,6 @@ const createProcessBodySchema = z
     code: z
       .string({ error: 'Field "code" must be a string' })
       .or(z.undefined()),
-    block: z.boolean({ error: "Field 'block' must be a boolean." }).optional(),
     ref: z
       .string({ error: "Field 'ref' in body must be a string." })
       .transform((v) => v.trim())
@@ -51,14 +50,12 @@ const createProcessBodySchema = z
   })
   .transform((value) => ({
     code: value.code as string,
-    block: value.block,
     ref: value.ref,
     options: value.options,
   }));
 
 const forceBodySchema = z.object({
   force: z.boolean({ error: "Field 'force' must be a boolean." }).optional(),
-  block: z.boolean({ error: "Field 'block' must be a boolean." }).optional(),
 });
 
 const stateSchema = z
@@ -140,10 +137,6 @@ export async function createProcess(
     code: body.code,
     options: { timeoutMs: body.options?.timeout },
   });
-  if (body.block) {
-    res.status(201).json(await processService.waitForIdle(pid));
-    return;
-  }
   res.status(201).json({ pid });
 }
 
@@ -192,10 +185,5 @@ export async function runProcess(req: Request, res: Response): Promise<void> {
     "Request body must be an object.",
   );
   const pid = parsePid(req);
-  const process = processService.run(pid, body.force ?? false);
-  if (body.block) {
-    res.status(200).json(await processService.waitForIdle(pid));
-    return;
-  }
-  res.status(200).json(process);
+  res.status(200).json(processService.run(pid, body.force ?? false));
 }

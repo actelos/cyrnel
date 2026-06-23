@@ -181,12 +181,6 @@ const ProcessCreateRequestSchema = registry.register(
         .describe(
           "Executable source code to stage and run in the active environment.",
         ),
-      block: z
-        .boolean()
-        .optional()
-        .describe(
-          "When true, waits for the process to become idle before responding.",
-        ),
       ref: z
         .string()
         .min(1)
@@ -241,12 +235,6 @@ const RunSignalRequestSchema = registry.register(
         .optional()
         .describe(
           "When true, reruns a process even if prior output already exists.",
-        ),
-      block: z
-        .boolean()
-        .optional()
-        .describe(
-          "When true, waits until execution completes before responding.",
         ),
     })
     .describe(
@@ -778,7 +766,7 @@ registry.registerPath({
   tags: ["Processes"],
   summary: "Create a process",
   description:
-    "Stages new code as a process. The optional block flag waits until execution becomes idle before responding. The optional options.timeout is expressed in milliseconds and may be null to explicitly clear it.",
+    "Stages new code as a process and runs it. The optional options.timeout is expressed in milliseconds and may be null to explicitly clear it.",
   request: { body: { content: jsonContent(ProcessCreateRequestSchema) } },
   responses: {
     201: {
@@ -946,7 +934,7 @@ registry.registerPath({
   tags: ["Processes"],
   summary: "Run a process",
   description:
-    "Queues an idle process for execution. Set force to true to rerun a process that already produced output. Set block to true to wait for the process to return to the idle state before responding.",
+    "Queues an idle process for execution. Set force to true to rerun a process that already produced output.",
   request: {
     params: pidParam,
     body: { content: jsonContent(RunSignalRequestSchema) },
@@ -1745,10 +1733,8 @@ export function generateOpenApiDoc(): OpenAPIObject {
     openapi: "3.0.0",
     info: {
       title: "Cyrnel API",
-      description: `
-      Cyrnel is an interface that lets users plug in any service over any protocol
-      with any standard and have models use it efficiently at low cost.
-      `,
+      description:
+        "Cyrnel is a universal layer that connects AI agents and LLM applications to any external service, API, or device regardless of protocol or standard. It acts as an adaptive bridge between your AI and the outside world, enabling seamless integrations through code execution, async operation handling, and built-in observability and security controls.",
       version: "1.0.0",
     },
     servers: [{ url: "http://localhost:9371" }],

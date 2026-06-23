@@ -237,37 +237,11 @@ describe("process.controller", () => {
       });
     });
 
-    it("blocks until idle and returns the final process record when block=true", async () => {
-      const res = makeRes();
-      processService.create.mockReturnValue(3);
-      processService.waitForIdle.mockResolvedValue({
-        pid: 3,
-        state: "idle",
-        exitState: "success",
-      });
-
-      await createProcess(
-        makeReq({ body: { code: "x", block: true } }),
-        cast(res),
-      );
-
-      expect(processService.waitForIdle).toHaveBeenCalledWith(3);
-      expect(res.status).toHaveBeenCalledWith(201);
-      expect(res.json).toHaveBeenCalledWith({
-        pid: 3,
-        state: "idle",
-        exitState: "success",
-      });
-    });
-
-    it("returns { pid } when block is false or omitted", async () => {
+    it("returns { pid }", async () => {
       const res = makeRes();
       processService.create.mockReturnValue(4);
 
-      await createProcess(
-        makeReq({ body: { code: "x", block: false } }),
-        cast(res),
-      );
+      await createProcess(makeReq({ body: { code: "x" } }), cast(res));
 
       expect(processService.waitForIdle).not.toHaveBeenCalled();
       expect(res.json).toHaveBeenCalledWith({ pid: 4 });
@@ -295,7 +269,6 @@ describe("process.controller", () => {
         body: { code: "x", options: { timeout: "1000" } },
         why: "string timeout",
       },
-      { body: { code: "x", block: "yes" }, why: "non-boolean block" },
     ])("rejects $why", async ({ body }) => {
       const res = makeRes();
       await expect(
@@ -427,14 +400,13 @@ describe("process.controller", () => {
   });
 
   describe("runProcess", () => {
-    it("runs without force or block by default", async () => {
+    it("runs without force by default", async () => {
       const res = makeRes();
       processService.run.mockReturnValue({ pid: 7, state: "queued" });
 
       await runProcess(makeReq({ params: { pid: "7" }, body: {} }), cast(res));
 
       expect(processService.run).toHaveBeenCalledWith(7, false);
-      expect(processService.waitForIdle).not.toHaveBeenCalled();
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith({ pid: 7, state: "queued" });
     });
@@ -451,32 +423,8 @@ describe("process.controller", () => {
       expect(processService.run).toHaveBeenCalledWith(7, true);
     });
 
-    it("blocks and returns the awaited process record when block=true", async () => {
-      const res = makeRes();
-      processService.run.mockReturnValue({ pid: 7, state: "queued" });
-      processService.waitForIdle.mockResolvedValue({
-        pid: 7,
-        state: "idle",
-        exitState: "success",
-      });
-
-      await runProcess(
-        makeReq({ params: { pid: "7" }, body: { block: true } }),
-        cast(res),
-      );
-
-      expect(processService.waitForIdle).toHaveBeenCalledWith(7);
-      expect(res.status).toHaveBeenCalledWith(200);
-      expect(res.json).toHaveBeenCalledWith({
-        pid: 7,
-        state: "idle",
-        exitState: "success",
-      });
-    });
-
     it.each([
       { body: { force: "yes" }, why: "non-boolean force" },
-      { body: { block: "yes" }, why: "non-boolean block" },
     ])("rejects $why", async ({ body }) => {
       const res = makeRes();
       await expect(
