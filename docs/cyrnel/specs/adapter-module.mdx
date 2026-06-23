@@ -152,17 +152,13 @@ class MyAdapter implements AdapterModule {
   }
 }
 
-export const manifest = {
-  name: "my-adapter",
-  version: "1.0.0",
-  description: "...",
-  type: "adapter" as const,
-};
-
 export function instantiate(): AdapterModule {
   return new MyAdapter();
 }
 ```
 
-See [Writing a custom adapter module](/cyrnel/specs/writing-custom-adapter-module)
-for a step-by-step walkthrough and a full working example.
+> **Note:** The manifest metadata (name, version, type, etc.) goes in
+> `module.json` for custom modules. Only built-in modules ship `export
+> const manifest` from code. The skeleton above omits it, see
+> [Writing a custom adapter module](/cyrnel/specs/writing-custom-adapter-module)
+> for a step-by-step walkthrough and a full working example.

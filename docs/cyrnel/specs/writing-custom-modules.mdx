@@ -44,7 +44,7 @@ Fields:
 - `type`: `Adapter` or `environment`.
 - `description`: Surfaced in `GET /modules`.
 - `main`: Path to the built module file the host can `import()`. The file must
-  export `instantiate()` and a `manifest` constant.
+  export `instantiate()`.
 
 The host expects compiled JavaScript here, not TypeScript. The
 expectation is that you ship modules built ahead of time.

@@ -168,20 +168,16 @@ class MyEnvironment implements EnvironmentModule {
   }
 }
 
-export const manifest = {
-  name: "my-environment",
-  version: "1.0.0",
-  description: "...",
-  type: "environment" as const,
-};
-
 export function instantiate(): EnvironmentModule {
   return new MyEnvironment();
 }
 ```
 
-See [Writing a custom environment module](/cyrnel/specs/writing-custom-environment-module)
-for a step-by-step walkthrough and a full working example.
+> **Note:** The manifest metadata (name, version, type, etc.) goes in
+> `module.json` for custom modules. Only built-in modules ship `export
+> const manifest` from code. The skeleton above omits it, see
+> [Writing a custom environment module](/cyrnel/specs/writing-custom-environment-module)
+> for a step-by-step walkthrough and a full working example.
 
 See [`EnvironmentBindings`](/cyrnel/specs/environment-bindings) for the callbacks and
 [Execution](/cyrnel/specs/environment-execution) for the state machine details.

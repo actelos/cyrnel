@@ -18,22 +18,29 @@ state) and the interfaces that adapter and environment modules implement.
 
 ## Module Manifests
 
-Every module, built-in or custom exposes a tiny manifest plus an
-`instantiate` factory:
+Every module exposes a manifest (id, name, type, description, config and
+secrets schemas) plus an `instantiate` factory. Where the manifest lives
+depends on how the module ships:
 
-```ts
-export const manifest = {
-  id: "my-adapter",
-  name: "My Adapter",
-  type: "adapter" as const,
-  description: "Hello World",
-  ...
-};
+- **Built-in modules** ship the manifest as a code export alongside
+  `instantiate`:
+  
+  ```ts
+  export const manifest = {
+    id: "my-adapter",
+    name: "My Adapter",
+    type: "adapter" as const,
+    description: "Hello World",
+    ...
+  };
+  
+  export function instantiate(): AdapterModule {
+    return new MyAdapter();
+  }
+  ```
 
-export function instantiate(): AdapterModule {
-  return new MyAdapter();
-}
-```
+- **Custom modules** declare the manifest in `module.json` instead. The
+  code file only needs to export `instantiate()`.
 
 Built-ins are registered by cyrnel from their workspace exports. Custom
 modules are loaded from `$CYRNEL_DATA_DIR/modules/<name>/` based on a
