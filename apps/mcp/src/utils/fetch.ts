@@ -22,10 +22,14 @@ export const api: KyInstance = ky.create({
     beforeError: [
       async ({ request, error }) => {
         if (!(error instanceof HTTPError)) return error;
-        const text = await error.response
-          .clone()
-          .text()
-          .catch(() => "");
+        let text = "";
+        try {
+          text = await error.response.clone().text();
+        } catch {
+          try {
+            text = await error.response.text();
+          } catch {}
+        }
         let detail = text;
         try {
           const body = JSON.parse(text) as Record<string, unknown>;
