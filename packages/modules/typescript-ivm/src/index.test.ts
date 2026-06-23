@@ -90,11 +90,6 @@ describe("environment module", () => {
     return {
       bindings: {
         setState,
-        discoverServices: vi.fn(),
-        discoverTools: vi.fn(),
-        getService: vi.fn(),
-        getTool: vi.fn(),
-        getToolDocs: vi.fn(),
         invokeTool: vi.fn(),
         emitStdout: vi.fn(),
         emitStderr: vi.fn(),

@@ -63,80 +63,6 @@ export interface Module {
 // Environment Module
 
 /**
- * Input used when discovering services.
- */
-export interface ListServiceInput {
-  query?: string;
-  limit?: number;
-  enabled?: boolean;
-  stale?: boolean;
-}
-
-/**
- * Service metadata returned by service discovery operations.
- */
-export interface ListServiceResult
-  extends Omit<
-    ServiceDefinition,
-    "configSchema" | "secretsSchema" | "tools" | "adapterDomain"
-  > {
-  id: string;
-  enabled: boolean;
-  effectivelyEnabled: boolean;
-  stale: boolean;
-}
-
-/**
- * Input used when discovering tools.
- */
-export interface ListToolInput {
-  serviceId?: string;
-  query?: string;
-  limit?: number;
-  enabled?: boolean;
-}
-
-/**
- * Tool metadata returned by tool discovery operations.
- */
-export interface ListToolResult
-  extends Omit<
-    ToolDefinition,
-    "inputSchema" | "outputSchema" | "adapterDomain"
-  > {
-  serviceId: string;
-  enabled: boolean;
-  effectivelyEnabled: boolean;
-}
-
-/**
- * Detailed service information returned by service lookup operations.
- */
-export interface GetServiceResult
-  extends Omit<ServiceDefinition, "tools" | "adapterDomain"> {
-  enabled: boolean;
-  effectivelyEnabled: boolean;
-  stale: boolean;
-}
-
-/**
- * Input used to retrieve a specific tool.
- */
-export interface GetToolInput {
-  serviceId: string;
-  toolId: string;
-}
-
-/**
- * Detailed tool information returned by tool lookup operations.
- */
-export interface GetToolResult
-  extends Omit<ToolDefinition, "id" | "adapterDomain"> {
-  enabled: boolean;
-  effectivelyEnabled: boolean;
-}
-
-/**
  * Input used to invoke a tool.
  */
 export interface InvokeInput {
@@ -157,52 +83,9 @@ export type ExecutionState = (typeof EXECUTION_STATES)[number];
 
 /**
  * Provides environment-specific bindings used by environment modules
- * to discover services, invoke tools, and emit execution events.
+ * to invoke tools and emit execution events.
  */
 export interface EnvironmentBindings {
-  /**
-   * Discovers available services.
-   *
-   * @param input - Service discovery criteria.
-   * @returns A list of matching services.
-   */
-  discoverServices(input: ListServiceInput): Promise<ListServiceResult[]>;
-
-  /**
-   * Discovers available tools.
-   *
-   * @param input - Tool discovery criteria.
-   * @returns A list of matching tools.
-   */
-  discoverTools(input: ListToolInput): Promise<ListToolResult[]>;
-
-  /**
-   * Retrieves a service by identifier.
-   *
-   * @param id - Unique service identifier.
-   * @returns The matching service definition.
-   * @throws Error if the service cannot be found.
-   */
-  getService(id: string): Promise<GetServiceResult>;
-
-  /**
-   * Retrieves a tool by identifier.
-   *
-   * @param input - Tool lookup information.
-   * @returns The matching tool definition.
-   * @throws Error if the tool cannot be found.
-   */
-  getTool(input: GetToolInput): Promise<GetToolResult>;
-
-  /**
-   * Retrieves generated documentation for a tool.
-   *
-   * @param input - Tool lookup information.
-   * @returns Tool documentation as markdown.
-   * @throws Error if the tool cannot be found.
-   */
-  getToolDocs(input: GetToolInput): Promise<string>;
-
   /**
    * Invokes a tool.
    *

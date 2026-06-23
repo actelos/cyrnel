@@ -10,11 +10,6 @@ describe("typescript-ivm integration", () => {
   const createBindings = () =>
     ({
       setState: vi.fn(),
-      discoverServices: vi.fn(),
-      discoverTools: vi.fn(),
-      getService: vi.fn(),
-      getTool: vi.fn(),
-      getToolDocs: vi.fn(),
       invokeTool: vi.fn(),
       emitStdout: vi.fn(),
       emitStderr: vi.fn(),

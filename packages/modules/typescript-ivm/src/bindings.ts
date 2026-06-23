@@ -8,12 +8,7 @@
     __cyrnel_emitStdout: IvmReference;
     __cyrnel_emitStderr: IvmReference;
     __cyrnel_emitOutput: IvmReference;
-    __cyrnel_getService: IvmReference;
-    __cyrnel_getTool: IvmReference;
-    __cyrnel_getToolDocs: IvmReference;
     __cyrnel_invokeTool: IvmReference;
-    __cyrnel_discoverTools: IvmReference;
-    __cyrnel_discoverServices: IvmReference;
   }
 
   const cyrnelGlobals = globalThis as typeof globalThis & CyrnelGlobals;
@@ -21,66 +16,7 @@
   const __cyrnel_emitStdout = cyrnelGlobals.__cyrnel_emitStdout;
   const __cyrnel_emitStderr = cyrnelGlobals.__cyrnel_emitStderr;
   const __cyrnel_emitOutput = cyrnelGlobals.__cyrnel_emitOutput;
-  const __cyrnel_getService = cyrnelGlobals.__cyrnel_getService;
-  const __cyrnel_getTool = cyrnelGlobals.__cyrnel_getTool;
-  const __cyrnel_getToolDocs = cyrnelGlobals.__cyrnel_getToolDocs;
   const __cyrnel_invokeTool = cyrnelGlobals.__cyrnel_invokeTool;
-  const __cyrnel_discoverTools = cyrnelGlobals.__cyrnel_discoverTools;
-  const __cyrnel_discoverServices = cyrnelGlobals.__cyrnel_discoverServices;
-
-  type ListServiceInput = {
-    query?: string;
-    limit?: number;
-    enabled?: boolean;
-    stale?: boolean;
-  };
-
-  type ListToolInput = {
-    serviceId?: string;
-    query?: string;
-    limit?: number;
-    enabled?: boolean;
-  };
-
-  type ListServiceResult = {
-    id: string;
-    name: string;
-    description: string;
-    enabled: boolean;
-    stale: boolean;
-  };
-
-  type ListToolResult = {
-    serviceId: string;
-    id: string;
-    name: string;
-    description: string;
-    enabled: boolean;
-  };
-
-  type ServiceDetails = {
-    name: string;
-    description: string;
-    enabled: boolean;
-    effectivelyEnabled: boolean;
-    stale: boolean;
-    configSchema: Record<string, unknown>;
-    secretsSchema: Record<string, unknown>;
-  };
-
-  type GetToolInput = {
-    serviceId: string;
-    toolId: string;
-  };
-
-  type ToolDetails = {
-    name: string;
-    description: string;
-    enabled: boolean;
-    effectivelyEnabled: boolean;
-    inputSchema: Record<string, unknown>;
-    outputSchema: Record<string, unknown>;
-  };
 
   type InvokeInput = {
     serviceId: string;
@@ -122,15 +58,6 @@
     return JSON.parse(jsonResult as string) as T;
   };
 
-  const callAsyncText = async (
-    ref: IvmReference,
-    input: unknown,
-  ): Promise<string> => {
-    const jsonInput = JSON.stringify(input);
-    const result = await ref.applySyncPromise(undefined, [jsonInput]);
-    return result as string;
-  };
-
   const cyrnel = {
     output(data: Record<string, unknown>): void {
       __cyrnel_emitOutput.applyIgnored(undefined, [JSON.stringify(data)]);
@@ -140,12 +67,9 @@
       {} as Record<
         string,
         {
-          getDefinition: () => Promise<ServiceDetails>;
           tools: Record<
             string,
             {
-              getDefinition: () => Promise<ToolDetails>;
-              getDocs: () => Promise<string>;
               invoke: (parameters: Record<string, unknown>) => Promise<unknown>;
             }
           >;
@@ -158,16 +82,10 @@
           }
 
           return {
-            async getDefinition(): Promise<ServiceDetails> {
-              return callAsync<ServiceDetails>(__cyrnel_getService, serviceId);
-            },
-
             tools: new Proxy(
               {} as Record<
                 string,
                 {
-                  getDefinition: () => Promise<ToolDetails>;
-                  getDocs: () => Promise<string>;
                   invoke: (
                     parameters: Record<string, unknown>,
                   ) => Promise<unknown>;
@@ -180,20 +98,6 @@
                   }
 
                   return {
-                    async getDefinition(): Promise<ToolDetails> {
-                      const input = {
-                        serviceId,
-                        toolId,
-                      } satisfies GetToolInput;
-                      return callAsync<ToolDetails>(__cyrnel_getTool, input);
-                    },
-                    async getDocs(): Promise<string> {
-                      const input = {
-                        serviceId,
-                        toolId,
-                      } satisfies GetToolInput;
-                      return callAsyncText(__cyrnel_getToolDocs, input);
-                    },
                     async invoke(
                       parameters: Record<string, unknown>,
                     ): Promise<unknown> {
@@ -212,16 +116,6 @@
         },
       },
     ),
-
-    async discoverTools(input: ListToolInput): Promise<ListToolResult[]> {
-      return callAsync<ListToolResult[]>(__cyrnel_discoverTools, input);
-    },
-
-    async discoverServices(
-      input: ListServiceInput,
-    ): Promise<ListServiceResult[]> {
-      return callAsync<ListServiceResult[]>(__cyrnel_discoverServices, input);
-    },
   };
 
   Object.defineProperty(globalThis, "cyrnel", {

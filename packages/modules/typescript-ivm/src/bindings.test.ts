@@ -1,14 +1,7 @@
 import type {
   EnvironmentBindings,
   ExecutionInput,
-  GetServiceResult,
-  GetToolInput,
-  GetToolResult,
   InvokeInput,
-  ListServiceInput,
-  ListServiceResult,
-  ListToolInput,
-  ListToolResult,
 } from "@cyrnel/sdk";
 import { describe, expect, it, vi } from "vitest";
 
@@ -19,12 +12,7 @@ describe("bindings", () => {
     const emitStdout = vi.fn<EnvironmentBindings["emitStdout"]>();
     const emitStderr = vi.fn<EnvironmentBindings["emitStderr"]>();
     const emitOutput = vi.fn<EnvironmentBindings["emitOutput"]>();
-    const getService = vi.fn<EnvironmentBindings["getService"]>();
-    const getTool = vi.fn<EnvironmentBindings["getTool"]>();
-    const getToolDocs = vi.fn<EnvironmentBindings["getToolDocs"]>();
     const invokeTool = vi.fn<EnvironmentBindings["invokeTool"]>();
-    const discoverTools = vi.fn<EnvironmentBindings["discoverTools"]>();
-    const discoverServices = vi.fn<EnvironmentBindings["discoverServices"]>();
 
     return {
       bindings: {
@@ -33,21 +21,12 @@ describe("bindings", () => {
         emitStderr,
         emitOutput,
         setError: vi.fn(),
-        getService,
-        getTool,
-        getToolDocs,
         invokeTool,
-        discoverTools,
-        discoverServices,
       } satisfies EnvironmentBindings,
       emitStdout,
       emitStderr,
       emitOutput,
-      getService,
-      getTool,
       invokeTool,
-      discoverTools,
-      discoverServices,
     };
   };
 
@@ -164,60 +143,6 @@ describe("bindings", () => {
   });
 
   describe("cyrnel.services", () => {
-    it("calls getService with correct input", async () => {
-      const { bindings, getService } = createBindings();
-      const environment = instantiate();
-
-      const mockServiceDetails: GetServiceResult = {
-        name: "testService",
-        description: "Test service",
-        enabled: true,
-        effectivelyEnabled: true,
-        stale: false,
-        configSchema: {},
-        secretsSchema: {},
-      };
-
-      getService.mockResolvedValue(mockServiceDetails);
-
-      await environment.setup({ bindings, config: {}, secrets: {} });
-
-      await environment.execute({
-        eid: 1,
-        code: "const def = await cyrnel.services.testService.getDefinition(); console.log(JSON.stringify(def));",
-      } satisfies ExecutionInput);
-
-      expect(getService).toHaveBeenCalledWith("testService");
-    });
-
-    it("calls getTool with correct input", async () => {
-      const { bindings, getTool } = createBindings();
-      const environment = instantiate();
-
-      const mockToolDetails: GetToolResult = {
-        name: "testTool",
-        description: "Test tool",
-        enabled: true,
-        effectivelyEnabled: true,
-        inputSchema: {},
-        outputSchema: {},
-      };
-
-      getTool.mockResolvedValue(mockToolDetails);
-
-      await environment.setup({ bindings, config: {}, secrets: {} });
-
-      await environment.execute({
-        eid: 1,
-        code: "const def = await cyrnel.services.myService.tools.testTool.getDefinition(); console.log(JSON.stringify(def));",
-      } satisfies ExecutionInput);
-
-      expect(getTool).toHaveBeenCalledWith({
-        serviceId: "myService",
-        toolId: "testTool",
-      } satisfies GetToolInput);
-    });
-
     it("calls invokeTool with correct input", async () => {
       const { bindings, invokeTool } = createBindings();
       const environment = instantiate();
@@ -264,142 +189,6 @@ describe("bindings", () => {
       } satisfies ExecutionInput);
 
       expect(result).toBe("success");
-    });
-  });
-
-  describe("cyrnel.discoverTools", () => {
-    it("calls discoverTools with correct input", async () => {
-      const { bindings, discoverTools } = createBindings();
-      const environment = instantiate();
-
-      const mockTools: ListToolResult[] = [
-        {
-          serviceId: "calc",
-          id: "add",
-          name: "add",
-          description: "Add two numbers",
-          enabled: true,
-          effectivelyEnabled: true,
-        },
-        {
-          serviceId: "calc",
-          id: "subtract",
-          name: "subtract",
-          description: "Subtract two numbers",
-          enabled: true,
-          effectivelyEnabled: true,
-        },
-      ];
-
-      discoverTools.mockResolvedValue(mockTools);
-
-      await environment.setup({ bindings, config: {}, secrets: {} });
-
-      await environment.execute({
-        eid: 1,
-        code: 'const tools = await cyrnel.discoverTools({ query: "math", limit: 10 }); console.log(JSON.stringify(tools));',
-      } satisfies ExecutionInput);
-
-      expect(discoverTools).toHaveBeenCalledWith({
-        query: "math",
-        limit: 10,
-      } satisfies ListToolInput);
-    });
-
-    it("supports optional parameters in discoverTools", async () => {
-      const { bindings, discoverTools } = createBindings();
-      const environment = instantiate();
-
-      discoverTools.mockResolvedValue([]);
-
-      await environment.setup({ bindings, config: {}, secrets: {} });
-
-      await environment.execute({
-        eid: 1,
-        code: 'await cyrnel.discoverTools({ query: "test" });',
-      } satisfies ExecutionInput);
-
-      expect(discoverTools).toHaveBeenCalledWith({
-        query: "test",
-      } satisfies ListToolInput);
-    });
-
-    it("supports enabled filter in discoverTools", async () => {
-      const { bindings, discoverTools } = createBindings();
-      const environment = instantiate();
-
-      discoverTools.mockResolvedValue([]);
-
-      await environment.setup({ bindings, config: {}, secrets: {} });
-
-      await environment.execute({
-        eid: 1,
-        code: 'await cyrnel.discoverTools({ query: "test", enabled: true });',
-      } satisfies ExecutionInput);
-
-      expect(discoverTools).toHaveBeenCalledWith({
-        query: "test",
-        enabled: true,
-      } satisfies ListToolInput);
-    });
-  });
-
-  describe("cyrnel.discoverServices", () => {
-    it("calls discoverServices with correct input", async () => {
-      const { bindings, discoverServices } = createBindings();
-      const environment = instantiate();
-
-      const mockServices: ListServiceResult[] = [
-        {
-          id: "calc",
-          name: "calc",
-          description: "Calculator service",
-          enabled: true,
-          effectivelyEnabled: true,
-          stale: false,
-        },
-        {
-          id: "weather",
-          name: "weather",
-          description: "Weather service",
-          enabled: false,
-          effectivelyEnabled: false,
-          stale: false,
-        },
-      ];
-
-      discoverServices.mockResolvedValue(mockServices);
-
-      await environment.setup({ bindings, config: {}, secrets: {} });
-
-      await environment.execute({
-        eid: 1,
-        code: 'const services = await cyrnel.discoverServices({ query: "api", limit: 5 }); console.log(JSON.stringify(services));',
-      } satisfies ExecutionInput);
-
-      expect(discoverServices).toHaveBeenCalledWith({
-        query: "api",
-        limit: 5,
-      } satisfies ListServiceInput);
-    });
-
-    it("supports enabled filter in discoverServices", async () => {
-      const { bindings, discoverServices } = createBindings();
-      const environment = instantiate();
-
-      discoverServices.mockResolvedValue([]);
-
-      await environment.setup({ bindings, config: {}, secrets: {} });
-
-      await environment.execute({
-        eid: 1,
-        code: 'await cyrnel.discoverServices({ query: "test", enabled: false });',
-      } satisfies ExecutionInput);
-
-      expect(discoverServices).toHaveBeenCalledWith({
-        query: "test",
-        enabled: false,
-      } satisfies ListServiceInput);
     });
   });
 

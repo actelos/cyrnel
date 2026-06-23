@@ -241,15 +241,6 @@ async function resetDb(): Promise<void> {
 
 function makeBindings(): EnvironmentBindings {
   return {
-    discoverServices: vi.fn(async () => []),
-    discoverTools: vi.fn(async () => []),
-    getService: vi.fn(async () => {
-      throw new Error("not used");
-    }),
-    getTool: vi.fn(async () => {
-      throw new Error("not used");
-    }),
-    getToolDocs: vi.fn(async () => ""),
     invokeTool: vi.fn(async () => null),
     setState: vi.fn(),
     setError: vi.fn(),

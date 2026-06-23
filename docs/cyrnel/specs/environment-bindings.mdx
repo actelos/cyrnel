@@ -10,11 +10,6 @@ host.
 
 ```ts
 interface EnvironmentBindings {
-  discoverServices(input: ListServiceInput): Promise<ListServiceResult[]>;
-  discoverTools(input: ListToolInput): Promise<ListToolResult[]>;
-  getService(id: string): Promise<GetServiceResult>;
-  getTool(input: GetToolInput): Promise<GetToolResult>;
-  getToolDocs(input: GetToolInput): Promise<string>;
   invokeTool(input: InvokeInput): Promise<unknown>;
   setState(eid: number, data: ExecutionState): void;
   setError(eid: number, data: string): void;
@@ -24,24 +19,11 @@ interface EnvironmentBindings {
 }
 ```
 
-## Discovery and Invocation
+## Tool Invocation
 
-These are the calls user code ultimately drives. The environment is
-expected to expose them in whatever surface the runtime uses
-(`cyrnel.discoverServices(...)`, `cyrnel.services[id].tools[t].invoke(...)`,
-etc.) and proxy them through.
-
-| Callback | What it returns |
-| --- | --- |
-| `discoverServices` | Filtered service summaries (id, name, description, enabled, stale). |
-| `discoverTools` | Filtered tool summaries across services. |
-| `getService` | Single service definition (no `tools`, no `adapterDomain`; includes `stale` and `effectivelyEnabled`). |
-| `getTool` | Single tool with `inputSchema` and `outputSchema` (includes `effectivelyEnabled`). |
-| `getToolDocs` | Markdown reference for one tool, usually produced by the active environment's own `generateToolDocs`. |
-| `invokeTool` | Whatever the adapter returns. Throws on disabled / missing service or tool. |
-
-The discovery callbacks are the same calls the HTTP API uses internally,
-so they apply the same `enabled` and `stale` filters.
+User code drives tool execution through the environment's runtime surface
+(`cyrnel.services[id].tools[t].invoke(...)`), which proxies through to
+this callback.
 
 ## Execution Reporting
 

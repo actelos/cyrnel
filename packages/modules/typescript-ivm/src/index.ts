@@ -6,11 +6,8 @@ import type {
   ExecutionExitState,
   ExecutionInput,
   ExecutionOptions,
-  GetToolInput,
   InvokeInput,
   JSONSchema,
-  ListServiceInput,
-  ListToolInput,
   ToolDocsInput,
 } from "@cyrnel/sdk";
 import ivm from "isolated-vm";
@@ -37,21 +34,6 @@ built-ins — only the globals listed below.
 ### \`cyrnel.output(data)\`
 Emit a structured JSON payload for the caller. \`data\` must be a plain object.
 
-### \`cyrnel.discoverServices(input)\`
-List installed services. Returns \`{ id, name, description, enabled }[]\`.
-\`input\`: \`{ query?: string; limit?: number; enabled?: boolean }\`.
-
-### \`cyrnel.discoverTools(input)\`
-List tools across services. Returns
-\`{ serviceId, id, name, description, enabled }[]\`. \`input\`:
-\`{ serviceId?: string; query?: string; limit?: number; enabled?: boolean }\`.
-
-### \`cyrnel.services[serviceId].getDefinition()\`
-Returns the service metadata, including \`configSchema\` and \`secretsSchema\`.
-
-### \`cyrnel.services[serviceId].tools[toolId].getDefinition()\`
-Returns the tool metadata, including \`inputSchema\` and \`outputSchema\`.
-
 ### \`cyrnel.services[serviceId].tools[toolId].invoke(parameters)\`
 Invoke a tool. \`parameters\` must satisfy the tool's \`inputSchema\`. Returns
 whatever the tool produces.
@@ -66,9 +48,7 @@ Objects are pretty-printed as JSON; strings are passed through verbatim.
 ## Example
 
 \`\`\`ts
-const tools = await cyrnel.discoverTools({ query: "weather" });
-const [tool] = tools;
-const result = await cyrnel.services[tool.serviceId].tools[tool.id].invoke({
+const result = await cyrnel.services.weather.tools.forecast.invoke({
   city: "Accra",
 });
 cyrnel.output({ result });
@@ -528,54 +508,10 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
     );
 
     await jail.set(
-      "__cyrnel_getService",
-      new ivm.Reference(async (jsonInput: string) => {
-        const serviceId = JSON.parse(jsonInput) as string;
-        const result = await bindings.getService(serviceId);
-        return JSON.stringify(result);
-      }),
-    );
-
-    await jail.set(
-      "__cyrnel_getTool",
-      new ivm.Reference(async (jsonInput: string) => {
-        const input = JSON.parse(jsonInput) as GetToolInput;
-        const result = await bindings.getTool(input);
-        return JSON.stringify(result);
-      }),
-    );
-
-    await jail.set(
-      "__cyrnel_getToolDocs",
-      new ivm.Reference(async (jsonInput: string) => {
-        const input = JSON.parse(jsonInput) as GetToolInput;
-        return bindings.getToolDocs(input);
-      }),
-    );
-
-    await jail.set(
       "__cyrnel_invokeTool",
       new ivm.Reference(async (jsonInput: string) => {
         const input = JSON.parse(jsonInput) as InvokeInput;
         const result = await bindings.invokeTool(input);
-        return JSON.stringify(result);
-      }),
-    );
-
-    await jail.set(
-      "__cyrnel_discoverTools",
-      new ivm.Reference(async (jsonInput: string) => {
-        const input = JSON.parse(jsonInput) as ListToolInput;
-        const result = await bindings.discoverTools(input);
-        return JSON.stringify(result);
-      }),
-    );
-
-    await jail.set(
-      "__cyrnel_discoverServices",
-      new ivm.Reference(async (jsonInput: string) => {
-        const input = JSON.parse(jsonInput) as ListServiceInput;
-        const result = await bindings.discoverServices(input);
         return JSON.stringify(result);
       }),
     );

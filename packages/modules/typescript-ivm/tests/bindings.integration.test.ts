@@ -1,13 +1,4 @@
-import type {
-  EnvironmentBindings,
-  ExecutionInput,
-  GetServiceResult,
-  GetToolResult,
-  ListServiceInput,
-  ListServiceResult,
-  ListToolInput,
-  ListToolResult,
-} from "@cyrnel/sdk";
+import type { EnvironmentBindings, ExecutionInput } from "@cyrnel/sdk";
 import { describe, expect, it, vi } from "vitest";
 
 import { instantiate } from "@/index";
@@ -20,90 +11,11 @@ describe("bindings integration", () => {
       emitStderr: vi.fn<EnvironmentBindings["emitStderr"]>(),
       emitOutput: vi.fn<EnvironmentBindings["emitOutput"]>(),
       setError: vi.fn<EnvironmentBindings["setError"]>(),
-      getService: vi.fn<EnvironmentBindings["getService"]>(),
-      getTool: vi.fn<EnvironmentBindings["getTool"]>(),
-      getToolDocs: vi.fn<EnvironmentBindings["getToolDocs"]>(),
       invokeTool: vi.fn<EnvironmentBindings["invokeTool"]>(),
-      discoverTools: vi.fn<EnvironmentBindings["discoverTools"]>(),
-      discoverServices: vi.fn<EnvironmentBindings["discoverServices"]>(),
     } satisfies EnvironmentBindings;
   };
 
   describe("end-to-end service invocation", () => {
-    it("executes a complete tool invocation workflow", async () => {
-      const bindings = createBindings();
-      const environment = instantiate();
-
-      const serviceDetails: GetServiceResult = {
-        name: "calculator",
-        description: "Calculator service",
-        enabled: true,
-        effectivelyEnabled: true,
-        stale: false,
-        configSchema: {},
-        secretsSchema: {},
-      };
-
-      const toolDetails: GetToolResult = {
-        name: "add",
-        description: "Add two numbers",
-        enabled: true,
-        effectivelyEnabled: true,
-        inputSchema: {
-          type: "object",
-          properties: {
-            a: { type: "number" },
-            b: { type: "number" },
-          },
-        },
-        outputSchema: {
-          type: "object",
-          properties: {
-            result: { type: "number" },
-          },
-        },
-      };
-
-      bindings.getService.mockResolvedValue(serviceDetails);
-      bindings.getTool.mockResolvedValue(toolDetails);
-      bindings.invokeTool.mockResolvedValue({ result: 42 });
-
-      await environment.setup({ bindings, config: {}, secrets: {} });
-
-      const result = await environment.execute({
-        eid: 1,
-        code: `
-          const service = await cyrnel.services.calculator.getDefinition();
-          console.log("Service:", service.name);
-
-          const tool = await cyrnel.services.calculator.tools.add.getDefinition();
-          console.log("Tool:", tool.name);
-
-          const output = await cyrnel.services.calculator.tools.add.invoke({
-            a: 40,
-            b: 2
-          });
-
-          cyrnel.output({ computation: output });
-        `,
-      } satisfies ExecutionInput);
-
-      expect(result).toBe("success");
-      expect(bindings.getService).toHaveBeenCalledWith("calculator");
-      expect(bindings.getTool).toHaveBeenCalledWith({
-        serviceId: "calculator",
-        toolId: "add",
-      });
-      expect(bindings.invokeTool).toHaveBeenCalledWith({
-        serviceId: "calculator",
-        toolId: "add",
-        parameters: { a: 40, b: 2 },
-      });
-      expect(bindings.emitOutput).toHaveBeenCalledWith(1, {
-        computation: { result: 42 },
-      });
-    });
-
     it("handles errors in tool invocation", async () => {
       const bindings = createBindings();
       const environment = instantiate();
@@ -131,78 +43,6 @@ describe("bindings integration", () => {
       const stderrBuffer = bindings.emitStderr.mock.calls[0][1];
       const stderrMessage = stderrBuffer.toString("utf8");
       expect(stderrMessage).toContain("Caught error:");
-    });
-  });
-
-  describe("discovery workflows", () => {
-    it("discovers services and tools", async () => {
-      const bindings = createBindings();
-      const environment = instantiate();
-
-      const services: ListServiceResult[] = [
-        {
-          id: "calc",
-          name: "calc",
-          description: "Calculator",
-          enabled: true,
-          stale: false,
-        },
-        {
-          id: "weather",
-          name: "weather",
-          description: "Weather API",
-          enabled: true,
-          stale: false,
-        },
-      ];
-
-      const tools: ListToolResult[] = [
-        {
-          serviceId: "calc",
-          id: "add",
-          name: "add",
-          description: "Add numbers",
-          enabled: true,
-          effectivelyEnabled: true,
-        },
-        {
-          serviceId: "calc",
-          id: "multiply",
-          name: "multiply",
-          description: "Multiply numbers",
-          enabled: true,
-          effectivelyEnabled: true,
-        },
-      ];
-
-      bindings.discoverServices.mockResolvedValue(services);
-      bindings.discoverTools.mockResolvedValue(tools);
-
-      await environment.setup({ bindings, config: {}, secrets: {} });
-
-      const result = await environment.execute({
-        eid: 1,
-        code: `
-          const services = await cyrnel.discoverServices({ query: "", limit: 10 });
-          console.log("Services count:", services.length);
-
-          const tools = await cyrnel.discoverTools({ query: "calc", limit: 10 });
-          console.log("Tools count:", tools.length);
-
-          cyrnel.output({ services, tools });
-        `,
-      } satisfies ExecutionInput);
-
-      expect(result).toBe("success");
-      expect(bindings.discoverServices).toHaveBeenCalledWith({
-        query: "",
-        limit: 10,
-      } satisfies ListServiceInput);
-      expect(bindings.discoverTools).toHaveBeenCalledWith({
-        query: "calc",
-        limit: 10,
-      } satisfies ListToolInput);
-      expect(bindings.emitOutput).toHaveBeenCalledWith(1, { services, tools });
     });
   });
 
@@ -373,35 +213,6 @@ describe("bindings integration", () => {
     });
   });
 
-  describe("error handling", () => {
-    it("propagates errors from host bindings", async () => {
-      const bindings = createBindings();
-      const environment = instantiate();
-
-      bindings.getService.mockRejectedValue(
-        new Error("Service not found: unknown"),
-      );
-
-      await environment.setup({ bindings, config: {}, secrets: {} });
-
-      const result = await environment.execute({
-        eid: 1,
-        code: `
-          try {
-            await cyrnel.services.unknown.getDefinition();
-          } catch (error) {
-            console.error("Error:", error.message);
-          }
-        `,
-      } satisfies ExecutionInput);
-
-      expect(result).toBe("success");
-      expect(bindings.emitStderr).toHaveBeenCalled();
-      const message = bindings.emitStderr.mock.calls[0][1].toString("utf8");
-      expect(message).toContain("Service not found");
-    });
-  });
-
   describe("TypeScript support", () => {
     it("executes TypeScript code with type annotations", async () => {
       const bindings = createBindings();
@@ -423,35 +234,6 @@ describe("bindings integration", () => {
 
       expect(result).toBe("success");
       expect(bindings.emitOutput).toHaveBeenCalledWith(1, { value: 42 });
-    });
-
-    it("supports type inference with bindings", async () => {
-      const bindings = createBindings();
-      const environment = instantiate();
-
-      const toolDetails: GetToolResult = {
-        name: "test",
-        description: "Test tool",
-        enabled: true,
-        effectivelyEnabled: true,
-        inputSchema: {},
-        outputSchema: {},
-      };
-
-      bindings.getTool.mockResolvedValue(toolDetails);
-
-      await environment.setup({ bindings, config: {}, secrets: {} });
-
-      const result = await environment.execute({
-        eid: 1,
-        code: `
-          const tool = await cyrnel.services.test.tools.test.getDefinition();
-          const name: string = tool.name;
-          console.log(name);
-        `,
-      } satisfies ExecutionInput);
-
-      expect(result).toBe("success");
     });
   });
 });

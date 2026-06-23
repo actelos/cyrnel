@@ -27,13 +27,6 @@ export class App {
   constructor() {
     this.moduleService = new ModuleService(
       {
-        discoverServices: async (input) =>
-          this.servicesService.listServices(input),
-        getService: async (serviceId) =>
-          this.servicesService.getService(serviceId),
-        discoverTools: async (input) => this.servicesService.listTools(input),
-        getTool: async (input) => this.servicesService.getTool(input),
-        getToolDocs: (input) => this.servicesService.getToolDocs(input),
         invokeTool: (input) => this.moduleService.invoke(input),
         setState: (eid, data) => this.processService.recordState(eid, data),
         emitStdout: (eid, data) => this.processService.recordStdout(eid, data),

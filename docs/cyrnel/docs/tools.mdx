@@ -67,15 +67,12 @@ If the environment is the bundled one, the docs are stable. If you write a
 custom environment that exposes a different runtime surface (e.g. Python),
 its `generateToolDocs` should render an example in that runtime.
 
-## Discovery From Code
+## Invocation From Code
 
-The same tool list is available from inside a process via the environment
-bindings:
+The environment bindings expose tools for direct invocation:
 
 ```ts
-const tools = await cyrnel.discoverTools({ query: "weather", limit: 5 });
-const def = await cyrnel.services[tools[0].serviceId].tools[tools[0].id].getDefinition();
-const result = await cyrnel.services[tools[0].serviceId].tools[tools[0].id].invoke({ city: "..." });
+const result = await cyrnel.services.weather.tools.forecast.invoke({ city: "..." });
 cyrnel.output({ result });
 ```
 

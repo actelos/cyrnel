@@ -35,8 +35,6 @@ import type {
 ### Bindings
 
 `EnvironmentBindings` provides the runtime API available to environment modules:
-- `discoverServices` / `discoverTools`: List registered services/tools
-- `getService` / `getTool`: Fetch a single service or tool
 - `invokeTool` Call a tool on a service
 - `setState` / `setError` / `emitStdout` / `emitStderr` / `emitOutput`: Lifecycle signals
 
