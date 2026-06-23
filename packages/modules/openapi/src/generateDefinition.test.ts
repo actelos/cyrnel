@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { generateDefinition } from "@/generateDefinition";
+import { generateDefinition, normalizeIdentifier } from "@/generateDefinition";
 
 describe("generateDefinition", () => {
   describe("service metadata", () => {
@@ -65,6 +65,25 @@ describe("generateDefinition", () => {
 
       expect(result.tools).toHaveLength(1);
       expect(result.tools[0].id).toBe("listPets");
+    });
+
+    it("normalizes dotted operationIds to valid identifiers", async () => {
+      const spec = JSON.stringify({
+        openapi: "3.0.0",
+        info: { title: "API", version: "1.0.0" },
+        paths: {
+          "/users/messages": {
+            get: {
+              operationId: "gmail.users.messages.list",
+              responses: { "200": { description: "OK" } },
+            },
+          },
+        },
+      });
+
+      const result = await generateDefinition(spec);
+
+      expect(result.tools[0].id).toBe("gmail_users_messages_list");
     });
 
     it("extracts tool name from summary", async () => {
@@ -1340,6 +1359,151 @@ paths: {}
       const result = await generateDefinition(spec);
 
       expect(result.tools).toHaveLength(0);
+    });
+  });
+
+  describe("normalizeIdentifier", () => {
+    describe("valid identifiers pass through unchanged", () => {
+      it.each([
+        ["listPets"],
+        ["ListPets"],
+        ["list_pets"],
+        ["listPets123"],
+        ["list_Pets123"],
+        ["GET_USERS"],
+        ["getUsersByID"],
+        ["a"],
+        ["Z"],
+        ["_"],
+        ["simple"],
+      ])("%s", (input) => {
+        expect(normalizeIdentifier(input)).toBe(input);
+      });
+    });
+
+    describe("dots become underscores", () => {
+      it.each([
+        ["gmail.users.messages.list", "gmail_users_messages_list"],
+        ["a.b.c", "a_b_c"],
+        ["one.two", "one_two"],
+      ])("%s -> %s", (input, expected) => {
+        expect(normalizeIdentifier(input)).toBe(expected);
+      });
+    });
+
+    describe("hyphens and other non-alphanumeric chars become underscores", () => {
+      it.each([
+        ["user-name", "user_name"],
+        ["user name", "user_name"],
+        ["user@name", "user_name"],
+        ["user#name", "user_name"],
+        ["user!name", "user_name"],
+        ["user(name)", "user_name"],
+      ])("%s -> %s", (input, expected) => {
+        expect(normalizeIdentifier(input)).toBe(expected);
+      });
+    });
+
+    describe("consecutive special chars collapse", () => {
+      it.each([
+        ["a__b", "a_b"],
+        ["a___b", "a_b"],
+        ["a_-_b", "a_b"],
+        ["a!@#b", "a_b"],
+      ])("%s -> %s", (input, expected) => {
+        expect(normalizeIdentifier(input)).toBe(expected);
+      });
+    });
+
+    describe("leading/trailing special chars are stripped", () => {
+      it.each([
+        ["_listPets", "listPets"],
+        ["$listPets", "listPets"],
+        ["listPets_", "listPets"],
+        ["listPets$", "listPets"],
+        ["_listPets_", "listPets"],
+        ["$listPets$", "listPets"],
+        ["___listPets___", "listPets"],
+        ["_", "_"],
+        ["$", "_"],
+        ["_$", "_"],
+        ["$$$", "_"],
+      ])("%s -> %s", (input, expected) => {
+        expect(normalizeIdentifier(input)).toBe(expected);
+      });
+    });
+
+    describe("leading digit gets underscore prefix", () => {
+      it.each([
+        ["123listPets", "_123listPets"],
+        ["0test", "_0test"],
+        ["42", "_42"],
+        ["9", "_9"],
+      ])("%s -> %s", (input, expected) => {
+        expect(normalizeIdentifier(input)).toBe(expected);
+      });
+    });
+
+    describe("combined edge cases", () => {
+      it.each([
+        ["_123abc", "_123abc"],
+        ["$_123", "_123"],
+        ["123_abc", "_123_abc"],
+        ["a_1_b", "a_1_b"],
+        ["__hello__world__", "hello_world"],
+        ["$99problems", "_99problems"],
+        ["_99problems", "_99problems"],
+      ])("%s -> %s", (input, expected) => {
+        expect(normalizeIdentifier(input)).toBe(expected);
+      });
+    });
+
+    describe("empty and special-only input", () => {
+      it.each([
+        ["", "_"],
+        ["___", "_"],
+        ["!@#$%", "_"],
+        ["   ", "_"],
+        ["\n\t", "_"],
+      ])("normalizeIdentifier(%j) -> %s", (input, expected) => {
+        expect(normalizeIdentifier(input)).toBe(expected);
+      });
+    });
+
+    describe("unicode and non-ASCII", () => {
+      it.each([
+        ["café", "caf"],
+        ["über", "ber"],
+        ["naïve", "na_ve"],
+        ["用户", "_"],
+        ["東京", "_"],
+      ])("%s -> %s", (input, expected) => {
+        expect(normalizeIdentifier(input)).toBe(expected);
+      });
+    });
+
+    describe("dollar signs are treated as special chars", () => {
+      it.each([
+        ["a$b$c", "a_b_c"],
+        ["get$Data", "get_Data"],
+        ["a$$b", "a_b"],
+      ])("%s -> %s", (input, expected) => {
+        expect(normalizeIdentifier(input)).toBe(expected);
+      });
+    });
+
+    describe("long complex string", () => {
+      it("handles deeply nested path-like identifiers", () => {
+        const result = normalizeIdentifier(
+          "api.v2.users.{userId}.messages.list",
+        );
+        expect(result).toBe("api_v2_users_userId_messages_list");
+      });
+
+      it("handles string with multiple special chars and digits mixed", () => {
+        const result = normalizeIdentifier("__getUser__By__Id_123!!");
+        expect(result).toBe("getUser_By_Id_123");
+      });
     });
   });
 });

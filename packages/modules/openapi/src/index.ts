@@ -84,6 +84,7 @@ class OpenapiAdapter implements AdapterModule {
       serviceDomain.securitySchemes,
       toolDomain.security,
     );
+
     const headers: Record<string, string> = { ...headerParams, ...authHeaders };
 
     if (params.cookies && Object.keys(params.cookies).length > 0) {
@@ -120,9 +121,7 @@ const CONFIG_SCHEMA: JSONSchema = {
   additionalProperties: false,
 };
 
-const SECRETS_SCHEMA: JSONSchema = {
-  type: "null",
-};
+const SECRETS_SCHEMA: JSONSchema = { type: "null" };
 
 export const manifest = {
   id: "openapi",

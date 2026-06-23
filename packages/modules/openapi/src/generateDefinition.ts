@@ -15,6 +15,17 @@ type ReferenceObject = OpenAPIV3_1.ReferenceObject;
 type SecuritySchemeObject = OpenAPIV3_1.SecuritySchemeObject;
 type ServerVariableObject = OpenAPIV3_1.ServerVariableObject;
 
+export function normalizeIdentifier(raw: string): string {
+  const cleaned = raw
+    .replace(/[^A-Za-z0-9_]/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "");
+
+  if (cleaned === "") return "_";
+
+  return /^[0-9]/.test(cleaned) ? `_${cleaned}` : cleaned;
+}
+
 const HTTP_METHODS = [
   "get",
   "post",
@@ -399,7 +410,7 @@ export async function generateDefinition(
         );
       }
 
-      const id = operation.operationId;
+      const id = normalizeIdentifier(operation.operationId);
       const name = operation.summary ?? id;
       const description = extractToolDescription(operation);
 
