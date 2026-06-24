@@ -1,5 +1,35 @@
 # @cyrnel/sdk
 
+## 2.0.0
+
+### Major Changes
+
+- 06762ca: Remove discovery and get-bindings types from SDK
+
+  Removed the following type exports that were only used by the sandbox
+  environment's discovery/get-bindings API surface, which is no longer
+  needed (the model uses MCP tools directly instead):
+
+  - `ListServiceInput`, `ListServiceResult`
+  - `ListToolInput`, `ListToolResult`
+  - `GetServiceResult`, `GetToolInput`, `GetToolResult`
+
+  Removed the corresponding methods from `EnvironmentBindings`:
+  `discoverServices`, `discoverTools`, `getService`, `getTool`,
+  `getToolDocs`.
+
+### Patch Changes
+
+- 24b4098: Add ModuleExport interface and restore missing EnvironmentBindings methods
+
+  Added `ModuleExport`, the contract for a module's default export
+  (`{ configSchema, secretsSchema, instantiate }`).
+
+  Restored the following lifecycle methods on `EnvironmentBindings` that were
+  inadvertently dropped when the discovery types were removed:
+  `setState`, `setError`, `emitStdout`, `emitStderr`, `emitOutput`,
+  `invokeTool`.
+
 ## 1.2.0
 
 ### Minor Changes
