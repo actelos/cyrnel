@@ -91,7 +91,6 @@ export class ProcessService {
       .select({
         id: processesTable.id,
         ref: processesTable.ref,
-        description: processesTable.description,
         createdAt: processesTable.createdAt,
         exitState: processDataTable.exitState,
         error: processDataTable.error,
@@ -113,7 +112,6 @@ export class ProcessService {
       dbOnly.push({
         id: row.id,
         ref: row.ref ?? undefined,
-        description: row.description,
         state: "idle",
         exitState: (row.exitState ?? null) as GetProcessResult["exitState"],
         error: row.error,
@@ -130,7 +128,6 @@ export class ProcessService {
       throw new HttpError(503, "Service is shutting down.");
     }
 
-    const description = input.description ?? "";
     const autorun = input.autorun ?? true;
     const createdAt = new Date().toISOString();
 
@@ -138,7 +135,6 @@ export class ProcessService {
       .insert(processesTable)
       .values({
         ref: input.ref ?? null,
-        description,
         code: input.code,
         options: { timeoutMs: input.options?.timeoutMs ?? null },
         createdAt,
@@ -152,7 +148,6 @@ export class ProcessService {
       dbId: id,
       pid,
       ref: input.ref,
-      description,
       state: autorun ? "queued" : "idle",
       exitState: null,
       error: null,
@@ -181,7 +176,6 @@ export class ProcessService {
       .select({
         id: processesTable.id,
         ref: processesTable.ref,
-        description: processesTable.description,
         createdAt: processesTable.createdAt,
         exitState: processDataTable.exitState,
         error: processDataTable.error,
@@ -201,7 +195,6 @@ export class ProcessService {
     return {
       id: row.id,
       ref: row.ref ?? undefined,
-      description: row.description,
       state: "idle",
       exitState: (row.exitState ?? null) as GetProcessResult["exitState"],
       error: row.error,
@@ -497,7 +490,6 @@ export class ProcessService {
     return {
       id: record.dbId,
       ref: record.ref,
-      description: record.description,
       state: record.state,
       exitState: record.exitState,
       error: record.error,

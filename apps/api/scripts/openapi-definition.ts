@@ -147,9 +147,6 @@ const ProcessSchema = registry.register(
         .describe(
           "Optional caller-supplied reference string used to correlate related processes.",
         ),
-      description: z
-        .string()
-        .describe("Human-readable description of the process purpose."),
       state: processStateSchema.describe(
         "Current lifecycle state of the process.",
       ),

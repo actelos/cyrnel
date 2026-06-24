@@ -144,7 +144,6 @@ export type NewModuleSecretsRecord = typeof moduleSecrets.$inferInsert;
 export const processes = sqliteTable("processes", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   ref: text("ref").unique(),
-  description: text("description").notNull().default(""),
   code: text("code").notNull(),
   options: text("options", { mode: "json" })
     .$type<{ timeoutMs?: number | null }>()

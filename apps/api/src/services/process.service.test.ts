@@ -68,7 +68,6 @@ function makeService(controller?: ControllerSpy) {
 
 const BASE_CREATE_INPUT = {
   code: "console.log('hi')",
-  description: "",
   options: { timeoutMs: 100 },
 };
 
@@ -207,7 +206,7 @@ describe("ProcessService", () => {
       const { service } = makeService(controller);
       mockInsertReturning(1);
 
-      await service.create({ code: "x", description: "", options: {} });
+      await service.create({ code: "x", options: {} });
 
       expect(controller.executeCalls[0]?.options?.timeoutMs).toBe(30_000);
     });
@@ -220,7 +219,6 @@ describe("ProcessService", () => {
 
       await service.create({
         code: "x",
-        description: "",
         options: { timeoutMs: null },
       });
 
@@ -664,7 +662,6 @@ describe("ProcessService", () => {
 
       const { id } = await service.create({
         code: "x",
-        description: "",
         options: { timeoutMs: 1 },
       });
 

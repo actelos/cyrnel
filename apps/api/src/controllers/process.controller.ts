@@ -15,9 +15,6 @@ const createProcessBodySchema = z
     code: z
       .string({ error: 'Field "code" must be a string' })
       .or(z.undefined()),
-    description: z
-      .string({ error: "Field 'description' must be a string." })
-      .optional(),
     ref: z
       .string({ error: "Field 'ref' in body must be a string." })
       .transform((v) => v.trim())
@@ -57,7 +54,6 @@ const createProcessBodySchema = z
   })
   .transform((value) => ({
     code: value.code as string,
-    description: value.description,
     ref: value.ref,
     options: value.options,
     autorun: value.autorun,
@@ -147,7 +143,6 @@ export async function createProcess(
     "Request body must be an object.",
   );
   const { id } = await processService.create({
-    description: body.description ?? "",
     ref: parseOptional(refSchema("body"), body.ref),
     code: body.code,
     options: { timeoutMs: body.options?.timeout },

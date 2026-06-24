@@ -28,11 +28,11 @@
       "Process": {
         "type": "object",
         "properties": {
-          "pid": {
+          "id": {
             "type": "integer",
             "minimum": 0,
             "exclusiveMinimum": true,
-            "description": "Numeric process identifier assigned by the API."
+            "description": "Stable process identifier assigned at creation. Persists across restarts."
           },
           "ref": {
             "type": "string",
@@ -65,13 +65,24 @@
             "type": "string",
             "nullable": true,
             "description": "Error message captured during execution, or null if no error occurred."
+          },
+          "createdAt": {
+            "type": "string",
+            "description": "ISO-8601 timestamp of when the process was created."
+          },
+          "completedAt": {
+            "type": "string",
+            "nullable": true,
+            "description": "ISO-8601 timestamp of when the process completed, or null if still running."
           }
         },
         "required": [
-          "pid",
+          "id",
           "state",
           "exitState",
-          "error"
+          "error",
+          "createdAt",
+          "completedAt"
         ],
         "description": "Process snapshot returned by the process management endpoints."
       },
@@ -130,15 +141,15 @@
       "ProcessCreatedResponse": {
         "type": "object",
         "properties": {
-          "pid": {
+          "id": {
             "type": "integer",
             "minimum": 0,
             "exclusiveMinimum": true,
-            "description": "Identifier assigned to the newly created process."
+            "description": "Stable process identifier assigned to the newly created process."
           }
         },
         "required": [
-          "pid"
+          "id"
         ],
         "description": "Response returned after a process is created."
       },
@@ -999,13 +1010,13 @@
         }
       }
     },
-    "/processes/{pid}": {
+    "/processes/{id}": {
       "get": {
         "tags": [
           "Processes"
         ],
         "summary": "Get a process",
-        "description": "Returns the current process snapshot for the requested process identifier.",
+        "description": "Returns the process snapshot for the requested identifier.",
         "parameters": [
           {
             "schema": {
@@ -1014,7 +1025,7 @@
             },
             "required": true,
             "description": "Numeric process identifier serialized as a path parameter.",
-            "name": "pid",
+            "name": "id",
             "in": "path"
           }
         ],
@@ -1030,7 +1041,7 @@
             }
           },
           "400": {
-            "description": "The pid path parameter was invalid.",
+            "description": "The id path parameter was invalid.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1076,7 +1087,7 @@
           "Processes"
         ],
         "summary": "Delete a process",
-        "description": "Deletes an idle process snapshot. Active processes must be stopped before they can be deleted.",
+        "description": "Deletes an idle process record from the database. Active processes must be stopped before they can be deleted.",
         "parameters": [
           {
             "schema": {
@@ -1085,7 +1096,7 @@
             },
             "required": true,
             "description": "Numeric process identifier serialized as a path parameter.",
-            "name": "pid",
+            "name": "id",
             "in": "path"
           }
         ],
@@ -1101,7 +1112,7 @@
             }
           },
           "400": {
-            "description": "The pid path parameter was invalid.",
+            "description": "The id path parameter was invalid.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1153,13 +1164,13 @@
         }
       }
     },
-    "/processes/{pid}/code": {
+    "/processes/{id}/code": {
       "get": {
         "tags": [
           "Processes"
         ],
         "summary": "Get stored process code",
-        "description": "Returns the exact source code stored for the process as plain text. Useful for debugging and auditing the code that produced the execution output.",
+        "description": "Returns the exact source code stored for the process as plain text.",
         "parameters": [
           {
             "schema": {
@@ -1168,7 +1179,7 @@
             },
             "required": true,
             "description": "Numeric process identifier serialized as a path parameter.",
-            "name": "pid",
+            "name": "id",
             "in": "path"
           }
         ],
@@ -1185,7 +1196,7 @@
             }
           },
           "400": {
-            "description": "The pid path parameter was invalid.",
+            "description": "The id path parameter was invalid.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1227,7 +1238,7 @@
         }
       }
     },
-    "/processes/{pid}/output": {
+    "/processes/{id}/output": {
       "get": {
         "tags": [
           "Processes"
@@ -1242,7 +1253,7 @@
             },
             "required": true,
             "description": "Numeric process identifier serialized as a path parameter.",
-            "name": "pid",
+            "name": "id",
             "in": "path"
           }
         ],
@@ -1258,7 +1269,7 @@
             }
           },
           "400": {
-            "description": "The pid path parameter was invalid.",
+            "description": "The id path parameter was invalid.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1310,7 +1321,7 @@
         }
       }
     },
-    "/processes/{pid}/stdout": {
+    "/processes/{id}/stdout": {
       "get": {
         "tags": [
           "Processes"
@@ -1325,7 +1336,7 @@
             },
             "required": true,
             "description": "Numeric process identifier serialized as a path parameter.",
-            "name": "pid",
+            "name": "id",
             "in": "path"
           }
         ],
@@ -1342,7 +1353,7 @@
             }
           },
           "400": {
-            "description": "The pid path parameter was invalid.",
+            "description": "The id path parameter was invalid.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1394,7 +1405,7 @@
         }
       }
     },
-    "/processes/{pid}/stderr": {
+    "/processes/{id}/stderr": {
       "get": {
         "tags": [
           "Processes"
@@ -1409,7 +1420,7 @@
             },
             "required": true,
             "description": "Numeric process identifier serialized as a path parameter.",
-            "name": "pid",
+            "name": "id",
             "in": "path"
           }
         ],
@@ -1426,7 +1437,7 @@
             }
           },
           "400": {
-            "description": "The pid path parameter was invalid.",
+            "description": "The id path parameter was invalid.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1478,7 +1489,7 @@
         }
       }
     },
-    "/processes/{pid}/signals/run": {
+    "/processes/{id}/signals/run": {
       "post": {
         "tags": [
           "Processes"
@@ -1493,7 +1504,7 @@
             },
             "required": true,
             "description": "Numeric process identifier serialized as a path parameter.",
-            "name": "pid",
+            "name": "id",
             "in": "path"
           }
         ],
@@ -1518,7 +1529,7 @@
             }
           },
           "400": {
-            "description": "The pid path parameter or request body was invalid, or the process has existing output and force was not set.",
+            "description": "The id path parameter or request body was invalid, or the process has existing output and force was not set.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1580,7 +1591,7 @@
         }
       }
     },
-    "/processes/{pid}/signals/kill": {
+    "/processes/{id}/signals/kill": {
       "post": {
         "tags": [
           "Processes"
@@ -1595,7 +1606,7 @@
             },
             "required": true,
             "description": "Numeric process identifier serialized as a path parameter.",
-            "name": "pid",
+            "name": "id",
             "in": "path"
           }
         ],
@@ -1620,7 +1631,7 @@
             }
           },
           "400": {
-            "description": "The pid path parameter was invalid or the request body was not a JSON object.",
+            "description": "The id path parameter was invalid or the request body was not a JSON object.",
             "content": {
               "application/json": {
                 "schema": {

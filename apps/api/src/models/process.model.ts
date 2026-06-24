@@ -16,7 +16,6 @@ export interface ProcessRecord {
   dbId: number;
   pid: number;
   ref?: string;
-  description: string;
   state: ProcessState;
   exitState: ProcessExitState;
   error: string | null;
@@ -51,7 +50,6 @@ export interface FilterProcessInput {
 export interface GetProcessResult {
   id: number;
   ref?: string;
-  description: string;
   state: ProcessState;
   exitState: ProcessExitState;
   error: string | null;

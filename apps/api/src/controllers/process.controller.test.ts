@@ -190,7 +190,6 @@ describe("process.controller", () => {
       );
 
       expect(processService.create).toHaveBeenCalledWith({
-        description: "",
         ref: undefined,
         code: "console.log(1)",
         options: { timeoutMs: undefined },
@@ -201,7 +200,7 @@ describe("process.controller", () => {
       expect(processService.waitForIdle).not.toHaveBeenCalled();
     });
 
-    it("includes description, ref and timeout from the body", async () => {
+    it("includes ref and timeout from the body", async () => {
       const res = makeRes();
       processService.create.mockResolvedValue({ id: 7 });
 
@@ -209,7 +208,6 @@ describe("process.controller", () => {
         makeReq({
           body: {
             code: "x",
-            description: "my process",
             ref: "  job-1  ",
             options: { timeout: 5000 },
           },
@@ -218,7 +216,6 @@ describe("process.controller", () => {
       );
 
       expect(processService.create).toHaveBeenCalledWith({
-        description: "my process",
         ref: "job-1",
         code: "x",
         options: { timeoutMs: 5000 },
@@ -236,7 +233,6 @@ describe("process.controller", () => {
       );
 
       expect(processService.create).toHaveBeenCalledWith({
-        description: "",
         ref: undefined,
         code: "x",
         options: { timeoutMs: null },
@@ -300,10 +296,6 @@ describe("process.controller", () => {
       {
         body: { code: "x", options: { timeout: "1000" } },
         why: "string timeout",
-      },
-      {
-        body: { code: "x", description: 42 },
-        why: "non-string description",
       },
     ])("rejects $why", async ({ body }) => {
       const res = makeRes();
