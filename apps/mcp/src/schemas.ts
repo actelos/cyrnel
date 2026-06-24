@@ -1,10 +1,10 @@
 import { z } from "zod";
 
-export const Pid = z
+export const ProcessId = z
   .number()
   .int()
   .min(1)
-  .describe("Process id (positive integer). Example: 12.");
+  .describe("Stable process id (positive integer). Example: 42.");
 
 export const ServiceId = z
   .string()

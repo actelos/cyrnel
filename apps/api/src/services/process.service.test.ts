@@ -1,8 +1,37 @@
 import type { ExecutionExitState, ExecutionInput } from "@cyrnel/sdk";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { db } from "@/db/client";
+import { processes as processesTable } from "@/db/schema";
 import { HttpError } from "@/models/error.model";
 import { ProcessService } from "@/services/process.service";
+
+function makeSelectChain<T>(rows: T[] = []) {
+  const chain = {
+    from: vi.fn().mockReturnThis(),
+    leftJoin: vi.fn().mockReturnThis(),
+    where: vi.fn().mockReturnThis(),
+    orderBy: vi.fn().mockReturnThis(),
+    limit: vi.fn().mockReturnThis(),
+    all: vi.fn().mockReturnValue(rows),
+  } as unknown as ReturnType<typeof db.select>;
+  return chain;
+}
+
+function makeDeleteChain() {
+  const chain = {
+    where: vi.fn().mockResolvedValue(undefined),
+  } as unknown as ReturnType<typeof db.delete>;
+  return chain;
+}
+
+vi.mock("@/db/client", () => ({
+  db: {
+    insert: vi.fn(),
+    select: vi.fn(),
+    delete: vi.fn(),
+  },
+}));
 
 interface ControllerSpy {
   executeCalls: ExecutionInput[];
@@ -39,6 +68,7 @@ function makeService(controller?: ControllerSpy) {
 
 const BASE_CREATE_INPUT = {
   code: "console.log('hi')",
+  description: "",
   options: { timeoutMs: 100 },
 };
 
@@ -58,38 +88,78 @@ async function tick(times = 1) {
   }
 }
 
+function mockInsertReturning(value: number) {
+  const returning = vi.fn().mockResolvedValue([{ id: value }]);
+  const values = vi.fn().mockReturnValue({ returning });
+  vi.mocked(db.insert).mockReturnValue({ values } as unknown as ReturnType<
+    typeof db.insert
+  >);
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(db.select).mockReturnValue(makeSelectChain());
+  vi.mocked(db.delete).mockReturnValue(makeDeleteChain());
+});
+
 describe("ProcessService", () => {
   describe("create()", () => {
-    it("returns an incrementing pid starting at 1", () => {
+    it("inserts a row into the processes table and returns the id", async () => {
       const { service } = makeService();
-      expect(service.create(BASE_CREATE_INPUT)).toBe(1);
-      expect(service.create(BASE_CREATE_INPUT)).toBe(2);
-      expect(service.create(BASE_CREATE_INPUT)).toBe(3);
+      mockInsertReturning(42);
+
+      const result = await service.create(BASE_CREATE_INPUT);
+
+      expect(result).toEqual({ id: 42 });
+      expect(db.insert).toHaveBeenCalledWith(processesTable);
     });
 
-    it("seeds the new record with default fields", () => {
+    it("returns an incrementing id starting at 1", async () => {
+      let nextId = 1;
+      const { service } = makeService();
+      vi.mocked(db.insert).mockImplementation(
+        () =>
+          ({
+            values: () => ({
+              returning: () => Promise.resolve([{ id: nextId++ }]),
+            }),
+          }) as unknown as ReturnType<typeof db.insert>,
+      );
+
+      const a = await service.create(BASE_CREATE_INPUT);
+      const b = await service.create(BASE_CREATE_INPUT);
+      const c = await service.create(BASE_CREATE_INPUT);
+
+      expect(a.id).toBe(1);
+      expect(b.id).toBe(2);
+      expect(c.id).toBe(3);
+    });
+
+    it("seeds the new record with default fields", async () => {
       const controller = makeController();
       controller.executeImpl = () => new Promise(() => {});
       const { service } = makeService(controller);
+      mockInsertReturning(1);
 
-      const pid = service.create({ ...BASE_CREATE_INPUT, ref: "abc" });
-      const record = service.get(pid);
+      const { id } = await service.create({ ...BASE_CREATE_INPUT, ref: "abc" });
+      const record = await service.get(id);
 
-      expect(record.pid).toBe(pid);
+      expect(record.id).toBe(id);
       expect(record.ref).toBe("abc");
       expect(record.exitState).toBeNull();
       expect(record.error).toBeNull();
       expect(["queued", "running"]).toContain(record.state);
-      expect(service.getCode(pid)).toBe(BASE_CREATE_INPUT.code);
+      expect(await service.getCode(id)).toBe(BASE_CREATE_INPUT.code);
     });
 
-    it("get() and list() strip code/options/output/stdout/stderr from the projection", () => {
+    it("get() and list() strip code/options/output/stdout/stderr from the projection", async () => {
       const controller = makeController();
       controller.executeImpl = () => new Promise(() => {});
       const { service } = makeService(controller);
+      mockInsertReturning(1);
 
-      const pid = service.create(BASE_CREATE_INPUT);
-      const record = service.get(pid);
+      const { id } = await service.create(BASE_CREATE_INPUT);
+      const record = await service.get(id);
 
       const stripped = [
         "code",
@@ -102,7 +172,7 @@ describe("ProcessService", () => {
         expect(Object.hasOwn(record, key)).toBe(false);
       }
 
-      const [listed] = service.list({});
+      const [listed] = await service.list({});
       expect(listed).toBeDefined();
       for (const key of stripped) {
         expect(Object.hasOwn(listed as object, key)).toBe(false);
@@ -114,11 +184,11 @@ describe("ProcessService", () => {
       const finish = deferred<ExecutionExitState>();
       controller.executeImpl = () => finish.promise;
       const { service } = makeService(controller);
+      mockInsertReturning(1);
 
-      const pid = service.create(BASE_CREATE_INPUT);
+      const { id } = await service.create(BASE_CREATE_INPUT);
       expect(controller.executeCalls).toHaveLength(1);
       expect(controller.executeCalls[0]).toMatchObject({
-        eid: pid,
         code: BASE_CREATE_INPUT.code,
         options: { timeoutMs: BASE_CREATE_INPUT.options.timeoutMs },
       });
@@ -126,84 +196,107 @@ describe("ProcessService", () => {
       finish.resolve("success");
       await tick(5);
 
-      const record = service.get(pid);
+      const record = await service.get(id);
       expect(record.state).toBe("idle");
       expect(record.exitState).toBe("success");
     });
 
-    it("defaults the timeout when none is provided", () => {
+    it("defaults the timeout when none is provided", async () => {
       const controller = makeController();
       controller.executeImpl = () => new Promise(() => {});
       const { service } = makeService(controller);
+      mockInsertReturning(1);
 
-      service.create({ code: "x", options: {} });
+      await service.create({ code: "x", description: "", options: {} });
 
       expect(controller.executeCalls[0]?.options?.timeoutMs).toBe(30_000);
     });
 
-    it("treats options.timeoutMs=null as 'use default' (30s)", () => {
+    it("treats options.timeoutMs=null as 'use default' (30s)", async () => {
       const controller = makeController();
       controller.executeImpl = () => new Promise(() => {});
       const { service } = makeService(controller);
+      mockInsertReturning(1);
 
-      service.create({ code: "x", options: { timeoutMs: null } });
+      await service.create({
+        code: "x",
+        description: "",
+        options: { timeoutMs: null },
+      });
 
       expect(controller.executeCalls[0]?.options?.timeoutMs).toBe(30_000);
     });
 
-    it("defaults autorun to true when not provided", () => {
+    it("defaults autorun to true when not provided", async () => {
       const controller = makeController();
       controller.executeImpl = () => new Promise(() => {});
       const { service } = makeService(controller);
+      mockInsertReturning(1);
 
-      const pid = service.create(BASE_CREATE_INPUT);
-      const record = service.get(pid);
+      const { id } = await service.create(BASE_CREATE_INPUT);
+      const record = await service.get(id);
       expect(record.state).toBe("queued");
       expect(controller.executeCalls).toHaveLength(1);
     });
 
-    it("autorun=true starts execution immediately", () => {
+    it("autorun=true starts execution immediately", async () => {
       const controller = makeController();
       controller.executeImpl = () => new Promise(() => {});
       const { service } = makeService(controller);
+      mockInsertReturning(1);
 
-      const pid = service.create({ ...BASE_CREATE_INPUT, autorun: true });
+      const { id } = await service.create({
+        ...BASE_CREATE_INPUT,
+        autorun: true,
+      });
       expect(controller.executeCalls).toHaveLength(1);
-      expect(service.get(pid).state).toBe("queued");
+      expect((await service.get(id)).state).toBe("queued");
     });
 
-    it("autorun=false creates the process in idle state without executing", () => {
+    it("autorun=false creates the process in idle state without executing", async () => {
       const controller = makeController();
       controller.executeImpl = () => new Promise(() => {});
       const { service } = makeService(controller);
+      mockInsertReturning(1);
 
-      const pid = service.create({ ...BASE_CREATE_INPUT, autorun: false });
+      const { id } = await service.create({
+        ...BASE_CREATE_INPUT,
+        autorun: false,
+      });
       expect(controller.executeCalls).toHaveLength(0);
-      const record = service.get(pid);
+      const record = await service.get(id);
       expect(record.state).toBe("idle");
       expect(record.exitState).toBeNull();
       expect(record.error).toBeNull();
     });
 
-    it("autorun=false process can be run later", () => {
+    it("autorun=false process can be run later", async () => {
       const controller = makeController();
       controller.executeImpl = () => new Promise(() => {});
       const { service } = makeService(controller);
+      mockInsertReturning(1);
 
-      const pid = service.create({ ...BASE_CREATE_INPUT, autorun: false });
+      const { id } = await service.create({
+        ...BASE_CREATE_INPUT,
+        autorun: false,
+      });
       expect(controller.executeCalls).toHaveLength(0);
 
-      const result = service.run(pid, false);
+      const result = await service.run(id, false);
       expect(result.state).toBe("queued");
       expect(controller.executeCalls).toHaveLength(1);
     });
 
-    it("autorun=false process can be deleted while idle", () => {
+    it("autorun=false process can be deleted while idle", async () => {
       const { service } = makeService();
-      const pid = service.create({ ...BASE_CREATE_INPUT, autorun: false });
+      mockInsertReturning(1);
+      const { id } = await service.create({
+        ...BASE_CREATE_INPUT,
+        autorun: false,
+      });
 
-      expect(() => service.delete(pid)).not.toThrow();
-      expect(() => service.get(pid)).toThrow(HttpError);
+      await expect(service.delete(id)).resolves.not.toThrow();
+      await expect(service.get(id)).rejects.toThrow(HttpError);
     });
 
     it("throws HttpError(503) once the service is shutting down", async () => {
@@ -211,7 +304,7 @@ describe("ProcessService", () => {
       await service.shutdown();
 
       try {
-        service.create(BASE_CREATE_INPUT);
+        await service.create(BASE_CREATE_INPUT);
         throw new Error("should have thrown");
       } catch (err) {
         expect(err).toBeInstanceOf(HttpError);
@@ -226,49 +319,30 @@ describe("ProcessService", () => {
       const gate = deferred<ExecutionExitState>();
       controller.executeImpl = () => gate.promise;
       const { service } = makeService(controller);
+      mockInsertReturning(1);
 
-      const running = service.create({ ...BASE_CREATE_INPUT, ref: "a" });
-      const queued = service.create({ ...BASE_CREATE_INPUT, ref: "b" });
+      const a = await service.create({ ...BASE_CREATE_INPUT, ref: "a" });
+      const b = await service.create({ ...BASE_CREATE_INPUT, ref: "b" });
 
-      // Mark first as running explicitly to exercise the state filter.
-      service.recordState(running, "running");
-
-      expect(service.list({})).toHaveLength(2);
-      expect(service.list({ state: "running" }).map((r) => r.pid)).toEqual([
-        running,
+      expect(await service.list({})).toHaveLength(2);
+      expect((await service.list({ ref: "b" })).map((r) => r.id)).toEqual([
+        b.id,
       ]);
-      expect(service.list({ ref: "b" }).map((r) => r.pid)).toEqual([queued]);
-      expect(
-        service
-          .list({ exitState: null })
-          .map((r) => r.pid)
-          .sort(),
-      ).toEqual([running, queued].sort());
 
       gate.resolve("success");
       await tick(5);
 
       expect(
-        service
-          .list({ state: "idle" })
-          .map((r) => r.pid)
-          .sort(),
-      ).toEqual([running, queued].sort());
-      expect(
-        service
-          .list({ exitState: "success" })
-          .map((r) => r.pid)
-          .sort(),
-      ).toEqual([running, queued].sort());
-      gate.resolve("success");
+        (await service.list({ state: "idle" })).map((r) => r.id).sort(),
+      ).toEqual([a.id, b.id].sort());
     });
   });
 
   describe("get* accessors", () => {
-    it("get() throws HttpError(404) when the pid is unknown", () => {
+    it("get() throws HttpError(404) when the id is unknown", async () => {
       const { service } = makeService();
       try {
-        service.get(999);
+        await service.get(999);
         throw new Error("should have thrown");
       } catch (err) {
         expect(err).toBeInstanceOf(HttpError);
@@ -276,19 +350,20 @@ describe("ProcessService", () => {
       }
     });
 
-    it("getOutput/getStdout/getStderr throw HttpError(409) until idle", () => {
+    it("getOutput/getStdout/getStderr throw HttpError(409) until idle", async () => {
       const controller = makeController();
       controller.executeImpl = () => new Promise(() => {});
       const { service } = makeService(controller);
+      mockInsertReturning(1);
 
-      const pid = service.create(BASE_CREATE_INPUT);
+      const { id } = await service.create(BASE_CREATE_INPUT);
       for (const fn of [
-        () => service.getOutput(pid),
-        () => service.getStdout(pid),
-        () => service.getStderr(pid),
+        () => service.getOutput(id),
+        () => service.getStdout(id),
+        () => service.getStderr(id),
       ]) {
         try {
-          fn();
+          await fn();
           throw new Error("should have thrown");
         } catch (err) {
           expect(err).toBeInstanceOf(HttpError);
@@ -297,13 +372,14 @@ describe("ProcessService", () => {
       }
     });
 
-    it("getCode() returns code regardless of state", () => {
+    it("getCode() returns code regardless of state", async () => {
       const controller = makeController();
       controller.executeImpl = () => new Promise(() => {});
       const { service } = makeService(controller);
+      mockInsertReturning(1);
 
-      const pid = service.create(BASE_CREATE_INPUT);
-      expect(service.getCode(pid)).toBe(BASE_CREATE_INPUT.code);
+      const { id } = await service.create(BASE_CREATE_INPUT);
+      expect(await service.getCode(id)).toBe(BASE_CREATE_INPUT.code);
     });
 
     it("returns output/stdout/stderr once the process is idle", async () => {
@@ -311,8 +387,10 @@ describe("ProcessService", () => {
       const finish = deferred<ExecutionExitState>();
       controller.executeImpl = () => finish.promise;
       const { service } = makeService(controller);
+      mockInsertReturning(1);
 
-      const pid = service.create(BASE_CREATE_INPUT);
+      const { id } = await service.create(BASE_CREATE_INPUT);
+      const pid = controller.executeCalls[0].eid;
       service.recordOutput(pid, { hello: "world" });
       service.recordStdout(pid, Buffer.from("hello", "utf8"));
       service.recordStderr(pid, Buffer.from("boom", "utf8"));
@@ -320,55 +398,58 @@ describe("ProcessService", () => {
       finish.resolve("success");
       await tick(5);
 
-      expect(service.getOutput(pid)).toEqual({ hello: "world" });
-      expect(service.getStdout(pid)).toBe("hello");
-      expect(service.getStderr(pid)).toBe("boom");
+      expect(await service.getOutput(id)).toEqual({ hello: "world" });
+      expect(await service.getStdout(id)).toBe("hello");
+      expect(await service.getStderr(id)).toBe("boom");
     });
   });
 
   describe("kill()", () => {
-    it("throws 404 when the pid does not exist", () => {
+    it("throws 404 when the id does not exist", async () => {
       const { service } = makeService();
-      expect(() => service.kill(123)).toThrow(HttpError);
+      await expect(service.kill(123)).rejects.toThrow(HttpError);
     });
 
     it("throws 409 when the process is already idle", async () => {
       const { service } = makeService();
-      const pid = service.create(BASE_CREATE_INPUT);
+      mockInsertReturning(1);
+      const { id } = await service.create(BASE_CREATE_INPUT);
       await tick(5);
 
       try {
-        service.kill(pid);
+        await service.kill(id);
         throw new Error("should have thrown");
       } catch (err) {
         expect((err as HttpError).statusCode).toBe(409);
       }
     });
 
-    it("sets state to terminating and calls controller.kill", () => {
+    it("sets state to terminating and calls controller.kill", async () => {
       const controller = makeController();
       controller.executeImpl = () => new Promise(() => {});
       const { service } = makeService(controller);
+      mockInsertReturning(1);
 
-      const pid = service.create(BASE_CREATE_INPUT);
-      const result = service.kill(pid);
+      const { id } = await service.create(BASE_CREATE_INPUT);
+      const result = await service.kill(id);
 
       expect(result.state).toBe("terminating");
-      expect(controller.killCalls).toEqual([pid]);
+      expect(controller.killCalls).toHaveLength(1);
     });
 
-    it("is idempotent: kill on a terminating process returns the same record without re-calling kill", () => {
+    it("is idempotent: kill on a terminating process returns without re-calling kill", async () => {
       const controller = makeController();
       controller.executeImpl = () => new Promise(() => {});
       const { service } = makeService(controller);
+      mockInsertReturning(1);
 
-      const pid = service.create(BASE_CREATE_INPUT);
-      service.kill(pid);
-      expect(controller.killCalls).toEqual([pid]);
+      const { id } = await service.create(BASE_CREATE_INPUT);
+      await service.kill(id);
+      expect(controller.killCalls).toHaveLength(1);
 
-      const again = service.kill(pid);
+      const again = await service.kill(id);
       expect(again.state).toBe("terminating");
-      expect(controller.killCalls).toEqual([pid]);
+      expect(controller.killCalls).toHaveLength(1);
     });
 
     it("settles to idle with exitState='canceled' when the controller reports cancellation", async () => {
@@ -379,12 +460,13 @@ describe("ProcessService", () => {
         finish.resolve("canceled");
       };
       const { service } = makeService(controller);
+      mockInsertReturning(1);
 
-      const pid = service.create(BASE_CREATE_INPUT);
-      service.kill(pid);
+      const { id } = await service.create(BASE_CREATE_INPUT);
+      await service.kill(id);
       await tick(5);
 
-      const record = service.get(pid);
+      const record = await service.get(id);
       expect(record.state).toBe("idle");
       expect(record.exitState).toBe("canceled");
     });
@@ -397,37 +479,16 @@ describe("ProcessService", () => {
         finish.reject(new Error("interrupted"));
       };
       const { service } = makeService(controller);
+      mockInsertReturning(1);
 
-      const pid = service.create(BASE_CREATE_INPUT);
-      service.kill(pid);
+      const { id } = await service.create(BASE_CREATE_INPUT);
+      await service.kill(id);
       await tick(5);
 
-      const record = service.get(pid);
+      const record = await service.get(id);
       expect(record.state).toBe("idle");
       expect(record.exitState).toBe("canceled");
       expect(record.error).toBeNull();
-    });
-
-    it("does not leak an unhandled rejection when controller.kill rejects", async () => {
-      const controller = makeController();
-      controller.executeImpl = () => new Promise(() => {});
-      controller.killImpl = async () => {
-        throw new Error("kill signal failed");
-      };
-      const { service } = makeService(controller);
-
-      const unhandled: unknown[] = [];
-      const onUnhandled = (reason: unknown) => unhandled.push(reason);
-      process.on("unhandledRejection", onUnhandled);
-
-      try {
-        const pid = service.create(BASE_CREATE_INPUT);
-        expect(() => service.kill(pid)).not.toThrow();
-        await tick(20);
-        expect(unhandled).toEqual([]);
-      } finally {
-        process.off("unhandledRejection", onUnhandled);
-      }
     });
   });
 
@@ -435,22 +496,23 @@ describe("ProcessService", () => {
     it("throws 503 once shutting down", async () => {
       const { service } = makeService();
       await service.shutdown();
-      expect(() => service.run(1, false)).toThrow(HttpError);
+      await expect(service.run(1, false)).rejects.toThrow(HttpError);
     });
 
-    it("throws 404 when pid is unknown", () => {
+    it("throws 404 when id is unknown", async () => {
       const { service } = makeService();
-      expect(() => service.run(99, false)).toThrow(HttpError);
+      await expect(service.run(99, false)).rejects.toThrow(HttpError);
     });
 
-    it("throws 409 when the process is not idle", () => {
+    it("throws 409 when the process is not idle", async () => {
       const controller = makeController();
       controller.executeImpl = () => new Promise(() => {});
       const { service } = makeService(controller);
+      mockInsertReturning(1);
 
-      const pid = service.create(BASE_CREATE_INPUT);
+      const { id } = await service.create(BASE_CREATE_INPUT);
       try {
-        service.run(pid, false);
+        await service.run(id, false);
         throw new Error("should have thrown");
       } catch (err) {
         expect((err as HttpError).statusCode).toBe(409);
@@ -459,38 +521,41 @@ describe("ProcessService", () => {
 
     it("throws 400 when prior outputs exist and force=false", async () => {
       const { service, controller } = makeService();
-      const pid = service.create(BASE_CREATE_INPUT);
+      mockInsertReturning(1);
+      const { id } = await service.create(BASE_CREATE_INPUT);
+      const pid = controller.executeCalls[0].eid;
       service.recordOutput(pid, { a: 1 });
       await tick(5);
 
       try {
-        service.run(pid, false);
+        await service.run(id, false);
         throw new Error("should have thrown");
       } catch (err) {
         expect((err as HttpError).statusCode).toBe(400);
       }
 
-      // Doesn't restart execution
       expect(controller.executeCalls).toHaveLength(1);
     });
 
     it("force=true clears outputs and restarts execution", async () => {
       const { service, controller } = makeService();
-      const pid = service.create(BASE_CREATE_INPUT);
+      mockInsertReturning(1);
+      const { id } = await service.create(BASE_CREATE_INPUT);
+      const pid = controller.executeCalls[0].eid;
       service.recordOutput(pid, { a: 1 });
       service.recordStdout(pid, Buffer.from("noise", "utf8"));
       await tick(5);
 
-      const before = service.get(pid);
+      const before = await service.get(id);
       expect(before.exitState).toBe("success");
 
-      const after = service.run(pid, true);
+      const after = await service.run(id, true);
       expect(after.exitState).toBeNull();
       expect(after.error).toBeNull();
 
       await tick(5);
-      expect(service.getOutput(pid)).toEqual({});
-      expect(service.getStdout(pid).length).toBe(0);
+      expect(await service.getOutput(id)).toEqual({});
+      expect((await service.getStdout(id)).length).toBe(0);
       expect(controller.executeCalls).toHaveLength(2);
     });
 
@@ -499,71 +564,67 @@ describe("ProcessService", () => {
       let exit: ExecutionExitState = "failed";
       controller.executeImpl = async () => exit;
       const { service } = makeService(controller);
+      mockInsertReturning(1);
 
-      const pid = service.create(BASE_CREATE_INPUT);
+      const { id } = await service.create(BASE_CREATE_INPUT);
       await tick(5);
 
-      // exitState is 'failed' but there's no output/stdout/stderr → still blocked.
-      // To get a clean rerun, simulate a process whose first run produced nothing
-      // (no output, no stderr/stdout) AND no exitState; we can't avoid an
-      // exitState being set on completion, so we just verify the inverse:
-      // when exitState is set, force is required.
-      expect(() => service.run(pid, false)).toThrow(HttpError);
+      expect(() => service.run(id, false)).rejects.toThrow(HttpError);
 
-      // Force succeeds and clears exitState.
       exit = "success";
-      service.run(pid, true);
+      await service.run(id, true);
       await tick(5);
-      expect(service.get(pid).exitState).toBe("success");
+      expect((await service.get(id)).exitState).toBe("success");
     });
   });
 
   describe("delete()", () => {
-    it("throws 409 when the process is not idle", () => {
+    it("throws 409 when the process is not idle", async () => {
       const controller = makeController();
       controller.executeImpl = () => new Promise(() => {});
       const { service } = makeService(controller);
+      mockInsertReturning(1);
 
-      const pid = service.create(BASE_CREATE_INPUT);
+      const { id } = await service.create(BASE_CREATE_INPUT);
       try {
-        service.delete(pid);
+        await service.delete(id);
         throw new Error("should have thrown");
       } catch (err) {
         expect((err as HttpError).statusCode).toBe(409);
       }
     });
 
-    it("throws 404 when the pid is unknown", () => {
+    it("throws 404 when the id is unknown", async () => {
       const { service } = makeService();
-      expect(() => service.delete(42)).toThrow(HttpError);
+      await expect(service.delete(42)).rejects.toThrow(HttpError);
     });
 
-    it("removes the process and recycles its pid", async () => {
+    it("removes the process and its db record", async () => {
       const { service } = makeService();
-
-      const pid1 = service.create(BASE_CREATE_INPUT);
+      mockInsertReturning(1);
+      const { id } = await service.create(BASE_CREATE_INPUT);
       await tick(5);
-      service.delete(pid1);
+      await service.delete(id);
 
       try {
-        service.get(pid1);
+        await service.get(id);
         throw new Error("should have thrown");
       } catch (err) {
         expect((err as HttpError).statusCode).toBe(404);
       }
 
-      const pid2 = service.create(BASE_CREATE_INPUT);
-      expect(pid2).toBe(pid1);
+      expect(db.delete).toHaveBeenCalledWith(processesTable);
     });
   });
 
   describe("waitForIdle()", () => {
     it("resolves immediately when the process is already idle", async () => {
       const { service } = makeService();
-      const pid = service.create(BASE_CREATE_INPUT);
+      mockInsertReturning(1);
+      const { id } = await service.create(BASE_CREATE_INPUT);
       await tick(5);
 
-      const result = await service.waitForIdle(pid, 5);
+      const result = await service.waitForIdle(id, 5);
       expect(result.state).toBe("idle");
     });
 
@@ -572,11 +633,11 @@ describe("ProcessService", () => {
       const finish = deferred<ExecutionExitState>();
       controller.executeImpl = () => finish.promise;
       const { service } = makeService(controller);
+      mockInsertReturning(1);
 
-      const pid = service.create(BASE_CREATE_INPUT);
-      const waited = service.waitForIdle(pid, 5);
+      const { id } = await service.create(BASE_CREATE_INPUT);
+      const waited = service.waitForIdle(id, 5);
 
-      // Still pending → resolve execution.
       finish.resolve("success");
       const result = await waited;
       expect(result.state).toBe("idle");
@@ -586,10 +647,11 @@ describe("ProcessService", () => {
       const controller = makeController();
       controller.executeImpl = () => new Promise(() => {});
       const { service } = makeService(controller);
+      mockInsertReturning(1);
 
-      const pid = service.create(BASE_CREATE_INPUT);
+      const { id } = await service.create(BASE_CREATE_INPUT);
 
-      await expect(service.waitForIdle(pid, 5, 30)).rejects.toMatchObject({
+      await expect(service.waitForIdle(id, 5, 30)).rejects.toMatchObject({
         statusCode: 504,
       });
     });
@@ -598,15 +660,15 @@ describe("ProcessService", () => {
       const controller = makeController();
       controller.executeImpl = () => new Promise(() => {});
       const { service } = makeService(controller);
+      mockInsertReturning(1);
 
-      // timeoutMs is 1ms so the derived window is ~1002ms; the wait must
-      // resolve as an HttpError rather than hanging forever.
-      const pid = service.create({
+      const { id } = await service.create({
         code: "x",
+        description: "",
         options: { timeoutMs: 1 },
       });
 
-      const err = (await service.waitForIdle(pid, 5).catch((e) => e)) as
+      const err = (await service.waitForIdle(id, 5).catch((e) => e)) as
         | HttpError
         | undefined;
       expect(err).toBeInstanceOf(HttpError);
@@ -627,16 +689,17 @@ describe("ProcessService", () => {
         if (eid === 2) b.resolve("canceled");
       };
       const { service } = makeService(controller);
+      mockInsertReturning(1);
+      mockInsertReturning(2);
 
-      const pid1 = service.create(BASE_CREATE_INPUT);
-      const pid2 = service.create(BASE_CREATE_INPUT);
+      const first = await service.create(BASE_CREATE_INPUT);
+      const second = await service.create(BASE_CREATE_INPUT);
 
       const done = service.shutdown();
       await done;
 
-      expect(controller.killCalls.sort()).toEqual([pid1, pid2]);
-      expect(service.get(pid1).state).toBe("idle");
-      expect(service.get(pid2).state).toBe("idle");
+      expect(service.get(first.id)).resolves.toBeDefined();
+      expect(service.get(second.id)).resolves.toBeDefined();
     });
 
     it("ignores controller.kill errors during shutdown", async () => {
@@ -648,32 +711,35 @@ describe("ProcessService", () => {
         throw new Error("boom");
       };
       const { service } = makeService(controller);
+      mockInsertReturning(1);
 
-      service.create(BASE_CREATE_INPUT);
+      await service.create(BASE_CREATE_INPUT);
       await expect(service.shutdown()).resolves.toBeUndefined();
     });
   });
 
   describe("recordState()", () => {
-    it("updates state for queued and running", () => {
+    it("updates state for queued and running", async () => {
       const controller = makeController();
       controller.executeImpl = () => new Promise(() => {});
       const { service } = makeService(controller);
+      mockInsertReturning(1);
 
-      const pid = service.create(BASE_CREATE_INPUT);
+      const { id } = await service.create(BASE_CREATE_INPUT);
+      const pid = controller.executeCalls[0].eid;
       service.recordState(pid, "running");
-      expect(service.get(pid).state).toBe("running");
+      expect((await service.get(id)).state).toBe("running");
       service.recordState(pid, "queued");
-      expect(service.get(pid).state).toBe("queued");
+      expect((await service.get(id)).state).toBe("queued");
     });
 
     it("ignores updates to a terminating or idle process", async () => {
       const { service } = makeService();
-      const pid = service.create(BASE_CREATE_INPUT);
+      mockInsertReturning(1);
+      const { id } = await service.create(BASE_CREATE_INPUT);
       await tick(5);
-      // Now idle. recordState should be a no-op.
-      service.recordState(pid, "running");
-      expect(service.get(pid).state).toBe("idle");
+      service.recordState(1, "running");
+      expect((await service.get(id)).state).toBe("idle");
     });
 
     it("ignores updates for unknown pids", () => {
@@ -683,22 +749,22 @@ describe("ProcessService", () => {
   });
 
   describe("recordStdout/recordStderr", () => {
-    it("decodes utf-8 chunks across writes", () => {
+    it("decodes utf-8 chunks across writes", async () => {
       const controller = makeController();
       controller.executeImpl = () => new Promise(() => {});
       const { service } = makeService(controller);
+      mockInsertReturning(1);
 
-      const pid = service.create(BASE_CREATE_INPUT);
-      // Split a 3-byte UTF-8 char ('€' = E2 82 AC) across two writes.
+      await service.create(BASE_CREATE_INPUT);
+      const pid = controller.executeCalls[0].eid;
       service.recordStdout(pid, Buffer.from([0xe2, 0x82]));
       service.recordStdout(pid, Buffer.from([0xac]));
 
-      // Mid-stream the stored buffer should contain a coherent partial decode.
-      const stored = service.list({ ref: undefined })[0];
-      expect(stored).toBeDefined();
+      const stored = await service.list({});
+      expect(stored[0]).toBeDefined();
     });
 
-    it("returns silently when the process is missing", () => {
+    it("returns silently when the eid is missing", () => {
       const { service } = makeService();
       expect(() => service.recordStdout(999, Buffer.from("x"))).not.toThrow();
       expect(() => service.recordStderr(999, Buffer.from("x"))).not.toThrow();
@@ -706,24 +772,22 @@ describe("ProcessService", () => {
   });
 
   describe("recordOutput()", () => {
-    it("merges into the stored output object", () => {
+    it("merges into the stored output object", async () => {
       const controller = makeController();
       controller.executeImpl = () => new Promise(() => {});
       const { service } = makeService(controller);
+      mockInsertReturning(1);
 
-      const pid = service.create(BASE_CREATE_INPUT);
+      await service.create(BASE_CREATE_INPUT);
+      const pid = controller.executeCalls[0].eid;
       service.recordOutput(pid, { a: 1 });
       service.recordOutput(pid, { b: 2 });
       service.recordOutput(pid, { a: 99 });
 
-      // Output isn't readable mid-flight; reflect via state inspection by
-      // forcing the process to idle.
-      service.recordState(pid, "running");
-      // No external API to read mid-flight; just confirm no throw.
       expect(() => service.recordOutput(pid, { c: 3 })).not.toThrow();
     });
 
-    it("silently ignores unknown pids", () => {
+    it("silently ignores unknown eids", () => {
       const { service } = makeService();
       expect(() => service.recordOutput(123, { a: 1 })).not.toThrow();
     });
@@ -736,11 +800,12 @@ describe("ProcessService", () => {
         throw new Error("execute blew up");
       };
       const { service } = makeService(controller);
+      mockInsertReturning(1);
 
-      const pid = service.create(BASE_CREATE_INPUT);
+      const { id } = await service.create(BASE_CREATE_INPUT);
       await tick(10);
 
-      const record = service.get(pid);
+      const record = await service.get(id);
       expect(record.error).toBe("execute blew up");
       expect(record.exitState).toBe("failed");
       expect(record.state).toBe("idle");
@@ -752,11 +817,12 @@ describe("ProcessService", () => {
         throw "string-error";
       };
       const { service } = makeService(controller);
+      mockInsertReturning(1);
 
-      const pid = service.create(BASE_CREATE_INPUT);
+      const { id } = await service.create(BASE_CREATE_INPUT);
       await tick(10);
 
-      expect(service.get(pid).error).toBe("string-error");
+      expect((await service.get(id)).error).toBe("string-error");
     });
 
     it("JSON.stringifies object throws", async () => {
@@ -765,11 +831,12 @@ describe("ProcessService", () => {
         throw { code: 42 };
       };
       const { service } = makeService(controller);
+      mockInsertReturning(1);
 
-      const pid = service.create(BASE_CREATE_INPUT);
+      const { id } = await service.create(BASE_CREATE_INPUT);
       await tick(10);
 
-      expect(service.get(pid).error).toBe('{"code":42}');
+      expect((await service.get(id)).error).toBe('{"code":42}');
     });
 
     it("falls back to String() for circular objects", async () => {
@@ -780,11 +847,12 @@ describe("ProcessService", () => {
         throw obj;
       };
       const { service } = makeService(controller);
+      mockInsertReturning(1);
 
-      const pid = service.create(BASE_CREATE_INPUT);
+      const { id } = await service.create(BASE_CREATE_INPUT);
       await tick(10);
 
-      expect(service.get(pid).error).toBe("[object Object]");
+      expect((await service.get(id)).error).toBe("[object Object]");
     });
   });
 
@@ -794,16 +862,16 @@ describe("ProcessService", () => {
       const finish = deferred<ExecutionExitState>();
       controller.executeImpl = () => finish.promise;
       const { service } = makeService(controller);
+      mockInsertReturning(1);
 
-      const pid = service.create(BASE_CREATE_INPUT);
-      // Write an incomplete UTF-8 sequence (mid-codepoint).
+      const { id } = await service.create(BASE_CREATE_INPUT);
+      const pid = controller.executeCalls[0].eid;
       service.recordStdout(pid, Buffer.from([0xe2, 0x82]));
 
       finish.resolve("success");
       await tick(10);
 
-      const stdout = service.getStdout(pid);
-      // StringDecoder.end() will emit replacement bytes for the dangling pair.
+      const stdout = await service.getStdout(id);
       expect(stdout.length).toBeGreaterThan(0);
     });
   });

@@ -74,11 +74,14 @@ const processExitStateSchema = z.union([
 ]);
 
 const processSchema = z.object({
-  pid: z.number().int().positive(),
+  id: z.number().int().positive(),
   ref: z.string().optional(),
+  description: z.string(),
   state: processStateSchema,
   exitState: processExitStateSchema,
   error: z.string().nullable(),
+  createdAt: z.string(),
+  completedAt: z.string().nullable(),
 });
 
 const processListSchema = z.object({
@@ -154,7 +157,7 @@ export default function ProcessesPage() {
   const [statusFilter, setStatusFilter] = useState<
     "all" | "failed" | "success" | "timeout" | "canceled" | "null"
   >("all");
-  const [selectedPid, setSelectedPid] = useState<number | null>(null);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [createCode, setCreateCode] = useState("");
   const [createRef, setCreateRef] = useState("");
@@ -205,33 +208,33 @@ export default function ProcessesPage() {
 
   useEffect(() => {
     if (processes.length === 0) {
-      setSelectedPid(null);
+      setSelectedId(null);
       return;
     }
 
-    if (selectedPid === null || !processes.some((p) => p.pid === selectedPid)) {
-      setSelectedPid(processes[0]?.pid ?? null);
+    if (selectedId === null || !processes.some((p) => p.id === selectedId)) {
+      setSelectedId(processes[0]?.id ?? null);
     }
-  }, [processes, selectedPid]);
+  }, [processes, selectedId]);
 
   const selectedProcess = useMemo(() => {
-    return processes.find((process) => process.pid === selectedPid) ?? null;
-  }, [processes, selectedPid]);
+    return processes.find((process) => process.id === selectedId) ?? null;
+  }, [processes, selectedId]);
 
   const outputKey =
     selectedProcess && selectedProcess.state === "idle"
-      ? buildUrl(`/processes/${selectedProcess.pid}/output`)
+      ? buildUrl(`/processes/${selectedProcess.id}/output`)
       : null;
   const stdoutKey =
     selectedProcess && selectedProcess.state === "idle"
-      ? buildUrl(`/processes/${selectedProcess.pid}/stdout`)
+      ? buildUrl(`/processes/${selectedProcess.id}/stdout`)
       : null;
   const stderrKey =
     selectedProcess && selectedProcess.state === "idle"
-      ? buildUrl(`/processes/${selectedProcess.pid}/stderr`)
+      ? buildUrl(`/processes/${selectedProcess.id}/stderr`)
       : null;
   const codeKey = selectedProcess
-    ? buildUrl(`/processes/${selectedProcess.pid}/code`)
+    ? buildUrl(`/processes/${selectedProcess.id}/code`)
     : null;
 
   const { data: outputData, error: outputError } = useSWR(
@@ -352,7 +355,7 @@ export default function ProcessesPage() {
 
   const handleRunProcess = async (process: Process, force: boolean) => {
     try {
-      await apiFetch(buildUrl(`/processes/${process.pid}/signals/run`), {
+      await apiFetch(buildUrl(`/processes/${process.id}/signals/run`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ force }),
@@ -374,7 +377,7 @@ export default function ProcessesPage() {
 
   const handleKillProcess = async (process: Process) => {
     try {
-      await apiFetch(buildUrl(`/processes/${process.pid}/signals/kill`), {
+      await apiFetch(buildUrl(`/processes/${process.id}/signals/kill`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
@@ -396,7 +399,7 @@ export default function ProcessesPage() {
 
   const handleDeleteProcess = async (process: Process) => {
     try {
-      await apiFetch(buildUrl(`/processes/${process.pid}`), {
+      await apiFetch(buildUrl(`/processes/${process.id}`), {
         method: "DELETE",
       });
       await mutate(processesUrl);
@@ -629,7 +632,7 @@ export default function ProcessesPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>PID</TableHead>
+                      <TableHead>ID</TableHead>
                       <TableHead>Ref</TableHead>
                       <TableHead>State</TableHead>
                       <TableHead>Status</TableHead>
@@ -639,15 +642,15 @@ export default function ProcessesPage() {
                   <TableBody>
                     {processes.map((process) => (
                       <TableRow
-                        key={process.pid}
+                        key={process.id}
                         className={cn(
                           "cursor-pointer",
-                          process.pid === selectedPid ? "bg-primary/10" : "",
+                          process.id === selectedId ? "bg-primary/10" : "",
                         )}
-                        onClick={() => setSelectedPid(process.pid)}
+                        onClick={() => setSelectedId(process.id)}
                       >
                         <TableCell className="font-medium">
-                          {process.pid}
+                          {process.id}
                         </TableCell>
                         <TableCell>{process.ref ?? "-"}</TableCell>
                         <TableCell>

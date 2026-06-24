@@ -5,7 +5,13 @@ import type {
   ExecutionInput,
   ExecutionState,
 } from "@cyrnel/sdk";
+import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
 
+import { db } from "@/db/client";
+import {
+  processData as processDataTable,
+  processes as processesTable,
+} from "@/db/schema";
 import { logger } from "@/logger";
 import { HttpError } from "@/models/error.model";
 import type {
@@ -31,6 +37,7 @@ interface EnvironmentController {
 
 interface RunExecutionInput {
   process: {
+    id: number;
     pid: number;
     code: string;
     options: {
@@ -43,14 +50,15 @@ interface RunExecutionInput {
 export class ProcessService {
   private readonly executions = new Map<number, ExecutionContext>();
   private readonly processes = new Map<number, ProcessRecord>();
+  private readonly pidIndex = new Map<number, number>();
   private readonly pidPool: number[] = [];
   private isShuttingDown = false;
   private nextId = 1;
 
   constructor(private readonly controller: EnvironmentController) {}
 
-  list(filters: FilterProcessInput): GetProcessResult[] {
-    return Array.from(this.processes.values())
+  async list(filters: FilterProcessInput): Promise<GetProcessResult[]> {
+    const inMemory = Array.from(this.processes.values())
       .filter(
         (process) =>
           (!filters.state || process.state === filters.state) &&
@@ -59,68 +67,183 @@ export class ProcessService {
           (filters.ref === undefined || process.ref === filters.ref),
       )
       .map((p) => this.project(p));
+
+    const conditions = [];
+    if (filters.ref !== undefined) {
+      conditions.push(eq(processesTable.ref, filters.ref));
+    }
+
+    if (filters.exitState !== undefined) {
+      if (filters.exitState === null) {
+        conditions.push(isNull(processDataTable.exitState));
+      } else {
+        conditions.push(eq(processDataTable.exitState, filters.exitState));
+      }
+    }
+
+    if (filters.state !== undefined) {
+      if (filters.state === "idle") {
+        conditions.push(isNotNull(processDataTable.exitState));
+      }
+    }
+
+    const dbRows = await db
+      .select({
+        id: processesTable.id,
+        ref: processesTable.ref,
+        description: processesTable.description,
+        createdAt: processesTable.createdAt,
+        exitState: processDataTable.exitState,
+        error: processDataTable.error,
+        completedAt: processDataTable.completedAt,
+      })
+      .from(processesTable)
+      .leftJoin(
+        processDataTable,
+        eq(processDataTable.processId, processesTable.id),
+      )
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(processesTable.id))
+      .all();
+
+    const inMemoryIds = new Set(this.pidIndex.keys());
+    const dbOnly: GetProcessResult[] = [];
+    for (const row of dbRows) {
+      if (inMemoryIds.has(row.id)) continue;
+      dbOnly.push({
+        id: row.id,
+        ref: row.ref ?? undefined,
+        description: row.description,
+        state: "idle",
+        exitState: (row.exitState ?? null) as GetProcessResult["exitState"],
+        error: row.error,
+        createdAt: row.createdAt,
+        completedAt: row.completedAt,
+      });
+    }
+
+    return [...inMemory, ...dbOnly];
   }
 
-  create(input: CreateProcessInput): number {
+  async create(input: CreateProcessInput): Promise<{ id: number }> {
     if (this.isShuttingDown) {
       throw new HttpError(503, "Service is shutting down.");
     }
 
-    const pid = this.createPid();
+    const description = input.description ?? "";
     const autorun = input.autorun ?? true;
+    const createdAt = new Date().toISOString();
 
+    const [{ id }] = await db
+      .insert(processesTable)
+      .values({
+        ref: input.ref ?? null,
+        description,
+        code: input.code,
+        options: { timeoutMs: input.options?.timeoutMs ?? null },
+        createdAt,
+      })
+      .returning({ id: processesTable.id });
+
+    const pid = this.createPid();
+
+    this.pidIndex.set(id, pid);
     this.processes.set(pid, {
-      ...input,
+      dbId: id,
       pid,
-      autorun,
+      ref: input.ref,
+      description,
       state: autorun ? "queued" : "idle",
       exitState: null,
       error: null,
+      code: input.code,
+      options: input.options ?? {},
+      autorun,
       output: {},
       stdout: Buffer.alloc(0),
       stderr: Buffer.alloc(0),
     });
 
     if (autorun) {
-      this.startExecution(pid);
+      this.startExecution(id);
     }
 
-    return pid;
+    return { id };
   }
 
-  get(pid: number): GetProcessResult {
-    return this.project(this.getStored(pid));
+  async get(id: number): Promise<GetProcessResult> {
+    const pid = this.pidIndex.get(id);
+    if (pid !== undefined) {
+      return this.project(this.getStored(pid));
+    }
+
+    const [row] = await db
+      .select({
+        id: processesTable.id,
+        ref: processesTable.ref,
+        description: processesTable.description,
+        createdAt: processesTable.createdAt,
+        exitState: processDataTable.exitState,
+        error: processDataTable.error,
+        completedAt: processDataTable.completedAt,
+      })
+      .from(processesTable)
+      .leftJoin(
+        processDataTable,
+        eq(processDataTable.processId, processesTable.id),
+      )
+      .where(eq(processesTable.id, id))
+      .limit(1)
+      .all();
+
+    if (!row) throw new HttpError(404, "Process not found.");
+
+    return {
+      id: row.id,
+      ref: row.ref ?? undefined,
+      description: row.description,
+      state: "idle",
+      exitState: (row.exitState ?? null) as GetProcessResult["exitState"],
+      error: row.error,
+      createdAt: row.createdAt,
+      completedAt: row.completedAt,
+    };
   }
 
-  getOutput(pid: number): Record<string, unknown> {
+  async getOutput(id: number): Promise<Record<string, unknown>> {
+    const pid = this.resolvePid(id);
     const stored = this.getStored(pid);
     this.assertIdle(stored.state);
     return stored.output;
   }
 
-  getCode(pid: number): string {
+  async getCode(id: number): Promise<string> {
+    const pid = this.resolvePid(id);
     const stored = this.getStored(pid);
     return stored.code;
   }
 
-  getStdout(pid: number): string {
+  async getStdout(id: number): Promise<string> {
+    const pid = this.resolvePid(id);
     const stored = this.getStored(pid);
     this.assertIdle(stored.state);
     return stored.stdout.toString("utf8");
   }
 
-  getStderr(pid: number): string {
+  async getStderr(id: number): Promise<string> {
+    const pid = this.resolvePid(id);
     const stored = this.getStored(pid);
     this.assertIdle(stored.state);
     return stored.stderr.toString("utf8");
   }
 
-  kill(pid: number): GetProcessResult {
+  async kill(id: number): Promise<GetProcessResult> {
+    const pid = this.resolvePid(id);
     const stored = this.getStored(pid);
 
     if (stored.state === "idle")
       throw new HttpError(409, "Process is already idle.");
-    if (stored.state === "terminating") return this.project(stored);
+    if (stored.state === "terminating") return await this.get(id);
 
     stored.state = "terminating";
 
@@ -128,13 +251,14 @@ export class ProcessService {
       logger.warn({ err, pid }, "Failed to send kill signal");
     });
 
-    return this.project(stored);
+    return await this.get(id);
   }
 
-  run(pid: number, force: boolean): GetProcessResult {
+  async run(id: number, force: boolean): Promise<GetProcessResult> {
     if (this.isShuttingDown)
       throw new HttpError(503, "Service is shutting down.");
 
+    const pid = this.resolvePid(id);
     const stored = this.getStored(pid);
 
     if (stored.state !== "idle")
@@ -162,12 +286,13 @@ export class ProcessService {
       stored.stderr = Buffer.alloc(0);
     }
 
-    this.startExecution(pid);
+    this.startExecution(id);
 
-    return this.project(stored);
+    return await this.get(id);
   }
 
-  delete(pid: number): GetProcessResult {
+  async delete(id: number): Promise<GetProcessResult> {
+    const pid = this.resolvePid(id);
     const stored = this.getStored(pid);
 
     if (stored.state !== "idle") {
@@ -177,29 +302,40 @@ export class ProcessService {
       );
     }
 
+    const result = this.project(stored);
+
     this.processes.delete(pid);
+    this.pidIndex.delete(id);
     this.pidPool.push(pid);
 
-    return this.project(stored);
+    await db
+      .delete(processesTable)
+      .where(eq(processesTable.id, id))
+      .catch((err) => {
+        logger.warn({ err, id }, "Failed to delete process from database");
+      });
+
+    return result;
   }
 
   async waitForIdle(
-    pid: number,
+    id: number,
     pollIntervalMs = 100,
     maxWaitMs?: number,
   ): Promise<GetProcessResult> {
+    const pid = this.resolvePid(id);
     const initial = this.getStored(pid);
     const effectiveTimeoutMs =
       initial.options.timeoutMs ?? DEFAULT_EXECUTION_TIMEOUT_MS;
     const deadline = Date.now() + (maxWaitMs ?? effectiveTimeoutMs * 2 + 1_000);
 
     while (true) {
-      const stored = this.getStored(pid);
-      if (stored.state === "idle") return this.project(stored);
+      const stored = this.processes.get(pid);
+      if (!stored || stored.state === "idle") return await this.get(id);
       if (Date.now() >= deadline) {
         throw new HttpError(
           504,
-          `Process ${pid} did not become idle within the configured wait window.`,
+          `Process ${id} did not become idle within the configured wait window.`,
         );
       }
       await this.sleep(pollIntervalMs);
@@ -209,7 +345,7 @@ export class ProcessService {
   async shutdown(): Promise<void> {
     this.isShuttingDown = true;
 
-    for (const pid of this.executions.keys()) {
+    for (const [pid] of this.executions) {
       try {
         await this.controller.kill(pid);
       } catch {}
@@ -268,8 +404,8 @@ export class ProcessService {
     stored.error = message;
   }
 
-  private startExecution(pid: number): void {
-    const stored = this.processes.get(pid);
+  private startExecution(id: number): void {
+    const stored = this.processes.get(this.pidIndex.get(id) ?? -1);
 
     if (!stored) return;
 
@@ -281,15 +417,20 @@ export class ProcessService {
     const timeoutMs = stored.options.timeoutMs ?? DEFAULT_EXECUTION_TIMEOUT_MS;
 
     context.promise = this.runExecution({
-      process: { pid, code: stored.code, options: { timeoutMs } },
+      process: {
+        id,
+        pid: stored.pid,
+        code: stored.code,
+        options: { timeoutMs },
+      },
       context,
     });
 
-    this.executions.set(pid, context);
+    this.executions.set(stored.pid, context);
   }
 
   private async runExecution(input: RunExecutionInput): Promise<void> {
-    const { pid, ...rest } = input.process;
+    const { id, pid, ...rest } = input.process;
 
     let exitState: ExecutionExitState;
 
@@ -323,6 +464,27 @@ export class ProcessService {
     stored.exitState = exitState;
 
     this.executions.delete(pid);
+
+    try {
+      await db.insert(processDataTable).values({
+        processId: stored.dbId,
+        exitState,
+        error: stored.error,
+        output: stored.output,
+        stdout: stored.stdout.toString("utf8"),
+        stderr: stored.stderr.toString("utf8"),
+        completedAt: new Date().toISOString(),
+      });
+    } catch (err) {
+      logger.warn({ err, id: stored.dbId }, "Failed to persist process result");
+    }
+  }
+
+  private resolvePid(id: number): number {
+    const pid = this.pidIndex.get(id);
+    if (pid === undefined)
+      throw new HttpError(404, "Process not found in active memory.");
+    return pid;
   }
 
   private getStored(pid: number): ProcessRecord {
@@ -331,15 +493,17 @@ export class ProcessService {
     return found;
   }
 
-  private project({
-    code: _code,
-    options: _options,
-    output: _output,
-    stdout: _stdout,
-    stderr: _stderr,
-    ...rest
-  }: ProcessRecord): GetProcessResult {
-    return rest;
+  private project(record: ProcessRecord): GetProcessResult {
+    return {
+      id: record.dbId,
+      ref: record.ref,
+      description: record.description,
+      state: record.state,
+      exitState: record.exitState,
+      error: record.error,
+      createdAt: "",
+      completedAt: null,
+    };
   }
 
   private assertIdle(state: ProcessState): void {

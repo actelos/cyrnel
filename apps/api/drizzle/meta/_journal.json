@@ -8,6 +8,13 @@
       "when": 1781789042392,
       "tag": "0000_curious_kat_farrell",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1782315914050,
+      "tag": "0001_open_tyger_tiger",
+      "breakpoints": true
     }
   ]
 }

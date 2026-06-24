@@ -140,3 +140,35 @@ export type NewModuleConfigurationRecord =
 
 export type ModuleSecretsRecord = typeof moduleSecrets.$inferSelect;
 export type NewModuleSecretsRecord = typeof moduleSecrets.$inferInsert;
+
+export const processes = sqliteTable("processes", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  ref: text("ref").unique(),
+  description: text("description").notNull().default(""),
+  code: text("code").notNull(),
+  options: text("options", { mode: "json" })
+    .$type<{ timeoutMs?: number | null }>()
+    .notNull()
+    .default({}),
+  createdAt: text("created_at").notNull(),
+});
+
+export const processData = sqliteTable("process_data", {
+  processId: integer("process_id")
+    .primaryKey()
+    .references(() => processes.id, { onDelete: "cascade" }),
+  exitState: text("exit_state"),
+  error: text("error"),
+  output: text("output", { mode: "json" })
+    .$type<Record<string, unknown>>()
+    .notNull()
+    .default({}),
+  stdout: text("stdout"),
+  stderr: text("stderr"),
+  completedAt: text("completed_at").notNull(),
+});
+
+export type ProcessRow = typeof processes.$inferSelect;
+export type NewProcessRow = typeof processes.$inferInsert;
+export type ProcessDataRow = typeof processData.$inferSelect;
+export type NewProcessDataRow = typeof processData.$inferInsert;

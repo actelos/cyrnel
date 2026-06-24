@@ -13,8 +13,10 @@ export const PROCESS_EXIT_STATES = [...EXECUTION_EXIT_STATES, null] as const;
 export type ProcessExitState = (typeof PROCESS_EXIT_STATES)[number];
 
 export interface ProcessRecord {
+  dbId: number;
   pid: number;
   ref?: string;
+  description: string;
   state: ProcessState;
   exitState: ProcessExitState;
   error: string | null;
@@ -30,7 +32,14 @@ export interface ProcessRecord {
 
 export type CreateProcessInput = Omit<
   ProcessRecord,
-  "pid" | "state" | "exitState" | "error" | "output" | "stdout" | "stderr"
+  | "dbId"
+  | "pid"
+  | "state"
+  | "exitState"
+  | "error"
+  | "output"
+  | "stdout"
+  | "stderr"
 >;
 
 export interface FilterProcessInput {
@@ -39,9 +48,15 @@ export interface FilterProcessInput {
   exitState?: ProcessExitState;
 }
 
-export type ListProcessResult = Omit<
-  ProcessRecord,
-  "code" | "options" | "output" | "stdout" | "stderr"
->;
+export interface GetProcessResult {
+  id: number;
+  ref?: string;
+  description: string;
+  state: ProcessState;
+  exitState: ProcessExitState;
+  error: string | null;
+  createdAt: string;
+  completedAt: string | null;
+}
 
-export type GetProcessResult = ListProcessResult;
+export type ListProcessResult = GetProcessResult;

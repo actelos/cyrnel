@@ -1,9 +1,9 @@
 import type { FastMCPSessionAuth, Tool } from "fastmcp";
 import { z } from "zod";
 import { api, searchParams } from "@/fetch.js";
-import { Pid, type ProcessState, ServiceId, ToolId } from "@/schemas.js";
+import { ProcessId, type ProcessState, ServiceId, ToolId } from "@/schemas.js";
 
-// biome-ignore lint/suspicious/noExplicitAny: tool params vary per entry
+// biome-ignore lint/suspicious/noExplicitAny: fastmcp Tool generic requires schema type
 const tools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
   {
     name: "get_environment_docs",
@@ -166,27 +166,27 @@ const tools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
       if (ref !== undefined) body.ref = ref;
       if (timeout !== undefined) body.options = { timeout: timeout * 1000 };
       body.autorun = autorun;
-      const { pid } = (await api.post("processes", { json: body }).json()) as {
-        pid: number;
+      const { id } = (await api.post("processes", { json: body }).json()) as {
+        id: number;
       };
-      if (!block || !autorun) return JSON.stringify({ pid });
-      const process = await pollUntilIdle(pid, timeout);
+      if (!block || !autorun) return JSON.stringify({ id });
+      const process = await pollUntilIdle(id, timeout);
       const result: Record<string, unknown> = { ...process };
       if (with_output) {
         result.output = await api
-          .get(`processes/${pid}/output`)
+          .get(`processes/${id}/output`)
           .json()
           .catch(() => ({}));
       }
       if (with_stdout) {
         result.stdout = await api
-          .get(`processes/${pid}/stdout`)
+          .get(`processes/${id}/stdout`)
           .text()
           .catch(() => "");
       }
       if (with_stderr) {
         result.stderr = await api
-          .get(`processes/${pid}/stderr`)
+          .get(`processes/${id}/stderr`)
           .text()
           .catch(() => "");
       }
@@ -207,9 +207,9 @@ const tools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
       idempotentHint: true,
       openWorldHint: true,
     },
-    parameters: z.object({ pid: Pid }),
-    execute: async ({ pid }) =>
-      JSON.stringify(await api.get(`processes/${pid}/output`).json()),
+    parameters: z.object({ id: ProcessId }),
+    execute: async ({ id }) =>
+      JSON.stringify(await api.get(`processes/${id}/output`).json()),
   },
   {
     name: "get_process_stdout",
@@ -225,8 +225,8 @@ const tools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
       idempotentHint: true,
       openWorldHint: true,
     },
-    parameters: z.object({ pid: Pid }),
-    execute: async ({ pid }) => api.get(`processes/${pid}/stdout`).text(),
+    parameters: z.object({ id: ProcessId }),
+    execute: async ({ id }) => api.get(`processes/${id}/stdout`).text(),
   },
   {
     name: "get_process_stderr",
@@ -242,13 +242,13 @@ const tools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
       idempotentHint: true,
       openWorldHint: true,
     },
-    parameters: z.object({ pid: Pid }),
-    execute: async ({ pid }) => api.get(`processes/${pid}/stderr`).text(),
+    parameters: z.object({ id: ProcessId }),
+    execute: async ({ id }) => api.get(`processes/${id}/stderr`).text(),
   },
   {
     name: "run_process",
     description: `
-    Run or re-run an idle process by pid. Only accepts a run signal when the
+    Run or re-run an idle process by id. Only accepts a run signal when the
     process is currently \`idle\`. If \`force\` is false and the process has
     existing outputs, the request is rejected. Use to re-run a process you
     previously created.
@@ -257,7 +257,7 @@ const tools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
       .trim(),
     annotations: { idempotentHint: false, openWorldHint: true },
     parameters: z.object({
-      pid: Pid,
+      id: ProcessId,
       force: z
         .boolean()
         .default(false)
@@ -287,7 +287,7 @@ const tools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
         .describe("Include stderr when blocking."),
     }),
     execute: async ({
-      pid,
+      id,
       force,
       block,
       with_output,
@@ -295,26 +295,26 @@ const tools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
       with_stderr,
     }) => {
       const process = (await api
-        .post(`processes/${pid}/signals/run`, { json: { force } })
+        .post(`processes/${id}/signals/run`, { json: { force } })
         .json()) as Record<string, unknown>;
       if (!block) return JSON.stringify(process);
-      const idleProcess = await pollUntilIdle(pid);
+      const idleProcess = await pollUntilIdle(id);
       const result: Record<string, unknown> = { ...idleProcess };
       if (with_output) {
         result.output = await api
-          .get(`processes/${pid}/output`)
+          .get(`processes/${id}/output`)
           .json()
           .catch(() => ({}));
       }
       if (with_stdout) {
         result.stdout = await api
-          .get(`processes/${pid}/stdout`)
+          .get(`processes/${id}/stdout`)
           .text()
           .catch(() => "");
       }
       if (with_stderr) {
         result.stderr = await api
-          .get(`processes/${pid}/stderr`)
+          .get(`processes/${id}/stderr`)
           .text()
           .catch(() => "");
       }
@@ -324,20 +324,20 @@ const tools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
   {
     name: "kill_process",
     description: `
-    Stop a queued or running process by pid, returning the updated process
+    Stop a queued or running process by id, returning the updated process
     record. Use to cancel queued work or interrupt a running process.
     `,
     annotations: { idempotentHint: false, openWorldHint: true },
-    parameters: z.object({ pid: Pid }),
-    execute: async ({ pid }) =>
+    parameters: z.object({ id: ProcessId }),
+    execute: async ({ id }) =>
       JSON.stringify(
-        await api.post(`processes/${pid}/signals/kill`, { json: {} }).json(),
+        await api.post(`processes/${id}/signals/kill`, { json: {} }).json(),
       ),
   },
 ];
 
 async function pollUntilIdle(
-  pid: number,
+  id: number,
   timeoutS?: number,
   pollIntervalMs = 100,
 ): Promise<Record<string, unknown>> {
@@ -345,13 +345,13 @@ async function pollUntilIdle(
   const deadline = Date.now() + timeoutMs * 2 + 1_000;
 
   while (true) {
-    const process = (await api.get(`processes/${pid}`).json()) as {
+    const process = (await api.get(`processes/${id}`).json()) as {
       state: ProcessState;
     };
     if (process.state === "idle") return process;
     if (Date.now() >= deadline) {
       throw new Error(
-        `Process ${pid} did not become idle within the configured wait window.`,
+        `Process ${id} did not become idle within the configured wait window.`,
       );
     }
     await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));

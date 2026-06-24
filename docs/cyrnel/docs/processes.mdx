@@ -4,28 +4,34 @@ description: "Creating, running, and inspecting processes"
 ---
 
 A process is a stateful execution unit in cyrnel. When a client submits code,
-cyrnel creates a process with a unique process id (`pid`), runs it on the active
-[environment module](/cyrnel/docs/environments-modules), captures its output, and
-exposes those outputs by `pid`. Process execution does not block the client
-request unless `block: true` is set.
+cyrnel creates a process record with a stable identifier (`id`), runs it on the
+active [environment module](/cyrnel/docs/environments-modules), captures its
+output, and persists the result to the database. Process execution does not
+block the client request unless `block: true` is set.
 
 ## Process Model
 
-Each process is an in-memory record with the following fields:
+Each process has the following fields:
 
-- `pid`: unique process identifier (integer, reused after deletion)
-- `ref`: optional reference label (trimmed; must be non-empty if present)
+- `id`: stable database identifier (auto-incrementing integer, persists across restarts)
+- `ref`: optional reference label (trimmed; must be non-empty if present, unique)
+- `description`: human-readable description of the process purpose
 - `state`: lifecycle phase (see below)
 - `exitState`: execution outcome (see below)
 - `error`: error message if the process failed, otherwise `null`
 - `code`: the submitted source
 - `options.timeoutMs`: per-process timeout in milliseconds, or `null` to disable
 - `output`: structured key/value payload emitted by `cyrnel.output(...)`
-- `stdout`, `stderr`: captured byte buffers
+- `stdout`, `stderr`: captured text output
+- `createdAt`: ISO-8601 timestamp of creation
+- `completedAt`: ISO-8601 timestamp of completion, or `null` if still running
 
-<Warning>
-  Process records are **in-memory only**. Restarting the API clears them.
-</Warning>
+<Info>
+  Process creation records and execution results are **persisted in the
+  database**. Runtime state (running/queued/terminating) is ephemeral and
+  held in memory — restarting the API clears active executions but the
+  creation record and any completed results survive.
+</Info>
 
 ### Process states
 
@@ -53,7 +59,8 @@ Each process is an in-memory record with the following fields:
 ```json
 {
   "code": "string",
-  "ref": "optional string",
+  "description": "optional description",
+  "ref": "optional unique reference",
   "autorun": true,
   "options": {
     "timeout": 30000
@@ -64,7 +71,8 @@ Each process is an in-memory record with the following fields:
 Rules:
 
 - `code` is **required** and must be a string.
-- `ref` is optional, trimmed, and must be non-empty if present.
+- `description` is optional, defaults to empty string.
+- `ref` is optional, trimmed, unique if provided, and must be non-empty if present.
 - `options.timeout` is in milliseconds. Must be a **positive integer**, or
   `null` to disable. Default: `30000`.
 - `autorun` controls whether execution starts immediately. When `true`
@@ -75,16 +83,15 @@ Rules:
 Response (`201`):
 
 ```json
-{ "pid": 42 }
+{ "id": 1 }
 ```
 
-If `block: true`, cyrnel polls until `state === "idle"` before responding. The
-HTTP status is still `201`. Note that `block` has no effect when `autorun` is
-`false`, the process is already idle.
+If `block: true` and `autorun: true`, cyrnel polls until `state === "idle"`
+before responding. The HTTP status is still `201`.
 
 ## Run an Existing Process
 
-`POST /processes/:pid/signals/run`
+`POST /processes/:id/signals/run`
 
 ```json
 { "force": false, "block": false }
@@ -99,7 +106,7 @@ Response (`200`): the process record.
 
 ## Kill a Process
 
-`POST /processes/:pid/signals/kill`
+`POST /processes/:id/signals/kill`
 
 - If the process is `queued`, it transitions straight to `idle` with
   `exitState = "canceled"`.
@@ -114,11 +121,11 @@ Response (`200`): the process record.
 | Method | Path | Returns |
 | --- | --- | --- |
 | `GET` | `/processes` | `{ processes: ProcessRecord[] }` (filterable) |
-| `GET` | `/processes/:pid` | the process record |
-| `GET` | `/processes/:pid/code` | submitted source as `text/plain` |
-| `GET` | `/processes/:pid/output` | structured output as JSON |
-| `GET` | `/processes/:pid/stdout` | captured stdout as `text/plain` |
-| `GET` | `/processes/:pid/stderr` | captured stderr as `text/plain` |
+| `GET` | `/processes/:id` | the process record |
+| `GET` | `/processes/:id/code` | submitted source as `text/plain` |
+| `GET` | `/processes/:id/output` | structured output as JSON |
+| `GET` | `/processes/:id/stdout` | captured stdout as `text/plain` |
+| `GET` | `/processes/:id/stderr` | captured stderr as `text/plain` |
 
 `/output`, `/stdout`, and `/stderr` return `409` unless the process is
 `idle`.
@@ -131,9 +138,12 @@ Query parameters:
 - `status`: One of `success | failed | timeout | canceled | null`
 - `ref`: Exact match (trimmed, non-empty)
 
+Results include both active in-memory processes and historical processes
+from the database.
+
 ## Delete a Process
 
-`DELETE /processes/:pid`
+`DELETE /processes/:id`
 
-The process must be `idle`. The `pid` is recycled into the pool and reused
-by future creates.
+The process must be `idle`. The record is permanently removed from the
+database.

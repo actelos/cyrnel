@@ -17,13 +17,13 @@ export const processRouter: ExpressRouter = Router();
 
 processRouter.get("/", listProcesses);
 processRouter.post("/", createProcess);
-processRouter.get("/:pid", getProcess);
-processRouter.delete("/:pid", deleteProcess);
+processRouter.get("/:id", getProcess);
+processRouter.delete("/:id", deleteProcess);
 
-processRouter.get("/:pid/code", getProcessCode);
-processRouter.get("/:pid/output", getProcessOutput);
-processRouter.get("/:pid/stdout", getProcessStdout);
-processRouter.get("/:pid/stderr", getProcessStderr);
+processRouter.get("/:id/code", getProcessCode);
+processRouter.get("/:id/output", getProcessOutput);
+processRouter.get("/:id/stdout", getProcessStdout);
+processRouter.get("/:id/stderr", getProcessStderr);
 
-processRouter.post("/:pid/signals/run", runProcess);
-processRouter.post("/:pid/signals/kill", killProcess);
+processRouter.post("/:id/signals/run", runProcess);
+processRouter.post("/:id/signals/kill", killProcess);

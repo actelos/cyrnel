@@ -15,6 +15,9 @@ const createProcessBodySchema = z
     code: z
       .string({ error: 'Field "code" must be a string' })
       .or(z.undefined()),
+    description: z
+      .string({ error: "Field 'description' must be a string." })
+      .optional(),
     ref: z
       .string({ error: "Field 'ref' in body must be a string." })
       .transform((v) => v.trim())
@@ -54,6 +57,7 @@ const createProcessBodySchema = z
   })
   .transform((value) => ({
     code: value.code as string,
+    description: value.description,
     ref: value.ref,
     options: value.options,
     autorun: value.autorun,
@@ -106,25 +110,30 @@ function getProcessService(req: Request): ProcessService {
   return service;
 }
 
-function parsePid(req: Request): number {
+function parseId(req: Request): number {
   return parseOrHttpError(
     z
-      .string({ error: "Field 'pid' must be a string." })
+      .string({ error: "Field 'id' must be a string." })
       .transform((v) => Number.parseInt(v, 10))
       .refine((v) => Number.isInteger(v) && v > 0, {
-        error: "Field 'pid' must be a positive integer.",
+        error: "Field 'id' must be a positive integer.",
       }),
-    req.params.pid,
+    req.params.id,
   );
 }
 
-export function listProcesses(req: Request, res: Response): void {
+export async function listProcesses(
+  req: Request,
+  res: Response,
+): Promise<void> {
   const filters: FilterProcessInput = {
     ref: parseOptional(refSchema("query"), req.query.ref),
     state: parseOptional(stateSchema, req.query.state),
     exitState: parseOptional(statusSchema, req.query.status),
   };
-  res.status(200).json({ processes: getProcessService(req).list(filters) });
+  res
+    .status(200)
+    .json({ processes: await getProcessService(req).list(filters) });
 }
 
 export async function createProcess(
@@ -137,50 +146,66 @@ export async function createProcess(
     req.body,
     "Request body must be an object.",
   );
-  const pid = processService.create({
+  const { id } = await processService.create({
+    description: body.description ?? "",
     ref: parseOptional(refSchema("body"), body.ref),
     code: body.code,
     options: { timeoutMs: body.options?.timeout },
     autorun: body.autorun,
   });
-  res.status(201).json({ pid });
+  res.status(201).json({ id });
 }
 
-export function getProcess(req: Request, res: Response): void {
-  res.status(200).json(getProcessService(req).get(parsePid(req)));
+export async function getProcess(req: Request, res: Response): Promise<void> {
+  res.status(200).json(await getProcessService(req).get(parseId(req)));
 }
 
-export function getProcessOutput(req: Request, res: Response): void {
-  res.status(200).json(getProcessService(req).getOutput(parsePid(req)));
+export async function getProcessOutput(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  res.status(200).json(await getProcessService(req).getOutput(parseId(req)));
 }
 
-export function getProcessCode(req: Request, res: Response): void {
+export async function getProcessCode(
+  req: Request,
+  res: Response,
+): Promise<void> {
   res
     .status(200)
     .type("text/plain")
-    .send(getProcessService(req).getCode(parsePid(req)));
+    .send(await getProcessService(req).getCode(parseId(req)));
 }
 
-export function getProcessStdout(req: Request, res: Response): void {
+export async function getProcessStdout(
+  req: Request,
+  res: Response,
+): Promise<void> {
   res
     .status(200)
     .type("text/plain")
-    .send(getProcessService(req).getStdout(parsePid(req)));
+    .send(await getProcessService(req).getStdout(parseId(req)));
 }
 
-export function getProcessStderr(req: Request, res: Response): void {
+export async function getProcessStderr(
+  req: Request,
+  res: Response,
+): Promise<void> {
   res
     .status(200)
     .type("text/plain")
-    .send(getProcessService(req).getStderr(parsePid(req)));
+    .send(await getProcessService(req).getStderr(parseId(req)));
 }
 
-export function killProcess(req: Request, res: Response): void {
-  res.status(200).json(getProcessService(req).kill(parsePid(req)));
+export async function killProcess(req: Request, res: Response): Promise<void> {
+  res.status(200).json(await getProcessService(req).kill(parseId(req)));
 }
 
-export function deleteProcess(req: Request, res: Response): void {
-  res.status(200).json(getProcessService(req).delete(parsePid(req)));
+export async function deleteProcess(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  res.status(200).json(await getProcessService(req).delete(parseId(req)));
 }
 
 export async function runProcess(req: Request, res: Response): Promise<void> {
@@ -190,6 +215,6 @@ export async function runProcess(req: Request, res: Response): Promise<void> {
     req.body,
     "Request body must be an object.",
   );
-  const pid = parsePid(req);
-  res.status(200).json(processService.run(pid, body.force ?? false));
+  const id = parseId(req);
+  res.status(200).json(await processService.run(id, body.force ?? false));
 }

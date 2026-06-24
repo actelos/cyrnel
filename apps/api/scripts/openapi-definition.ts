@@ -90,8 +90,8 @@ const moduleEnabledQuerySchema = z
   .enum(["true", "false"])
   .describe("Enabled-state filter. Accepts 'true' or 'false'.");
 
-const pidParam = z.object({
-  pid: z
+const idParam = z.object({
+  id: z
     .string()
     .describe("Numeric process identifier serialized as a path parameter."),
 });
@@ -133,11 +133,13 @@ const ProcessSchema = registry.register(
   "Process",
   z
     .object({
-      pid: z
+      id: z
         .number()
         .int()
         .positive()
-        .describe("Numeric process identifier assigned by the API."),
+        .describe(
+          "Stable process identifier assigned at creation. Persists across restarts.",
+        ),
       ref: z
         .string()
         .min(1)
@@ -145,6 +147,9 @@ const ProcessSchema = registry.register(
         .describe(
           "Optional caller-supplied reference string used to correlate related processes.",
         ),
+      description: z
+        .string()
+        .describe("Human-readable description of the process purpose."),
       state: processStateSchema.describe(
         "Current lifecycle state of the process.",
       ),
@@ -156,6 +161,15 @@ const ProcessSchema = registry.register(
         .nullable()
         .describe(
           "Error message captured during execution, or null if no error occurred.",
+        ),
+      createdAt: z
+        .string()
+        .describe("ISO-8601 timestamp of when the process was created."),
+      completedAt: z
+        .string()
+        .nullable()
+        .describe(
+          "ISO-8601 timestamp of when the process completed, or null if still running.",
         ),
     })
     .describe("Process snapshot returned by the process management endpoints."),
@@ -217,11 +231,13 @@ const ProcessCreatedResponseSchema = registry.register(
   "ProcessCreatedResponse",
   z
     .object({
-      pid: z
+      id: z
         .number()
         .int()
         .positive()
-        .describe("Identifier assigned to the newly created process."),
+        .describe(
+          "Stable process identifier assigned to the newly created process.",
+        ),
     })
     .describe("Response returned after a process is created."),
 );
@@ -818,18 +834,17 @@ registry.registerPath({
 
 registry.registerPath({
   method: "get",
-  path: "/processes/{pid}",
+  path: "/processes/{id}",
   tags: ["Processes"],
   summary: "Get a process",
-  description:
-    "Returns the current process snapshot for the requested process identifier.",
-  request: { params: pidParam },
+  description: "Returns the process snapshot for the requested identifier.",
+  request: { params: idParam },
   responses: {
     200: {
       description: "Process snapshot.",
       content: jsonContent(ProcessSchema),
     },
-    400: apiErrorResponse("The pid path parameter was invalid."),
+    400: apiErrorResponse("The id path parameter was invalid."),
     401: apiErrorResponse(
       "A bearer token was required but missing or invalid.",
     ),
@@ -840,18 +855,18 @@ registry.registerPath({
 
 registry.registerPath({
   method: "delete",
-  path: "/processes/{pid}",
+  path: "/processes/{id}",
   tags: ["Processes"],
   summary: "Delete a process",
   description:
-    "Deletes an idle process snapshot. Active processes must be stopped before they can be deleted.",
-  request: { params: pidParam },
+    "Deletes an idle process record from the database. Active processes must be stopped before they can be deleted.",
+  request: { params: idParam },
   responses: {
     200: {
       description: "The deleted process snapshot.",
       content: jsonContent(ProcessSchema),
     },
-    400: apiErrorResponse("The pid path parameter was invalid."),
+    400: apiErrorResponse("The id path parameter was invalid."),
     401: apiErrorResponse(
       "A bearer token was required but missing or invalid.",
     ),
@@ -863,18 +878,18 @@ registry.registerPath({
 
 registry.registerPath({
   method: "get",
-  path: "/processes/{pid}/code",
+  path: "/processes/{id}/code",
   tags: ["Processes"],
   summary: "Get stored process code",
   description:
-    "Returns the exact source code stored for the process as plain text. Useful for debugging and auditing the code that produced the execution output.",
-  request: { params: pidParam },
+    "Returns the exact source code stored for the process as plain text.",
+  request: { params: idParam },
   responses: {
     200: {
       description: "The stored source code.",
       content: textContent(z.string().describe("Process source code.")),
     },
-    400: apiErrorResponse("The pid path parameter was invalid."),
+    400: apiErrorResponse("The id path parameter was invalid."),
     401: apiErrorResponse(
       "A bearer token was required but missing or invalid.",
     ),
@@ -885,18 +900,18 @@ registry.registerPath({
 
 registry.registerPath({
   method: "get",
-  path: "/processes/{pid}/output",
+  path: "/processes/{id}/output",
   tags: ["Processes"],
   summary: "Get process output",
   description:
     "Returns the structured output collected during process execution. Output is only available once the process is idle.",
-  request: { params: pidParam },
+  request: { params: idParam },
   responses: {
     200: {
       description: "Structured process output.",
       content: jsonContent(ProcessOutputSchema),
     },
-    400: apiErrorResponse("The pid path parameter was invalid."),
+    400: apiErrorResponse("The id path parameter was invalid."),
     401: apiErrorResponse(
       "A bearer token was required but missing or invalid.",
     ),
@@ -910,18 +925,18 @@ registry.registerPath({
 
 registry.registerPath({
   method: "get",
-  path: "/processes/{pid}/stdout",
+  path: "/processes/{id}/stdout",
   tags: ["Processes"],
   summary: "Get process stdout",
   description:
     "Returns the captured standard output for the process as plain text. Output is only available once the process is idle.",
-  request: { params: pidParam },
+  request: { params: idParam },
   responses: {
     200: {
       description: "Captured stdout text.",
       content: textContent(z.string().describe("Standard output content.")),
     },
-    400: apiErrorResponse("The pid path parameter was invalid."),
+    400: apiErrorResponse("The id path parameter was invalid."),
     401: apiErrorResponse(
       "A bearer token was required but missing or invalid.",
     ),
@@ -935,18 +950,18 @@ registry.registerPath({
 
 registry.registerPath({
   method: "get",
-  path: "/processes/{pid}/stderr",
+  path: "/processes/{id}/stderr",
   tags: ["Processes"],
   summary: "Get process stderr",
   description:
     "Returns the captured standard error for the process as plain text. Output is only available once the process is idle.",
-  request: { params: pidParam },
+  request: { params: idParam },
   responses: {
     200: {
       description: "Captured stderr text.",
       content: textContent(z.string().describe("Standard error content.")),
     },
-    400: apiErrorResponse("The pid path parameter was invalid."),
+    400: apiErrorResponse("The id path parameter was invalid."),
     401: apiErrorResponse(
       "A bearer token was required but missing or invalid.",
     ),
@@ -960,13 +975,13 @@ registry.registerPath({
 
 registry.registerPath({
   method: "post",
-  path: "/processes/{pid}/signals/run",
+  path: "/processes/{id}/signals/run",
   tags: ["Processes"],
   summary: "Run a process",
   description:
     "Queues an idle process for execution. Set force to true to rerun a process that already produced output.",
   request: {
-    params: pidParam,
+    params: idParam,
     body: { content: jsonContent(RunSignalRequestSchema) },
   },
   responses: {
@@ -975,7 +990,7 @@ registry.registerPath({
       content: jsonContent(ProcessSchema),
     },
     400: apiErrorResponse(
-      "The pid path parameter or request body was invalid, or the process has existing output and force was not set.",
+      "The id path parameter or request body was invalid, or the process has existing output and force was not set.",
     ),
     401: apiErrorResponse(
       "A bearer token was required but missing or invalid.",
@@ -993,13 +1008,13 @@ registry.registerPath({
 
 registry.registerPath({
   method: "post",
-  path: "/processes/{pid}/signals/kill",
+  path: "/processes/{id}/signals/kill",
   tags: ["Processes"],
   summary: "Kill a process",
   description:
     "Signals an active process to terminate. The body is only validated as a JSON object; its contents are ignored.",
   request: {
-    params: pidParam,
+    params: idParam,
     body: { content: jsonContent(ProcessKillRequestSchema) },
   },
   responses: {
@@ -1008,7 +1023,7 @@ registry.registerPath({
       content: jsonContent(ProcessSchema),
     },
     400: apiErrorResponse(
-      "The pid path parameter was invalid or the request body was not a JSON object.",
+      "The id path parameter was invalid or the request body was not a JSON object.",
     ),
     401: apiErrorResponse(
       "A bearer token was required but missing or invalid.",
