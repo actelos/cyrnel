@@ -503,6 +503,29 @@ const ServiceSecretsResponseSchema = registry.register(
     .describe("Response returned after patching service secrets."),
 );
 
+const ServiceSecretsPresenceResponseSchema = registry.register(
+  "ServiceSecretsPresenceResponse",
+  z
+    .object({
+      present: z
+        .array(z.string())
+        .describe("Secrets paths that currently have values set."),
+    })
+    .describe("Indicates which secrets paths have values present (non-empty)."),
+);
+
+const ServiceSyncResponseSchema = registry.register(
+  "ServiceSyncResponse",
+  z
+    .object({
+      id: z.string().min(1).describe("Identifier of the synced service."),
+      updated: z
+        .boolean()
+        .describe("Confirms the service definition was re-registered."),
+    })
+    .describe("Response returned after syncing a service."),
+);
+
 const ToolListItemSchema = registry.register(
   "ToolListItem",
   z
@@ -1152,6 +1175,31 @@ registry.registerPath({
 });
 
 registry.registerPath({
+  method: "post",
+  path: "/services/{serviceId}/sync",
+  tags: ["Services"],
+  summary: "Sync a service from its stored definition",
+  description:
+    "Re-registers a service from its stored definition content without re-downloading. This is used to reconcile the service with its adapter after the adapter was updated or the service was marked stale. The service is disabled after sync to allow the user to re-enable once configuration and secrets are verified.",
+  request: { params: serviceIdParam },
+  responses: {
+    200: {
+      description: "Service synced successfully.",
+      content: jsonContent(ServiceSyncResponseSchema),
+    },
+    400: apiErrorResponse("The serviceId path parameter was invalid."),
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    404: apiErrorResponse("The service could not be found."),
+    409: apiErrorResponse(
+      "The service is stale or has no stored definition content to sync from.",
+    ),
+    500: apiErrorResponse("The service could not be synced."),
+  },
+});
+
+registry.registerPath({
   method: "patch",
   path: "/services/{serviceId}",
   tags: ["Services"],
@@ -1298,6 +1346,28 @@ registry.registerPath({
     ),
     404: apiErrorResponse("The service could not be found."),
     500: apiErrorResponse("The configuration could not be persisted."),
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/services/{serviceId}/secrets",
+  tags: ["Services"],
+  summary: "Get service secrets presence",
+  description:
+    "Returns the list of secrets paths that currently have values set. Secrets values are never echoed back, only their presence or absence is exposed.",
+  request: { params: serviceIdParam },
+  responses: {
+    200: {
+      description: "List of secrets paths with values present.",
+      content: jsonContent(ServiceSecretsPresenceResponseSchema),
+    },
+    400: apiErrorResponse("The serviceId path parameter was invalid."),
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    404: apiErrorResponse("The service could not be found."),
+    500: apiErrorResponse("The secrets presence could not be determined."),
   },
 });
 
