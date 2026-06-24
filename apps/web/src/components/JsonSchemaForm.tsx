@@ -1,4 +1,4 @@
-import { Loader2 } from "lucide-react";
+import { Loader2, RotateCcw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,11 +18,74 @@ interface JsonSchemaFormProps {
   schema: JSONSchema;
   currentValues: Record<string, unknown>;
   patchUrl: string;
+  presentSet?: Set<string>;
   onSaved?: () => void | Promise<void>;
 }
 
 function jsonPointer(path: string): string {
   return `/${path.replace(/~/g, "~0").replace(/\//g, "~1")}`;
+}
+
+function encodePointer(path: string): string {
+  return path.replace(/~/g, "~0").replace(/\//g, "~1");
+}
+
+function expandObjectReplace(
+  basePath: string,
+  obj: Record<string, unknown>,
+  presentSet: Set<string>,
+): Array<Record<string, unknown>> {
+  const ops: Array<Record<string, unknown>> = [];
+
+  for (const [key, value] of Object.entries(obj)) {
+    const path = `${basePath}/${encodePointer(key)}`;
+    const isPresent = presentSet.has(path);
+
+    if (isPresent && (value === "" || value === 0 || value === false)) {
+      continue;
+    }
+
+    if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+      ops.push(
+        ...expandObjectReplace(
+          path,
+          value as Record<string, unknown>,
+          presentSet,
+        ),
+      );
+    } else {
+      ops.push({ op: isPresent ? "replace" : "add", path, value });
+    }
+  }
+
+  return ops;
+}
+
+function expandPatch(
+  patch: Array<Record<string, unknown>>,
+  presentSet: Set<string>,
+): Array<Record<string, unknown>> {
+  const result: Array<Record<string, unknown>> = [];
+
+  for (const op of patch) {
+    if (
+      op.op === "replace" &&
+      typeof op.value === "object" &&
+      op.value !== null &&
+      !Array.isArray(op.value)
+    ) {
+      const leafOps = expandObjectReplace(
+        op.path as string,
+        op.value as Record<string, unknown>,
+        presentSet,
+      );
+      result.push(...leafOps);
+    } else {
+      result.push(op);
+    }
+  }
+
+  return result;
 }
 
 function buildPatch(
@@ -54,11 +117,14 @@ function renderField(
   value: unknown,
   onChange: (name: string, value: unknown) => void,
   depth: number,
+  presentSet?: Set<string>,
+  basePath = "",
+  requiredFields: string[] = [],
 ): React.ReactNode {
+  const fullPath = basePath ? `${basePath}/${name}` : `/${name}`;
+  const isPresent = presentSet?.has(fullPath);
   const propType = Array.isArray(prop.type) ? prop.type[0] : prop.type;
-  const _required = Array.isArray(prop.required)
-    ? (prop.required as string[])
-    : [];
+  const isRequired = requiredFields.includes(name);
   const description =
     typeof prop.description === "string" ? prop.description : undefined;
 
@@ -71,9 +137,12 @@ function renderField(
       <fieldset key={name} className={`space-y-3 border-l-2 pl-4 ${indent}`}>
         <legend className="text-sm font-medium flex items-center gap-2">
           {name}
+          {isRequired ? (
+            <span className="text-destructive ml-0.5">*</span>
+          ) : null}
           {description ? (
             <span className="text-xs text-muted-foreground font-normal">
-              — {description}
+              {description}
             </span>
           ) : null}
         </legend>
@@ -86,6 +155,9 @@ function renderField(
               onChange(name, { ...subValues, [k]: v });
             },
             depth + 1,
+            presentSet,
+            fullPath,
+            (prop.required as string[]) ?? [],
           ),
         )}
       </fieldset>
@@ -100,7 +172,12 @@ function renderField(
           onCheckedChange={(v) => onChange(name, v)}
         />
         <div className="space-y-0.5">
-          <Label className="text-sm font-medium">{name}</Label>
+          <Label className="text-sm font-medium">
+            {name}
+            {isRequired ? (
+              <span className="text-destructive ml-0.5">*</span>
+            ) : null}
+          </Label>
           {description ? (
             <p className="text-xs text-muted-foreground">{description}</p>
           ) : null}
@@ -114,9 +191,12 @@ function renderField(
       <div key={name} className={`space-y-1.5 ${indent}`}>
         <Label className="text-sm font-medium">
           {name}
+          {isRequired ? (
+            <span className="text-destructive ml-0.5">*</span>
+          ) : null}
           {description ? (
             <span className="text-xs text-muted-foreground font-normal ml-2">
-              — {description}
+              {description}
             </span>
           ) : null}
         </Label>
@@ -146,9 +226,12 @@ function renderField(
       <div key={name} className={`space-y-2 ${indent}`}>
         <Label className="text-sm font-medium">
           {name}
+          {isRequired ? (
+            <span className="text-destructive ml-0.5">*</span>
+          ) : null}
           {description ? (
             <span className="text-xs text-muted-foreground font-normal ml-2">
-              — {description}
+              {description}
             </span>
           ) : null}
         </Label>
@@ -199,14 +282,28 @@ function renderField(
     name.toLowerCase().includes("key") ||
     name.toLowerCase().includes("password");
 
+  const textAttrs = {
+    minLength: typeof prop.minLength === "number" ? prop.minLength : undefined,
+    maxLength: typeof prop.maxLength === "number" ? prop.maxLength : undefined,
+    pattern: typeof prop.pattern === "string" ? prop.pattern : undefined,
+  };
+  const numberAttrs = {
+    min: typeof prop.minimum === "number" ? prop.minimum : undefined,
+    max: typeof prop.maximum === "number" ? prop.maximum : undefined,
+    step: typeof prop.step === "number" ? prop.step : undefined,
+  };
+
   if (propType === "object" && !prop.properties) {
     return (
       <div key={name} className={`space-y-1.5 ${indent}`}>
         <Label className="text-sm font-medium">
           {name}
+          {isRequired ? (
+            <span className="text-destructive ml-0.5">*</span>
+          ) : null}
           {description ? (
             <span className="text-xs text-muted-foreground font-normal ml-2">
-              — {description}
+              {description}
             </span>
           ) : null}
         </Label>
@@ -220,6 +317,7 @@ function renderField(
             }
           }}
           className="min-h-[100px] font-mono text-xs resize-none"
+          {...textAttrs}
         />
       </div>
     );
@@ -229,9 +327,13 @@ function renderField(
     <div key={name} className={`space-y-1.5 ${indent}`}>
       <Label className="text-sm font-medium">
         {name}
+        {isRequired ? <span className="text-destructive ml-0.5">*</span> : null}
+        {isPresent ? (
+          <span className="w-[6px] h-[6px] bg-primary rounded-full"></span>
+        ) : null}
         {description ? (
-          <span className="text-xs text-muted-foreground font-normal ml-2">
-            — {description}
+          <span className="text-xs text-muted-foreground font-normal ml-1">
+            {description}
           </span>
         ) : null}
       </Label>
@@ -243,6 +345,7 @@ function renderField(
             onChange={(e) => onChange(name, e.target.value)}
             placeholder="(hidden)"
             className="font-mono text-xs pr-16"
+            {...textAttrs}
           />
           <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground pointer-events-none">
             secret
@@ -266,11 +369,10 @@ function renderField(
             );
           }}
           placeholder={
-            typeof prop.default !== "undefined"
-              ? `Default: ${JSON.stringify(prop.default)}`
-              : ""
+            typeof prop.default !== "undefined" ? String(prop.default) : ""
           }
           className="font-mono text-xs"
+          {...(isNumber ? numberAttrs : textAttrs)}
         />
       )}
     </div>
@@ -282,18 +384,17 @@ export default function JsonSchemaForm({
   schema,
   currentValues,
   patchUrl,
+  presentSet,
   onSaved,
 }: JsonSchemaFormProps) {
   const { addNotification } = useNotification();
   const [values, setValues] = useState<Record<string, unknown>>({});
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const properties = (schema.properties ?? {}) as Record<string, JSONSchema>;
 
   useEffect(() => {
     setValues({ ...currentValues });
-    setError(null);
   }, [currentValues]);
 
   const patch = useMemo(
@@ -305,7 +406,6 @@ export default function JsonSchemaForm({
 
   const handleChange = (name: string, value: unknown) => {
     setValues((prev) => ({ ...prev, [name]: value }));
-    setError(null);
   };
 
   const handleSave = async () => {
@@ -318,13 +418,23 @@ export default function JsonSchemaForm({
       return;
     }
 
+    const body = presentSet ? expandPatch(patch, presentSet) : patch;
+
+    if (body.length === 0) {
+      addNotification({
+        type: "success",
+        title: "No changes",
+        message: "No changes to save.",
+      });
+      return;
+    }
+
     setSaving(true);
-    setError(null);
     try {
       await apiFetch(patchUrl, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(patch),
+        body: JSON.stringify(body),
       });
 
       addNotification({
@@ -339,17 +449,20 @@ export default function JsonSchemaForm({
         err,
         `Unable to save ${title.toLowerCase()}.`,
       );
-      setError(msg);
       addNotification({ type: "error", title: "Error", message: msg });
     } finally {
       setSaving(false);
     }
   };
 
+  const handleReset = () => {
+    setValues({ ...currentValues });
+  };
+
   const isEmpty = Object.keys(properties).length === 0;
 
   return (
-    <Card className="flex flex-col">
+    <Card className="w-full flex flex-col">
       <CardHeader className="flex flex-row items-center justify-between gap-2">
         <h3 className="text-sm font-semibold">{title}</h3>
         <div className="flex items-center gap-2">
@@ -358,6 +471,15 @@ export default function JsonSchemaForm({
               {patch.length} change{patch.length !== 1 ? "s" : ""}
             </span>
           ) : null}
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={saving || !hasChanges}
+            onClick={handleReset}
+          >
+            <RotateCcw />
+          </Button>
           <Button
             type="button"
             size="sm"
@@ -377,9 +499,7 @@ export default function JsonSchemaForm({
       </CardHeader>
       <CardContent className="min-h-0 flex-1 overflow-hidden">
         <ScrollArea className="h-full">
-          <div className="space-y-4 pr-4">
-            {error ? <p className="text-sm text-destructive">{error}</p> : null}
-
+          <div className="space-y-4">
             {isEmpty ? (
               <p className="text-sm text-muted-foreground">
                 No configuration options available.
@@ -392,6 +512,9 @@ export default function JsonSchemaForm({
                   values[name],
                   handleChange,
                   0,
+                  presentSet,
+                  "",
+                  (schema.required as string[]) ?? [],
                 ),
               )
             )}
