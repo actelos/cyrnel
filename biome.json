@@ -14,7 +14,8 @@
       "!**/dist",
       "!**/build",
       "!**/node_modules",
-      "!**/openapi.json"
+      "!**/openapi.json",
+      "!**/drizzle"
     ]
   },
   "formatter": {
