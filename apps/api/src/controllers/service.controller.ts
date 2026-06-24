@@ -154,6 +154,17 @@ export async function getServiceConfigurationSchema(
   res.status(200).json({ configSchema });
 }
 
+export async function getServiceSecrets(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const servicesService = getServicesService(req);
+  const serviceId = parseServiceId(req.params.serviceId);
+  const result = await servicesService.getServiceSecretsPresence(serviceId);
+
+  res.status(200).json(result);
+}
+
 export async function getServiceSecretsSchema(
   req: Request,
   res: Response,

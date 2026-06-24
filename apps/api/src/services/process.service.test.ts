@@ -148,9 +148,6 @@ describe("ProcessService", () => {
 
       service.create({ code: "x", options: { timeoutMs: null } });
 
-      // null is intentionally coerced to the default — it does NOT mean
-      // "no timeout". If callers ever need an unbounded run, that requires
-      // a deliberate API change, not the absence of a value.
       expect(controller.executeCalls[0]?.options?.timeoutMs).toBe(30_000);
     });
 
@@ -408,8 +405,6 @@ describe("ProcessService", () => {
       const record = service.get(pid);
       expect(record.state).toBe("idle");
       expect(record.exitState).toBe("canceled");
-      // The error path is taken by the runtime but mapped to a cancel —
-      // we should NOT record the rejection as a user-visible error.
       expect(record.error).toBeNull();
     });
 

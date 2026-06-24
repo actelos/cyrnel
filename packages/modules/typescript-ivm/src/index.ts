@@ -23,7 +23,7 @@ const ENVIRONMENT_DOCS = `
 Code is transpiled with the TypeScript compiler and executed inside an
 \`isolated-vm\` isolate. Each execution runs inside an implicit async function,
 so top-level \`await\` is allowed. There is no filesystem, network, or Node
-built-ins — only the globals listed below.
+built-ins, only the globals listed below.
 
 - **Language**: TypeScript / JavaScript, target ES2022, module ESNext.
 - **No \`import\`/\`require\`**: the isolate has no module loader. Write all
@@ -238,7 +238,7 @@ function renderProperties(schema: JSONSchema | undefined): string {
       const tag = required.has(name) ? "required" : "optional";
       const description =
         prop && typeof prop === "object" && typeof prop.description === "string"
-          ? ` — ${prop.description}`
+          ? ` ${prop.description}`
           : "";
       return `- \`${name}\` (${type}, ${tag})${description}`;
     })

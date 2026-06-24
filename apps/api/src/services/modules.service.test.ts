@@ -1499,6 +1499,27 @@ describe("ModuleService", () => {
         config: { baseUrl: "https://kept" },
       });
     });
+
+    it("getSecretsPresence returns empty array when no secrets stored", async () => {
+      const service = new ModuleService(makeBindings(), makeLifecycle());
+      await service.initialize(MISSING_PATH);
+
+      const result = await service.getSecretsPresence("openapi");
+      expect(result).toEqual({ present: [] });
+    });
+
+    it("getSecretsPresence returns paths after secrets are set", async () => {
+      const service = new ModuleService(makeBindings(), makeLifecycle());
+      await service.initialize(MISSING_PATH);
+
+      await service.patchSecrets({
+        id: "openapi",
+        patch: [{ op: "add", path: "/apiKey", value: "sekret" }],
+      });
+
+      const result = await service.getSecretsPresence("openapi");
+      expect(result).toEqual({ present: ["/apiKey"] });
+    });
   });
 
   describe("installModule()", () => {

@@ -36,7 +36,11 @@ import type {
 } from "@/models/services.model";
 import { downloadText } from "@/utils/download.util";
 import { computeContentHash } from "@/utils/hash.util";
-import { decryptSecrets, encryptSecrets } from "@/utils/secrets.util";
+import {
+  collectPresentPaths,
+  decryptSecrets,
+  encryptSecrets,
+} from "@/utils/secrets.util";
 import {
   applyJsonSchemaDefaults,
   validateJsonSchema,
@@ -848,6 +852,11 @@ export class ServicesService {
     return payload && typeof payload === "object" && !Array.isArray(payload)
       ? (payload as Record<string, unknown>)
       : {};
+  }
+
+  async getServiceSecretsPresence(id: string): Promise<{ present: string[] }> {
+    const payload = await this.loadServiceSecrets(id);
+    return { present: collectPresentPaths(payload) };
   }
 
   async getServiceConfigSchema(id: string): Promise<JSONSchema> {

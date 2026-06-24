@@ -6,7 +6,7 @@ import {
   RotateCcw,
   Trash2,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { useNavigate, useParams } from "react-router-dom";
 import remarkGfm from "remark-gfm";
@@ -72,6 +72,10 @@ const serviceSecretsSchemaSchema = z.object({
   secretsSchema: z.record(z.string(), z.unknown()),
 });
 
+const secretsPresenceSchema = z.object({
+  present: z.array(z.string()),
+});
+
 const toolSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -86,6 +90,45 @@ const toolListSchema = z.object({
 });
 
 type Service = z.infer<typeof serviceSchema>;
+
+function buildFormSkeleton(
+  schema: Record<string, unknown>,
+  presentSet: Set<string>,
+  basePath = "",
+): Record<string, unknown> {
+  const properties = (schema.properties ?? {}) as Record<string, unknown>;
+  const result: Record<string, unknown> = {};
+
+  for (const [name, prop] of Object.entries(properties)) {
+    const propSchema = prop as Record<string, unknown>;
+    const propType = Array.isArray(propSchema.type)
+      ? propSchema.type[0]
+      : propSchema.type;
+    const path = basePath ? `${basePath}/${name}` : `/${name}`;
+    const isPresent = presentSet.has(path);
+
+    if (
+      propType === "object" &&
+      typeof propSchema.properties === "object" &&
+      propSchema.properties !== null
+    ) {
+      const nested = buildFormSkeleton(
+        propSchema as Record<string, unknown>,
+        presentSet,
+        path,
+      );
+      if (isPresent || Object.keys(nested).length > 0) {
+        result[name] = nested;
+      }
+    } else if (propType === "array") {
+      result[name] = [];
+    } else {
+      if (isPresent) result[name] = "";
+    }
+  }
+
+  return result;
+}
 
 export default function ServiceDetailPage() {
   const { serviceId } = useParams<{ serviceId: string }>();
@@ -116,6 +159,10 @@ export default function ServiceDetailPage() {
 
   const configSchemaUrl = serviceId
     ? buildUrl(`/services/${serviceId}/config/schema`)
+    : null;
+
+  const secretsUrl = serviceId
+    ? buildUrl(`/services/${serviceId}/secrets`)
     : null;
 
   const secretsSchemaUrl = serviceId
@@ -172,14 +219,35 @@ export default function ServiceDetailPage() {
     { refreshInterval: 8000 },
   );
 
+  const { data: serviceSecretsPresence } = useSWR(
+    secretsUrl,
+    (url) => apiFetchJson(url, secretsPresenceSchema),
+    { refreshInterval: 8000 },
+  );
+
   const { data: serviceSecretsSchemaPayload } = useSWR(
     secretsSchemaUrl,
     (url) => apiFetchJson(url, serviceSecretsSchemaSchema),
     { refreshInterval: 8000 },
   );
 
+  const presentSet = useMemo(
+    () => new Set(serviceSecretsPresence?.present ?? []),
+    [serviceSecretsPresence],
+  );
+
+  const currentSecretsValues = useMemo(
+    () =>
+      buildFormSkeleton(
+        serviceSecretsSchemaPayload?.secretsSchema ?? {},
+        presentSet,
+      ),
+    [serviceSecretsSchemaPayload, presentSet],
+  );
+
   const handleRefetchAll = async () => {
     if (configUrl) await mutate(configUrl);
+    if (secretsUrl) await mutate(secretsUrl);
     if (secretsSchemaUrl) await mutate(secretsSchemaUrl);
     if (configSchemaUrl) await mutate(configSchemaUrl);
     if (serviceDetailsUrl) await mutate(serviceDetailsUrl);
@@ -722,7 +790,8 @@ export default function ServiceDetailPage() {
                 <JsonSchemaForm
                   title="Secrets"
                   schema={serviceSecretsSchemaPayload?.secretsSchema ?? {}}
-                  currentValues={{} as Record<string, unknown>}
+                  currentValues={currentSecretsValues}
+                  presentSet={presentSet}
                   patchUrl={buildUrl(`/services/${serviceDetails.id}/secrets`)}
                   onSaved={handleRefetchAll}
                 />

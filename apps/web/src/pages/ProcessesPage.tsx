@@ -27,6 +27,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -496,14 +497,12 @@ export default function ProcessesPage() {
                         ) : null}
                       </div>
                       <div className="flex items-center gap-2">
-                        <input
+                        <Checkbox
                           id="process-autorun"
-                          type="checkbox"
                           checked={createAutorun}
-                          onChange={(event) =>
-                            setCreateAutorun(event.target.checked)
+                          onCheckedChange={(checked) =>
+                            setCreateAutorun(checked === true)
                           }
-                          className="h-4 w-4 rounded border-border"
                         />
                         <Label htmlFor="process-autorun">
                           Start immediately

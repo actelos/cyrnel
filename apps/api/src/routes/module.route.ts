@@ -6,6 +6,7 @@ import {
   getModule,
   getModuleConfiguration,
   getModuleConfigurationSchema,
+  getModuleSecrets,
   getModuleSecretsSchema,
   installModule,
   listModules,
@@ -33,5 +34,6 @@ moduleRouter.get("/:moduleId/config/schema", getModuleConfigurationSchema);
 moduleRouter.get("/:moduleId/config", getModuleConfiguration);
 moduleRouter.patch("/:moduleId/config", patchModuleConfiguration);
 
+moduleRouter.get("/:moduleId/secrets", getModuleSecrets);
 moduleRouter.get("/:moduleId/secrets/schema", getModuleSecretsSchema);
 moduleRouter.patch("/:moduleId/secrets", patchModuleSecrets);

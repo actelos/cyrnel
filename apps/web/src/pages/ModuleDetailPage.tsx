@@ -1,5 +1,5 @@
 import { ArrowLeft, ChevronDown, Circle, Loader2, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { useNavigate, useParams } from "react-router-dom";
 import remarkGfm from "remark-gfm";
@@ -63,6 +63,49 @@ const moduleSecretsSchemaSchema = z.object({
   secretsSchema: z.record(z.string(), z.unknown()),
 });
 
+const secretsPresenceSchema = z.object({
+  present: z.array(z.string()),
+});
+
+function buildFormSkeleton(
+  schema: Record<string, unknown>,
+  presentSet: Set<string>,
+  basePath = "",
+): Record<string, unknown> {
+  const properties = (schema.properties ?? {}) as Record<string, unknown>;
+  const result: Record<string, unknown> = {};
+
+  for (const [name, prop] of Object.entries(properties)) {
+    const propSchema = prop as Record<string, unknown>;
+    const propType = Array.isArray(propSchema.type)
+      ? propSchema.type[0]
+      : propSchema.type;
+    const path = basePath ? `${basePath}/${name}` : `/${name}`;
+    const isPresent = presentSet.has(path);
+
+    if (
+      propType === "object" &&
+      typeof propSchema.properties === "object" &&
+      propSchema.properties !== null
+    ) {
+      const nested = buildFormSkeleton(
+        propSchema as Record<string, unknown>,
+        presentSet,
+        path,
+      );
+      if (isPresent || Object.keys(nested).length > 0) {
+        result[name] = nested;
+      }
+    } else if (propType === "array") {
+      result[name] = [];
+    } else {
+      if (isPresent) result[name] = "";
+    }
+  }
+
+  return result;
+}
+
 export default function ModuleDetailPage() {
   const { moduleId } = useParams<{ moduleId: string }>();
   const navigate = useNavigate();
@@ -85,6 +128,8 @@ export default function ModuleDetailPage() {
   const configSchemaUrl = moduleId
     ? buildUrl(`/modules/${moduleId}/config/schema`)
     : null;
+
+  const secretsUrl = moduleId ? buildUrl(`/modules/${moduleId}/secrets`) : null;
 
   const secretsSchemaUrl = moduleId
     ? buildUrl(`/modules/${moduleId}/secrets/schema`)
@@ -132,14 +177,35 @@ export default function ModuleDetailPage() {
     { refreshInterval: 8000 },
   );
 
+  const { data: moduleSecretsPresence } = useSWR(
+    secretsUrl,
+    (url) => apiFetchJson(url, secretsPresenceSchema),
+    { refreshInterval: 8000 },
+  );
+
   const { data: moduleSecretsSchemaPayload } = useSWR(
     secretsSchemaUrl,
     (url) => apiFetchJson(url, moduleSecretsSchemaSchema),
     { refreshInterval: 8000 },
   );
 
+  const presentSet = useMemo(
+    () => new Set(moduleSecretsPresence?.present ?? []),
+    [moduleSecretsPresence],
+  );
+
+  const currentSecretsValues = useMemo(
+    () =>
+      buildFormSkeleton(
+        moduleSecretsSchemaPayload?.secretsSchema ?? {},
+        presentSet,
+      ),
+    [moduleSecretsSchemaPayload, presentSet],
+  );
+
   const handleRefetchAll = async () => {
     if (configUrl) await mutate(configUrl);
+    if (secretsUrl) await mutate(secretsUrl);
     if (secretsSchemaUrl) await mutate(secretsSchemaUrl);
     if (configSchemaUrl) await mutate(configSchemaUrl);
     if (moduleDetailUrl) await mutate(moduleDetailUrl);
@@ -177,8 +243,6 @@ export default function ModuleDetailPage() {
       setTogglingModuleId(null);
     }
   };
-
-  // removed: handleSaveConfiguration and handleSaveSecrets — handled by JsonSchemaForm
 
   const handleCheckForUpdate = async () => {
     if (!moduleDetail?.source) {
@@ -539,7 +603,8 @@ export default function ModuleDetailPage() {
           <JsonSchemaForm
             title="Secrets"
             schema={moduleSecretsSchemaPayload?.secretsSchema ?? {}}
-            currentValues={{} as Record<string, unknown>}
+            currentValues={currentSecretsValues}
+            presentSet={presentSet}
             patchUrl={buildUrl(`/modules/${moduleDetail.id}/secrets`)}
             onSaved={handleRefetchAll}
           />

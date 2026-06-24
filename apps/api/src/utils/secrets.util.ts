@@ -39,6 +39,24 @@ export function encryptSecrets(
   };
 }
 
+export function collectPresentPaths(
+  obj: Record<string, unknown>,
+  basePath = "",
+): string[] {
+  const paths: string[] = [];
+  for (const [key, value] of Object.entries(obj)) {
+    const path = basePath ? `${basePath}/${key}` : `/${key}`;
+    if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+      paths.push(
+        ...collectPresentPaths(value as Record<string, unknown>, path),
+      );
+    } else {
+      paths.push(path);
+    }
+  }
+  return paths;
+}
+
 export function decryptSecrets(
   payload: EncryptedSecretsPayload,
 ): Record<string, unknown> {

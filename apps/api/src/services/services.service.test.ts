@@ -1068,6 +1068,67 @@ describe("ServicesService", () => {
         }),
       );
     });
+
+    it("getServiceSecretsPresence returns empty array when no secrets are stored", async () => {
+      await seedService("alpha");
+      const svc = new ServicesService(makeController());
+
+      const result = await svc.getServiceSecretsPresence("alpha");
+      expect(result).toEqual({ present: [] });
+    });
+
+    it("getServiceSecretsPresence returns paths for flat string secrets", async () => {
+      await seedService("alpha", {
+        secretsSchema: { type: "object", additionalProperties: true },
+      });
+      const encrypted = encryptSecrets({
+        apiKey: "sk-abc",
+        endpoint: "https://example.com",
+      });
+      await db.run(
+        sql`INSERT INTO service_secrets (service_id, payload, updated_at)
+            VALUES ('alpha', ${JSON.stringify(encrypted)}, ${Date.now()})`,
+      );
+      const svc = new ServicesService(makeController());
+
+      const result = await svc.getServiceSecretsPresence("alpha");
+      expect(result.present.sort()).toEqual(["/apiKey", "/endpoint"]);
+    });
+
+    it("getServiceSecretsPresence returns paths for nested object secrets", async () => {
+      await seedService("alpha", {
+        secretsSchema: { type: "object", additionalProperties: true },
+      });
+      const encrypted = encryptSecrets({
+        myBasic: { username: "admin", password: "hunter2" },
+      });
+      await db.run(
+        sql`INSERT INTO service_secrets (service_id, payload, updated_at)
+            VALUES ('alpha', ${JSON.stringify(encrypted)}, ${Date.now()})`,
+      );
+      const svc = new ServicesService(makeController());
+
+      const result = await svc.getServiceSecretsPresence("alpha");
+      expect(result.present.sort()).toEqual([
+        "/myBasic/password",
+        "/myBasic/username",
+      ]);
+    });
+
+    it("getServiceSecretsPresence returns path for non-empty array secrets", async () => {
+      await seedService("alpha", {
+        secretsSchema: { type: "object", additionalProperties: true },
+      });
+      const encrypted = encryptSecrets({ apiKeys: ["key1", "key2"] });
+      await db.run(
+        sql`INSERT INTO service_secrets (service_id, payload, updated_at)
+            VALUES ('alpha', ${JSON.stringify(encrypted)}, ${Date.now()})`,
+      );
+      const svc = new ServicesService(makeController());
+
+      const result = await svc.getServiceSecretsPresence("alpha");
+      expect(result.present).toEqual(["/apiKeys"]);
+    });
   });
 
   describe("downloadDefinition (via createService)", () => {

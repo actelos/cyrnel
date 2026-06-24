@@ -257,6 +257,17 @@ export async function getModuleConfigurationSchema(
   res.status(200).json({ configSchema });
 }
 
+export async function getModuleSecrets(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const moduleService = getModuleService(req);
+  const moduleId = parseOrHttpError(moduleIdSchema, req.params.moduleId);
+  const result = await moduleService.getSecretsPresence(moduleId);
+
+  res.status(200).json(result);
+}
+
 export async function getModuleSecretsSchema(
   req: Request,
   res: Response,

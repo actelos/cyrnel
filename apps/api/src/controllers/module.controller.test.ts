@@ -7,6 +7,7 @@ import {
   getModule,
   getModuleConfiguration,
   getModuleConfigurationSchema,
+  getModuleSecrets,
   getModuleSecretsSchema,
   installModule,
   listModules,
@@ -26,6 +27,7 @@ const moduleService = {
   reload: vi.fn(),
   getConfig: vi.fn(),
   getConfigSchema: vi.fn(),
+  getSecretsPresence: vi.fn(),
   getSecretsSchema: vi.fn(),
   patchConfig: vi.fn(),
   patchSecrets: vi.fn(),
@@ -414,6 +416,24 @@ describe("module.controller", () => {
           cast(res),
         ),
       ).rejects.toMatchObject({ statusCode: 404 });
+    });
+  });
+
+  describe("getModuleSecrets", () => {
+    it("returns the presence mask", async () => {
+      const res = makeRes();
+      moduleService.getSecretsPresence.mockResolvedValue({
+        present: ["/apiKey"],
+      });
+
+      await getModuleSecrets(
+        makeReq({ params: { moduleId: "m1" } }),
+        cast(res),
+      );
+
+      expect(res.json).toHaveBeenCalledWith({
+        present: ["/apiKey"],
+      });
     });
   });
 

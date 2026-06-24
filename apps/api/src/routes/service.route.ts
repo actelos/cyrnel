@@ -6,6 +6,7 @@ import {
   getService,
   getServiceConfiguration,
   getServiceConfigurationSchema,
+  getServiceSecrets,
   getServiceSecretsSchema,
   installServiceRegistry,
   listServices,
@@ -33,5 +34,6 @@ serviceRouter.get("/:serviceId/config/schema", getServiceConfigurationSchema);
 serviceRouter.get("/:serviceId/config", getServiceConfiguration);
 serviceRouter.patch("/:serviceId/config", patchServiceConfiguration);
 
+serviceRouter.get("/:serviceId/secrets", getServiceSecrets);
 serviceRouter.get("/:serviceId/secrets/schema", getServiceSecretsSchema);
 serviceRouter.patch("/:serviceId/secrets", patchServiceSecrets);

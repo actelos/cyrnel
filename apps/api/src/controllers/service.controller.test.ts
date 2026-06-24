@@ -7,6 +7,7 @@ import {
   getService,
   getServiceConfiguration,
   getServiceConfigurationSchema,
+  getServiceSecrets,
   getServiceSecretsSchema,
   installServiceRegistry,
   listServices,
@@ -23,6 +24,7 @@ const servicesService = {
   getService: vi.fn(),
   getServiceConfig: vi.fn(),
   getServiceConfigSchema: vi.fn(),
+  getServiceSecretsPresence: vi.fn(),
   getServiceSecretsSchema: vi.fn(),
   patchServiceConfig: vi.fn(),
   patchServiceSecrets: vi.fn(),
@@ -202,6 +204,24 @@ describe("service.controller", () => {
 
       expect(res.json).toHaveBeenCalledWith({
         configSchema: { type: "object" },
+      });
+    });
+  });
+
+  describe("getServiceSecrets", () => {
+    it("returns the presence mask", async () => {
+      const res = makeRes();
+      servicesService.getServiceSecretsPresence.mockResolvedValue({
+        present: ["/apiKey", "/token"],
+      });
+
+      await getServiceSecrets(
+        makeReq({ params: { serviceId: "svc" } }),
+        cast(res),
+      );
+
+      expect(res.json).toHaveBeenCalledWith({
+        present: ["/apiKey", "/token"],
       });
     });
   });

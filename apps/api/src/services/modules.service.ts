@@ -50,7 +50,11 @@ import {
 } from "@/models/modules.model";
 import { downloadBinary } from "@/utils/download.util";
 import { computeBinaryHash } from "@/utils/hash.util";
-import { decryptSecrets, encryptSecrets } from "@/utils/secrets.util";
+import {
+  collectPresentPaths,
+  decryptSecrets,
+  encryptSecrets,
+} from "@/utils/secrets.util";
 import {
   applyJsonSchemaDefaults,
   assertPlainJsonSchema,
@@ -394,6 +398,11 @@ export class ModuleService {
 
   getSecretsSchema(id: string): JSONSchema {
     return this.requireRegistered(id).secretsSchema;
+  }
+
+  async getSecretsPresence(id: string): Promise<{ present: string[] }> {
+    const payload = await this.loadSecrets(id);
+    return { present: collectPresentPaths(payload) };
   }
 
   async patchConfig(input: PatchModuleConfigInput): Promise<void> {
