@@ -111,6 +111,7 @@ export class ProcessService {
       if (inMemoryIds.has(row.id)) continue;
       dbOnly.push({
         id: row.id,
+        pid: null,
         ref: row.ref ?? undefined,
         state: "idle",
         exitState: (row.exitState ?? null) as GetProcessResult["exitState"],
@@ -194,6 +195,7 @@ export class ProcessService {
 
     return {
       id: row.id,
+      pid: null,
       ref: row.ref ?? undefined,
       state: "idle",
       exitState: (row.exitState ?? null) as GetProcessResult["exitState"],
@@ -489,6 +491,7 @@ export class ProcessService {
   private project(record: ProcessRecord): GetProcessResult {
     return {
       id: record.dbId,
+      pid: record.pid,
       ref: record.ref,
       state: record.state,
       exitState: record.exitState,

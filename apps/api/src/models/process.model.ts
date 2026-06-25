@@ -49,6 +49,7 @@ export interface FilterProcessInput {
 
 export interface GetProcessResult {
   id: number;
+  pid: number | null;
   ref?: string;
   state: ProcessState;
   exitState: ProcessExitState;

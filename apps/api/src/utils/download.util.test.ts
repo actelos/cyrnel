@@ -6,13 +6,6 @@ const ORIGINAL_ALLOWED_IPS = process.env.CYRNEL_ALLOWED_IPS;
 const ORIGINAL_BLOCKED_IPS = process.env.CYRNEL_BLOCKED_IPS;
 const ORIGINAL_BLOCK_ALL = process.env.CYRNEL_BLOCK_ALL_REGISTRIES;
 
-async function _resolve4Fixture(hostname: string) {
-  if (hostname === "example.com") return [{ address: "93.184.216.34" }];
-  if (hostname === "localhost") return [{ address: "127.0.0.1" }];
-  if (hostname === "10.0.0.1") return [{ address: "10.0.0.1" }];
-  return [];
-}
-
 describe("download util", () => {
   beforeEach(() => {
     delete process.env.CYRNEL_ALLOWED_IPS;
@@ -42,9 +35,6 @@ describe("download util", () => {
     vi.restoreAllMocks();
   });
 
-  // -----------------------------------------------------------------------
-  // assertRegistryAddressAllowed
-  // -----------------------------------------------------------------------
   describe("assertRegistryAddressAllowed", () => {
     it("allows public unicast IPs", async () => {
       vi.spyOn(dns, "lookup").mockResolvedValue([
@@ -179,9 +169,6 @@ describe("download util", () => {
     });
   });
 
-  // -----------------------------------------------------------------------
-  // downloadBinary
-  // -----------------------------------------------------------------------
   describe("downloadBinary", () => {
     beforeEach(() => {
       vi.spyOn(dns, "lookup").mockResolvedValue([
@@ -389,9 +376,6 @@ describe("download util", () => {
     });
   });
 
-  // -----------------------------------------------------------------------
-  // downloadText
-  // -----------------------------------------------------------------------
   describe("downloadText", () => {
     beforeEach(() => {
       vi.spyOn(dns, "lookup").mockResolvedValue([
@@ -471,7 +455,6 @@ describe("download util", () => {
     });
 
     it("respects custom label in error messages", async () => {
-      const _encoder = new TextEncoder();
       vi.stubGlobal(
         "fetch",
         vi.fn(async () => ({
