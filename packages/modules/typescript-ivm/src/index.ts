@@ -18,32 +18,27 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_MEMORY_LIMIT_MB = 128;
 
 const ENVIRONMENT_DOCS = `
-# TypeScript Environment (typescript-ivm)
-
-Code is transpiled with the TypeScript compiler and executed inside an
-\`isolated-vm\` isolate. Each execution runs inside an implicit async function,
-so top-level \`await\` is allowed. There is no filesystem, network, or Node
-built-ins, only the globals listed below.
-
-- **Language**: TypeScript / JavaScript, target ES2022, module ESNext.
-- **No \`import\`/\`require\`**: the isolate has no module loader. Write all
-  code inline.
+Code runs as transpiled TypeScript/JavaScript (ES2022) inside an isolated
+\`ivm\` sandbox. Each execution is wrapped in an async function, so top-level
+\`await\` is supported. No module loading, filesystem access, networking,
+Node.js APIs, or other host capabilities are available. Use only the provided
+globals and write fully self-contained code.
 
 ## Globals
 
-### \`cyrnel.output(data)\`
-Emit a structured JSON payload for the caller. \`data\` must be a plain object.
+- \`cyrnel.output(data)\`: Emit the execution result. \`data\` must be a plain
+  JSON-serializable object.
 
-### \`cyrnel.services[serviceId].tools[toolId].invoke(parameters)\`
-Invoke a tool. \`parameters\` must satisfy the tool's \`inputSchema\`. Returns
-whatever the tool produces.
+- \`await cyrnel.services[serviceId].tools[toolId].invoke(parameters)\`: Invoke
+  a tool. \`parameters\` must satisfy the tool's \`inputSchema\`. Returns the
+  tool's result.
 
-## Console
+## Aliases
 
 - \`console.log(...args)\` writes to stdout.
 - \`console.error(...args)\` writes to stderr.
 
-Objects are pretty-printed as JSON; strings are passed through verbatim.
+Objects are pretty-printed as JSON; strings are written verbatim.
 
 ## Example
 
@@ -51,6 +46,7 @@ Objects are pretty-printed as JSON; strings are passed through verbatim.
 const result = await cyrnel.services.weather.tools.forecast.invoke({
   city: "Accra",
 });
+
 cyrnel.output({ result });
 \`\`\`
 `;
