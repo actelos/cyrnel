@@ -18,14 +18,12 @@
             "icon": "book-open",
             "tabs": [
               {
-                "tab": "Getting Started"
-              },
-              {
                 "tab": "Documentation",
                 "groups": [
                   {
                     "group": "Overview",
                     "pages": [
+                      "cyrnel/docs/quick-start",
                       "cyrnel/docs/introduction",
                       "cyrnel/docs/faq",
                       "cyrnel/docs/comparison"
@@ -92,9 +90,6 @@
               {
                 "tab": "API Reference",
                 "openapi": "./cyrnel/openapi.json"
-              },
-              {
-                "tab": "Registry"
               }
             ]
           },

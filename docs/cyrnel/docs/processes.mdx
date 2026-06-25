@@ -15,7 +15,6 @@ Each process has the following fields:
 
 - `id`: stable database identifier (auto-incrementing integer, persists across restarts)
 - `ref`: optional reference label (trimmed; must be non-empty if present, unique)
-- `description`: human-readable description of the process purpose
 - `state`: lifecycle phase (see below)
 - `exitState`: execution outcome (see below)
 - `error`: error message if the process failed, otherwise `null`
@@ -29,7 +28,7 @@ Each process has the following fields:
 <Info>
   Process creation records and execution results are **persisted in the
   database**. Runtime state (running/queued/terminating) is ephemeral and
-  held in memory — restarting the API clears active executions but the
+  held in memory, restarting the API clears active executions but the
   creation record and any completed results survive.
 </Info>
 
@@ -59,7 +58,6 @@ Each process has the following fields:
 ```json
 {
   "code": "string",
-  "description": "optional description",
   "ref": "optional unique reference",
   "autorun": true,
   "options": {
@@ -71,7 +69,6 @@ Each process has the following fields:
 Rules:
 
 - `code` is **required** and must be a string.
-- `description` is optional, defaults to empty string.
 - `ref` is optional, trimmed, unique if provided, and must be non-empty if present.
 - `options.timeout` is in milliseconds. Must be a **positive integer**, or
   `null` to disable. Default: `30000`.

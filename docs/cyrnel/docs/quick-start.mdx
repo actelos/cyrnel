@@ -1,0 +1,449 @@
+---
+title: "Quick start"
+description: "Install, configure, and connect cyrnel to your AI tools"
+---
+
+### Prerequisites
+
+- [Docker](https://docs.docker.com/engine/install/) with Compose plugin
+
+### Download & run
+
+```bash
+mkdir cyrnel
+cd cyrnel
+curl -O https://raw.githubusercontent.com/actelos/cyrnel/main/docker-compose.yml
+docker compose up
+```
+
+This pulls pre-built images from
+[GitHub Container Registry](https://github.com/actelos/cyrnel/releases) and
+starts three services:
+
+| Service | Port | Purpose |
+|---|---|---|
+| **API** | `9371` | Core HTTP server |
+| **Web UI** | `9372` | Dashboard for managing cyrnel |
+| **MCP** | `9373` | MCP server for AI agent integration |
+
+<Info>
+  First pull may take a minute. Subsequent starts are instant.
+</Info>
+
+## Configuration
+
+Set environment variables by creating a `.env` file alongside
+`docker-compose.yml`:
+
+```bash
+CYRNEL_API_KEY=sk-your-key-here
+CYRNEL_SECRETS_KEY=your-base64-32-byte-key
+```
+
+### Key variables
+
+| Variable | Default | What it does |
+|---|---|---|
+| `CYRNEL_API_KEY` | _(unauthenticated)_ | Bearer token required on every API request |
+| `CYRNEL_SECRETS_KEY` | _(required)_ | AES-256-GCM key for encrypting service secrets |
+| `CYRNEL_DB_URL` | `file:/data/cyrnel.db` | Database connection (SQLite by default) |
+| `LOG_LEVEL` | `info` | `trace`, `debug`, `info`, `warn`, `error`, `fatal`, `silent` |
+
+<Warning>
+  **You must set `CYRNEL_SECRETS_KEY`** before storing any service secrets.
+  The shipped default is a block of zero bytes, equivalent to no encryption.
+  Generate a real key:
+
+  ```bash
+  openssl rand -base64 32
+  ```
+</Warning>
+
+### Full reference
+
+All available variables are documented in the per-service example env files:
+
+- [API variables](https://github.com/actelos/cyrnel/blob/main/apps/api/.example.env)
+- [MCP variables](https://github.com/actelos/cyrnel/blob/main/apps/mcp/.example.env)
+- [Web variables](https://github.com/actelos/cyrnel/blob/main/apps/web/.example.env)
+
+## Using the MCP Server
+
+The MCP server exposes cyrnel's tools so your AI agent can discover services,
+inspect tool schemas, create and run processes, and read results.
+
+Each agent below shows two connection methods:
+
+- **HTTP**: point the agent at the Docker MCP server (`localhost:9373`)
+- **stdio**: run the MCP server as a Docker child process
+
+<Tabs>
+  <Tab title="Claude Desktop">
+    Open `claude_desktop_config.json` (Claude → Settings → Developer → Edit Config).
+
+    **HTTP:**
+
+    ```json
+    {
+      "mcpServers": {
+        "cyrnel": {
+          "type": "url",
+          "url": "http://localhost:9373"
+        }
+      }
+    }
+    ```
+
+    For Docker Desktop on macOS/Windows, use `host.docker.internal`:
+
+    ```json
+    {
+      "mcpServers": {
+        "cyrnel": {
+          "type": "url",
+          "url": "http://host.docker.internal:9373"
+        }
+      }
+    }
+    ```
+
+    **stdio:**
+
+    ```json
+    {
+      "mcpServers": {
+        "cyrnel": {
+          "command": "docker",
+          "args": ["run", "-i", "--rm", "-e", "MCP_TRANSPORT=stdio", "-e", "CYRNEL_API_URL=http://host.docker.internal:9371", "ghcr.io/actelos/cyrnel/mcp:latest"]
+        }
+      }
+    }
+    ```
+  </Tab>
+
+  <Tab title="Claude Code">
+    Add to `~/.claude/settings.json` or `.mcp.json` in your project root.
+
+    **HTTP:**
+
+    ```json
+    {
+      "mcpServers": {
+        "cyrnel": {
+          "type": "http",
+          "url": "http://localhost:9373"
+        }
+      }
+    }
+    ```
+
+    **stdio:**
+
+    ```json
+    {
+      "mcpServers": {
+        "cyrnel": {
+          "command": "docker",
+          "args": ["run", "-i", "--rm", "-e", "MCP_TRANSPORT=stdio", "-e", "CYRNEL_API_URL=http://host.docker.internal:9371", "ghcr.io/actelos/cyrnel/mcp:latest"]
+        }
+      }
+    }
+    ```
+
+    Or use the CLI wizard:
+
+    ```bash
+    claude mcp add cyrnel -- docker run -i --rm -e MCP_TRANSPORT=stdio -e CYRNEL_API_URL=http://host.docker.internal:9371 ghcr.io/actelos/cyrnel/mcp:latest
+    ```
+  </Tab>
+
+  <Tab title="opencode">
+    Add to your `opencode.json`.
+
+    **HTTP (remote):**
+
+    ```json
+    {
+      "mcp": {
+        "cyrnel": {
+          "type": "remote",
+          "url": "http://localhost:9373",
+          "enabled": true
+        }
+      }
+    }
+    ```
+
+    **stdio (local):**
+
+    ```json
+    {
+      "mcp": {
+        "cyrnel": {
+          "type": "local",
+          "command": ["docker", "run", "-i", "--rm", "-e", "MCP_TRANSPORT=stdio", "-e", "CYRNEL_API_URL=http://host.docker.internal:9371", "ghcr.io/actelos/cyrnel/mcp:latest"],
+          "enabled": true
+        }
+      }
+    }
+    ```
+  </Tab>
+
+  <Tab title="Cursor">
+    **HTTP**: In Cursor settings (Cursor → Settings → Features → MCP Servers), add:
+
+    ```
+    Name: cyrnel
+    Type: http
+    URL: http://localhost:9373
+    ```
+
+    **stdio**: Edit `~/.cursor/mcp.json`:
+
+    ```json
+    {
+      "mcpServers": {
+        "cyrnel": {
+          "command": "docker",
+          "args": ["run", "-i", "--rm", "-e", "MCP_TRANSPORT=stdio", "-e", "CYRNEL_API_URL=http://host.docker.internal:9371", "ghcr.io/actelos/cyrnel/mcp:latest"]
+        }
+      }
+    }
+    ```
+  </Tab>
+
+  <Tab title="VS Code">
+    Add to your workspace `.vscode/mcp.json`.
+
+    **HTTP:**
+
+    ```json
+    {
+      "servers": {
+        "cyrnel": {
+          "type": "http",
+          "url": "http://localhost:9373"
+        }
+      }
+    }
+    ```
+
+    Restart VS Code, tools appear in Copilot Chat.
+
+    **stdio:**
+
+    ```json
+    {
+      "servers": {
+        "cyrnel": {
+          "command": "docker",
+          "args": ["run", "-i", "--rm", "-e", "MCP_TRANSPORT=stdio", "-e", "CYRNEL_API_URL=http://host.docker.internal:9371", "ghcr.io/actelos/cyrnel/mcp:latest"]
+        }
+      }
+    }
+    ```
+  </Tab>
+
+  <Tab title="Pi Agent">
+    Pi uses a TypeScript extension system for MCP. Add the server config to your
+    Pi extensions or config file.
+
+    **HTTP:**
+
+    ```json
+    {
+      "mcpServers": {
+        "cyrnel": {
+          "type": "http",
+          "url": "http://localhost:9373"
+        }
+      }
+    }
+    ```
+
+    **stdio:**
+
+    ```json
+    {
+      "mcpServers": {
+        "cyrnel": {
+          "command": "docker",
+          "args": ["run", "-i", "--rm", "-e", "MCP_TRANSPORT=stdio", "-e", "CYRNEL_API_URL=http://host.docker.internal:9371", "ghcr.io/actelos/cyrnel/mcp:latest"]
+        }
+      }
+    }
+    ```
+  </Tab>
+
+  <Tab title="openclaw">
+    Configure directly via the CLI.
+
+    **HTTP:**
+
+    ```bash
+    openclaw config set mcpServers.cyrnel.type http
+    openclaw config set mcpServers.cyrnel.url http://localhost:9373
+    ```
+
+    **stdio:**
+
+    ```bash
+    openclaw config set mcpServers.cyrnel.command docker
+    openclaw config set mcpServers.cyrnel.args '["run", "-i", "--rm", "-e", "MCP_TRANSPORT=stdio", "-e", "CYRNEL_API_URL=http://host.docker.internal:9371", "ghcr.io/actelos/cyrnel/mcp:latest"]'
+    ```
+  </Tab>
+
+  <Tab title="Codex CLI">
+    Add to `~/.codex/config.toml`.
+
+    **HTTP:**
+
+    ```toml
+    [mcp_servers.cyrnel]
+    url = "http://localhost:9373"
+    ```
+
+    **stdio:**
+
+    ```toml
+    [mcp_servers.cyrnel]
+    command = "docker"
+    args = ["run", "-i", "--rm", "-e", "MCP_TRANSPORT=stdio", "-e", "CYRNEL_API_URL=http://host.docker.internal:9371", "ghcr.io/actelos/cyrnel/mcp:latest"]
+    ```
+
+    Or use the CLI:
+
+    ```bash
+    codex mcp add cyrnel -- docker run -i --rm -e MCP_TRANSPORT=stdio -e CYRNEL_API_URL=http://host.docker.internal:9371 ghcr.io/actelos/cyrnel/mcp:latest
+    ```
+  </Tab>
+
+  <Tab title="Windsurf">
+    Windsurf stores MCP config at `~/.codeium/windsurf/mcp_config.json`.
+
+    **HTTP:**
+
+    <Info>
+      Windsurf uses `serverUrl` (not `url`) for remote HTTP servers.
+    </Info>
+
+    ```json
+    {
+      "mcpServers": {
+        "cyrnel": {
+          "serverUrl": "http://localhost:9373"
+        }
+      }
+    }
+    ```
+
+    **stdio:**
+
+    ```json
+    {
+      "mcpServers": {
+        "cyrnel": {
+          "command": "docker",
+          "args": ["run", "-i", "--rm", "-e", "MCP_TRANSPORT=stdio", "-e", "CYRNEL_API_URL=http://host.docker.internal:9371", "ghcr.io/actelos/cyrnel/mcp:latest"]
+        }
+      }
+    }
+    ```
+  </Tab>
+
+  <Tab title="Antigravity">
+    Antigravity stores MCP config at `~/.gemini/config/mcp_config.json`.
+
+    **HTTP:**
+
+    ```json
+    {
+      "mcpServers": {
+        "cyrnel": {
+          "serverUrl": "http://localhost:9373"
+        }
+      }
+    }
+    ```
+
+    **stdio:**
+
+    ```json
+    {
+      "mcpServers": {
+        "cyrnel": {
+          "command": "docker",
+          "args": ["run", "-i", "--rm", "-e", "MCP_TRANSPORT=stdio", "-e", "CYRNEL_API_URL=http://host.docker.internal:9371", "ghcr.io/actelos/cyrnel/mcp:latest"]
+        }
+      }
+    }
+    ```
+  </Tab>
+
+  <Tab title="GitHub CLI">
+    The `gh` CLI can connect to MCP servers via its MCP extension support.
+
+    **HTTP:**
+
+    ```json
+    {
+      "mcpServers": {
+        "cyrnel": {
+          "type": "url",
+          "url": "http://localhost:9373"
+        }
+      }
+    }
+    ```
+
+    **stdio:**
+
+    ```json
+    {
+      "mcpServers": {
+        "cyrnel": {
+          "command": "docker",
+          "args": ["run", "-i", "--rm", "-e", "MCP_TRANSPORT=stdio", "-e", "CYRNEL_API_URL=http://host.docker.internal:9371", "ghcr.io/actelos/cyrnel/mcp:latest"]
+        }
+      }
+    }
+    ```
+  </Tab>
+
+  <Tab title="Gemini CLI">
+    Add to `~/.gemini/settings.json`.
+
+    **HTTP:**
+
+    ```json
+    {
+      "mcpServers": {
+        "cyrnel": {
+          "url": "http://localhost:9373"
+        }
+      }
+    }
+    ```
+
+    **stdio:**
+
+    ```json
+    {
+      "mcpServers": {
+        "cyrnel": {
+          "command": "docker",
+          "args": ["run", "-i", "--rm", "-e", "MCP_TRANSPORT=stdio", "-e", "CYRNEL_API_URL=http://host.docker.internal:9371", "ghcr.io/actelos/cyrnel/mcp:latest"]
+        }
+      }
+    }
+    ```
+
+    Verify with `/mcp list` after restarting Gemini CLI.
+  </Tab>
+</Tabs>
+
+<Info>
+  The MCP server requires the API to be running and reachable. In the Docker
+  setup this is handled automatically, the MCP container connects to the API
+  container over the internal Docker network.
+</Info>
