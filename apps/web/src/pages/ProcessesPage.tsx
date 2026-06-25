@@ -1,4 +1,12 @@
-import { Copy, Play, Plus, RotateCcw, Trash2, X } from "lucide-react";
+import {
+  Copy,
+  Maximize2,
+  Play,
+  Plus,
+  RotateCcw,
+  Trash2,
+  X,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { z } from "zod";
@@ -28,6 +36,12 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -75,8 +89,8 @@ const processExitStateSchema = z.union([
 
 const processSchema = z.object({
   id: z.number().int().positive(),
+  pid: z.number().int().positive().nullable(),
   ref: z.string().optional(),
-  description: z.string(),
   state: processStateSchema,
   exitState: processExitStateSchema,
   error: z.string().nullable(),
@@ -172,6 +186,10 @@ export default function ProcessesPage() {
   const [isRestartDialogOpen, setIsRestartDialogOpen] = useState(false);
   const [deleteCandidate, setDeleteCandidate] = useState<Process | null>(null);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [detailView, setDetailView] = useState<{
+    title: string;
+    content: string;
+  } | null>(null);
 
   const parsedFilters = useMemo(() => {
     const raw = {
@@ -453,6 +471,7 @@ export default function ProcessesPage() {
                         <Label htmlFor="process-code">Code</Label>
                         <Textarea
                           id="process-code"
+                          className="max-h-40"
                           onChange={(event) =>
                             setCreateCode(event.target.value)
                           }
@@ -633,6 +652,7 @@ export default function ProcessesPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>ID</TableHead>
+                      <TableHead>PID</TableHead>
                       <TableHead>Ref</TableHead>
                       <TableHead>State</TableHead>
                       <TableHead>Status</TableHead>
@@ -651,6 +671,9 @@ export default function ProcessesPage() {
                       >
                         <TableCell className="font-medium">
                           {process.id}
+                        </TableCell>
+                        <TableCell className="font-mono text-xs">
+                          {process.pid ?? "—"}
                         </TableCell>
                         <TableCell>{process.ref ?? "-"}</TableCell>
                         <TableCell>
@@ -753,128 +776,196 @@ export default function ProcessesPage() {
                   Output and code for the selected process.
                 </CardDescription>
               </CardHeader>
-              <CardContent className="min-h-0 flex-1">
-                <ScrollArea className="h-full">
-                  <Accordion
-                    type="multiple"
-                    defaultValue={
-                      selectedProcess?.error ? ["error", "stdout"] : ["stdout"]
-                    }
-                    className="w-full"
-                  >
-                    {selectedProcess?.error ? (
-                      <AccordionItem value="error">
-                        <AccordionTrigger className="text-destructive">
-                          Error
-                        </AccordionTrigger>
-                        <AccordionContent>
-                          <div className="relative">
+              <CardContent className="min-h-0 flex-1 overflow-y-auto">
+                <Accordion
+                  type="multiple"
+                  defaultValue={
+                    selectedProcess?.error ? ["error", "stdout"] : ["stdout"]
+                  }
+                  className="w-full"
+                >
+                  {selectedProcess?.error ? (
+                    <AccordionItem value="error">
+                      <AccordionTrigger className="text-destructive">
+                        Error
+                      </AccordionTrigger>
+                      <AccordionContent>
+                        <div className="relative">
+                          <div className="absolute right-2 top-2 z-10 flex gap-1">
                             <Button
                               type="button"
                               variant="ghost"
                               size="sm"
-                              className="absolute right-2 top-2 z-10 h-8 w-8 p-0"
+                              className="h-8 w-8 p-0"
+                              onClick={() =>
+                                setDetailView({
+                                  title: "Error",
+                                  content: selectedProcess.error ?? "",
+                                })
+                              }
+                            >
+                              <Maximize2 />
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 w-8 p-0"
                               onClick={() =>
                                 void handleCopyText(selectedProcess.error ?? "")
                               }
                             >
                               <Copy />
                             </Button>
-                            <ScrollArea className="h-[160px] border border-destructive/40 bg-destructive/5 p-3 pr-12">
-                              <pre className="whitespace-pre-wrap text-xs font-mono text-destructive">
-                                {selectedProcess.error}
-                              </pre>
-                            </ScrollArea>
                           </div>
-                        </AccordionContent>
-                      </AccordionItem>
-                    ) : null}
-                    <AccordionItem value="code">
-                      <AccordionTrigger>Code</AccordionTrigger>
-                      <AccordionContent>
-                        <div className="relative">
+                          <div className="h-24 w-full overflow-auto border border-destructive/40 bg-destructive/5 p-3 pr-12 text-xs font-mono text-destructive whitespace-pre">
+                            {selectedProcess.error}
+                          </div>
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                  ) : null}
+                  <AccordionItem value="code">
+                    <AccordionTrigger>Code</AccordionTrigger>
+                    <AccordionContent>
+                      <div className="relative">
+                        <div className="absolute right-2 top-2 z-10 flex gap-1">
                           <Button
                             type="button"
                             variant="ghost"
                             size="sm"
-                            className="absolute right-2 top-2 z-10 h-8 w-8 p-0"
+                            className="h-8 w-8 p-0"
+                            onClick={() =>
+                              setDetailView({
+                                title: "Code",
+                                content: codeContent,
+                              })
+                            }
+                          >
+                            <Maximize2 />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 p-0"
                             onClick={() => void handleCopyText(codeContent)}
                           >
                             <Copy />
                           </Button>
-                          <ScrollArea className="h-[160px] border bg-muted/30 p-3 pr-12">
-                            <pre className="whitespace-pre-wrap text-xs font-mono">
-                              {codeContent}
-                            </pre>
-                          </ScrollArea>
                         </div>
-                      </AccordionContent>
-                    </AccordionItem>
-                    <AccordionItem value="output">
-                      <AccordionTrigger>Output</AccordionTrigger>
-                      <AccordionContent>
-                        <div className="relative">
+                        <div className="h-24 w-full overflow-auto border bg-muted/30 p-3 pr-12 text-xs font-mono whitespace-pre">
+                          {codeContent}
+                        </div>
+                      </div>
+                    </AccordionContent>
+                  </AccordionItem>
+                  <AccordionItem value="output">
+                    <AccordionTrigger>Output</AccordionTrigger>
+                    <AccordionContent>
+                      <div className="relative">
+                        <div className="absolute right-2 top-2 z-10 flex gap-1">
                           <Button
                             type="button"
                             variant="ghost"
                             size="sm"
-                            className="absolute right-2 top-2 z-10 h-8 w-8 p-0"
+                            className="h-8 w-8 p-0"
+                            onClick={() =>
+                              setDetailView({
+                                title: "Output",
+                                content: outputContent,
+                              })
+                            }
+                          >
+                            <Maximize2 />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 p-0"
                             onClick={() => void handleCopyText(outputContent)}
                           >
                             <Copy />
                           </Button>
-                          <ScrollArea className="h-[160px] border bg-muted/30 p-3 pr-12">
-                            <pre className="whitespace-pre-wrap text-xs font-mono">
-                              {outputContent}
-                            </pre>
-                          </ScrollArea>
                         </div>
-                      </AccordionContent>
-                    </AccordionItem>
-                    <AccordionItem value="stdout">
-                      <AccordionTrigger>Stdout</AccordionTrigger>
-                      <AccordionContent>
-                        <div className="relative">
+                        <div className="h-24 w-full overflow-auto border bg-muted/30 p-3 pr-12 text-xs font-mono whitespace-pre">
+                          {outputContent}
+                        </div>
+                      </div>
+                    </AccordionContent>
+                  </AccordionItem>
+                  <AccordionItem value="stdout">
+                    <AccordionTrigger>Stdout</AccordionTrigger>
+                    <AccordionContent>
+                      <div className="relative">
+                        <div className="absolute right-2 top-2 z-10 flex gap-1">
                           <Button
                             type="button"
                             variant="ghost"
                             size="sm"
-                            className="absolute right-2 top-2 z-10 h-8 w-8 p-0"
+                            className="h-8 w-8 p-0"
+                            onClick={() =>
+                              setDetailView({
+                                title: "Stdout",
+                                content: stdoutContent,
+                              })
+                            }
+                          >
+                            <Maximize2 />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 p-0"
                             onClick={() => void handleCopyText(stdoutContent)}
                           >
                             <Copy />
                           </Button>
-                          <ScrollArea className="h-[160px] border bg-muted/30 p-3 pr-12">
-                            <pre className="whitespace-pre-wrap text-xs font-mono">
-                              {stdoutContent}
-                            </pre>
-                          </ScrollArea>
                         </div>
-                      </AccordionContent>
-                    </AccordionItem>
-                    <AccordionItem value="stderr">
-                      <AccordionTrigger>Stderr</AccordionTrigger>
-                      <AccordionContent>
-                        <div className="relative">
+                        <div className="h-24 w-full overflow-auto border bg-muted/30 p-3 pr-12 text-xs font-mono whitespace-pre">
+                          {stdoutContent}
+                        </div>
+                      </div>
+                    </AccordionContent>
+                  </AccordionItem>
+                  <AccordionItem value="stderr">
+                    <AccordionTrigger>Stderr</AccordionTrigger>
+                    <AccordionContent>
+                      <div className="relative">
+                        <div className="absolute right-2 top-2 z-10 flex gap-1">
                           <Button
                             type="button"
                             variant="ghost"
                             size="sm"
-                            className="absolute right-2 top-2 z-10 h-8 w-8 p-0"
+                            className="h-8 w-8 p-0"
+                            onClick={() =>
+                              setDetailView({
+                                title: "Stderr",
+                                content: stderrContent,
+                              })
+                            }
+                          >
+                            <Maximize2 />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 p-0"
                             onClick={() => void handleCopyText(stderrContent)}
                           >
                             <Copy />
                           </Button>
-                          <ScrollArea className="h-[160px] border bg-muted/30 p-3 pr-12">
-                            <pre className="whitespace-pre-wrap text-xs font-mono">
-                              {stderrContent}
-                            </pre>
-                          </ScrollArea>
                         </div>
-                      </AccordionContent>
-                    </AccordionItem>
-                  </Accordion>
-                </ScrollArea>
+                        <div className="h-24 w-full overflow-auto border bg-muted/30 p-3 pr-12 text-xs font-mono whitespace-pre">
+                          {stderrContent}
+                        </div>
+                      </div>
+                    </AccordionContent>
+                  </AccordionItem>
+                </Accordion>
               </CardContent>
             </Card>
           </aside>
@@ -952,6 +1043,37 @@ export default function ProcessesPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog
+        open={detailView !== null}
+        onOpenChange={(open) => {
+          if (!open) setDetailView(null);
+        }}
+      >
+        <DialogContent className="max-h-[85vh] max-w-4xl space-y-4">
+          <DialogHeader>
+            <DialogTitle>{detailView?.title}</DialogTitle>
+          </DialogHeader>
+          <div className="relative min-h-0 flex-1">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="absolute right-0 top-0 z-10 h-8 w-8 p-0"
+              onClick={() => void handleCopyText(detailView?.content ?? "")}
+            >
+              <Copy />
+            </Button>
+            <div className="rounded border bg-muted/30 overflow-hidden">
+              <div className="max-h-[60vh] min-h-[200px] overflow-auto p-4 pr-12">
+                <div className="whitespace-pre text-xs font-mono">
+                  {detailView?.content}
+                </div>
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
