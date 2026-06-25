@@ -14,8 +14,7 @@
   - [Testing](#testing)
   - [Linting and type checking](#linting-and-type-checking)
   - [Managing dependencies](#managing-dependencies)
-  - [Turborepo tips](#turborepo-tips)
-  - [Changesets and releases](#changesets-and-releases)
+  - [Changelogs and releases](#changelogs-and-releases)
   - [Create a pull request](#create-a-pull-request)
   - [Community channels](#community-channels)
   - [Contributors](#contributors)
@@ -189,7 +188,7 @@ services in parallel:
 cyrnel/
 ├── apps/
 │   ├── api/                    # @cyrnel/api: Core API server
-│   ├── web/                    # @cyrnel/web: Web dashboard frontend
+│   ├── web/                    # @cyrnel/web: Web dashboard
 │   └── mcp/                    # @cyrnel/mcp: MCP server
 ├── packages/
 │   ├── libs/
@@ -203,35 +202,21 @@ cyrnel/
 ## Testing
 
 Cyrnel uses [Vitest](https://vitest.dev/) across all workspaces. Unit tests
-live next to their source files as `*.test.ts`. Integration and broader tests
-for module packages live in `packages/modules/*/tests/`.
-
-**Run all tests:**
+live next to their source files as `*.test.ts`. Integration, E2E and other
+broader tests live in `/tests/*.test.ts` for each workspace.
 
 ```sh
-pnpm test   # runs via Turbo across all workspaces
-```
+# Runs via Turbo across all workspaces
+pnpm test
 
-**Run tests in a single workspace:**
-
-```sh
+# Run tests in a single workspace
 pnpm -C apps/api test
-pnpm -C packages/modules/openapi test
-```
 
-**Filter by file or test name:**
-
-```sh
+# Filter by file or test name
 pnpm -C apps/api test src/middleware/auth.middleware.test.ts
 pnpm -C apps/api test -t "should reject"
-```
 
-**Watch mode:**
-
-The root `test` script uses `vitest run` (single-pass). For watch mode, invoke
-Vitest directly:
-
-```sh
+# Run tests in watch mode
 pnpm -C apps/api exec vitest
 ```
 
@@ -262,77 +247,32 @@ sync, manual edits may break that.
 Instead, use the pnpm CLI:
 
 ```sh
-# Add a runtime dependency to a workspace
 pnpm -C apps/api add zod
-
-# Add a dev dependency
 pnpm -C apps/api add -D @types/node
-
-# Add a workspace (internal) dependency
 pnpm -C apps/mcp add @cyrnel/sdk --workspace
-
-# Remove a dependency
 pnpm -C apps/api remove some-package
-
-# Upgrade a package across all workspaces
 pnpm up some-package -r
-
-# Upgrade to latest
 pnpm up some-package -r --latest
 ```
 
 After any dependency change, always commit both `package.json` **and** the
 updated `pnpm-lock.yaml` together.
 
-## Turborepo tips
-
-All root scripts (`dev`, `build`, `start`, `test`, `check`, `check:fix`,
-`typecheck`) fan out across workspaces via the Turbo pipeline defined in
-`turbo.json`. Every task has `"dependsOn": ["^build"]`, meaning a workspace's
-dependencies are always built first.
-
-**Run a task for specific workspaces:**
-
-```sh
-pnpm turbo test --filter=@cyrnel/api
-pnpm turbo build --filter=./apps/mcp
-pnpm turbo build --filter=@cyrnel/sdk
-```
-
-**Turbo cache:**
-
-Turbo caches task outputs in `.turbo/`. On a clean tree, running
-`pnpm check:fix && pnpm typecheck && pnpm test && pnpm build` is fast. If
-something seems stale:
-
-```sh
-pnpm turbo daemon stop
-rm -rf .turbo
-```
-
-## Changesets and releases
+## Changelogs and releases
 
 Cyrnel uses [Changesets](https://github.com/changesets/changesets) to manage
-versioning and changelogs. The `@changesets/cli` is already installed as a dev
-dependency.
+versioning and changelogs.
 
 When your PR includes a user-visible change to a publishable package
-(currently `@cyrnel/sdk`), add a changeset:
+(`@cyrnel/sdk`), add a changeset:
 
 ```sh
 pnpm changeset
 ```
 
-This interactively asks which packages changed and whether the bump is `patch`,
-`minor`, or `major`, then writes a `.changeset/*.md` file. Commit that file
-alongside your code changes.
-
-Releases are handled by the maintainers, you don't need to run
-`pnpm changeset version` or `pnpm changeset publish` yourself.
-
 ## Create a pull request
 
-After making your changes, open a pull request against the `main` branch of
+After making your changes, open a pull request against the `develop` branch of
 `actelos/cyrnel`. Once you submit your PR, the team will review it with you.
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full checklist before you open
 it.

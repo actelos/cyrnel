@@ -21,7 +21,28 @@ powerful docking station that can connect to any port and communicate with any
 service. If your port isn’t on the existing docking station, just make an
 extension for it.
 
-[Docs](https://actelos.mintlify.app/cyrnel/docs/introduction) · [FAQ](https://actelos.mintlify.app/cyrnel/docs/faq)
+[Quick start](https://actelos.mintlify.app/cyrnel/docs/quick-start) · [Docs](https://actelos.mintlify.app/cyrnel/docs/introduction) · [FAQ](https://actelos.mintlify.app/cyrnel/docs/faq)
+
+## Getting started
+
+### Prerequisites
+
+- [Docker](https://docs.docker.com/engine/install/) with Compose plugin
+
+### Quick start
+
+```bash
+mkdir cyrnel
+cd cyrnel
+curl -O https://raw.githubusercontent.com/actelos/cyrnel/main/docker-compose.yml
+docker compose up
+```
+
+This starts the API, web UI, and MCP server. The web UI is available on port
+`9372` and the API on port `9371`.
+
+- See [releases](https://github.com/actelos/cyrnel/releases) for all the images
+- Read [our guide](https://actelos.mintlify.app/cyrnel/docs/quick-start) for more information.
 
 ## Local Development
 
@@ -31,59 +52,7 @@ cd cyrnel
 pnpm i
 ```
 
-- Read [DEVELOPERS.md](./DEVELOPERS.md) for more info.
-
-## Docker
-
-### Prerequisites
-
-- [Docker](https://docs.docker.com/engine/install/) with Compose plugin
-
-### Quick start
-
-```bash
-git clone https://github.com/actelos/cyrnel.git
-cd cyrnel
-docker compose up
-```
-
-This starts the API, web UI, and MCP server. The web UI is available at
-`http://localhost:9372` and the API at `http://localhost:9371`.
-
-### Configuration
-
-Set environment variables in a `.env` file or pass them inline:
-
-```bash
-CYRNEL_API_KEY=sk-... CYRNEL_SECRETS_KEY=... docker compose up
-```
-
-Key variables:
-
-| Variable | Default | Service |
-|---|---|---|
-| `CYRNEL_API_KEY` | _(required)_ | api |
-| `CYRNEL_SECRETS_KEY` | _(required)_ | api |
-| `CYRNEL_DB_URL` | `file:/data/cyrnel.db` | api |
-| `CYRNEL_API_URL` | `http://api:9371` | web, mcp |
-| `LOG_LEVEL` | `info` | api, mcp |
-
-Full reference: [.example.env](apps/api/.example.env)
-
-### Build images locally
-
-```bash
-docker compose build
-```
-
-Or build a single service:
-
-```bash
-docker compose build api
-```
-
-Images are tagged as `ghcr.io/actelos/cyrnel/{api,web,mcp}:latest` by default.
-Override with `IMAGE_REGISTRY`, `IMAGE_REPO`, and `IMAGE_TAG` env vars.
+- Read [DEVELOPERS.md](./DEVELOPERS.md) for more information.
 
 ## Learn More
 

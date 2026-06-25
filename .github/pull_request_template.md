@@ -1,3 +1,5 @@
+[//]: # (Remove this is you have read the CONTRIBUTING.md and DEVELOPERS.md)
+
 ## What kind of change does this PR introduce?
 
 Bug fix, feature, docs update, ...
