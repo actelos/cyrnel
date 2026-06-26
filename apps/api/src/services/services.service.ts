@@ -46,7 +46,7 @@ import {
   validateJsonSchema,
 } from "@/utils/validation.util";
 
-const DEFINITION_DOWNLOAD_MAX_BYTES = 2 * 1024 * 1024;
+const DEFINITION_DOWNLOAD_MAX_BYTES = 30 * 1024 * 1024;
 const IDENTIFIER_SCHEMA = z.string().regex(/^[A-Za-z_$][A-Za-z0-9_$]*$/);
 
 export interface AdapterController {
