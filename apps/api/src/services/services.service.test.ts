@@ -1149,7 +1149,7 @@ describe("ServicesService", () => {
     });
 
     it("rejects payloads that exceed the size limit while streaming with 413", async () => {
-      const big = Buffer.alloc(3_000_000, "x").toString();
+      const big = Buffer.alloc(31 * 1024 * 1024, "x").toString();
       vi.stubGlobal(
         "fetch",
         vi.fn(async () => new Response(big, { status: 200 })),
