@@ -206,30 +206,52 @@ export class ProcessService {
   }
 
   async getOutput(id: number): Promise<Record<string, unknown>> {
-    const pid = this.resolvePid(id);
-    const stored = this.getStored(pid);
-    this.assertIdle(stored.state);
-    return stored.output;
+    const pid = this.pidIndex.get(id);
+    if (pid !== undefined) {
+      const stored = this.getStored(pid);
+      this.assertIdle(stored.state);
+      return stored.output;
+    }
+    const data = await this.resolveDbData(id);
+    return data.output ?? {};
   }
 
   async getCode(id: number): Promise<string> {
-    const pid = this.resolvePid(id);
-    const stored = this.getStored(pid);
-    return stored.code;
+    const pid = this.pidIndex.get(id);
+    if (pid !== undefined) {
+      const stored = this.getStored(pid);
+      return stored.code;
+    }
+    const [row] = await db
+      .select({ code: processesTable.code })
+      .from(processesTable)
+      .where(eq(processesTable.id, id))
+      .limit(1)
+      .all();
+    if (!row) throw new HttpError(404, "Process not found.");
+    return row.code;
   }
 
   async getStdout(id: number): Promise<string> {
-    const pid = this.resolvePid(id);
-    const stored = this.getStored(pid);
-    this.assertIdle(stored.state);
-    return stored.stdout.toString("utf8");
+    const pid = this.pidIndex.get(id);
+    if (pid !== undefined) {
+      const stored = this.getStored(pid);
+      this.assertIdle(stored.state);
+      return stored.stdout.toString("utf8");
+    }
+    const data = await this.resolveDbData(id);
+    return data.stdout ?? "";
   }
 
   async getStderr(id: number): Promise<string> {
-    const pid = this.resolvePid(id);
-    const stored = this.getStored(pid);
-    this.assertIdle(stored.state);
-    return stored.stderr.toString("utf8");
+    const pid = this.pidIndex.get(id);
+    if (pid !== undefined) {
+      const stored = this.getStored(pid);
+      this.assertIdle(stored.state);
+      return stored.stderr.toString("utf8");
+    }
+    const data = await this.resolveDbData(id);
+    return data.stderr ?? "";
   }
 
   async kill(id: number): Promise<GetProcessResult> {
@@ -486,6 +508,27 @@ export class ProcessService {
     const found = this.processes.get(pid);
     if (!found) throw new HttpError(404, "Process not found.");
     return found;
+  }
+
+  private async resolveDbData(
+    id: number,
+  ): Promise<{
+    output: Record<string, unknown> | null;
+    stdout: string | null;
+    stderr: string | null;
+  }> {
+    const [row] = await db
+      .select({
+        output: processDataTable.output,
+        stdout: processDataTable.stdout,
+        stderr: processDataTable.stderr,
+      })
+      .from(processDataTable)
+      .where(eq(processDataTable.processId, id))
+      .limit(1)
+      .all();
+    if (!row) throw new HttpError(404, "Process data not found.");
+    return row;
   }
 
   private project(record: ProcessRecord): GetProcessResult {
