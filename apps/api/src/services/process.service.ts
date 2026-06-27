@@ -510,9 +510,7 @@ export class ProcessService {
     return found;
   }
 
-  private async resolveDbData(
-    id: number,
-  ): Promise<{
+  private async resolveDbData(id: number): Promise<{
     output: Record<string, unknown> | null;
     stdout: string | null;
     stderr: string | null;
