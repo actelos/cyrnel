@@ -145,12 +145,12 @@ const tools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
         .describe("Include structured output when blocking."),
       with_stdout: z
         .boolean()
-        .default(true)
-        .describe("Include stdout when blocking."),
+        .default(false)
+        .describe("Include stdout when blocking. Enable for debugging."),
       with_stderr: z
         .boolean()
-        .default(true)
-        .describe("Include stderr when blocking."),
+        .default(false)
+        .describe("Include stderr when blocking. Enable for debugging."),
     }),
     execute: async ({
       code,
@@ -279,12 +279,12 @@ const tools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
         .describe("Include structured output when blocking."),
       with_stdout: z
         .boolean()
-        .default(true)
-        .describe("Include stdout when blocking."),
+        .default(false)
+        .describe("Include stdout when blocking. Enable for debugging."),
       with_stderr: z
         .boolean()
-        .default(true)
-        .describe("Include stderr when blocking."),
+        .default(false)
+        .describe("Include stderr when blocking. Enable for debugging."),
     }),
     execute: async ({
       id,
