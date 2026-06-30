@@ -85,7 +85,19 @@ export class App {
     app.locals.servicesService = this.servicesService;
 
     app.set("etag", false);
-    app.use(pinoHttp({ logger }));
+    app.use(
+      pinoHttp({
+        logger,
+        redact: {
+          paths: [
+            "req.headers.authorization",
+            "req.headers.cookie",
+            'req.headers["set-cookie"]',
+          ],
+          censor: "***REDACTED***",
+        },
+      }),
+    );
     app.use(cors());
     app.use(express.json());
     app.get("/health", (_req, res) => {

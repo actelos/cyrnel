@@ -13,10 +13,19 @@ const devTransport = {
   },
 };
 
+const redactConfig = {
+  paths: [
+    "req.headers.authorization",
+    "req.headers.cookie",
+    'req.headers["set-cookie"]',
+  ],
+  censor: "***REDACTED***",
+};
+
 export const logger = pino(
   NODE_ENV === "test"
     ? { level: "silent" }
     : NODE_ENV === "production"
-      ? { level: LOG_LEVEL ?? "info" }
-      : { ...devTransport, level: LOG_LEVEL ?? "debug" },
+      ? { level: LOG_LEVEL ?? "info", redact: redactConfig }
+      : { ...devTransport, level: LOG_LEVEL ?? "debug", redact: redactConfig },
 );
