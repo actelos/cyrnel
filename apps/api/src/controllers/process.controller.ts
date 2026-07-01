@@ -14,6 +14,9 @@ const createProcessBodySchema = z
   .object({
     code: z
       .string({ error: 'Field "code" must be a string' })
+      .max(100 * 1024, {
+        error: "Field 'code' must not exceed 100 KB.",
+      })
       .or(z.undefined()),
     ref: z
       .string({ error: "Field 'ref' in body must be a string." })

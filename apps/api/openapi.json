@@ -107,7 +107,8 @@
         "properties": {
           "code": {
             "type": "string",
-            "description": "Executable source code to stage and run in the active environment."
+            "maxLength": 102400,
+            "description": "Executable source code to stage and run in the active environment (max 100 KB)."
           },
           "ref": {
             "type": "string",

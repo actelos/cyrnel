@@ -189,8 +189,9 @@ const ProcessCreateRequestSchema = registry.register(
     .object({
       code: z
         .string()
+        .max(100 * 1024)
         .describe(
-          "Executable source code to stage and run in the active environment.",
+          "Executable source code to stage and run in the active environment (max 100 KB).",
         ),
       ref: z
         .string()

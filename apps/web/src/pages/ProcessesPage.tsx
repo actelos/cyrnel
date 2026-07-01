@@ -121,7 +121,10 @@ const timeoutInputSchema = z.preprocess(
 );
 
 const createProcessSchema = z.object({
-  code: z.string().min(1, "Code is required."),
+  code: z
+    .string()
+    .min(1, "Code is required.")
+    .max(100 * 1024, "Code must not exceed 100 KB."),
   ref: refInputSchema,
   timeout: timeoutInputSchema,
   autorun: z.boolean().default(true),

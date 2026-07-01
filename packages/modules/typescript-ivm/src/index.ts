@@ -1,4 +1,7 @@
 import fs from "node:fs/promises";
+import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
+import { Worker } from "node:worker_threads";
 import type {
   EnvironmentBindings,
   EnvironmentModule,
@@ -16,6 +19,8 @@ import ts from "typescript";
 const DEFAULT_POOL_SIZE = 2;
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_MEMORY_LIMIT_MB = 128;
+const MAX_CODE_SIZE = 100 * 1024;
+const TRANSPILE_TIMEOUT_MS = 10_000;
 
 const ENVIRONMENT_DOCS = `
 Code runs as transpiled TypeScript/JavaScript (ES2022) inside an isolated
@@ -82,7 +87,45 @@ type WorkerSlot = {
   running: RunningExecution | null;
 };
 
-function transpileTypeScript(code: string): string {
+function transpileWorkerCode(): string {
+  return [
+    `const { parentPort, workerData } = await import("worker_threads");`,
+    `const { code, typescriptUrl } = workerData;`,
+    `try {`,
+    `  const tsMod = await import(typescriptUrl);`,
+    `  const ts = tsMod.default || tsMod;`,
+    `  const result = ts.transpileModule(code, {`,
+    `    compilerOptions: {`,
+    `      target: ts.ScriptTarget.ES2022,`,
+    `      module: ts.ModuleKind.ESNext,`,
+    `      strict: false,`,
+    `    },`,
+    `    reportDiagnostics: true,`,
+    `  });`,
+    `  if (result.diagnostics && result.diagnostics.length) {`,
+    `    const diagnostics = result.diagnostics`,
+    `      .map((item) => ts.flattenDiagnosticMessageText(item.messageText, "\\n"))`,
+    `      .join("; ");`,
+    `    parentPort.postMessage({ error: "Failed to transpile TypeScript: " + diagnostics });`,
+    `    return;`,
+    `  }`,
+    `  parentPort.postMessage({ outputText: result.outputText });`,
+    `} catch (err) {`,
+    `  parentPort.postMessage({ error: String(err) });`,
+    `}`,
+  ].join("\n");
+}
+
+let _tsUrl: string | null = null;
+function getTypescriptUrl(): string {
+  if (!_tsUrl) {
+    const _require = createRequire(import.meta.url);
+    _tsUrl = pathToFileURL(_require.resolve("typescript")).href;
+  }
+  return _tsUrl;
+}
+
+function transpileTypeScriptSync(code: string): string {
   const result = ts.transpileModule(code, {
     compilerOptions: {
       target: ts.ScriptTarget.ES2022,
@@ -91,15 +134,65 @@ function transpileTypeScript(code: string): string {
     },
     reportDiagnostics: true,
   });
-
   if (result.diagnostics?.length) {
     const diagnostics = result.diagnostics
       .map((item) => ts.flattenDiagnosticMessageText(item.messageText, "\n"))
       .join("; ");
     throw new Error(`Failed to transpile TypeScript: ${diagnostics}`);
   }
-
   return result.outputText;
+}
+
+function isTestEnv(): boolean {
+  return typeof process !== "undefined" && process.env.VITEST === "true";
+}
+
+async function transpileTypeScript(code: string): Promise<string> {
+  assertSize(code.length, MAX_CODE_SIZE);
+
+  if (isTestEnv()) {
+    return transpileTypeScriptSync(code);
+  }
+
+  const worker = new Worker(transpileWorkerCode(), {
+    eval: true,
+    workerData: { code, typescriptUrl: getTypescriptUrl() },
+  });
+
+  const timer = setTimeout(() => {
+    worker.terminate();
+  }, TRANSPILE_TIMEOUT_MS);
+
+  return new Promise<string>((resolve, reject) => {
+    let settled = false;
+
+    worker.on("message", (msg: unknown) => {
+      if (settled) return;
+      const data = msg as { outputText?: string; error?: string };
+      settled = true;
+      clearTimeout(timer);
+      if (data.error) {
+        reject(new Error(data.error));
+      } else if (data.outputText) {
+        resolve(data.outputText);
+      }
+      void worker.terminate();
+    });
+
+    worker.on("error", (err) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(err);
+    });
+
+    worker.on("exit", (exitCode) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(new Error(`Transpilation worker exited with code ${exitCode}`));
+    });
+  });
 }
 
 function assertSize(size: number, maxSize: number): void {
@@ -349,7 +442,7 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
     let code: string;
 
     try {
-      code = transpileTypeScript(input.code);
+      code = await transpileTypeScript(input.code);
     } catch (err) {
       this.bindings.setError(input.eid, errorMessage(err));
       return "failed";
@@ -525,7 +618,7 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
     try {
       const url = new URL("../src/bindings.ts", import.meta.url);
       const source = await fs.readFile(url, "utf8");
-      return transpileTypeScript(source);
+      return await transpileTypeScript(source);
     } catch {
       return null;
     }

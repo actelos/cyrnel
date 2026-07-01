@@ -297,6 +297,10 @@ describe("process.controller", () => {
         body: { code: "x", options: { timeout: "1000" } },
         why: "string timeout",
       },
+      {
+        body: { code: "x".repeat(100 * 1024 + 1) },
+        why: "oversized code",
+      },
     ])("rejects $why", async ({ body }) => {
       const res = makeRes();
       await expect(

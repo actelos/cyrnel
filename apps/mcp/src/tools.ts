@@ -109,7 +109,11 @@ const tools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
       .trim(),
     annotations: { idempotentHint: false, openWorldHint: true },
     parameters: z.object({
-      code: z.string().min(1).describe("Source code to execute."),
+      code: z
+        .string()
+        .min(1)
+        .max(100 * 1024)
+        .describe("Source code to execute."),
       ref: z
         .string()
         .min(1)
