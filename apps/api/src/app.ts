@@ -1,10 +1,8 @@
 import path from "node:path";
-
 import cors from "cors";
 import express from "express";
 import pinoHttp from "pino-http";
 
-import { db } from "@/db/client";
 import { logger } from "@/logger";
 import { apiKeyMiddleware } from "@/middleware/auth.middleware";
 import { errorMiddleware } from "@/middleware/error.middleware";
@@ -59,11 +57,6 @@ export class App {
   }
 
   async setup(): Promise<void> {
-    const { migrate } = await import("drizzle-orm/libsql/migrator");
-    const migrationsFolder = path.join(import.meta.dirname, "..", "drizzle");
-    await migrate(db, { migrationsFolder });
-    logger.info({ migrationsFolder }, "Database migrations applied");
-
     const dataDir = process.env.CYRNEL_DATA_DIR || ".";
     await this.moduleService.initialize(path.join(dataDir, "modules"));
   }

@@ -36,4 +36,4 @@ ENV CYRNEL_BLOCK_ALL_REGISTRIES=false
 
 EXPOSE 9371
 VOLUME ["/data"]
-CMD ["node", "dist/index.js"]
+CMD node dist/migrate.js && node dist/index.js

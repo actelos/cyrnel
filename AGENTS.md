@@ -61,6 +61,7 @@ Iterating during dev? Use scoped forms (`pnpm -C <pkg> ...`), run full gauntlet 
 - **`.npmrc`**: `auto-install-peers=false`
 - **Environment** — copy `apps/api/.example.env` → `apps/api/.env`. `CYRNEL_SECRETS_KEY` is AES-256-GCM, 32 bytes base64: `openssl rand -base64 32`. Unset `CYRNEL_API_KEY` = unauthenticated access.
 - **PR target** is `develop` branch (not `main`)
+- **Migrations don't auto-run** — run `pnpm -C apps/api db:migrate` explicitly before `pnpm -C apps/api dev` if schema changed
 - **`@cyrnel/sdk` has no tests** (no vitest dep, no test script)
 
 ## Workspace dependency graph

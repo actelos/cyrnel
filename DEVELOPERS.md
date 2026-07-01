@@ -144,6 +144,12 @@ Whenever you change a table in `apps/api/src/db/schema.ts`, run `db:generate`
 to produce a migration file, then commit both the schema change and the
 migration together.
 
+> **Migrations no longer auto-run on startup.** Previously `pnpm -C apps/api dev`
+> applied pending migrations automatically. Now you must run `db:push` (first
+> time) or `db:migrate` (subsequent) explicitly before starting the API. In
+> production (Docker), migrations run as a separate step before the app starts
+> via `node dist/migrate.js`.
+
 ### Running the stack
 
 #### Development mode (recommended)
