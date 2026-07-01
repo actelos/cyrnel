@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/actelos/cyrnel/main/schema/module-manifest.schema.json",
+  "title": "Cyrnel Module Manifest",
+  "description": "Schema for cyrnel custom module manifests (module.json)",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z_$][A-Za-z0-9_$-]*$",
+      "description": "Unique identifier for the module. Must match /^[A-Za-z_$][A-Za-z0-9_$-]*$/."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-readable display name for the module."
+    },
+    "type": {
+      "type": "string",
+      "enum": ["adapter", "environment"],
+      "description": "Module type: 'adapter' (provides tools via external API) or 'environment' (executes user code)."
+    },
+    "description": {
+      "type": "string",
+      "description": "Human-readable description surfaced in GET /modules."
+    },
+    "main": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Relative path to the built ESM entry file the host can import()."
+    }
+  },
+  "required": ["id", "name", "type", "description", "main"],
+  "additionalProperties": false
+}

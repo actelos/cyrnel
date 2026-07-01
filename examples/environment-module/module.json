@@ -1,4 +1,5 @@
 {
+  "$schema": "https://raw.githubusercontent.com/actelos/cyrnel/main/schema/module.schema.json",
   "id": "shell-environment",
   "name": "Shell Environment",
   "type": "environment",

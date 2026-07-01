@@ -29,6 +29,7 @@ must contain a `module.json`:
 
 ```json
 {
+  "$schema": "https://raw.githubusercontent.com/actelos/cyrnel/main/schema/module.schema.json",
   "id": "my-adapter",
   "name": "My Adapter",
   "type": "adapter",
@@ -45,6 +46,11 @@ Fields:
 - `description`: Surfaced in `GET /modules`.
 - `main`: Path to the built module file the host can `import()`. The file must
   default-export the module object (see below).
+
+The full JSON Schema is available at
+[`schema/module.schema.json`](https://github.com/actelos/cyrnel/blob/main/schema/module.schema.json).
+You can reference it from your `module.json` via `$schema` for editor
+autocompletion and validation.
 
 The host expects compiled JavaScript here, not TypeScript. The
 expectation is that you ship modules built ahead of time.
