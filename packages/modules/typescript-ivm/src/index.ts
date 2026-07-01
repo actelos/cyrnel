@@ -91,6 +91,48 @@ type WorkerSlot = {
   running: RunningExecution | null;
 };
 
+class BoundedQueue<T> {
+  private items: T[];
+  readonly max: number;
+
+  constructor(maxSize: number) {
+    this.max = maxSize;
+    this.items = [];
+  }
+
+  get length(): number {
+    return this.items.length;
+  }
+
+  get isFull(): boolean {
+    return this.items.length >= this.max;
+  }
+
+  enqueue(item: T): boolean {
+    if (this.isFull) return false;
+    this.items.push(item);
+    return true;
+  }
+
+  dequeue(): T | undefined {
+    return this.items.shift();
+  }
+
+  find(predicate: (item: T) => boolean): T | undefined {
+    return this.items.find(predicate);
+  }
+
+  remove(predicate: (item: T) => boolean): T | undefined {
+    const index = this.items.findIndex(predicate);
+    if (index < 0) return undefined;
+    return this.items.splice(index, 1)[0];
+  }
+
+  drain(): T[] {
+    return this.items.splice(0);
+  }
+}
+
 function transpileWorkerCode(): string {
   return [
     `const { parentPort, workerData } = await import("worker_threads");`,
@@ -380,7 +422,9 @@ function errorMessage(err: unknown): string {
 class TypescriptIvmEnvironment implements EnvironmentModule {
   private bindings: EnvironmentBindings | null = null;
   private workers: WorkerSlot[] = [];
-  private queue: ExecutionJob[] = [];
+  private queue: BoundedQueue<ExecutionJob> = new BoundedQueue(
+    DEFAULT_MAX_QUEUE_SIZE,
+  );
   private runningByEid = new Map<number, WorkerSlot>();
   private pumping = false;
   private shuttingDown = false;
@@ -415,6 +459,8 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
         ? context.config.maxQueueSize
         : DEFAULT_MAX_QUEUE_SIZE;
 
+    this.queue = new BoundedQueue(this.maxQueueSize);
+
     if (this.workers.length === 0) {
       const poolSize =
         typeof context.config.poolSize === "number" &&
@@ -433,7 +479,7 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
     this.shuttingDown = true;
     this.isolatePreludeJs = null;
 
-    for (const job of this.queue.splice(0, this.queue.length)) {
+    for (const job of this.queue.drain()) {
       job.resolve("canceled");
     }
 
@@ -453,7 +499,7 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
 
     this.workers = [];
     this.runningByEid.clear();
-    this.queue = [];
+    this.queue = new BoundedQueue(DEFAULT_MAX_QUEUE_SIZE);
     this.bindings = null;
   }
 
@@ -470,8 +516,14 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
       throw new Error(`execution ${input.eid} is already running`);
     }
 
-    if (this.queue.some((job) => job.input.eid === input.eid)) {
+    if (this.queue.find((job) => job.input.eid === input.eid)) {
       throw new Error(`execution ${input.eid} is already queued`);
+    }
+
+    if (this.queue.isFull) {
+      throw new Error(
+        `Execution queue is full (max ${this.maxQueueSize} pending).`,
+      );
     }
 
     let code: string;
@@ -485,14 +537,8 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
 
     this.bindings.setState(input.eid, "queued");
 
-    if (this.queue.length >= this.maxQueueSize) {
-      throw new Error(
-        `Execution queue is full (max ${this.maxQueueSize} pending).`,
-      );
-    }
-
     return new Promise<ExecutionExitState>((resolve) => {
-      this.queue.push({ input, code, resolve });
+      this.queue.enqueue({ input, code, resolve });
       void this.pumpQueue();
     });
   }
@@ -506,10 +552,9 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
   }
 
   async kill(eid: number): Promise<void> {
-    const queuedIndex = this.queue.findIndex((job) => job.input.eid === eid);
+    const job = this.queue.remove((j) => j.input.eid === eid);
 
-    if (queuedIndex >= 0) {
-      const [job] = this.queue.splice(queuedIndex, 1);
+    if (job) {
       job.resolve("canceled");
       return;
     }
@@ -539,7 +584,7 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
       while (!this.shuttingDown) {
         const worker = this.workers.find((slot) => !slot.busy);
         if (!worker) break;
-        const job = this.queue.shift();
+        const job = this.queue.dequeue();
         if (!job) break;
         worker.busy = true;
         void this.runJob(worker, job);
@@ -661,6 +706,10 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
           ref.release();
         } catch {}
       }
+
+      try {
+        context.release();
+      } catch {}
     }
   }
 
