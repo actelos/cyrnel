@@ -1,3 +1,17 @@
+---
+name: cyrnel
+description: >
+  Use this skill whenever you have access to Cyrnel via MCP i.e., whenever
+  the user's task involves invoking external services, running processes,
+  chaining tool calls, or orchestrating workflows through the Cyrnel.
+  Always trigger this skill at the start of any session where Cyrnel MCP tools
+  are available, before writing any process code. Also use it when the user
+  asks you to "run a tool", "create a process", "invoke a service", or
+  "chain multiple steps together". Do NOT skip this skill just because a Cyrnel
+  task seems simple, the runtime syntax is environment-dependent and must
+  always be looked up first.
+---
+
 # Cyrnel Skill
 
 You have access to cyrnel via the MCP server. Cyrnel lets you discover,
