@@ -29,7 +29,7 @@ services:
       context: .
       dockerfile: apps/web/Dockerfile
       args:
-        VITE_CYRNEL_API_URL: http://api:9371
+        VITE_CYRNEL_API_URL: ""
     ports:
       - "${WEB_PORT:-9372}:9372"
     environment:

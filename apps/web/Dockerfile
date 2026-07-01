@@ -8,10 +8,7 @@ COPY apps/web/package.json apps/web/package.json
 
 RUN pnpm install --frozen-lockfile
 
-ARG VITE_AUTH_USERNAME=
-ARG VITE_AUTH_PASSWORD=
-ARG VITE_CYRNEL_API_URL=http://127.0.0.1:9371
-ARG VITE_CYRNEL_API_KEY=
+ARG VITE_CYRNEL_API_URL=
 
 COPY apps/web/ apps/web/
 
@@ -26,8 +23,6 @@ ENV NODE_ENV=production
 ENV PORT=9372
 ENV HOST=0.0.0.0
 ENV CYRNEL_API_URL=http://api:9371
-ENV CYRNEL_API_KEY=
-
 
 EXPOSE 9372
 CMD ["node", "dist/server/index.js"]

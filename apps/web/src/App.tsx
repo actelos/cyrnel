@@ -1,5 +1,4 @@
 import { Blocks, Braces, Server } from "lucide-react";
-import { useState } from "react";
 import {
   Navigate,
   NavLink,
@@ -26,7 +25,6 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import LoginPage from "@/pages/LoginPage";
 import ModuleDetailPage from "@/pages/ModuleDetailPage";
 import ModulesPage from "@/pages/ModulesPage";
 import ProcessesPage from "@/pages/ProcessesPage";
@@ -41,27 +39,12 @@ const navItems = [
 
 function App() {
   const location = useLocation();
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const { theme } = useTheme();
 
   const isActive = (to: string) =>
     location.pathname === to ||
     location.pathname.startsWith(`${to}/`) ||
     (to === "/processes" && location.pathname === "/");
-
-  if (!isAuthenticated) {
-    return (
-      <Routes>
-        <Route
-          path="/login"
-          element={
-            <LoginPage onAuthenticated={() => setIsAuthenticated(true)} />
-          }
-        />
-        <Route path="*" element={<Navigate to="/login" replace />} />
-      </Routes>
-    );
-  }
 
   return (
     <TooltipProvider>
@@ -113,10 +96,6 @@ function App() {
               />
               <Route path="/modules" element={<ModulesPage />} />
               <Route path="/modules/:moduleId" element={<ModuleDetailPage />} />
-              <Route
-                path="/login"
-                element={<Navigate to="/processes" replace />}
-              />
             </Routes>
           </div>
         </SidebarInset>
