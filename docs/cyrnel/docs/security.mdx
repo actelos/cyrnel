@@ -114,7 +114,7 @@ supplied by or resolved from caller input, hash the content, and pass it
 to the adapter's `generateDefinition`. The fetcher has a few guards:
 
 - Hard timeout of 10 seconds per request.
-- Maximum response body of 2 MiB.
+- Maximum response body of 30 MiB.
 - IP-literal hostnames whose range is not `unicast` are rejected
   (loopback, link-local, multicast, private-v4 ranges).
 
