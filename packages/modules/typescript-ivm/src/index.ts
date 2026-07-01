@@ -19,6 +19,7 @@ import ts from "typescript";
 const DEFAULT_POOL_SIZE = 2;
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_MEMORY_LIMIT_MB = 128;
+const DEFAULT_MAX_QUEUE_SIZE = 100;
 const MAX_CODE_SIZE = 100 * 1024;
 const TRANSPILE_TIMEOUT_MS = 10_000;
 
@@ -73,8 +74,11 @@ type RunningExecution = {
   timeoutHandle: ReturnType<typeof setTimeout> | null;
 };
 
-function getEffectiveTimeoutMs(options: ExecutionOptions | undefined): number {
-  return options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+function getEffectiveTimeoutMs(
+  options: ExecutionOptions | undefined,
+  defaultMs: number,
+): number {
+  return options?.timeoutMs ?? defaultMs;
 }
 
 type TerminableIsolate = ivm.Isolate & {
@@ -381,14 +385,45 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
   private pumping = false;
   private shuttingDown = false;
   private isolatePreludeJs: string | null = null;
+  private defaultTimeoutMs: number = DEFAULT_TIMEOUT_MS;
+  private memoryLimitMb: number = DEFAULT_MEMORY_LIMIT_MB;
+  private maxQueueSize: number = DEFAULT_MAX_QUEUE_SIZE;
 
   async setup(context: EnvironmentSetupContext): Promise<void> {
     this.bindings = context.bindings;
     this.shuttingDown = false;
     this.isolatePreludeJs ??= await this.loadIsolatePreludeJs();
 
+    this.defaultTimeoutMs =
+      typeof context.config.timeoutMs === "number" &&
+      Number.isInteger(context.config.timeoutMs) &&
+      context.config.timeoutMs >= 1
+        ? context.config.timeoutMs
+        : DEFAULT_TIMEOUT_MS;
+
+    this.memoryLimitMb =
+      typeof context.config.memoryLimitMb === "number" &&
+      Number.isInteger(context.config.memoryLimitMb) &&
+      context.config.memoryLimitMb >= 16
+        ? context.config.memoryLimitMb
+        : DEFAULT_MEMORY_LIMIT_MB;
+
+    this.maxQueueSize =
+      typeof context.config.maxQueueSize === "number" &&
+      Number.isInteger(context.config.maxQueueSize) &&
+      context.config.maxQueueSize >= 1
+        ? context.config.maxQueueSize
+        : DEFAULT_MAX_QUEUE_SIZE;
+
     if (this.workers.length === 0) {
-      this.workers = Array.from({ length: DEFAULT_POOL_SIZE }, () =>
+      const poolSize =
+        typeof context.config.poolSize === "number" &&
+        Number.isInteger(context.config.poolSize) &&
+        context.config.poolSize >= 1
+          ? context.config.poolSize
+          : DEFAULT_POOL_SIZE;
+
+      this.workers = Array.from({ length: poolSize }, () =>
         this.createWorkerSlot(),
       );
     }
@@ -450,6 +485,12 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
 
     this.bindings.setState(input.eid, "queued");
 
+    if (this.queue.length >= this.maxQueueSize) {
+      throw new Error(
+        `Execution queue is full (max ${this.maxQueueSize} pending).`,
+      );
+    }
+
     return new Promise<ExecutionExitState>((resolve) => {
       this.queue.push({ input, code, resolve });
       void this.pumpQueue();
@@ -483,7 +524,7 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
   private createWorkerSlot(): WorkerSlot {
     return {
       isolate: new ivm.Isolate({
-        memoryLimit: DEFAULT_MEMORY_LIMIT_MB,
+        memoryLimit: this.memoryLimitMb,
       }) as TerminableIsolate,
       busy: false,
       running: null,
@@ -523,7 +564,10 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
     try {
       this.bindings?.setState(job.input.eid, "running");
 
-      const effectiveTimeoutMs = getEffectiveTimeoutMs(job.input.options);
+      const effectiveTimeoutMs = getEffectiveTimeoutMs(
+        job.input.options,
+        this.defaultTimeoutMs,
+      );
       const executionPromise = this.executeInIsolate(worker, job)
         .then(() => "success" as const)
         .catch((err) => {
@@ -575,43 +619,49 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
     const eid = job.input.eid;
     const bindings = this.bindings;
 
-    await jail.set(
-      "__cyrnel_emitStdout",
-      new ivm.Reference((data: string) => {
+    const refs: ivm.Reference[] = [];
+
+    try {
+      const refStdout = new ivm.Reference((data: string) => {
         void bindings.emitStdout(eid, Buffer.from(data, "utf8"));
-      }),
-    );
+      });
+      refs.push(refStdout);
+      await jail.set("__cyrnel_emitStdout", refStdout);
 
-    await jail.set(
-      "__cyrnel_emitStderr",
-      new ivm.Reference((data: string) => {
+      const refStderr = new ivm.Reference((data: string) => {
         void bindings.emitStderr(eid, Buffer.from(data, "utf8"));
-      }),
-    );
+      });
+      refs.push(refStderr);
+      await jail.set("__cyrnel_emitStderr", refStderr);
 
-    await jail.set(
-      "__cyrnel_emitOutput",
-      new ivm.Reference((data: string) => {
+      const refOutput = new ivm.Reference((data: string) => {
         bindings.emitOutput(eid, JSON.parse(data) as Record<string, unknown>);
-      }),
-    );
+      });
+      refs.push(refOutput);
+      await jail.set("__cyrnel_emitOutput", refOutput);
 
-    await jail.set(
-      "__cyrnel_invokeTool",
-      new ivm.Reference(async (jsonInput: string) => {
+      const refInvoke = new ivm.Reference(async (jsonInput: string) => {
         const input = JSON.parse(jsonInput) as InvokeInput;
         const result = await bindings.invokeTool(input);
         return JSON.stringify(result);
-      }),
-    );
+      });
+      refs.push(refInvoke);
+      await jail.set("__cyrnel_invokeTool", refInvoke);
 
-    const prelude = this.isolatePreludeJs ? `${this.isolatePreludeJs}\n` : "";
-    const script = await worker.isolate.compileScript(
-      buildWrappedCode(`${prelude}${job.code}`),
-    );
-    const result = await script.run(context);
+      const prelude = this.isolatePreludeJs ? `${this.isolatePreludeJs}\n` : "";
+      const script = await worker.isolate.compileScript(
+        buildWrappedCode(`${prelude}${job.code}`),
+      );
+      const result = await script.run(context);
 
-    await Promise.resolve(result);
+      await Promise.resolve(result);
+    } finally {
+      for (const ref of refs) {
+        try {
+          ref.release();
+        } catch {}
+      }
+    }
   }
 
   private async loadIsolatePreludeJs(): Promise<string | null> {
@@ -628,7 +678,7 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
     try {
       worker.isolate.dispose();
       worker.isolate = new ivm.Isolate({
-        memoryLimit: DEFAULT_MEMORY_LIMIT_MB,
+        memoryLimit: this.memoryLimitMb,
       }) as TerminableIsolate;
     } catch {}
   }
@@ -639,6 +689,9 @@ export default {
     type: "object",
     properties: {
       poolSize: { type: "integer", minimum: 1 },
+      maxQueueSize: { type: "integer", minimum: 1 },
+      timeoutMs: { type: "integer", minimum: 1 },
+      memoryLimitMb: { type: "integer", minimum: 16 },
     },
     additionalProperties: false,
   },

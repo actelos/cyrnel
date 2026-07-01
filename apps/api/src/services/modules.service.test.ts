@@ -157,7 +157,12 @@ vi.mock("@cyrnel/typescript-ivm", () => ({
   default: {
     configSchema: {
       type: "object",
-      properties: { poolSize: { type: "number" } },
+      properties: {
+        poolSize: { type: "integer", minimum: 1 },
+        maxQueueSize: { type: "integer", minimum: 1 },
+        timeoutMs: { type: "integer", minimum: 1 },
+        memoryLimitMb: { type: "integer", minimum: 16 },
+      },
       additionalProperties: false,
     },
     secretsSchema: {

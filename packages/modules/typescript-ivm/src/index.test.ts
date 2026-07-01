@@ -7,7 +7,12 @@ describe("typescript-ivm default export", () => {
   it("declares the supported configSchema", () => {
     expect(tsivm.configSchema).toMatchObject({
       type: "object",
-      properties: { poolSize: { type: "integer", minimum: 1 } },
+      properties: {
+        poolSize: { type: "integer", minimum: 1 },
+        maxQueueSize: { type: "integer", minimum: 1 },
+        timeoutMs: { type: "integer", minimum: 1 },
+        memoryLimitMb: { type: "integer", minimum: 16 },
+      },
       additionalProperties: false,
     });
   });
@@ -404,6 +409,73 @@ describe("environment module", () => {
     await environment.teardown();
 
     expect(await exec3).toBe("canceled");
+    await Promise.all([exec1, exec2]);
+  });
+
+  it("honours poolSize from config", async () => {
+    const { bindings, setState } = createBindings();
+    const environment = tsivm.instantiate();
+
+    await environment.setup({ bindings, config: { poolSize: 1 }, secrets: {} });
+
+    const exec1 = environment.execute({
+      eid: 41,
+      code: infiniteCode,
+      options: { timeoutMs: 30_000 },
+    } satisfies ExecutionInput);
+    const exec2 = environment.execute({
+      eid: 42,
+      code: infiniteCode,
+      options: { timeoutMs: 30_000 },
+    } satisfies ExecutionInput);
+
+    await tick();
+
+    expect(
+      setState.mock.calls.some(
+        ([eid, state]) => eid === 42 && state === "running",
+      ),
+    ).toBe(false);
+
+    await environment.kill(41);
+    await environment.kill(42);
+
+    await Promise.all([exec1, exec2]);
+  });
+
+  it("rejects when queue exceeds maxQueueSize", async () => {
+    const { bindings } = createBindings();
+    const environment = tsivm.instantiate();
+
+    await environment.setup({
+      bindings,
+      config: { poolSize: 1, maxQueueSize: 1 },
+      secrets: {},
+    });
+
+    const exec1 = environment.execute({
+      eid: 51,
+      code: infiniteCode,
+      options: { timeoutMs: 30_000 },
+    } satisfies ExecutionInput);
+    const exec2 = environment.execute({
+      eid: 52,
+      code: infiniteCode,
+      options: { timeoutMs: 30_000 },
+    } satisfies ExecutionInput);
+
+    await tick();
+
+    await expect(
+      environment.execute({
+        eid: 53,
+        code: "const x = 1;",
+        options: { timeoutMs: 30_000 },
+      } satisfies ExecutionInput),
+    ).rejects.toThrow(/queue is full/i);
+
+    await environment.kill(51);
+    await environment.kill(52);
     await Promise.all([exec1, exec2]);
   });
 });
