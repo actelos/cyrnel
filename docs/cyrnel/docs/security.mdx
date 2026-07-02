@@ -114,9 +114,10 @@ supplied by or resolved from caller input, hash the content, and pass it
 to the adapter's `generateDefinition`.
 
 Module installation and update routes use the same guarded download path
-for module archives and registry metadata: `POST /modules`,
-`POST /modules/install`, `PATCH /modules/:moduleId`, and
-`POST /modules/:moduleId/update`.
+for module archives and registry metadata: `POST /modules` (direct
+install), `POST /modules/install` (registry install),
+`PATCH /modules/:moduleId` (direct update), and
+`POST /modules/:moduleId/update` (registry update).
 
 The shared fetcher applies the following guards to both service and module
 downloads:
