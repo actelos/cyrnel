@@ -105,13 +105,22 @@ fresh 12-byte IV per write. The auth tag is stored alongside.
   `GET /services/.../secrets` endpoint. Patches operate against the
   decrypted document in memory.
 
-## Service Installation (Definition Fetching)
+## Service and Module Installation (Remote Fetching)
 
 `POST /services` (direct install), `POST /services/install` (registry
 install), `PATCH /services/:serviceId` (direct update), and
 `POST /services/:serviceId/update` (registry update) all fetch a URL
 supplied by or resolved from caller input, hash the content, and pass it
-to the adapter's `generateDefinition`. The fetcher has a few guards:
+to the adapter's `generateDefinition`.
+
+Module installation and update routes use the same guarded download path
+for module archives and registry metadata: `POST /modules` (direct
+install), `POST /modules/install` (registry install),
+`PATCH /modules/:moduleId` (direct update), and
+`POST /modules/:moduleId/update` (registry update).
+
+The shared fetcher applies the following guards to both service and module
+downloads:
 
 - Hard timeout of 10 seconds per request.
 - Maximum response body of 30 MiB.
@@ -149,9 +158,9 @@ redirect targets, every hop is validated before the request proceeds.
   Both IPv4 and IPv6 CIDR notation are supported.
 #### Operator guidance
 
-- Treat the API key as the security boundary. Do not expose
-  `/services/install` (or the API at all) to clients you wouldn't trust
-  to make outbound network requests from the host.
+- Treat the API key as the security boundary. Do not expose service or
+  module installation endpoints (or the API at all) to clients you
+  wouldn't trust to make outbound network requests from the host.
 - Use `CYRNEL_ALLOWED_IPS`, `CYRNEL_BLOCKED_IPS`, and
   `CYRNEL_BLOCK_ALL_REGISTRIES` to restrict which registry addresses
   may be contacted.
