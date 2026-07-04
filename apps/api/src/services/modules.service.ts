@@ -52,7 +52,7 @@ import { downloadBinary } from "@/utils/download.util";
 import { computeBinaryHash } from "@/utils/hash.util";
 import {
   collectPresentPaths,
-  decryptSecrets,
+  decryptAndMaybeReEncrypt,
   encryptSecrets,
 } from "@/utils/secrets.util";
 import {
@@ -94,6 +94,7 @@ interface ValidatedSetupValues {
 type JsonObject = Record<string, unknown>;
 
 const encryptedSecretsSchema = z.object({
+  kid: z.string().optional(),
   alg: z.literal("aes-256-gcm"),
   iv: z.string(),
   tag: z.string(),
@@ -1526,7 +1527,16 @@ export class ModuleService {
     if (!parsed.success)
       throw new HttpError(500, "Stored secrets payload is malformed.");
 
-    return decryptSecrets(parsed.data);
+    return decryptAndMaybeReEncrypt(
+      parsed.data,
+      async (reEncrypted) => {
+        await db
+          .update(moduleSecrets)
+          .set({ payload: reEncrypted, updatedAt: Date.now() })
+          .where(eq(moduleSecrets.moduleId, id));
+      },
+      { moduleId: id },
+    );
   }
 
   private async assertConfigAndSecretsValid(

@@ -98,9 +98,14 @@ fresh 12-byte IV per write. The auth tag is stored alongside.
   bytes.** It is not a secret. Anything encrypted with it is effectively
   in plaintext as soon as the database leaves the machine. **Replace it
   before storing anything.**
-- **There is no key rotation.** Rotating means: re-`PATCH` every service's
-  secrets through the API (which decrypts with the old key, re-encrypts
-  with the new). Plan for a re-run during cutover.
+- **Key rotation** is supported via the key ring mechanism:
+  `CYRNEL_SECRETS_PREVIOUS_KEYS` holds old keys (comma-separated, base64).
+  Decryption falls back through the previous keys if the primary key
+  doesn't match. Each encrypted payload records its key ID (`kid`) so
+  the system can look up the correct key. When a record is read that was
+  encrypted with a previous key, it is silently re-encrypted with the
+  primary key and persisted. See the
+  [key rotation procedure](#key-rotation-procedure) below.
 - **Secrets never leave the API in plaintext.** There is no
   `GET /services/.../secrets` endpoint. Patches operate against the
   decrypted document in memory.
@@ -176,6 +181,54 @@ redirect targets, every hop is validated before the request proceeds.
 If the db leaks, the encrypted secrets are protected by the key only.
 Configuration is not, operators must avoid storing credentials in
 `config` blocks. The `secretsSchema` exists for that exact reason; use it.
+
+## Key Rotation Procedure
+
+1. **Record the current key** and generate a new one:
+
+   ```sh
+   OLD_KEY="$(grep CYRNEL_SECRETS_KEY .env | cut -d= -f2)"
+   NEW_KEY="$(openssl rand -base64 32)"
+   ```
+
+2. **Set the old key as a fallback** and replace the primary:
+
+   ```sh
+   export CYRNEL_SECRETS_PREVIOUS_KEYS="$OLD_KEY"
+   export CYRNEL_SECRETS_KEY="$NEW_KEY"
+   ```
+
+3. **Restart the server:** Existing secrets continue to decrypt using the
+   old key in the fallback list.
+4. **Verify:** All existing endpoints work, secrets are readable.
+5. **Optional: Accelerate the transition** by touching all records:
+   Iterate over services and modules and call their secrets presence
+   endpoint to trigger re-encryption. Otherwise records are re-encrypted
+   naturally on first read.
+6. **After all records have been re-encrypted** (confirmed by checking
+   `kid` in the JSON payload), remove the fallback:
+
+   ```sh
+   unset CYRNEL_SECRETS_PREVIOUS_KEYS
+   ```
+
+   Then restart again. Old ciphertext without a `kid` field (from before
+   the upgrade) are automatically stamped on first read.
+
+### Multi-instance rollout
+
+During a rolling update, both old and new instances must be able to
+decrypt all records. This works because:
+
+- **Old instances** have `CYRNEL_SECRETS_KEY` = old key, they decrypt
+  everything natively.
+- **New instances** have `CYRNEL_SECRETS_KEY` = new key and
+  `CYRNEL_SECRETS_PREVIOUS_KEYS` = old key, they decrypt with fallback.
+- After full rollout, old instances can be retired.
+
+Compromise recovery: if a key is suspected compromised, repeat the
+rotation. As long as at least one known key can decrypt, old ciphertext
+is never lost.
 
 ## Defaults Worth Hardening
 

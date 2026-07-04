@@ -226,7 +226,15 @@ adapter so the change takes effect immediately.
 ## Secrets
 
 Per-service secrets behave like configuration, but the stored payload is
-encrypted with AES-256-GCM using `CYRNEL_SECRETS_KEY`.
+encrypted with AES-256-GCM using `CYRNEL_SECRETS_KEY`. When a record is
+read that was encrypted with a previous key (during rotation), it is
+silently re-encrypted with the current primary key and persisted.
+
+During a key rotation, both `CYRNEL_SECRETS_KEY` (new key) and
+`CYRNEL_SECRETS_PREVIOUS_KEYS` (old key, comma-separated if multiple) must
+be set. If the previous keys are missing and an existing record was encrypted
+under the old key, `decryptSecrets` throws `500` — the payload's key ID
+won't match any key in the ring, and the fallback has nowhere to go.
 
 | Method | Path | Returns |
 | --- | --- | --- |
