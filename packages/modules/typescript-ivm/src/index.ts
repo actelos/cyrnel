@@ -8,7 +8,6 @@ import type {
   EnvironmentSetupContext,
   ExecutionExitState,
   ExecutionInput,
-  ExecutionOptions,
   InvokeInput,
   JSONSchema,
   ToolDocsInput,
@@ -47,6 +46,22 @@ globals and write fully self-contained code.
 
 Objects are pretty-printed as JSON; strings are written verbatim.
 
+## Per-execution configuration (\`envConfig\`)
+
+When creating a process you can pass an \`envConfig\` object to override
+environment defaults for that execution:
+
+| Key | Type | Default | Description |
+| --- | --- | ------- | ----------- |
+| \`timeoutMs\` | \`integer\` (>= 1) | 30000 | Sandbox execution timeout in milliseconds. |
+| \`memoryLimitMb\` | \`integer\` (>= 16) | 128 | Per-execution memory limit in megabytes. |
+
+Example:
+
+\`\`\`ts
+envConfig: { timeoutMs: 10000, memoryLimitMb: 256 }
+\`\`\`
+
 ## Example
 
 \`\`\`ts
@@ -75,13 +90,6 @@ type RunningExecution = {
   interrupt: Interrupt;
   timeoutHandle: ReturnType<typeof setTimeout> | null;
 };
-
-function getEffectiveTimeoutMs(
-  options: ExecutionOptions | undefined,
-  defaultMs: number,
-): number {
-  return options?.timeoutMs ?? defaultMs;
-}
 
 type TerminableIsolate = ivm.Isolate & {
   terminateExecution: () => Promise<void>;
@@ -638,13 +646,34 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
     worker.running = running;
     this.runningByEid.set(job.input.eid, worker);
 
+    let _isolateOverridden = false;
+
     try {
       this.bindings?.setState(job.input.eid, "running");
 
-      const effectiveTimeoutMs = getEffectiveTimeoutMs(
-        job.input.options,
-        this.defaultTimeoutMs,
-      );
+      const rawTimeoutMs = job.input.envConfig?.timeoutMs as number | undefined;
+      const effectiveTimeoutMs: number =
+        typeof rawTimeoutMs === "number" &&
+        Number.isInteger(rawTimeoutMs) &&
+        rawTimeoutMs >= 1
+          ? rawTimeoutMs
+          : this.defaultTimeoutMs;
+      const rawMemoryLimitMb = job.input.envConfig?.memoryLimitMb as
+        | number
+        | undefined;
+      const effectiveMemoryLimitMb: number =
+        typeof rawMemoryLimitMb === "number" &&
+        Number.isInteger(rawMemoryLimitMb) &&
+        rawMemoryLimitMb >= 16
+          ? rawMemoryLimitMb
+          : this.memoryLimitMb;
+      if (effectiveMemoryLimitMb !== this.memoryLimitMb) {
+        worker.isolate.dispose();
+        worker.isolate = new ivm.Isolate({
+          memoryLimit: effectiveMemoryLimitMb,
+        }) as TerminableIsolate;
+        _isolateOverridden = true;
+      }
       const executionPromise = this.executeInIsolate(worker, job)
         .then(() => "success" as const)
         .catch((err) => {
@@ -669,6 +698,13 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
     } finally {
       if (running.timeoutHandle) {
         clearTimeout(running.timeoutHandle);
+      }
+
+      if (_isolateOverridden) {
+        worker.isolate.dispose();
+        worker.isolate = new ivm.Isolate({
+          memoryLimit: this.memoryLimitMb,
+        }) as TerminableIsolate;
       }
 
       worker.running = null;
@@ -773,7 +809,6 @@ export default {
       maxQueueSize: { type: "integer", minimum: 1 },
       queueTtlMs: { type: "integer", minimum: 1 },
       maxCodeSizeBytes: { type: "integer", minimum: 1024 },
-      timeoutMs: { type: "integer", minimum: 1 },
       memoryLimitMb: { type: "integer", minimum: 16 },
     },
     additionalProperties: false,

@@ -26,7 +26,7 @@ describe("typescript-ivm integration", () => {
     const result = await environment.execute({
       eid: 100,
       code: "const value = 1 + 1;",
-      options: {
+      envConfig: {
         timeoutMs: 30_000,
       },
     } satisfies ExecutionInput);
@@ -43,7 +43,7 @@ describe("typescript-ivm integration", () => {
     const promise = environment.execute({
       eid: 101,
       code: infiniteCode,
-      options: {
+      envConfig: {
         timeoutMs: 30_000,
       },
     } satisfies ExecutionInput);

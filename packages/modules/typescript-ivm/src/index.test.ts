@@ -12,7 +12,6 @@ describe("typescript-ivm default export", () => {
         maxQueueSize: { type: "integer", minimum: 1 },
         queueTtlMs: { type: "integer", minimum: 1 },
         maxCodeSizeBytes: { type: "integer", minimum: 1024 },
-        timeoutMs: { type: "integer", minimum: 1 },
         memoryLimitMb: { type: "integer", minimum: 16 },
       },
       additionalProperties: false,
@@ -110,7 +109,7 @@ describe("environment module", () => {
     const promise = environment.execute({
       eid: 42,
       code: "const answer = 40 + 2;",
-      options: {
+      envConfig: {
         timeoutMs: 30_000,
       },
     } satisfies ExecutionInput);
@@ -131,21 +130,21 @@ describe("environment module", () => {
     const exec1 = environment.execute({
       eid: 1,
       code: infiniteCode,
-      options: {
+      envConfig: {
         timeoutMs: 30_000,
       },
     } satisfies ExecutionInput);
     const exec2 = environment.execute({
       eid: 2,
       code: infiniteCode,
-      options: {
+      envConfig: {
         timeoutMs: 30_000,
       },
     } satisfies ExecutionInput);
     const exec3 = environment.execute({
       eid: 3,
       code: "const done = true;",
-      options: {
+      envConfig: {
         timeoutMs: 30_000,
       },
     } satisfies ExecutionInput);
@@ -181,7 +180,7 @@ describe("environment module", () => {
     await environment.execute({
       eid: 4,
       code: busyCode,
-      options: {
+      envConfig: {
         timeoutMs: 30_000,
       },
     } satisfies ExecutionInput);
@@ -193,7 +192,7 @@ describe("environment module", () => {
     const result = await environment.execute({
       eid: 5,
       code: "const ok = true;",
-      options: {
+      envConfig: {
         timeoutMs: 30_000,
       },
     } satisfies ExecutionInput);
@@ -210,7 +209,7 @@ describe("environment module", () => {
     const result = await environment.execute({
       eid: 7,
       code: "throw new Error('boom');",
-      options: {
+      envConfig: {
         timeoutMs: 30_000,
       },
     } satisfies ExecutionInput);
@@ -227,7 +226,7 @@ describe("environment module", () => {
     const result = await environment.execute({
       eid: 8,
       code: "const =",
-      options: {
+      envConfig: {
         timeoutMs: 30_000,
       },
     } satisfies ExecutionInput);
@@ -248,7 +247,7 @@ describe("environment module", () => {
     const result = await environment.execute({
       eid: 18,
       code: "é".repeat(600),
-      options: { timeoutMs: 30_000 },
+      envConfig: { timeoutMs: 30_000 },
     } satisfies ExecutionInput);
 
     expect(result).toBe("failed");
@@ -267,21 +266,21 @@ describe("environment module", () => {
     const exec1 = environment.execute({
       eid: 1,
       code: longBusyCode,
-      options: {
+      envConfig: {
         timeoutMs: 30_000,
       },
     } satisfies ExecutionInput);
     const exec2 = environment.execute({
       eid: 2,
       code: longBusyCode,
-      options: {
+      envConfig: {
         timeoutMs: 30_000,
       },
     } satisfies ExecutionInput);
     const exec3 = environment.execute({
       eid: 3,
       code: "const queued = true;",
-      options: {
+      envConfig: {
         timeoutMs: 30_000,
       },
     } satisfies ExecutionInput);
@@ -303,7 +302,7 @@ describe("environment module", () => {
     const promise = environment.execute({
       eid: 9,
       code: infiniteCode,
-      options: { timeoutMs: 30_000 },
+      envConfig: { timeoutMs: 30_000 },
     } satisfies ExecutionInput);
 
     await tick();
@@ -323,7 +322,7 @@ describe("environment module", () => {
     const promise = environment.execute({
       eid: 10,
       code: infiniteCode,
-      options: { timeoutMs: 30_000 },
+      envConfig: { timeoutMs: 30_000 },
     } satisfies ExecutionInput);
 
     await tick();
@@ -333,7 +332,7 @@ describe("environment module", () => {
     const followup = await environment.execute({
       eid: 11,
       code: "const ok = true;",
-      options: { timeoutMs: 30_000 },
+      envConfig: { timeoutMs: 30_000 },
     } satisfies ExecutionInput);
 
     expect(followup).toBe("success");
@@ -348,7 +347,7 @@ describe("environment module", () => {
     const result = await environment.execute({
       eid: 12,
       code: infiniteCode,
-      options: { timeoutMs: 5 },
+      envConfig: { timeoutMs: 5 },
     } satisfies ExecutionInput);
 
     expect(result).toBe("timeout");
@@ -363,7 +362,7 @@ describe("environment module", () => {
     const result = await environment.execute({
       eid: 13,
       code: "throw new Error('intentional failure');",
-      options: { timeoutMs: 30_000 },
+      envConfig: { timeoutMs: 30_000 },
     } satisfies ExecutionInput);
 
     expect(result).toBe("failed");
@@ -378,7 +377,7 @@ describe("environment module", () => {
     const promise = environment.execute({
       eid: 20,
       code: infiniteCode,
-      options: { timeoutMs: 30_000 },
+      envConfig: { timeoutMs: 30_000 },
     } satisfies ExecutionInput);
 
     await tick();
@@ -387,7 +386,7 @@ describe("environment module", () => {
       environment.execute({
         eid: 20,
         code: "const second = true;",
-        options: { timeoutMs: 30_000 },
+        envConfig: { timeoutMs: 30_000 },
       } satisfies ExecutionInput),
     ).rejects.toThrow(/already running/i);
 
@@ -402,7 +401,7 @@ describe("environment module", () => {
       environment.execute({
         eid: 30,
         code: "const x = 1;",
-        options: { timeoutMs: 30_000 },
+        envConfig: { timeoutMs: 30_000 },
       } satisfies ExecutionInput),
     ).rejects.toThrow(/not setup/i);
   });
@@ -416,17 +415,17 @@ describe("environment module", () => {
     const exec1 = environment.execute({
       eid: 31,
       code: longBusyCode,
-      options: { timeoutMs: 30_000 },
+      envConfig: { timeoutMs: 30_000 },
     } satisfies ExecutionInput);
     const exec2 = environment.execute({
       eid: 32,
       code: longBusyCode,
-      options: { timeoutMs: 30_000 },
+      envConfig: { timeoutMs: 30_000 },
     } satisfies ExecutionInput);
     const exec3 = environment.execute({
       eid: 33,
       code: "const queued = true;",
-      options: {
+      envConfig: {
         timeoutMs: 30_000,
       },
     } satisfies ExecutionInput);
@@ -452,12 +451,12 @@ describe("environment module", () => {
     const exec1 = environment.execute({
       eid: 34,
       code: infiniteCode,
-      options: { timeoutMs: 30_000 },
+      envConfig: { timeoutMs: 30_000 },
     } satisfies ExecutionInput);
     const exec2 = environment.execute({
       eid: 35,
       code: "const queued = true;",
-      options: { timeoutMs: 30_000 },
+      envConfig: { timeoutMs: 30_000 },
     } satisfies ExecutionInput);
 
     await sleep(10);
@@ -481,12 +480,12 @@ describe("environment module", () => {
     const exec1 = environment.execute({
       eid: 41,
       code: infiniteCode,
-      options: { timeoutMs: 30_000 },
+      envConfig: { timeoutMs: 30_000 },
     } satisfies ExecutionInput);
     const exec2 = environment.execute({
       eid: 42,
       code: infiniteCode,
-      options: { timeoutMs: 30_000 },
+      envConfig: { timeoutMs: 30_000 },
     } satisfies ExecutionInput);
 
     await tick();
@@ -516,12 +515,12 @@ describe("environment module", () => {
     const exec1 = environment.execute({
       eid: 51,
       code: infiniteCode,
-      options: { timeoutMs: 30_000 },
+      envConfig: { timeoutMs: 30_000 },
     } satisfies ExecutionInput);
     const exec2 = environment.execute({
       eid: 52,
       code: infiniteCode,
-      options: { timeoutMs: 30_000 },
+      envConfig: { timeoutMs: 30_000 },
     } satisfies ExecutionInput);
 
     await tick();
@@ -530,7 +529,7 @@ describe("environment module", () => {
       environment.execute({
         eid: 53,
         code: "const x = 1;",
-        options: { timeoutMs: 30_000 },
+        envConfig: { timeoutMs: 30_000 },
       } satisfies ExecutionInput),
     ).rejects.toThrow(/queue is full/i);
 

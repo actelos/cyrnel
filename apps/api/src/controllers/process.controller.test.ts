@@ -192,7 +192,8 @@ describe("process.controller", () => {
       expect(processService.create).toHaveBeenCalledWith({
         ref: undefined,
         code: "console.log(1)",
-        options: { timeoutMs: undefined },
+        timeoutMs: undefined,
+        envConfig: {},
         autorun: true,
       });
       expect(res.status).toHaveBeenCalledWith(201);
@@ -209,7 +210,7 @@ describe("process.controller", () => {
           body: {
             code: "x",
             ref: "  job-1  ",
-            options: { timeout: 5000 },
+            timeoutMs: 5000,
           },
         }),
         cast(res),
@@ -218,7 +219,8 @@ describe("process.controller", () => {
       expect(processService.create).toHaveBeenCalledWith({
         ref: "job-1",
         code: "x",
-        options: { timeoutMs: 5000 },
+        timeoutMs: 5000,
+        envConfig: {},
         autorun: true,
       });
     });
@@ -228,14 +230,15 @@ describe("process.controller", () => {
       processService.create.mockResolvedValue({ id: 9 });
 
       await createProcess(
-        makeReq({ body: { code: "x", options: { timeout: null } } }),
+        makeReq({ body: { code: "x", timeoutMs: null } }),
         cast(res),
       );
 
       expect(processService.create).toHaveBeenCalledWith({
         ref: undefined,
         code: "x",
-        options: { timeoutMs: null },
+        timeoutMs: null,
+        envConfig: {},
         autorun: true,
       });
     });
@@ -282,20 +285,20 @@ describe("process.controller", () => {
       { body: { code: "x", ref: "   " }, why: "whitespace-only ref" },
       { body: { code: "x", ref: 42 }, why: "non-string ref" },
       {
-        body: { code: "x", options: { timeout: 0 } },
-        why: "non-positive timeout",
+        body: { code: "x", timeoutMs: 0 },
+        why: "non-positive timeoutMs",
       },
       {
-        body: { code: "x", options: { timeout: -1 } },
-        why: "negative timeout",
+        body: { code: "x", timeoutMs: -1 },
+        why: "negative timeoutMs",
       },
       {
-        body: { code: "x", options: { timeout: 1.5 } },
-        why: "non-integer timeout",
+        body: { code: "x", timeoutMs: 1.5 },
+        why: "non-integer timeoutMs",
       },
       {
-        body: { code: "x", options: { timeout: "1000" } },
-        why: "string timeout",
+        body: { code: "x", timeoutMs: "1000" },
+        why: "string timeoutMs",
       },
       {
         body: { code: "x".repeat(100 * 1024 + 1) },

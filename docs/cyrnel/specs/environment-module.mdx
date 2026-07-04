@@ -41,11 +41,7 @@ its in-flight executions finish.
 interface ExecutionInput {
   eid: number;
   code: string;
-  options?: ExecutionOptions;
-}
-
-interface ExecutionOptions {
-  timeoutMs: number;
+  envConfig?: Record<string, unknown>;
 }
 ```
 

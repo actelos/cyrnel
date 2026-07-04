@@ -145,8 +145,9 @@ export const processes = sqliteTable("processes", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   ref: text("ref").unique(),
   code: text("code").notNull(),
-  options: text("options", { mode: "json" })
-    .$type<{ timeoutMs?: number | null }>()
+  timeoutMs: integer("timeout_ms"),
+  envConfig: text("env_config", { mode: "json" })
+    .$type<Record<string, unknown>>()
     .notNull()
     .default({}),
   createdAt: text("created_at").notNull(),

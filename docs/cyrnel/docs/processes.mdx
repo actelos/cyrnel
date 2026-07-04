@@ -19,7 +19,8 @@ Each process has the following fields:
 - `exitState`: execution outcome (see below)
 - `error`: error message if the process failed, otherwise `null`
 - `code`: the submitted source
-- `options.timeoutMs`: per-process timeout in milliseconds, or `null` to disable
+- `timeoutMs`: per-process timeout in milliseconds. `null` = no enforcement, `undefined` = 30s default
+- `envConfig`: opaque configuration passed through to the environment module
 - `output`: structured key/value payload emitted by `cyrnel.output(...)`
 - `stdout`, `stderr`: captured text output
 - `createdAt`: ISO-8601 timestamp of creation
@@ -48,7 +49,7 @@ Each process has the following fields:
 | `null` | No outcome yet. |
 | `success` | Code completed without throwing. |
 | `failed` | Code threw, or the environment reported failure. `error` is populated. |
-| `timeout` | Execution exceeded `options.timeoutMs`. |
+| `timeout` | Execution exceeded `timeoutMs`. |
 | `canceled` | A `kill` signal interrupted the execution. |
 
 ## Create a Process
@@ -60,9 +61,8 @@ Each process has the following fields:
   "code": "string",
   "ref": "optional unique reference",
   "autorun": true,
-  "options": {
-    "timeout": 30000
-  }
+  "timeoutMs": 30000,
+  "envConfig": {}
 }
 ```
 
@@ -70,8 +70,13 @@ Rules:
 
 - `code` is **required** and must be a string.
 - `ref` is optional, trimmed, unique if provided, and must be non-empty if present.
-- `options.timeout` is in milliseconds. Must be a **positive integer**, or
-  `null` to disable. Default: `30000`.
+- `timeoutMs` is in milliseconds. Must be a **positive integer**, or `null` to
+  disable enforcement, or `undefined` to use the default (30s). This is a hard
+  enforcement ceiling, execution is terminated when the wall clock exceeds
+  this value.
+- `envConfig` is optional, opaque configuration passed through to the
+  environment module. Its shape is environment-dependent and validated by the
+  module itself.
 - `autorun` controls whether execution starts immediately. When `true`
   (default), the process is queued and runs right away. When `false`, the
   process is created in `idle` state and must be started via the

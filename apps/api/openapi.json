@@ -115,18 +115,19 @@
             "minLength": 1,
             "description": "Optional reference label used for filtering and correlation."
           },
-          "options": {
+          "timeoutMs": {
+            "type": "integer",
+            "nullable": true,
+            "minimum": 0,
+            "exclusiveMinimum": true,
+            "description": "API-level execution timeout in milliseconds. null disables enforcement; undefined uses the default."
+          },
+          "envConfig": {
             "type": "object",
-            "properties": {
-              "timeout": {
-                "type": "integer",
-                "nullable": true,
-                "minimum": 0,
-                "exclusiveMinimum": true,
-                "description": "Execution timeout in milliseconds. Use null to explicitly clear the timeout."
-              }
+            "additionalProperties": {
+              "nullable": true
             },
-            "description": "Optional execution options for the process."
+            "description": "Opaque per-execution environment configuration passed through to the environment module."
           },
           "autorun": {
             "type": "boolean",
