@@ -159,19 +159,12 @@ export interface EnvironmentSetupContext extends ModuleSetupContext {
 }
 
 /**
- * Options that control execution behavior.
- */
-export interface ExecutionOptions {
-  timeoutMs: number;
-}
-
-/**
  * Input used to execute code within an environment.
  */
 export interface ExecutionInput {
   eid: number;
   code: string;
-  options?: ExecutionOptions;
+  envConfig?: Record<string, unknown>;
 }
 
 /**

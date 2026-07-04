@@ -68,7 +68,8 @@ function makeService(controller?: ControllerSpy) {
 
 const BASE_CREATE_INPUT = {
   code: "console.log('hi')",
-  options: { timeoutMs: 100 },
+  timeoutMs: 100,
+  envConfig: {},
 };
 
 function deferred<T>() {
@@ -214,7 +215,7 @@ describe("ProcessService", () => {
       expect(controller.executeCalls).toHaveLength(1);
       expect(controller.executeCalls[0]).toMatchObject({
         code: BASE_CREATE_INPUT.code,
-        options: { timeoutMs: BASE_CREATE_INPUT.options.timeoutMs },
+        envConfig: BASE_CREATE_INPUT.envConfig,
       });
 
       finish.resolve("success");
@@ -231,12 +232,16 @@ describe("ProcessService", () => {
       const { service } = makeService(controller);
       mockInsertReturning(1);
 
-      await service.create({ code: "x", options: {} });
+      await service.create({ code: "x", envConfig: {} });
 
-      expect(controller.executeCalls[0]?.options?.timeoutMs).toBe(30_000);
+      expect(controller.executeCalls).toHaveLength(1);
+      expect(controller.executeCalls[0]).toMatchObject({
+        code: "x",
+        envConfig: {},
+      });
     });
 
-    it("treats options.timeoutMs=null as 'use default' (30s)", async () => {
+    it("treats timeoutMs=null as no API-level enforcement", async () => {
       const controller = makeController();
       controller.executeImpl = () => new Promise(() => {});
       const { service } = makeService(controller);
@@ -244,10 +249,15 @@ describe("ProcessService", () => {
 
       await service.create({
         code: "x",
-        options: { timeoutMs: null },
+        timeoutMs: null,
+        envConfig: {},
       });
 
-      expect(controller.executeCalls[0]?.options?.timeoutMs).toBe(30_000);
+      expect(controller.executeCalls).toHaveLength(1);
+      expect(controller.executeCalls[0]).toMatchObject({
+        code: "x",
+        envConfig: {},
+      });
     });
 
     it("defaults autorun to true when not provided", async () => {
@@ -687,7 +697,8 @@ describe("ProcessService", () => {
 
       const { id } = await service.create({
         code: "x",
-        options: { timeoutMs: 1 },
+        timeoutMs: 1,
+        envConfig: {},
       });
 
       const err = (await service.waitForIdle(id, 5).catch((e) => e)) as

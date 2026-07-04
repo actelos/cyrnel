@@ -20,8 +20,10 @@ class ShellEnvironment implements EnvironmentModule {
     this.bindings.setState(eid, "running");
 
     return new Promise((resolve) => {
+      const timeoutMs =
+        (input.envConfig?.timeoutMs as number | undefined) ?? 30_000;
       const child = spawn("sh", ["-c", input.code], {
-        timeout: input.options?.timeoutMs,
+        timeout: timeoutMs,
         stdio: ["ignore", "pipe", "pipe"],
       });
 
@@ -48,7 +50,15 @@ class ShellEnvironment implements EnvironmentModule {
   async kill(_eid: number) {}
 
   async generateDocs() {
-    return "# Shell Environment\n\nExecutes shell commands via `sh -c`.";
+    return `# Shell Environment
+
+Executes shell commands via \`sh -c\`.
+
+## \`envConfig\`
+
+| Key | Type | Default | Description |
+| --- | --- | ------- | ----------- |
+| \`timeoutMs\` | \`integer\` (>= 1) | 30000 | Process timeout in milliseconds. |`;
   }
 
   async generateToolDocs(input: ToolDocsInput) {

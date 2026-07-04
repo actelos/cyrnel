@@ -6,17 +6,13 @@ description: "Execution state machine and the host's contract with environments"
 This page collects the execution-related shapes and state machine that
 sit between the host and an environment module.
 
-## `ExecutionInput` and `ExecutionOptions`
+## `ExecutionInput`
 
 ```ts
 interface ExecutionInput {
   eid: number;
   code: string;
-  options?: ExecutionOptions;
-}
-
-interface ExecutionOptions {
-  timeoutMs: number;
+  envConfig: Record<string, unknown>;
 }
 ```
 
@@ -25,13 +21,11 @@ What the host hands to `EnvironmentModule.execute`:
 - `eid` is the execution id. **It is the same number as the process
   `pid`.** Treat it as opaque; just feed it back to every binding.
 - `code` is exactly what the client submitted via `POST /processes`.
-- `options.timeoutMs` is set by the host. It's already resolved against
-  `DEFAULT_EXECUTION_TIMEOUT_MS` (`30000`) when the client omits it. The
-  environment should treat this as authoritative.
-
-The host **may** pass an undefined `options` if no defaults are
-configured. Environments should fall back to their own default in that
-case.
+- `envConfig` is a generic bag of environment-level configuration set by
+  the host. The host guarantees at minimum a `timeoutMs` key, resolved
+  against `DEFAULT_EXECUTION_TIMEOUT_MS` (`30000`) before dispatch. The
+  environment should treat this as authoritative and pluck the values it
+  recognises.
 
 ## Host-side States
 
@@ -88,7 +82,7 @@ The environment's `execute` returns one of these. The host stores it as
 | --- | --- |
 | `success` | The code completed normally. |
 | `failed` | The code threw, or the environment couldn't run it. `process.error` is populated. |
-| `timeout` | The environment terminated the execution because it exceeded `options.timeoutMs`. |
+| `timeout` | The environment terminated the execution because it exceeded `envConfig.timeoutMs`. |
 | `canceled` | The host called `kill(eid)`, or the environment is shutting down. |
 
 The host also accepts `null` as a transient pre-execution value, but
@@ -96,9 +90,10 @@ The host also accepts `null` as a transient pre-execution value, but
 
 ## Timeout Contract
 
-The host hands the environment a `timeoutMs` and expects the environment
-to enforce it. The host does not run a wall clock of its own; if the
-environment lies about exit state, the process record lies too.
+The host hands the environment a `timeoutMs` within `envConfig` and
+expects the environment to enforce it. The host does not run a wall
+clock of its own; if the environment lies about exit state, the process
+record lies too.
 
 - The bundled `typescript-ivm` enforces the timeout by racing the
   isolate against a `setTimeout`, then disposing the isolate.

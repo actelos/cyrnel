@@ -20,9 +20,8 @@ export interface ProcessRecord {
   exitState: ProcessExitState;
   error: string | null;
   code: string;
-  options: {
-    timeoutMs?: number | null;
-  };
+  timeoutMs: number | null;
+  envConfig: Record<string, unknown>;
   autorun?: boolean;
   output: Record<string, unknown>;
   stdout: Buffer;
@@ -39,7 +38,12 @@ export type CreateProcessInput = Omit<
   | "output"
   | "stdout"
   | "stderr"
->;
+  | "timeoutMs"
+  | "envConfig"
+> & {
+  timeoutMs?: number | null;
+  envConfig?: Record<string, unknown>;
+};
 
 export interface FilterProcessInput {
   ref?: string;

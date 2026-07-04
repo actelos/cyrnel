@@ -74,7 +74,10 @@ bundled `typescript-ivm`:
 - Must run each execution in an isolate.
 - Should provide **no module loader, no filesystem, no network, and no Node
   built-ins**. The only outbound channel is the small set of references from cyrnel.
-- Terminates the isolate on timeout and recreates worker slots.
+- Timeouts are enforced at two layers:
+  the API hard-kills via `setTimeout` using `timeoutMs` (API-level), and the
+  sandbox enforces its own limit via `envConfig.timeoutMs` (environment-level).
+  The worker slot is recreated after either fires.
 
 caveat:
 

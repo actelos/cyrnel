@@ -106,12 +106,12 @@ sequenceDiagram
     participant Service as End Service
 
     Note over API,Adapter: Process Execution
-    Client->>API: POST /processes (code, options)
-    API->>PS: create({ code, options })
+    Client->>API: POST /processes (code, timeoutMs?, envConfig?, ref?, autorun?)
+    API->>PS: create({ code, timeoutMs, envConfig, ... })
     PS-->>API: pid
     API-->>Client: { pid }
 
-    PS->>MS: execute({ eid: pid, code, options })
+    PS->>MS: execute({ eid: pid, code, timeoutMs, envConfig })
     MS->>Env: execute(input)
     Env-->>PS: emit stdout / stderr / output / state
 

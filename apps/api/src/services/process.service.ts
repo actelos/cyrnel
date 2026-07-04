@@ -48,9 +48,7 @@ interface RunExecutionInput {
     id: number;
     pid: number;
     code: string;
-    options: {
-      timeoutMs: number;
-    };
+    envConfig: Record<string, unknown>;
   };
   context: ExecutionContext;
 }
@@ -147,13 +145,19 @@ export class ProcessService {
 
     const autorun = input.autorun ?? true;
     const createdAt = new Date().toISOString();
+    const timeoutMs =
+      input.timeoutMs !== undefined
+        ? input.timeoutMs
+        : DEFAULT_EXECUTION_TIMEOUT_MS;
+    const envConfig = input.envConfig ?? {};
 
     const [{ id }] = await db
       .insert(processesTable)
       .values({
         ref: input.ref ?? null,
         code: input.code,
-        options: { timeoutMs: input.options?.timeoutMs ?? null },
+        timeoutMs: timeoutMs,
+        envConfig,
         createdAt,
       })
       .returning({ id: processesTable.id });
@@ -169,7 +173,8 @@ export class ProcessService {
       exitState: null,
       error: null,
       code: input.code,
-      options: input.options ?? {},
+      timeoutMs,
+      envConfig,
       autorun,
       output: {},
       stdout: Buffer.alloc(0),
@@ -359,7 +364,7 @@ export class ProcessService {
     const pid = this.resolvePid(id);
     const initial = this.getStored(pid);
     const effectiveTimeoutMs =
-      initial.options.timeoutMs ?? DEFAULT_EXECUTION_TIMEOUT_MS;
+      initial.timeoutMs ?? DEFAULT_EXECUTION_TIMEOUT_MS;
     const deadline = Date.now() + (maxWaitMs ?? effectiveTimeoutMs * 2 + 1_000);
 
     while (true) {
@@ -447,14 +452,25 @@ export class ProcessService {
       stderrDecoder: new StringDecoder("utf8"),
       promise: Promise.resolve(),
     };
-    const timeoutMs = stored.options.timeoutMs ?? DEFAULT_EXECUTION_TIMEOUT_MS;
+
+    if (stored.timeoutMs !== null) {
+      const timeoutHandle = setTimeout(() => {
+        this.controller.kill(stored.pid).catch(() => {});
+        const s = this.processes.get(stored.pid);
+        if (s && s.state !== "idle") {
+          s.state = "idle";
+          s.exitState = "timeout";
+        }
+      }, stored.timeoutMs);
+      context.promise.then(() => clearTimeout(timeoutHandle)).catch(() => {});
+    }
 
     context.promise = this.runExecution({
       process: {
         id,
         pid: stored.pid,
         code: stored.code,
-        options: { timeoutMs },
+        envConfig: stored.envConfig,
       },
       context,
     });
@@ -463,12 +479,12 @@ export class ProcessService {
   }
 
   private async runExecution(input: RunExecutionInput): Promise<void> {
-    const { id, pid, ...rest } = input.process;
+    const { pid, code, envConfig } = input.process;
 
     let exitState: ExecutionExitState;
 
     try {
-      exitState = await this.controller.execute({ eid: pid, ...rest });
+      exitState = await this.controller.execute({ eid: pid, code, envConfig });
     } catch (err) {
       if (this.processes.get(pid)?.state === "terminating") {
         exitState = "canceled";

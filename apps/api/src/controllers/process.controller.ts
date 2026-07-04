@@ -23,23 +23,19 @@ const createProcessBodySchema = z
       .transform((v) => v.trim())
       .refine((v) => v.length > 0, { error: "Field 'ref' must not be empty." })
       .optional(),
-    options: z
-      .object({
-        timeout: z
-          .number({
-            error:
-              "Field 'options.timeout' must be a positive integer or null.",
-          })
-          .int({
-            error:
-              "Field 'options.timeout' must be a positive integer or null.",
-          })
-          .positive({
-            error:
-              "Field 'options.timeout' must be a positive integer or null.",
-          })
-          .nullable()
-          .optional(),
+    timeoutMs: z
+      .number({
+        error: "Field 'timeoutMs' must be a positive integer or null.",
+      })
+      .int({ error: "Field 'timeoutMs' must be a positive integer or null." })
+      .positive({
+        error: "Field 'timeoutMs' must be a positive integer or null.",
+      })
+      .nullable()
+      .optional(),
+    envConfig: z
+      .record(z.string(), z.unknown(), {
+        error: "Field 'envConfig' must be an object.",
       })
       .optional(),
     autorun: z
@@ -58,7 +54,8 @@ const createProcessBodySchema = z
   .transform((value) => ({
     code: value.code as string,
     ref: value.ref,
-    options: value.options,
+    timeoutMs: value.timeoutMs ?? null,
+    envConfig: value.envConfig ?? {},
     autorun: value.autorun,
   }));
 
@@ -148,7 +145,8 @@ export async function createProcess(
   const { id } = await processService.create({
     ref: parseOptional(refSchema("body"), body.ref),
     code: body.code,
-    options: { timeoutMs: body.options?.timeout },
+    timeoutMs: body.timeoutMs,
+    envConfig: body.envConfig,
     autorun: body.autorun,
   });
   res.status(201).json({ id });

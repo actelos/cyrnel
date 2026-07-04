@@ -40,7 +40,7 @@ describe("bindings", () => {
       await environment.execute({
         eid: 1,
         code: 'console.log("Hello, world!");',
-        options: { timeoutMs: 30_000 },
+        envConfig: { timeoutMs: 30_000 },
       } satisfies ExecutionInput);
 
       expect(emitStdout).toHaveBeenCalledWith(
@@ -58,7 +58,7 @@ describe("bindings", () => {
       await environment.execute({
         eid: 1,
         code: 'console.error("Error occurred");',
-        options: { timeoutMs: 30_000 },
+        envConfig: { timeoutMs: 30_000 },
       } satisfies ExecutionInput);
 
       expect(emitStderr).toHaveBeenCalledWith(
@@ -76,7 +76,7 @@ describe("bindings", () => {
       await environment.execute({
         eid: 1,
         code: 'console.log("Count:", 42, { foo: "bar" });',
-        options: { timeoutMs: 30_000 },
+        envConfig: { timeoutMs: 30_000 },
       } satisfies ExecutionInput);
 
       expect(emitStdout).toHaveBeenCalledOnce();
@@ -97,7 +97,7 @@ describe("bindings", () => {
       await environment.execute({
         eid: 1,
         code: "console.log(null, undefined);",
-        options: { timeoutMs: 30_000 },
+        envConfig: { timeoutMs: 30_000 },
       } satisfies ExecutionInput);
 
       expect(emitStdout).toHaveBeenCalledWith(
@@ -117,7 +117,7 @@ describe("bindings", () => {
       await environment.execute({
         eid: 1,
         code: 'cyrnel.output({ result: "success", count: 42 });',
-        options: { timeoutMs: 30_000 },
+        envConfig: { timeoutMs: 30_000 },
       } satisfies ExecutionInput);
 
       expect(emitOutput).toHaveBeenCalledWith(1, {
@@ -135,7 +135,7 @@ describe("bindings", () => {
       await environment.execute({
         eid: 99,
         code: 'cyrnel.output({ data: "test" });',
-        options: { timeoutMs: 30_000 },
+        envConfig: { timeoutMs: 30_000 },
       } satisfies ExecutionInput);
 
       expect(emitOutput).toHaveBeenCalledWith(99, { data: "test" });
@@ -202,13 +202,13 @@ describe("bindings", () => {
       await environment.execute({
         eid: 10,
         code: 'console.log("first");',
-        options: { timeoutMs: 30_000 },
+        envConfig: { timeoutMs: 30_000 },
       } satisfies ExecutionInput);
 
       await environment.execute({
         eid: 20,
         code: 'console.log("second");',
-        options: { timeoutMs: 30_000 },
+        envConfig: { timeoutMs: 30_000 },
       } satisfies ExecutionInput);
 
       expect(emitStdout).toHaveBeenNthCalledWith(
@@ -236,7 +236,7 @@ describe("bindings", () => {
           cyrnel.output({ data: "result" });
           console.log("done");
         `,
-        options: { timeoutMs: 30_000 },
+        envConfig: { timeoutMs: 30_000 },
       } satisfies ExecutionInput);
 
       expect(emitStdout).toHaveBeenCalledWith(
@@ -268,7 +268,7 @@ describe("bindings", () => {
             console.log("PASS: Modification prevented");
           }
         `,
-        options: { timeoutMs: 30_000 },
+        envConfig: { timeoutMs: 30_000 },
       } satisfies ExecutionInput);
 
       expect(result).toBe("success");
@@ -290,7 +290,7 @@ describe("bindings", () => {
             console.log("PASS: Reassignment prevented");
           }
         `,
-        options: { timeoutMs: 30_000 },
+        envConfig: { timeoutMs: 30_000 },
       } satisfies ExecutionInput);
 
       expect(result).toBe("success");
@@ -305,7 +305,7 @@ describe("bindings", () => {
       await environment.execute({
         eid: 1,
         code: 'console.log("cyrnel" in globalThis);',
-        options: { timeoutMs: 30_000 },
+        envConfig: { timeoutMs: 30_000 },
       } satisfies ExecutionInput);
 
       expect(emitStdout).toHaveBeenCalledWith(1, Buffer.from("true\n", "utf8"));

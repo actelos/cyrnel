@@ -31,12 +31,20 @@ class MyEnvironment implements EnvironmentModule {
   async teardown() {}
 
   async execute(input: ExecutionInput): Promise<ExecutionExitState> {
-    this.bindings.setState(input.eid, "running");
+    const eid = input.eid;
+
+    // input.envConfig contains environment-level configuration the host
+    // resolved from process defaults. At minimum it guarantees timeoutMs.
+    const timeoutMs =
+      (input.envConfig?.timeoutMs as number | undefined) ?? 30_000;
+
+    this.bindings.setState(eid, "running");
     try {
       // ...execute input.code in your runtime, emitting stdout/stderr/output
+      // Use timeoutMs to enforce the deadline.
       return "success";
     } catch (err) {
-      this.bindings.setError(input.eid, String(err));
+      this.bindings.setError(eid, String(err));
       return "failed";
     }
   }
@@ -57,6 +65,22 @@ const secretsSchema = { type: "null" } as const;
 
 export default { configSchema, secretsSchema, instantiate: () => new MyEnvironment() };
 ```
+
+## `envConfig`
+
+The host passes per-execution configuration via `input.envConfig` (a
+`Record<string, unknown>`). The host guarantees at minimum a `timeoutMs`
+key, resolved against `DEFAULT_EXECUTION_TIMEOUT_MS` (30000). The
+environment should treat this as authoritative and pluck the values it
+recognises, falling back to sensible defaults:
+
+```ts
+const timeoutMs = (input.envConfig?.timeoutMs as number | undefined) ?? 30_000;
+```
+
+Formerly this configuration lived in a separate `ExecutionOptions` type
+and an `options` field on `ExecutionInput`. Both have been removed in
+favour of `envConfig`. Update any existing module code accordingly.
 
 ## Full Example
 

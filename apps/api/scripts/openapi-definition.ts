@@ -200,20 +200,21 @@ const ProcessCreateRequestSchema = registry.register(
         .describe(
           "Optional reference label used for filtering and correlation.",
         ),
-      options: z
-        .object({
-          timeout: z
-            .number()
-            .int()
-            .positive()
-            .nullable()
-            .optional()
-            .describe(
-              "Execution timeout in milliseconds. Use null to explicitly clear the timeout.",
-            ),
-        })
+      timeoutMs: z
+        .number()
+        .int()
+        .positive()
+        .nullable()
         .optional()
-        .describe("Optional execution options for the process."),
+        .describe(
+          "API-level execution timeout in milliseconds. null disables enforcement; undefined uses the default.",
+        ),
+      envConfig: z
+        .record(z.unknown())
+        .optional()
+        .describe(
+          "Opaque per-execution environment configuration passed through to the environment module.",
+        ),
       autorun: z
         .boolean()
         .optional()
