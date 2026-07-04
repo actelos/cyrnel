@@ -6,6 +6,7 @@ import {
   decryptSecrets,
   type EncryptedSecretsPayload,
   encryptSecrets,
+  getPrimaryKeyId,
 } from "@/utils/secrets.util";
 
 const VALID_KEY = crypto.randomBytes(32).toString("base64");
@@ -29,12 +30,18 @@ describe("secrets.util", () => {
     it("produces a payload with the expected shape", () => {
       const payload = encryptSecrets({ token: "abc" });
 
+      expect(typeof payload.kid).toBe("string");
       expect(payload.alg).toBe("aes-256-gcm");
       expect(typeof payload.iv).toBe("string");
       expect(typeof payload.tag).toBe("string");
       expect(typeof payload.ciphertext).toBe("string");
       expect(Buffer.from(payload.iv, "base64").length).toBe(12);
       expect(Buffer.from(payload.tag, "base64").length).toBe(16);
+    });
+
+    it("includes kid matching the primary key id", () => {
+      const payload = encryptSecrets({ token: "abc" });
+      expect(payload.kid).toBe(getPrimaryKeyId());
     });
 
     it("uses a fresh IV on each call (different ciphertext for same input)", () => {
@@ -178,13 +185,105 @@ describe("secrets.util", () => {
       }
     });
 
-    it("throws HttpError(500) when the key has been rotated", () => {
+    it("throws HttpError(500) when no known key can decrypt the payload", () => {
       const payload = encryptSecrets({ token: "abc" });
       process.env.CYRNEL_SECRETS_KEY = crypto
         .randomBytes(32)
         .toString("base64");
 
       expect(() => decryptSecrets(payload)).toThrow(HttpError);
+    });
+
+    it("decrypts a legacy payload without kid using the primary key", () => {
+      const iv = crypto.randomBytes(12);
+      const key = Buffer.from(VALID_KEY, "base64");
+      const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+      const ciphertext = Buffer.concat([
+        cipher.update(JSON.stringify({ token: "abc" }), "utf8"),
+        cipher.final(),
+      ]);
+
+      const payload: EncryptedSecretsPayload = {
+        alg: "aes-256-gcm",
+        iv: iv.toString("base64"),
+        tag: cipher.getAuthTag().toString("base64"),
+        ciphertext: ciphertext.toString("base64"),
+      };
+
+      expect(decryptSecrets(payload)).toEqual({ token: "abc" });
+    });
+
+    it("decrypts a payload encrypted with a previous key", () => {
+      const oldKey = crypto.randomBytes(32);
+      const primaryKey = crypto.randomBytes(32);
+
+      process.env.CYRNEL_SECRETS_KEY = primaryKey.toString("base64");
+      process.env.CYRNEL_SECRETS_PREVIOUS_KEYS = oldKey.toString("base64");
+
+      const iv = crypto.randomBytes(12);
+      const cipher = crypto.createCipheriv("aes-256-gcm", oldKey, iv);
+      const ciphertext = Buffer.concat([
+        cipher.update(JSON.stringify({ token: "abc" }), "utf8"),
+        cipher.final(),
+      ]);
+
+      const payload: EncryptedSecretsPayload = {
+        alg: "aes-256-gcm",
+        iv: iv.toString("base64"),
+        tag: cipher.getAuthTag().toString("base64"),
+        ciphertext: ciphertext.toString("base64"),
+      };
+
+      expect(decryptSecrets(payload)).toEqual({ token: "abc" });
+    });
+
+    it("tries previous keys in order when primary key does not match", () => {
+      const oldKeyA = crypto.randomBytes(32);
+      const oldKeyB = crypto.randomBytes(32);
+      const primaryKey = crypto.randomBytes(32);
+
+      process.env.CYRNEL_SECRETS_KEY = primaryKey.toString("base64");
+      process.env.CYRNEL_SECRETS_PREVIOUS_KEYS = `${oldKeyA.toString("base64")},${oldKeyB.toString("base64")}`;
+
+      const iv = crypto.randomBytes(12);
+      const cipher = crypto.createCipheriv("aes-256-gcm", oldKeyB, iv);
+      const ciphertext = Buffer.concat([
+        cipher.update(JSON.stringify({ token: "abc" }), "utf8"),
+        cipher.final(),
+      ]);
+
+      const payload: EncryptedSecretsPayload = {
+        alg: "aes-256-gcm",
+        iv: iv.toString("base64"),
+        tag: cipher.getAuthTag().toString("base64"),
+        ciphertext: ciphertext.toString("base64"),
+      };
+
+      expect(decryptSecrets(payload)).toEqual({ token: "abc" });
+    });
+
+    it("falls back to previous keys for a legacy payload without kid", () => {
+      const oldKey = crypto.randomBytes(32);
+      const primaryKey = crypto.randomBytes(32);
+
+      const iv = crypto.randomBytes(12);
+      const cipher = crypto.createCipheriv("aes-256-gcm", oldKey, iv);
+      const ciphertext = Buffer.concat([
+        cipher.update(JSON.stringify({ token: "abc" }), "utf8"),
+        cipher.final(),
+      ]);
+
+      const payload: EncryptedSecretsPayload = {
+        alg: "aes-256-gcm",
+        iv: iv.toString("base64"),
+        tag: cipher.getAuthTag().toString("base64"),
+        ciphertext: ciphertext.toString("base64"),
+      };
+
+      process.env.CYRNEL_SECRETS_KEY = primaryKey.toString("base64");
+      process.env.CYRNEL_SECRETS_PREVIOUS_KEYS = oldKey.toString("base64");
+
+      expect(decryptSecrets(payload)).toEqual({ token: "abc" });
     });
   });
 });

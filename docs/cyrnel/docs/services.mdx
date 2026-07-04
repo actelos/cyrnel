@@ -226,7 +226,9 @@ adapter so the change takes effect immediately.
 ## Secrets
 
 Per-service secrets behave like configuration, but the stored payload is
-encrypted with AES-256-GCM using `CYRNEL_SECRETS_KEY`.
+encrypted with AES-256-GCM using `CYRNEL_SECRETS_KEY`. When a record is
+read that was encrypted with a previous key (during rotation), it is
+silently re-encrypted with the current primary key and persisted.
 
 | Method | Path | Returns |
 | --- | --- | --- |

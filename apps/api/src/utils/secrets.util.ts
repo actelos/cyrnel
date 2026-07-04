@@ -9,7 +9,11 @@ const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 12;
 const AUTH_TAG_LENGTH = 16;
 
-function getSecretsKey(): Buffer {
+function deriveKeyId(key: Buffer): string {
+  return crypto.createHash("sha256").update(key).digest("hex").slice(0, 16);
+}
+
+function getPrimaryKey(): { id: string; key: Buffer } {
   const raw = process.env.CYRNEL_SECRETS_KEY;
   if (!raw) throw new HttpError(500, "Secrets key is not configured.");
   const key = Buffer.from(raw, "base64");
@@ -18,13 +22,53 @@ function getSecretsKey(): Buffer {
       500,
       "Secrets key must be 32 bytes base64-encoded (CYRNEL_SECRETS_KEY).",
     );
-  return key;
+  return { id: deriveKeyId(key), key };
+}
+
+function getPreviousKeys(): Array<{ id: string; key: Buffer }> {
+  const raw = process.env.CYRNEL_SECRETS_PREVIOUS_KEYS;
+  if (!raw) return [];
+  return raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      const key = Buffer.from(entry, "base64");
+      if (key.length !== 32)
+        throw new HttpError(
+          500,
+          "Previous secrets key must be 32 bytes base64-encoded (CYRNEL_SECRETS_PREVIOUS_KEYS).",
+        );
+      return { id: deriveKeyId(key), key };
+    });
+}
+
+function getAllKeys(): Array<{ id: string; key: Buffer }> {
+  const primary = getPrimaryKey();
+  const previous = getPreviousKeys();
+
+  if (previous.some((k) => k.id === primary.id))
+    throw new HttpError(
+      500,
+      "Primary secrets key collides with a previous key — check CYRNEL_SECRETS_KEY and CYRNEL_SECRETS_PREVIOUS_KEYS.",
+    );
+
+  return [primary, ...previous];
+}
+
+let cachedPrimaryKeyId: string | null = null;
+
+export function getPrimaryKeyId(): string {
+  if (!cachedPrimaryKeyId) {
+    cachedPrimaryKeyId = getPrimaryKey().id;
+  }
+  return cachedPrimaryKeyId;
 }
 
 export function encryptSecrets(
   secrets: Record<string, unknown>,
 ): EncryptedSecretsPayload {
-  const key = getSecretsKey();
+  const { id, key } = getPrimaryKey();
   const iv = crypto.randomBytes(IV_LENGTH);
   const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
   const ciphertext = Buffer.concat([
@@ -32,6 +76,7 @@ export function encryptSecrets(
     cipher.final(),
   ]);
   return {
+    kid: id,
     alg: ALGORITHM,
     iv: iv.toString("base64"),
     tag: cipher.getAuthTag().toString("base64"),
@@ -70,8 +115,35 @@ export function decryptSecrets(
   if (iv.length !== IV_LENGTH || tag.length !== AUTH_TAG_LENGTH)
     throw new HttpError(500, "Secrets payload is malformed.");
 
+  const keys = getAllKeys();
+
+  if (payload.kid) {
+    const match = keys.find((k) => k.id === payload.kid);
+    if (match) {
+      return decryptWithKey(match.key, iv, tag, ciphertext);
+    }
+  }
+
+  for (const { key } of keys) {
+    try {
+      return decryptWithKey(key, iv, tag, ciphertext);
+    } catch {}
+  }
+
+  throw new HttpError(
+    500,
+    "Secrets payload was encrypted with a key that is no longer available.",
+  );
+}
+
+function decryptWithKey(
+  key: Buffer,
+  iv: Buffer,
+  tag: Buffer,
+  ciphertext: Buffer,
+): Record<string, unknown> {
   try {
-    const decipher = crypto.createDecipheriv(ALGORITHM, getSecretsKey(), iv);
+    const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
     decipher.setAuthTag(tag);
     const plaintext = Buffer.concat([
       decipher.update(ciphertext),

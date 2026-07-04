@@ -33,6 +33,7 @@ const MIGRATIONS_DIR = path.resolve(import.meta.dirname, "../../drizzle");
 
 const SECRETS_KEY = crypto.randomBytes(32).toString("base64");
 const originalSecretsKey = process.env.CYRNEL_SECRETS_KEY;
+const originalPreviousKeys = process.env.CYRNEL_SECRETS_PREVIOUS_KEYS;
 
 async function applyMigrations(): Promise<void> {
   const entries = (await fs.readdir(MIGRATIONS_DIR))
@@ -204,6 +205,7 @@ function mockFetchRegistryThen(
 describe("ServicesService", () => {
   beforeAll(async () => {
     process.env.CYRNEL_SECRETS_KEY = SECRETS_KEY;
+    delete process.env.CYRNEL_SECRETS_PREVIOUS_KEYS;
     await applyMigrations();
   });
 
@@ -212,6 +214,11 @@ describe("ServicesService", () => {
       delete process.env.CYRNEL_SECRETS_KEY;
     } else {
       process.env.CYRNEL_SECRETS_KEY = originalSecretsKey;
+    }
+    if (originalPreviousKeys === undefined) {
+      delete process.env.CYRNEL_SECRETS_PREVIOUS_KEYS;
+    } else {
+      process.env.CYRNEL_SECRETS_PREVIOUS_KEYS = originalPreviousKeys;
     }
   });
 

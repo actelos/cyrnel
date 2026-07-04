@@ -54,6 +54,7 @@ import {
   collectPresentPaths,
   decryptSecrets,
   encryptSecrets,
+  getPrimaryKeyId,
 } from "@/utils/secrets.util";
 import {
   applyJsonSchemaDefaults,
@@ -94,6 +95,7 @@ interface ValidatedSetupValues {
 type JsonObject = Record<string, unknown>;
 
 const encryptedSecretsSchema = z.object({
+  kid: z.string().optional(),
   alg: z.literal("aes-256-gcm"),
   iv: z.string(),
   tag: z.string(),
@@ -1526,7 +1528,29 @@ export class ModuleService {
     if (!parsed.success)
       throw new HttpError(500, "Stored secrets payload is malformed.");
 
-    return decryptSecrets(parsed.data);
+    const secrets = decryptSecrets(parsed.data);
+    const primaryKeyId = getPrimaryKeyId();
+
+    if (!parsed.data.kid || parsed.data.kid !== primaryKeyId) {
+      try {
+        const reEncrypted = encryptSecrets(secrets);
+        await db
+          .update(moduleSecrets)
+          .set({ payload: reEncrypted, updatedAt: Date.now() })
+          .where(eq(moduleSecrets.moduleId, id));
+        logger.debug(
+          { moduleId: id },
+          "Re-encrypted module secrets with primary key",
+        );
+      } catch (err) {
+        logger.warn(
+          { err, moduleId: id },
+          "Failed to persist re-encrypted module secrets",
+        );
+      }
+    }
+
+    return secrets;
   }
 
   private async assertConfigAndSecretsValid(
