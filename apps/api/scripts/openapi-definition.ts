@@ -882,8 +882,7 @@ registry.registerPath({
   path: "/processes/{id}",
   tags: ["Processes"],
   summary: "Get a process",
-  description:
-    "Returns a single process snapshot by its numeric identifier.",
+  description: "Returns a single process snapshot by its numeric identifier.",
   request: { params: idParam },
   responses: {
     200: {
@@ -973,8 +972,7 @@ registry.registerPath({
   path: "/processes/{id}/stdout",
   tags: ["Processes"],
   summary: "Get process stdout",
-  description:
-    "Returns the captured standard output text of the process.",
+  description: "Returns the captured standard output text of the process.",
   request: { params: idParam },
   responses: {
     200: {
@@ -999,8 +997,7 @@ registry.registerPath({
   path: "/processes/{id}/stderr",
   tags: ["Processes"],
   summary: "Get process stderr",
-  description:
-    "Returns the captured standard error text of the process.",
+  description: "Returns the captured standard error text of the process.",
   request: { params: idParam },
   responses: {
     200: {
@@ -1036,9 +1033,7 @@ registry.registerPath({
       description: "The process was started or restarted.",
       content: jsonContent(ProcessSchema),
     },
-    400: apiErrorResponse(
-      "The request body or id path parameter was invalid.",
-    ),
+    400: apiErrorResponse("The request body or id path parameter was invalid."),
     401: apiErrorResponse(
       "A bearer token was required but missing or invalid.",
     ),
@@ -1067,9 +1062,7 @@ registry.registerPath({
       description: "The process was stopped.",
       content: jsonContent(ProcessSchema),
     },
-    400: apiErrorResponse(
-      "The request body or id path parameter was invalid.",
-    ),
+    400: apiErrorResponse("The request body or id path parameter was invalid."),
     401: apiErrorResponse(
       "A bearer token was required but missing or invalid.",
     ),
