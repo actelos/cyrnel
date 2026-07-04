@@ -133,12 +133,12 @@ redirect targets, every hop is validated before the request proceeds.
   addresses will pass.
 - **Configurable IP controls.** Registry downloads support CIDR-based
   allow and block lists:
-  - `CYRNEL_BLOCKED_IPS` denies matching addresses and takes highest
+  - `CYRNEL_REGISTRY_BLOCKED_IPS` denies matching addresses and takes highest
     priority.
-  - `CYRNEL_ALLOWED_IPS` allows matching addresses and bypasses the
+  - `CYRNEL_REGISTRY_ALLOWED_IPS` allows matching addresses and bypasses the
     default SSRF guard.
   - `CYRNEL_BLOCK_ALL_REGISTRIES=true` denies all registry downloads
-    unless an address matches `CYRNEL_ALLOWED_IPS`.
+    unless an address matches `CYRNEL_REGISTRY_ALLOWED_IPS`.
 
   Evaluation order is:
 
@@ -154,9 +154,11 @@ redirect targets, every hop is validated before the request proceeds.
 - Treat the API key as the security boundary. Do not expose
   `/services/install` or `/modules/install` (or the API at all) to clients you wouldn't trust
   to make outbound network requests from the host.
-- Use `CYRNEL_ALLOWED_IPS`, `CYRNEL_BLOCKED_IPS`, and
+- Use `CYRNEL_REGISTRY_ALLOWED_IPS`, `CYRNEL_REGISTRY_BLOCKED_IPS`, and
   `CYRNEL_BLOCK_ALL_REGISTRIES` to restrict which registry addresses
   may be contacted.
+- Use `CYRNEL_ALLOWED_IPS` and `CYRNEL_BLOCKED_IPS` to control inbound API
+  access.
 - For stricter controls (e.g. domain allowlists or network-level
   restrictions), run cyrnel inside a network namespace or egress
   firewall that restricts which hosts it can reach.

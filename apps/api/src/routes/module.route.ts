@@ -17,16 +17,33 @@ import {
   setModuleEnabled,
   updateModule,
 } from "@/controllers/module.controller";
+import { createRateLimiter } from "@/middleware/rate-limit.middleware";
 
 export const moduleRouter: ExpressRouter = Router();
 
 moduleRouter.get("/", listModules);
 moduleRouter.get("/:moduleId", getModule);
 moduleRouter.post("/", createModule);
-moduleRouter.post("/reload", reloadModules);
-moduleRouter.post("/install", installModule);
-moduleRouter.post("/:moduleId/update", updateModule);
-moduleRouter.patch("/:moduleId", patchModule);
+moduleRouter.post(
+  "/reload",
+  createRateLimiter(2, 60_000, "POST /modules/reload"),
+  reloadModules,
+);
+moduleRouter.post(
+  "/install",
+  createRateLimiter(5, 60_000, "POST /modules/install"),
+  installModule,
+);
+moduleRouter.post(
+  "/:moduleId/update",
+  createRateLimiter(5, 60_000, "POST /modules/:moduleId/update"),
+  updateModule,
+);
+moduleRouter.patch(
+  "/:moduleId",
+  createRateLimiter(5, 60_000, "PATCH /modules/:moduleId"),
+  patchModule,
+);
 moduleRouter.post("/:moduleId/enabled", setModuleEnabled);
 moduleRouter.delete("/:moduleId", deleteModule);
 

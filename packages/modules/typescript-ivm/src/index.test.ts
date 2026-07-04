@@ -10,6 +10,8 @@ describe("typescript-ivm default export", () => {
       properties: {
         poolSize: { type: "integer", minimum: 1 },
         maxQueueSize: { type: "integer", minimum: 1 },
+        queueTtlMs: { type: "integer", minimum: 1 },
+        maxCodeSizeBytes: { type: "integer", minimum: 1024 },
         timeoutMs: { type: "integer", minimum: 1 },
         memoryLimitMb: { type: "integer", minimum: 16 },
       },
@@ -66,7 +68,9 @@ describe("toBuffer", () => {
   });
 });
 
-const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+const sleep = (durationMs: number) =>
+  new Promise((resolve) => setTimeout(resolve, durationMs));
+const tick = () => sleep(0);
 
 const busyCode = `let counter = 0;
 while (counter < 200_000) {
@@ -229,6 +233,29 @@ describe("environment module", () => {
     } satisfies ExecutionInput);
 
     expect(result).toBe("failed");
+  });
+
+  it("returns failed when code exceeds maxCodeSizeBytes", async () => {
+    const { bindings } = createBindings();
+    const environment = tsivm.instantiate();
+
+    await environment.setup({
+      bindings,
+      config: { maxCodeSizeBytes: 1024 },
+      secrets: {},
+    });
+
+    const result = await environment.execute({
+      eid: 18,
+      code: "é".repeat(600),
+      options: { timeoutMs: 30_000 },
+    } satisfies ExecutionInput);
+
+    expect(result).toBe("failed");
+    expect(bindings.setError).toHaveBeenCalledWith(
+      18,
+      expect.stringContaining("Code exceeds maximum size"),
+    );
   });
 
   it("cancels queued executions on kill", async () => {
@@ -410,6 +437,39 @@ describe("environment module", () => {
 
     expect(await exec3).toBe("canceled");
     await Promise.all([exec1, exec2]);
+  });
+
+  it("cancels queued work that exceeds queueTtlMs", async () => {
+    const { bindings, setState } = createBindings();
+    const environment = tsivm.instantiate();
+
+    await environment.setup({
+      bindings,
+      config: { poolSize: 1, queueTtlMs: 1 },
+      secrets: {},
+    });
+
+    const exec1 = environment.execute({
+      eid: 34,
+      code: infiniteCode,
+      options: { timeoutMs: 30_000 },
+    } satisfies ExecutionInput);
+    const exec2 = environment.execute({
+      eid: 35,
+      code: "const queued = true;",
+      options: { timeoutMs: 30_000 },
+    } satisfies ExecutionInput);
+
+    await sleep(10);
+    await environment.kill(34);
+
+    expect(await exec1).toBe("canceled");
+    expect(await exec2).toBe("canceled");
+    expect(
+      setState.mock.calls.some(
+        ([eid, state]) => eid === 35 && state === "running",
+      ),
+    ).toBe(false);
   });
 
   it("honours poolSize from config", async () => {

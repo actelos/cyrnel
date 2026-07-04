@@ -19,6 +19,17 @@ const server = app.express.listen(PORT, () =>
   logger.info({ PORT }, "Server listening"),
 );
 
+server.maxConnections = Number(process.env.CYRNEL_MAX_CONNECTIONS) || 0;
+server.keepAliveTimeout =
+  process.env.CYRNEL_KEEPALIVE_TIMEOUT_MS !== undefined
+    ? Number(process.env.CYRNEL_KEEPALIVE_TIMEOUT_MS)
+    : 5_000;
+server.headersTimeout =
+  process.env.CYRNEL_HEADERS_TIMEOUT_MS !== undefined
+    ? Number(process.env.CYRNEL_HEADERS_TIMEOUT_MS)
+    : 6_000;
+server.timeout = Number(process.env.CYRNEL_REQUEST_TIMEOUT_MS) || 0;
+
 server.on("error", (err) => {
   logger.error({ err, PORT }, "Server failed to start");
   process.exit(1);

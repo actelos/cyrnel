@@ -2,28 +2,28 @@ import dns from "node:dns/promises";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const ORIGINAL_ALLOWED_IPS = process.env.CYRNEL_ALLOWED_IPS;
-const ORIGINAL_BLOCKED_IPS = process.env.CYRNEL_BLOCKED_IPS;
+const ORIGINAL_REGISTRY_ALLOWED_IPS = process.env.CYRNEL_REGISTRY_ALLOWED_IPS;
+const ORIGINAL_REGISTRY_BLOCKED_IPS = process.env.CYRNEL_REGISTRY_BLOCKED_IPS;
 const ORIGINAL_BLOCK_ALL = process.env.CYRNEL_BLOCK_ALL_REGISTRIES;
 
 describe("download util", () => {
   beforeEach(() => {
-    delete process.env.CYRNEL_ALLOWED_IPS;
-    delete process.env.CYRNEL_BLOCKED_IPS;
+    delete process.env.CYRNEL_REGISTRY_ALLOWED_IPS;
+    delete process.env.CYRNEL_REGISTRY_BLOCKED_IPS;
     delete process.env.CYRNEL_BLOCK_ALL_REGISTRIES;
   });
 
   afterEach(() => {
-    if (ORIGINAL_ALLOWED_IPS === undefined) {
-      delete process.env.CYRNEL_ALLOWED_IPS;
+    if (ORIGINAL_REGISTRY_ALLOWED_IPS === undefined) {
+      delete process.env.CYRNEL_REGISTRY_ALLOWED_IPS;
     } else {
-      process.env.CYRNEL_ALLOWED_IPS = ORIGINAL_ALLOWED_IPS;
+      process.env.CYRNEL_REGISTRY_ALLOWED_IPS = ORIGINAL_REGISTRY_ALLOWED_IPS;
     }
 
-    if (ORIGINAL_BLOCKED_IPS === undefined) {
-      delete process.env.CYRNEL_BLOCKED_IPS;
+    if (ORIGINAL_REGISTRY_BLOCKED_IPS === undefined) {
+      delete process.env.CYRNEL_REGISTRY_BLOCKED_IPS;
     } else {
-      process.env.CYRNEL_BLOCKED_IPS = ORIGINAL_BLOCKED_IPS;
+      process.env.CYRNEL_REGISTRY_BLOCKED_IPS = ORIGINAL_REGISTRY_BLOCKED_IPS;
     }
 
     if (ORIGINAL_BLOCK_ALL === undefined) {
@@ -77,7 +77,7 @@ describe("download util", () => {
     });
 
     it("allows private IPs in the allow list", async () => {
-      process.env.CYRNEL_ALLOWED_IPS = "127.0.0.1/32";
+      process.env.CYRNEL_REGISTRY_ALLOWED_IPS = "127.0.0.1/32";
       const { assertRegistryAddressAllowed } = await import(
         "@/utils/download.util"
       );
@@ -101,7 +101,7 @@ describe("download util", () => {
       });
     });
     it("blocks explicitly blocked IPs", async () => {
-      process.env.CYRNEL_BLOCKED_IPS = "127.0.0.1/32";
+      process.env.CYRNEL_REGISTRY_BLOCKED_IPS = "127.0.0.1/32";
 
       const { assertRegistryAddressAllowed } = await import(
         "@/utils/download.util"
@@ -114,7 +114,7 @@ describe("download util", () => {
       });
     });
     it("allows private IPs in the allow list", async () => {
-      process.env.CYRNEL_ALLOWED_IPS = "10.0.0.0/8";
+      process.env.CYRNEL_REGISTRY_ALLOWED_IPS = "10.0.0.0/8";
 
       const { assertRegistryAddressAllowed } = await import(
         "@/utils/download.util"
@@ -125,8 +125,8 @@ describe("download util", () => {
       ).resolves.toBeUndefined();
     });
     it("blocked IPs take precedence over allowed IPs", async () => {
-      process.env.CYRNEL_ALLOWED_IPS = "10.0.0.0/8";
-      process.env.CYRNEL_BLOCKED_IPS = "10.0.0.100/32";
+      process.env.CYRNEL_REGISTRY_ALLOWED_IPS = "10.0.0.0/8";
+      process.env.CYRNEL_REGISTRY_BLOCKED_IPS = "10.0.0.100/32";
 
       const { assertRegistryAddressAllowed } = await import(
         "@/utils/download.util"
@@ -157,7 +157,7 @@ describe("download util", () => {
     });
     it("allows allowlisted addresses when block-all is enabled", async () => {
       process.env.CYRNEL_BLOCK_ALL_REGISTRIES = "true";
-      process.env.CYRNEL_ALLOWED_IPS = "10.0.0.0/8";
+      process.env.CYRNEL_REGISTRY_ALLOWED_IPS = "10.0.0.0/8";
 
       const { assertRegistryAddressAllowed } = await import(
         "@/utils/download.util"
