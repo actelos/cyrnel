@@ -105,22 +105,15 @@ fresh 12-byte IV per write. The auth tag is stored alongside.
   `GET /services/.../secrets` endpoint. Patches operate against the
   decrypted document in memory.
 
-## Service and Module Installation (Remote Fetching)
+## Service & Module Installation (Definition/Archive Fetching)
 
-`POST /services` (direct install), `POST /services/install` (registry
-install), `PATCH /services/:serviceId` (direct update), and
-`POST /services/:serviceId/update` (registry update) all fetch a URL
-supplied by or resolved from caller input, hash the content, and pass it
-to the adapter's `generateDefinition`.
-
-Module installation and update routes use the same guarded download path
-for module archives and registry metadata: `POST /modules` (direct
-install), `POST /modules/install` (registry install),
+`POST /services`, `POST /modules` (direct install), `POST /services/install`,
+`POST /modules/install` (registry install), `PATCH /services/:serviceId`,
 `PATCH /modules/:moduleId` (direct update), and
-`POST /modules/:moduleId/update` (registry update).
-
-The shared fetcher applies the following guards to both service and module
-downloads:
+`POST /services/:serviceId/update`, `POST /modules/:moduleId/update`
+(registry update) all fetch a URL supplied by or resolved from caller
+input, hash the content, and pass it to the adapter's `generateDefinition`
+(or extract and register the module archive). The fetcher has a few guards:
 
 - Hard timeout of 10 seconds per request.
 - Maximum response body of 30 MiB.
@@ -140,12 +133,12 @@ redirect targets, every hop is validated before the request proceeds.
   addresses will pass.
 - **Configurable IP controls.** Registry downloads support CIDR-based
   allow and block lists:
-  - `CYRNEL_BLOCKED_IPS` denies matching addresses and takes highest
+  - `CYRNEL_REGISTRY_BLOCKED_IPS` denies matching addresses and takes highest
     priority.
-  - `CYRNEL_ALLOWED_IPS` allows matching addresses and bypasses the
+  - `CYRNEL_REGISTRY_ALLOWED_IPS` allows matching addresses and bypasses the
     default SSRF guard.
   - `CYRNEL_BLOCK_ALL_REGISTRIES=true` denies all registry downloads
-    unless an address matches `CYRNEL_ALLOWED_IPS`.
+    unless an address matches `CYRNEL_REGISTRY_ALLOWED_IPS`.
 
   Evaluation order is:
 
@@ -158,12 +151,14 @@ redirect targets, every hop is validated before the request proceeds.
   Both IPv4 and IPv6 CIDR notation are supported.
 #### Operator guidance
 
-- Treat the API key as the security boundary. Do not expose service or
-  module installation endpoints (or the API at all) to clients you
-  wouldn't trust to make outbound network requests from the host.
-- Use `CYRNEL_ALLOWED_IPS`, `CYRNEL_BLOCKED_IPS`, and
+- Treat the API key as the security boundary. Do not expose
+  `/services/install` or `/modules/install` (or the API at all) to clients you wouldn't trust
+  to make outbound network requests from the host.
+- Use `CYRNEL_REGISTRY_ALLOWED_IPS`, `CYRNEL_REGISTRY_BLOCKED_IPS`, and
   `CYRNEL_BLOCK_ALL_REGISTRIES` to restrict which registry addresses
   may be contacted.
+- Use `CYRNEL_ALLOWED_IPS` and `CYRNEL_BLOCKED_IPS` to control inbound API
+  access.
 - For stricter controls (e.g. domain allowlists or network-level
   restrictions), run cyrnel inside a network namespace or egress
   firewall that restricts which hosts it can reach.
@@ -187,8 +182,8 @@ Configuration is not, operators must avoid storing credentials in
 - Replace `CYRNEL_SECRETS_KEY` before first use.
 - Set `CYRNEL_API_KEY` whenever the API listens on anything other than
   `127.0.0.1`.
-- Restrict the host's outbound network if `/services/install` is
-  reachable by untrusted callers.
+- Restrict the host's outbound network if `/services/install` or
+  `/modules/install` is reachable by untrusted callers.
 - Don't deploy the web UI publicly with credentials baked into the
   bundle.
 - Review adapters before installing them`.

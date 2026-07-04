@@ -20,7 +20,8 @@ const DEFAULT_POOL_SIZE = 2;
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_MEMORY_LIMIT_MB = 128;
 const DEFAULT_MAX_QUEUE_SIZE = 100;
-const MAX_CODE_SIZE = 100 * 1024;
+const DEFAULT_QUEUE_TTL_MS = 60_000;
+const DEFAULT_MAX_CODE_SIZE = 100 * 1024;
 const TRANSPILE_TIMEOUT_MS = 10_000;
 
 const ENVIRONMENT_DOCS = `
@@ -65,6 +66,7 @@ type Interrupt = {
 type ExecutionJob = {
   input: ExecutionInput;
   code: string;
+  queuedAt: number;
   resolve: (state: ExecutionExitState) => void;
 };
 
@@ -194,8 +196,6 @@ function isTestEnv(): boolean {
 }
 
 async function transpileTypeScript(code: string): Promise<string> {
-  assertSize(code.length, MAX_CODE_SIZE);
-
   if (isTestEnv()) {
     return transpileTypeScriptSync(code);
   }
@@ -432,6 +432,8 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
   private defaultTimeoutMs: number = DEFAULT_TIMEOUT_MS;
   private memoryLimitMb: number = DEFAULT_MEMORY_LIMIT_MB;
   private maxQueueSize: number = DEFAULT_MAX_QUEUE_SIZE;
+  private queueTtlMs: number = DEFAULT_QUEUE_TTL_MS;
+  private maxCodeSizeBytes: number = DEFAULT_MAX_CODE_SIZE;
 
   async setup(context: EnvironmentSetupContext): Promise<void> {
     this.bindings = context.bindings;
@@ -458,6 +460,20 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
       context.config.maxQueueSize >= 1
         ? context.config.maxQueueSize
         : DEFAULT_MAX_QUEUE_SIZE;
+
+    this.queueTtlMs =
+      typeof context.config.queueTtlMs === "number" &&
+      Number.isInteger(context.config.queueTtlMs) &&
+      context.config.queueTtlMs >= 1
+        ? context.config.queueTtlMs
+        : DEFAULT_QUEUE_TTL_MS;
+
+    this.maxCodeSizeBytes =
+      typeof context.config.maxCodeSizeBytes === "number" &&
+      Number.isInteger(context.config.maxCodeSizeBytes) &&
+      context.config.maxCodeSizeBytes >= 1024
+        ? context.config.maxCodeSizeBytes
+        : DEFAULT_MAX_CODE_SIZE;
 
     this.queue = new BoundedQueue(this.maxQueueSize);
 
@@ -526,6 +542,15 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
       );
     }
 
+    const codeSizeBytes = Buffer.byteLength(input.code, "utf8");
+    if (codeSizeBytes > this.maxCodeSizeBytes) {
+      this.bindings.setError(
+        input.eid,
+        `Code exceeds maximum size (${codeSizeBytes} > ${this.maxCodeSizeBytes} bytes).`,
+      );
+      return "failed";
+    }
+
     let code: string;
 
     try {
@@ -538,7 +563,7 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
     this.bindings.setState(input.eid, "queued");
 
     return new Promise<ExecutionExitState>((resolve) => {
-      this.queue.enqueue({ input, code, resolve });
+      this.queue.enqueue({ input, code, queuedAt: Date.now(), resolve });
       void this.pumpQueue();
     });
   }
@@ -584,8 +609,15 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
       while (!this.shuttingDown) {
         const worker = this.workers.find((slot) => !slot.busy);
         if (!worker) break;
+
         const job = this.queue.dequeue();
         if (!job) break;
+
+        if (Date.now() - job.queuedAt > this.queueTtlMs) {
+          job.resolve("canceled");
+          continue;
+        }
+
         worker.busy = true;
         void this.runJob(worker, job);
       }
@@ -739,6 +771,8 @@ export default {
     properties: {
       poolSize: { type: "integer", minimum: 1 },
       maxQueueSize: { type: "integer", minimum: 1 },
+      queueTtlMs: { type: "integer", minimum: 1 },
+      maxCodeSizeBytes: { type: "integer", minimum: 1024 },
       timeoutMs: { type: "integer", minimum: 1 },
       memoryLimitMb: { type: "integer", minimum: 16 },
     },

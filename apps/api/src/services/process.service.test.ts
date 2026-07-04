@@ -134,6 +134,31 @@ describe("ProcessService", () => {
       expect(c.id).toBe(3);
     });
 
+    it("rejects create when active process records reach the configured cap", async () => {
+      const originalMaxActive = process.env.CYRNEL_MAX_ACTIVE_PROCESSES;
+      process.env.CYRNEL_MAX_ACTIVE_PROCESSES = "1";
+
+      try {
+        const controller = makeController();
+        controller.executeImpl = () => new Promise(() => {});
+        const { service } = makeService(controller);
+        mockInsertReturning(1);
+
+        await service.create(BASE_CREATE_INPUT);
+
+        await expect(service.create(BASE_CREATE_INPUT)).rejects.toMatchObject({
+          statusCode: 429,
+        });
+        expect(db.insert).toHaveBeenCalledTimes(1);
+      } finally {
+        if (originalMaxActive === undefined) {
+          delete process.env.CYRNEL_MAX_ACTIVE_PROCESSES;
+        } else {
+          process.env.CYRNEL_MAX_ACTIVE_PROCESSES = originalMaxActive;
+        }
+      }
+    });
+
     it("seeds the new record with default fields", async () => {
       const controller = makeController();
       controller.executeImpl = () => new Promise(() => {});
@@ -567,7 +592,7 @@ describe("ProcessService", () => {
       const { id } = await service.create(BASE_CREATE_INPUT);
       await tick(5);
 
-      expect(() => service.run(id, false)).rejects.toThrow(HttpError);
+      await expect(service.run(id, false)).rejects.toThrow(HttpError);
 
       exit = "success";
       await service.run(id, true);
@@ -695,8 +720,8 @@ describe("ProcessService", () => {
       const done = service.shutdown();
       await done;
 
-      expect(service.get(first.id)).resolves.toBeDefined();
-      expect(service.get(second.id)).resolves.toBeDefined();
+      await expect(service.get(first.id)).resolves.toBeDefined();
+      await expect(service.get(second.id)).resolves.toBeDefined();
     });
 
     it("ignores controller.kill errors during shutdown", async () => {

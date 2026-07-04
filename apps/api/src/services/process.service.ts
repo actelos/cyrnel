@@ -23,6 +23,14 @@ import type {
 } from "@/models/process.model";
 
 const DEFAULT_EXECUTION_TIMEOUT_MS = 30_000;
+const DEFAULT_MAX_ACTIVE_PROCESSES = 1_000;
+
+function getMaxActiveProcesses(): number {
+  const value = Number(process.env.CYRNEL_MAX_ACTIVE_PROCESSES);
+  return Number.isInteger(value) && value >= 1
+    ? value
+    : DEFAULT_MAX_ACTIVE_PROCESSES;
+}
 
 interface ExecutionContext {
   stdoutDecoder: StringDecoder;
@@ -127,6 +135,14 @@ export class ProcessService {
   async create(input: CreateProcessInput): Promise<{ id: number }> {
     if (this.isShuttingDown) {
       throw new HttpError(503, "Service is shutting down.");
+    }
+
+    const maxActiveProcesses = getMaxActiveProcesses();
+    if (this.processes.size >= maxActiveProcesses) {
+      throw new HttpError(
+        429,
+        `Too many active processes (${this.processes.size} >= ${maxActiveProcesses}).`,
+      );
     }
 
     const autorun = input.autorun ?? true;

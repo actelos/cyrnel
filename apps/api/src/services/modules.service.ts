@@ -62,6 +62,7 @@ import {
 } from "@/utils/validation.util";
 
 const MODULE_DOWNLOAD_MAX_BYTES = 10 * 1024 * 1024;
+const DEFAULT_INVOKE_TIMEOUT_MS = 30_000;
 const IDENTIFIER_SCHEMA = z.string().regex(/^[A-Za-z_$][A-Za-z0-9_$]*$/);
 
 interface ModuleFactory {
@@ -275,7 +276,7 @@ export class ModuleService {
       );
     }
 
-    return this.requireAdapter(row.adapter).invoke(input);
+    return await this.invokeAdapterWithTimeout(row.adapter, input);
   }
 
   async list(
@@ -1616,6 +1617,35 @@ export class ModuleService {
       throw new HttpError(503, `Adapter '${id}' is not active.`);
     }
     return adapter;
+  }
+
+  private async invokeAdapterWithTimeout(
+    adapterId: string,
+    input: InvokeInput,
+  ): Promise<unknown> {
+    const timeoutMs =
+      Number(process.env.CYRNEL_INVOKE_TIMEOUT_MS) || DEFAULT_INVOKE_TIMEOUT_MS;
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+
+    try {
+      return await Promise.race([
+        this.requireAdapter(adapterId).invoke(input),
+        new Promise<never>((_resolve, reject) => {
+          timeoutHandle = setTimeout(
+            () =>
+              reject(
+                new HttpError(
+                  504,
+                  `Tool invocation timed out after ${timeoutMs}ms.`,
+                ),
+              ),
+            timeoutMs,
+          );
+        }),
+      ]);
+    } finally {
+      if (timeoutHandle) clearTimeout(timeoutHandle);
+    }
   }
 
   private requireFactory(id: string, type: ModuleType): ModuleFactory {

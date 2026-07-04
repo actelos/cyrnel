@@ -30,7 +30,7 @@ function parseCIDRList(value?: string): ParsedCIDR[] {
 }
 
 function getAllowedCIDRs(): ParsedCIDR[] {
-  const value = process.env.CYRNEL_ALLOWED_IPS;
+  const value = process.env.CYRNEL_REGISTRY_ALLOWED_IPS;
 
   if (value !== cachedAllowedIPs) {
     cachedAllowedIPs = value;
@@ -41,7 +41,7 @@ function getAllowedCIDRs(): ParsedCIDR[] {
 }
 
 function getBlockedCIDRs(): ParsedCIDR[] {
-  const value = process.env.CYRNEL_BLOCKED_IPS;
+  const value = process.env.CYRNEL_REGISTRY_BLOCKED_IPS;
 
   if (value !== cachedBlockedIPs) {
     cachedBlockedIPs = value;

@@ -842,6 +842,42 @@ describe("ModuleService", () => {
       expect(result).toEqual({ ok: true });
       expect(adapterInstances[0]?.invokeCalls[0]?.parameters).toEqual({ x: 1 });
     });
+
+    it("returns 504 when adapter invocation exceeds the configured timeout", async () => {
+      const originalTimeoutMs = process.env.CYRNEL_INVOKE_TIMEOUT_MS;
+      process.env.CYRNEL_INVOKE_TIMEOUT_MS = "1";
+
+      try {
+        const service = new ModuleService(makeBindings(), makeLifecycle());
+        await service.initialize(MISSING_PATH);
+
+        await db.run(
+          sql`INSERT INTO services (id, name, description, hash, source, adapter, enabled, config_schema, secrets_schema, adapter_domain)
+            VALUES ('alpha', 'alpha', '', 'h', '', 'openapi', 1, '{}', '{}', '{}')`,
+        );
+        await db.run(
+          sql`INSERT INTO tools (service_id, id, name, description, enabled, input_schema, output_schema, adapter_domain)
+            VALUES ('alpha', 't', 't', '', 1, '{}', '{}', '{}')`,
+        );
+
+        unwrap(adapterInstances[0], "adapter").invokeImpl = () =>
+          new Promise(() => {});
+
+        await expect(
+          service.invoke({
+            serviceId: "alpha",
+            toolId: "t",
+            parameters: {},
+          }),
+        ).rejects.toMatchObject({ statusCode: 504 });
+      } finally {
+        if (originalTimeoutMs === undefined) {
+          delete process.env.CYRNEL_INVOKE_TIMEOUT_MS;
+        } else {
+          process.env.CYRNEL_INVOKE_TIMEOUT_MS = originalTimeoutMs;
+        }
+      }
+    });
   });
 
   describe("list() / get()", () => {

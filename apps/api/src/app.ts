@@ -6,6 +6,8 @@ import pinoHttp from "pino-http";
 import { logger } from "@/logger";
 import { apiKeyMiddleware } from "@/middleware/auth.middleware";
 import { errorMiddleware } from "@/middleware/error.middleware";
+import { ipAccessMiddleware } from "@/middleware/ip-access.middleware";
+import { globalRateLimiter } from "@/middleware/rate-limit.middleware";
 import { environmentRouter } from "@/routes/environment.route";
 import { moduleRouter } from "@/routes/module.route";
 import { processRouter } from "@/routes/process.route";
@@ -92,7 +94,12 @@ export class App {
       }),
     );
     app.use(cors());
-    app.use(express.json({ limit: 100 * 1024 }));
+
+    const globalLimiter = globalRateLimiter();
+    if (globalLimiter) app.use(globalLimiter);
+
+    app.use(ipAccessMiddleware);
+    app.use(express.json({ limit: 1 * 1024 * 1024 }));
     app.get("/health", (_req, res) => {
       res.json({ status: "ok" });
     });
