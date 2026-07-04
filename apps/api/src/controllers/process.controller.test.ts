@@ -192,7 +192,7 @@ describe("process.controller", () => {
       expect(processService.create).toHaveBeenCalledWith({
         ref: undefined,
         code: "console.log(1)",
-        timeoutMs: null,
+        timeoutMs: undefined,
         envConfig: {},
         autorun: true,
       });

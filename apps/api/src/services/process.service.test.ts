@@ -258,6 +258,9 @@ describe("ProcessService", () => {
         code: "x",
         envConfig: {},
       });
+
+      await tick(100);
+      expect(controller.killCalls).toHaveLength(0);
     });
 
     it("defaults autorun to true when not provided", async () => {
@@ -687,25 +690,6 @@ describe("ProcessService", () => {
       await expect(service.waitForIdle(id, 5, 30)).rejects.toMatchObject({
         statusCode: 504,
       });
-    });
-
-    it("derives a default deadline from the configured execution timeout", async () => {
-      const controller = makeController();
-      controller.executeImpl = () => new Promise(() => {});
-      const { service } = makeService(controller);
-      mockInsertReturning(1);
-
-      const { id } = await service.create({
-        code: "x",
-        timeoutMs: 1,
-        envConfig: {},
-      });
-
-      const err = (await service.waitForIdle(id, 5).catch((e) => e)) as
-        | HttpError
-        | undefined;
-      expect(err).toBeInstanceOf(HttpError);
-      expect(err?.statusCode).toBe(504);
     });
   });
 

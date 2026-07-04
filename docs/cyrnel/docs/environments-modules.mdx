@@ -13,8 +13,9 @@ An **environment module** runs the code clients submit through
 3. **Output capture.** Streaming stdout, stderr, and structured output back
    to the host through callbacks.
  4. **Cancellation and timeouts.** Honouring `kill(eid)` and respecting
-   `input.timeoutMs` (API-level) and `input.envConfig.timeoutMs`
-   (environment-level override).
+    `input.envConfig.timeoutMs` for an execution-level sandbox deadline.
+    The host separately enforces an API-level timeout via `kill(eid)` when
+    the `timeoutMs` field on `POST /processes` elapses.
 
 Environment modules implement the SDK
 [`EnvironmentModule`](/cyrnel/specs/environment-module) interface.
@@ -36,12 +37,12 @@ interface EnvironmentModule extends Module {
    `bindings` is the [`EnvironmentBindings`](/cyrnel/specs/environment-bindings) callback
    surface back into the host (discovery, invocation, state, output).
  2. **`execute(input)`** is called for each process. `input.eid` is the
-   process id; the environment must use it on every callback so the host
-   can route stdout/stderr/output to the right process. `input.timeoutMs`
-   is the API-level deadline; `input.envConfig` is a
-   `Record<string, unknown>` of environment-specific configuration
-   forwarded from the request. Each environment module documents its
-   accepted `envConfig` keys.
+    process id; the environment must use it on every callback so the host
+    can route stdout/stderr/output to the right process. `input.code` is
+    the source code to run. `input.envConfig` is a
+    `Record<string, unknown>` of per-execution configuration forwarded
+    from the request. Each environment module documents its accepted
+    `envConfig` keys.
 3. **`kill(eid)`** interrupts a running or queued execution. Should
    return promptly.
 4. **`generateDocs()`** returns a Markdown string describing the
@@ -53,13 +54,15 @@ interface EnvironmentModule extends Module {
 
 ## Timeout model
 
-`input.timeoutMs` (set via the API-level `timeoutMs` field on
-`POST /processes`) is the hard deadline for the execution, the host will
-call `kill(eid)` if it elapses. `input.envConfig.timeoutMs` is an
-optional environment-specific override that the environment module can
-use for finer-grained control (e.g. the TypeScript isolate's transpile
-step). The two levels are independent; the shorter of the two always
-wins.
+The API-level `timeoutMs` field on `POST /processes` is enforced by the
+host: the platform calls `kill(eid)` if the process exceeds the deadline.
+The environment module never sees this value directly; it only
+participates through `kill(eid)`.
+
+`input.envConfig.timeoutMs` is an optional per-execution override that
+the environment module may use for its own internal deadlines (e.g. the
+TypeScript isolate's sandbox timeout). The two levels are independent;
+the shorter of the two always wins.
 
 ## Active environment vs draining
 

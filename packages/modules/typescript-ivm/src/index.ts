@@ -646,24 +646,33 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
     worker.running = running;
     this.runningByEid.set(job.input.eid, worker);
 
+    let _isolateOverridden = false;
+
     try {
       this.bindings?.setState(job.input.eid, "running");
 
-      const effectiveTimeoutMs =
-        (job.input.envConfig?.timeoutMs as number | undefined) ??
-        this.defaultTimeoutMs;
-      const effectiveMemoryLimitMb =
-        (job.input.envConfig?.memoryLimitMb as number | undefined) ??
-        this.memoryLimitMb;
-      if (
-        Number.isInteger(effectiveMemoryLimitMb) &&
-        effectiveMemoryLimitMb >= 16 &&
-        effectiveMemoryLimitMb !== this.memoryLimitMb
-      ) {
+      const rawTimeoutMs = job.input.envConfig?.timeoutMs as number | undefined;
+      const effectiveTimeoutMs: number =
+        typeof rawTimeoutMs === "number" &&
+        Number.isInteger(rawTimeoutMs) &&
+        rawTimeoutMs >= 1
+          ? rawTimeoutMs
+          : this.defaultTimeoutMs;
+      const rawMemoryLimitMb = job.input.envConfig?.memoryLimitMb as
+        | number
+        | undefined;
+      const effectiveMemoryLimitMb: number =
+        typeof rawMemoryLimitMb === "number" &&
+        Number.isInteger(rawMemoryLimitMb) &&
+        rawMemoryLimitMb >= 16
+          ? rawMemoryLimitMb
+          : this.memoryLimitMb;
+      if (effectiveMemoryLimitMb !== this.memoryLimitMb) {
         worker.isolate.dispose();
         worker.isolate = new ivm.Isolate({
           memoryLimit: effectiveMemoryLimitMb,
         }) as TerminableIsolate;
+        _isolateOverridden = true;
       }
       const executionPromise = this.executeInIsolate(worker, job)
         .then(() => "success" as const)
@@ -689,6 +698,13 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
     } finally {
       if (running.timeoutHandle) {
         clearTimeout(running.timeoutHandle);
+      }
+
+      if (_isolateOverridden) {
+        worker.isolate.dispose();
+        worker.isolate = new ivm.Isolate({
+          memoryLimit: this.memoryLimitMb,
+        }) as TerminableIsolate;
       }
 
       worker.running = null;

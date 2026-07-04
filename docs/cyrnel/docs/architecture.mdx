@@ -111,7 +111,7 @@ sequenceDiagram
     PS-->>API: pid
     API-->>Client: { pid }
 
-    PS->>MS: execute({ eid: pid, code, timeoutMs, envConfig })
+    PS->>MS: execute({ eid: pid, code, envConfig })
     MS->>Env: execute(input)
     Env-->>PS: emit stdout / stderr / output / state
 

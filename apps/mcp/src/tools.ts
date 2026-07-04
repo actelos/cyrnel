@@ -177,7 +177,7 @@ const tools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
     }) => {
       const body: Record<string, unknown> = { code };
       if (ref !== undefined) body.ref = ref;
-      if (timeout !== undefined) body.timeout_ms = timeout * 1000;
+      if (timeout !== undefined) body.timeoutMs = timeout * 1000;
       if (env_config !== undefined) body.envConfig = env_config;
       body.autorun = autorun;
       const { id } = (await api.post("processes", { json: body }).json()) as {

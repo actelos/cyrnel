@@ -210,7 +210,7 @@ const ProcessCreateRequestSchema = registry.register(
           "API-level execution timeout in milliseconds. null disables enforcement; undefined uses the default.",
         ),
       envConfig: z
-        .record(z.unknown())
+        .record(z.string(), z.unknown())
         .optional()
         .describe(
           "Opaque per-execution environment configuration passed through to the environment module.",

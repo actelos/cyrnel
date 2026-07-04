@@ -54,7 +54,7 @@ const createProcessBodySchema = z
   .transform((value) => ({
     code: value.code as string,
     ref: value.ref,
-    timeoutMs: value.timeoutMs ?? null,
+    timeoutMs: value.timeoutMs,
     envConfig: value.envConfig ?? {},
     autorun: value.autorun,
   }));

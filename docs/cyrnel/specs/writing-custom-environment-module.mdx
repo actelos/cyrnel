@@ -69,13 +69,16 @@ export default { configSchema, secretsSchema, instantiate: () => new MyEnvironme
 ## `envConfig`
 
 The host passes per-execution configuration via `input.envConfig` (a
-`Record<string, unknown>`). The host guarantees at minimum a `timeoutMs`
-key, resolved against `DEFAULT_EXECUTION_TIMEOUT_MS` (30000). The
-environment should treat this as authoritative and pluck the values it
-recognises, falling back to sensible defaults:
+`Record<string, unknown>`). The keys are caller-provided; each
+environment module documents which keys it recognises and falls back to
+sensible defaults for any missing values:
 
 ```ts
-const timeoutMs = (input.envConfig?.timeoutMs as number | undefined) ?? 30_000;
+# validate and coerce at runtime
+const raw = input.envConfig?.timeoutMs;
+const timeoutMs = Number.isInteger(raw) && (raw as number) >= 1
+  ? (raw as number)
+  : 30_000;
 ```
 
 Formerly this configuration lived in a separate `ExecutionOptions` type

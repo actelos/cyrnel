@@ -20,8 +20,11 @@ class ShellEnvironment implements EnvironmentModule {
     this.bindings.setState(eid, "running");
 
     return new Promise((resolve) => {
+      const rawTimeoutMs = input.envConfig?.timeoutMs as number | undefined;
       const timeoutMs =
-        (input.envConfig?.timeoutMs as number | undefined) ?? 30_000;
+        Number.isInteger(rawTimeoutMs) && rawTimeoutMs >= 1
+          ? rawTimeoutMs
+          : 30_000;
       const child = spawn("sh", ["-c", input.code], {
         timeout: timeoutMs,
         stdio: ["ignore", "pipe", "pipe"],

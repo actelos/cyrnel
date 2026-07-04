@@ -364,8 +364,15 @@ export class ProcessService {
     const pid = this.resolvePid(id);
     const initial = this.getStored(pid);
     const effectiveTimeoutMs =
-      initial.timeoutMs ?? DEFAULT_EXECUTION_TIMEOUT_MS;
-    const deadline = Date.now() + (maxWaitMs ?? effectiveTimeoutMs * 2 + 1_000);
+      initial.timeoutMs !== undefined
+        ? initial.timeoutMs
+        : DEFAULT_EXECUTION_TIMEOUT_MS;
+    const deadline =
+      effectiveTimeoutMs !== null
+        ? Date.now() + (maxWaitMs ?? effectiveTimeoutMs * 2 + 1_000)
+        : maxWaitMs !== undefined
+          ? Date.now() + maxWaitMs
+          : Date.now() + DEFAULT_EXECUTION_TIMEOUT_MS * 2 + 1_000;
 
     while (true) {
       const stored = this.processes.get(pid);
@@ -453,18 +460,6 @@ export class ProcessService {
       promise: Promise.resolve(),
     };
 
-    if (stored.timeoutMs !== null) {
-      const timeoutHandle = setTimeout(() => {
-        this.controller.kill(stored.pid).catch(() => {});
-        const s = this.processes.get(stored.pid);
-        if (s && s.state !== "idle") {
-          s.state = "idle";
-          s.exitState = "timeout";
-        }
-      }, stored.timeoutMs);
-      context.promise.then(() => clearTimeout(timeoutHandle)).catch(() => {});
-    }
-
     context.promise = this.runExecution({
       process: {
         id,
@@ -474,6 +469,25 @@ export class ProcessService {
       },
       context,
     });
+
+    if (stored.timeoutMs !== null) {
+      const timeoutHandle = setTimeout(() => {
+        this.controller.kill(stored.pid).catch((err) => {
+          logger.warn(
+            { err, pid: stored.pid },
+            "Failed to kill process on timeout",
+          );
+        });
+        const s = this.processes.get(stored.pid);
+        if (s && s.state !== "idle") {
+          s.state = "idle";
+          s.exitState = "timeout";
+        }
+      }, stored.timeoutMs);
+      context.promise = context.promise.then(() => {
+        clearTimeout(timeoutHandle);
+      });
+    }
 
     this.executions.set(stored.pid, context);
   }
