@@ -38,9 +38,8 @@ import { downloadText } from "@/utils/download.util";
 import { computeContentHash } from "@/utils/hash.util";
 import {
   collectPresentPaths,
-  decryptSecrets,
+  decryptAndMaybeReEncrypt,
   encryptSecrets,
-  getPrimaryKeyId,
 } from "@/utils/secrets.util";
 import {
   applyJsonSchemaDefaults,
@@ -1124,29 +1123,16 @@ export class ServicesService {
     if (!parsed.success)
       throw new HttpError(500, "Stored secrets payload is malformed.");
 
-    const secrets = decryptSecrets(parsed.data);
-    const primaryKeyId = getPrimaryKeyId();
-
-    if (!parsed.data.kid || parsed.data.kid !== primaryKeyId) {
-      try {
-        const reEncrypted = encryptSecrets(secrets);
+    return decryptAndMaybeReEncrypt(
+      parsed.data,
+      async (reEncrypted) => {
         await db
           .update(serviceSecrets)
           .set({ payload: reEncrypted, updatedAt: Date.now() })
           .where(eq(serviceSecrets.serviceId, id));
-        logger.debug(
-          { serviceId: id },
-          "Re-encrypted service secrets with primary key",
-        );
-      } catch (err) {
-        logger.warn(
-          { err, serviceId: id },
-          "Failed to persist re-encrypted service secrets",
-        );
-      }
-    }
-
-    return secrets;
+      },
+      { serviceId: id },
+    );
   }
 
   private async downloadDefinition(fileUrl: string): Promise<string> {

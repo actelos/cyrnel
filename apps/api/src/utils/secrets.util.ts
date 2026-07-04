@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-
+import { logger } from "@/logger";
 import { HttpError } from "@/models/error.model";
 import type { EncryptedSecretsPayload } from "@/models/secrets.model";
 
@@ -82,6 +82,37 @@ export function encryptSecrets(
     tag: cipher.getAuthTag().toString("base64"),
     ciphertext: ciphertext.toString("base64"),
   };
+}
+
+export function shouldReEncrypt(payload: { kid?: string }): boolean {
+  return payload.kid !== getPrimaryKeyId();
+}
+
+export type ReEncryptPersistFn = (
+  payload: EncryptedSecretsPayload,
+) => Promise<void>;
+
+export async function decryptAndMaybeReEncrypt(
+  payload: EncryptedSecretsPayload,
+  persist: ReEncryptPersistFn,
+  logMeta: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const secrets = decryptSecrets(payload);
+
+  if (shouldReEncrypt(payload)) {
+    try {
+      const reEncrypted = encryptSecrets(secrets);
+      await persist(reEncrypted);
+      logger.debug(logMeta, "Re-encrypted secrets with primary key");
+    } catch (err) {
+      logger.warn(
+        { err, ...logMeta },
+        "Failed to persist re-encrypted secrets",
+      );
+    }
+  }
+
+  return secrets;
 }
 
 export function collectPresentPaths(

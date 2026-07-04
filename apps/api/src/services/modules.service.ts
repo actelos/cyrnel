@@ -52,9 +52,8 @@ import { downloadBinary } from "@/utils/download.util";
 import { computeBinaryHash } from "@/utils/hash.util";
 import {
   collectPresentPaths,
-  decryptSecrets,
+  decryptAndMaybeReEncrypt,
   encryptSecrets,
-  getPrimaryKeyId,
 } from "@/utils/secrets.util";
 import {
   applyJsonSchemaDefaults,
@@ -1528,29 +1527,16 @@ export class ModuleService {
     if (!parsed.success)
       throw new HttpError(500, "Stored secrets payload is malformed.");
 
-    const secrets = decryptSecrets(parsed.data);
-    const primaryKeyId = getPrimaryKeyId();
-
-    if (!parsed.data.kid || parsed.data.kid !== primaryKeyId) {
-      try {
-        const reEncrypted = encryptSecrets(secrets);
+    return decryptAndMaybeReEncrypt(
+      parsed.data,
+      async (reEncrypted) => {
         await db
           .update(moduleSecrets)
           .set({ payload: reEncrypted, updatedAt: Date.now() })
           .where(eq(moduleSecrets.moduleId, id));
-        logger.debug(
-          { moduleId: id },
-          "Re-encrypted module secrets with primary key",
-        );
-      } catch (err) {
-        logger.warn(
-          { err, moduleId: id },
-          "Failed to persist re-encrypted module secrets",
-        );
-      }
-    }
-
-    return secrets;
+      },
+      { moduleId: id },
+    );
   }
 
   private async assertConfigAndSecretsValid(
