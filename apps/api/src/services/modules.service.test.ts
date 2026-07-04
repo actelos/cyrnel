@@ -28,6 +28,7 @@ import {
 
 const SECRETS_KEY = crypto.randomBytes(32).toString("base64");
 const ORIGINAL_SECRETS_KEY = process.env.CYRNEL_SECRETS_KEY;
+const ORIGINAL_PREVIOUS_KEYS = process.env.CYRNEL_SECRETS_PREVIOUS_KEYS;
 
 const { adapterInstances, envInstances, FakeAdapter, FakeEnvironment } =
   vi.hoisted(() => {
@@ -258,6 +259,7 @@ const MISSING_PATH = path.join(os.tmpdir(), "cyrnel-no-such-modules-dir");
 describe("ModuleService", () => {
   beforeAll(async () => {
     process.env.CYRNEL_SECRETS_KEY = SECRETS_KEY;
+    delete process.env.CYRNEL_SECRETS_PREVIOUS_KEYS;
     await applyMigrations();
   });
 
@@ -266,6 +268,11 @@ describe("ModuleService", () => {
       delete process.env.CYRNEL_SECRETS_KEY;
     } else {
       process.env.CYRNEL_SECRETS_KEY = ORIGINAL_SECRETS_KEY;
+    }
+    if (ORIGINAL_PREVIOUS_KEYS === undefined) {
+      delete process.env.CYRNEL_SECRETS_PREVIOUS_KEYS;
+    } else {
+      process.env.CYRNEL_SECRETS_PREVIOUS_KEYS = ORIGINAL_PREVIOUS_KEYS;
     }
   });
 

@@ -38,7 +38,7 @@ import { downloadText } from "@/utils/download.util";
 import { computeContentHash } from "@/utils/hash.util";
 import {
   collectPresentPaths,
-  decryptSecrets,
+  decryptAndMaybeReEncrypt,
   encryptSecrets,
 } from "@/utils/secrets.util";
 import {
@@ -59,6 +59,7 @@ export interface AdapterController {
 }
 
 const encryptedSecretsSchema = z.object({
+  kid: z.string().optional(),
   alg: z.literal("aes-256-gcm"),
   iv: z.string(),
   tag: z.string(),
@@ -1122,7 +1123,16 @@ export class ServicesService {
     if (!parsed.success)
       throw new HttpError(500, "Stored secrets payload is malformed.");
 
-    return decryptSecrets(parsed.data);
+    return decryptAndMaybeReEncrypt(
+      parsed.data,
+      async (reEncrypted) => {
+        await db
+          .update(serviceSecrets)
+          .set({ payload: reEncrypted, updatedAt: Date.now() })
+          .where(eq(serviceSecrets.serviceId, id));
+      },
+      { serviceId: id },
+    );
   }
 
   private async downloadDefinition(fileUrl: string): Promise<string> {

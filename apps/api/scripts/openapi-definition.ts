@@ -775,6 +775,51 @@ const apiErrorResponse = (description: string) => ({
   content: jsonContent(ApiErrorResponseSchema),
 });
 
+const RateLimitErrorResponseSchema = registry.register(
+  "RateLimitErrorResponse",
+  z
+    .object({
+      error: z
+        .literal("rate_limit_exceeded")
+        .describe("Error code identifying rate-limit rejection."),
+      message: z
+        .string()
+        .describe("Human-readable message with retry instructions."),
+      retryAfter: z
+        .number()
+        .int()
+        .positive()
+        .describe("Number of seconds to wait before retrying."),
+    })
+    .describe("Error body returned when a request is rate-limited (HTTP 429)."),
+);
+
+const rateLimitResponse = () => ({
+  429: {
+    description:
+      "Rate limit exceeded. The request was throttled. Check Retry-After header.",
+    content: jsonContent(RateLimitErrorResponseSchema),
+    headers: {
+      "X-RateLimit-Limit": {
+        schema: { type: "integer" as const },
+        description: "Maximum requests allowed in the current window.",
+      },
+      "X-RateLimit-Remaining": {
+        schema: { type: "integer" as const },
+        description: "Requests remaining in the current window.",
+      },
+      "X-RateLimit-Reset": {
+        schema: { type: "integer" as const },
+        description: "Unix timestamp when the window resets.",
+      },
+      "Retry-After": {
+        schema: { type: "integer" as const },
+        description: "Seconds to wait before retrying.",
+      },
+    },
+  },
+});
+
 registry.registerPath({
   method: "get",
   path: "/processes",
@@ -801,7 +846,11 @@ registry.registerPath({
     401: apiErrorResponse(
       "A bearer token was required but missing or invalid.",
     ),
-    500: apiErrorResponse("The process list could not be loaded."),
+    ...rateLimitResponse(),
+    409: apiErrorResponse(
+      "The process is already idle or is already terminating.",
+    ),
+    500: apiErrorResponse("The process could not be terminated."),
   },
 });
 
@@ -811,22 +860,20 @@ registry.registerPath({
   tags: ["Processes"],
   summary: "Create a process",
   description:
-    "Stages new code as a process and optionally runs it immediately (see autorun). The optional options.timeout is expressed in milliseconds and may be null to explicitly clear it.",
-  request: { body: { content: jsonContent(ProcessCreateRequestSchema) } },
+    "Creates a new process with the supplied source code and optional execution options. If autorun is true (the default), the process begins execution immediately.",
+  request: {
+    body: { content: jsonContent(ProcessCreateRequestSchema) },
+  },
   responses: {
     201: {
-      description: "Process created successfully.",
+      description: "Process created.",
       content: jsonContent(ProcessCreatedResponseSchema),
     },
-    400: apiErrorResponse(
-      "The request body was invalid or missing the required code field.",
-    ),
+    400: apiErrorResponse("The request body could not be parsed."),
     401: apiErrorResponse(
       "A bearer token was required but missing or invalid.",
     ),
-    503: apiErrorResponse(
-      "No staged environment was available or the API is shutting down.",
-    ),
+    ...rateLimitResponse(),
     500: apiErrorResponse("The process could not be created."),
   },
 });
@@ -836,7 +883,7 @@ registry.registerPath({
   path: "/processes/{id}",
   tags: ["Processes"],
   summary: "Get a process",
-  description: "Returns the process snapshot for the requested identifier.",
+  description: "Returns a single process snapshot by its numeric identifier.",
   request: { params: idParam },
   responses: {
     200: {
@@ -847,7 +894,8 @@ registry.registerPath({
     401: apiErrorResponse(
       "A bearer token was required but missing or invalid.",
     ),
-    404: apiErrorResponse("No process exists for the requested identifier."),
+    404: apiErrorResponse("The process could not be found."),
+    ...rateLimitResponse(),
     500: apiErrorResponse("The process could not be loaded."),
   },
 });
@@ -858,19 +906,16 @@ registry.registerPath({
   tags: ["Processes"],
   summary: "Delete a process",
   description:
-    "Deletes an idle process record from the database. Active processes must be stopped before they can be deleted.",
+    "Deletes a process and its associated data (code, output, stdout, stderr).",
   request: { params: idParam },
   responses: {
-    200: {
-      description: "The deleted process snapshot.",
-      content: jsonContent(ProcessSchema),
-    },
+    204: { description: "The process was deleted successfully." },
     400: apiErrorResponse("The id path parameter was invalid."),
     401: apiErrorResponse(
       "A bearer token was required but missing or invalid.",
     ),
-    404: apiErrorResponse("No process exists for the requested identifier."),
-    409: apiErrorResponse("The process is not idle and cannot be deleted."),
+    ...rateLimitResponse(),
+    404: apiErrorResponse("The process could not be found."),
     500: apiErrorResponse("The process could not be deleted."),
   },
 });
@@ -879,21 +924,24 @@ registry.registerPath({
   method: "get",
   path: "/processes/{id}/code",
   tags: ["Processes"],
-  summary: "Get stored process code",
-  description:
-    "Returns the exact source code stored for the process as plain text.",
+  summary: "Get process source code",
+  description: "Returns the source code submitted for the process.",
   request: { params: idParam },
   responses: {
     200: {
-      description: "The stored source code.",
-      content: textContent(z.string().describe("Process source code.")),
+      description: "Source code of the process.",
+      content: textContent(
+        z.string().describe("Source code submitted for the process."),
+        "text/plain",
+      ),
     },
     400: apiErrorResponse("The id path parameter was invalid."),
     401: apiErrorResponse(
       "A bearer token was required but missing or invalid.",
     ),
-    404: apiErrorResponse("No process exists for the requested identifier."),
-    500: apiErrorResponse("The stored process code could not be loaded."),
+    404: apiErrorResponse("The process could not be found."),
+    ...rateLimitResponse(),
+    500: apiErrorResponse("The source code could not be loaded."),
   },
 });
 
@@ -903,22 +951,20 @@ registry.registerPath({
   tags: ["Processes"],
   summary: "Get process output",
   description:
-    "Returns the structured output collected during process execution. Output is only available once the process is idle.",
+    "Returns the structured JSON output emitted by the process during execution.",
   request: { params: idParam },
   responses: {
     200: {
-      description: "Structured process output.",
+      description: "Structured output of the process.",
       content: jsonContent(ProcessOutputSchema),
     },
     400: apiErrorResponse("The id path parameter was invalid."),
     401: apiErrorResponse(
       "A bearer token was required but missing or invalid.",
     ),
-    404: apiErrorResponse("No process exists for the requested identifier."),
-    409: apiErrorResponse(
-      "The process has not finished yet, so output is not available.",
-    ),
-    500: apiErrorResponse("The output could not be loaded."),
+    404: apiErrorResponse("The process could not be found."),
+    ...rateLimitResponse(),
+    500: apiErrorResponse("The process output could not be loaded."),
   },
 });
 
@@ -927,23 +973,23 @@ registry.registerPath({
   path: "/processes/{id}/stdout",
   tags: ["Processes"],
   summary: "Get process stdout",
-  description:
-    "Returns the captured standard output for the process as plain text. Output is only available once the process is idle.",
+  description: "Returns the captured standard output text of the process.",
   request: { params: idParam },
   responses: {
     200: {
-      description: "Captured stdout text.",
-      content: textContent(z.string().describe("Standard output content.")),
+      description: "Standard output of the process.",
+      content: textContent(
+        z.string().describe("Captured stdout text of the process."),
+        "text/plain",
+      ),
     },
     400: apiErrorResponse("The id path parameter was invalid."),
     401: apiErrorResponse(
       "A bearer token was required but missing or invalid.",
     ),
-    404: apiErrorResponse("No process exists for the requested identifier."),
-    409: apiErrorResponse(
-      "The process has not finished yet, so stdout is not available.",
-    ),
-    500: apiErrorResponse("The stdout stream could not be loaded."),
+    404: apiErrorResponse("The process could not be found."),
+    ...rateLimitResponse(),
+    500: apiErrorResponse("The process stdout could not be loaded."),
   },
 });
 
@@ -952,23 +998,23 @@ registry.registerPath({
   path: "/processes/{id}/stderr",
   tags: ["Processes"],
   summary: "Get process stderr",
-  description:
-    "Returns the captured standard error for the process as plain text. Output is only available once the process is idle.",
+  description: "Returns the captured standard error text of the process.",
   request: { params: idParam },
   responses: {
     200: {
-      description: "Captured stderr text.",
-      content: textContent(z.string().describe("Standard error content.")),
+      description: "Standard error of the process.",
+      content: textContent(
+        z.string().describe("Captured stderr text of the process."),
+        "text/plain",
+      ),
     },
     400: apiErrorResponse("The id path parameter was invalid."),
     401: apiErrorResponse(
       "A bearer token was required but missing or invalid.",
     ),
-    404: apiErrorResponse("No process exists for the requested identifier."),
-    409: apiErrorResponse(
-      "The process has not finished yet, so stderr is not available.",
-    ),
-    500: apiErrorResponse("The stderr stream could not be loaded."),
+    404: apiErrorResponse("The process could not be found."),
+    ...rateLimitResponse(),
+    500: apiErrorResponse("The process stderr could not be loaded."),
   },
 });
 
@@ -976,32 +1022,28 @@ registry.registerPath({
   method: "post",
   path: "/processes/{id}/signals/run",
   tags: ["Processes"],
-  summary: "Run a process",
+  summary: "Send run signal",
   description:
-    "Queues an idle process for execution. Set force to true to rerun a process that already produced output.",
+    "Dispatches a run signal to an idle process, optionally forcing a re-run even if prior output exists.",
   request: {
     params: idParam,
     body: { content: jsonContent(RunSignalRequestSchema) },
   },
   responses: {
     200: {
-      description: "The queued or completed process snapshot.",
+      description: "The process was started or restarted.",
       content: jsonContent(ProcessSchema),
     },
-    400: apiErrorResponse(
-      "The id path parameter or request body was invalid, or the process has existing output and force was not set.",
-    ),
+    400: apiErrorResponse("The request body or id path parameter was invalid."),
     401: apiErrorResponse(
       "A bearer token was required but missing or invalid.",
     ),
-    404: apiErrorResponse("No process exists for the requested identifier."),
+    404: apiErrorResponse("The process could not be found."),
+    ...rateLimitResponse(),
     409: apiErrorResponse(
-      "The process must be idle before it can be run again.",
+      "The process is already idle or is already terminating.",
     ),
-    503: apiErrorResponse(
-      "No staged environment was available or the API is shutting down.",
-    ),
-    500: apiErrorResponse("The process could not be queued."),
+    500: apiErrorResponse("The process could not be started."),
   },
 });
 
@@ -1009,25 +1051,24 @@ registry.registerPath({
   method: "post",
   path: "/processes/{id}/signals/kill",
   tags: ["Processes"],
-  summary: "Kill a process",
+  summary: "Send kill signal",
   description:
-    "Signals an active process to terminate. The body is only validated as a JSON object; its contents are ignored.",
+    "Stops a queued or running process by id, returning the updated process record.",
   request: {
     params: idParam,
     body: { content: jsonContent(ProcessKillRequestSchema) },
   },
   responses: {
     200: {
-      description: "The updated process snapshot after the kill request.",
+      description: "The process was stopped.",
       content: jsonContent(ProcessSchema),
     },
-    400: apiErrorResponse(
-      "The id path parameter was invalid or the request body was not a JSON object.",
-    ),
+    400: apiErrorResponse("The request body or id path parameter was invalid."),
     401: apiErrorResponse(
       "A bearer token was required but missing or invalid.",
     ),
-    404: apiErrorResponse("No process exists for the requested identifier."),
+    404: apiErrorResponse("The process could not be found."),
+    ...rateLimitResponse(),
     409: apiErrorResponse(
       "The process is already idle or is already terminating.",
     ),
@@ -1069,6 +1110,7 @@ registry.registerPath({
     401: apiErrorResponse(
       "A bearer token was required but missing or invalid.",
     ),
+    ...rateLimitResponse(),
     500: apiErrorResponse("The service list could not be loaded."),
   },
 });
@@ -1090,6 +1132,7 @@ registry.registerPath({
     401: apiErrorResponse(
       "A bearer token was required but missing or invalid.",
     ),
+    ...rateLimitResponse(),
     404: apiErrorResponse("The service could not be found."),
     500: apiErrorResponse("The service details could not be loaded."),
   },
@@ -1144,6 +1187,7 @@ registry.registerPath({
     401: apiErrorResponse(
       "A bearer token was required but missing or invalid.",
     ),
+    ...rateLimitResponse(),
     409: apiErrorResponse("A service already exists with the requested id."),
     413: apiErrorResponse(
       "The downloaded definition exceeded the configured size limit.",
@@ -1175,6 +1219,7 @@ registry.registerPath({
       "A bearer token was required but missing or invalid.",
     ),
     404: apiErrorResponse("The service could not be found."),
+    ...rateLimitResponse(),
     409: apiErrorResponse(
       "The service has no stored registry source and cannot be updated automatically.",
     ),
@@ -1206,6 +1251,7 @@ registry.registerPath({
       "A bearer token was required but missing or invalid.",
     ),
     404: apiErrorResponse("The service could not be found."),
+    ...rateLimitResponse(),
     409: apiErrorResponse(
       "The service is stale or has no stored definition content to sync from.",
     ),
@@ -1236,6 +1282,7 @@ registry.registerPath({
       "A bearer token was required but missing or invalid.",
     ),
     404: apiErrorResponse("The service could not be found."),
+    ...rateLimitResponse(),
     413: apiErrorResponse(
       "The downloaded definition exceeded the configured size limit.",
     ),
@@ -1267,6 +1314,7 @@ registry.registerPath({
       "A bearer token was required but missing or invalid.",
     ),
     404: apiErrorResponse("The service could not be found."),
+    ...rateLimitResponse(),
     502: apiErrorResponse(
       "The service could not be hydrated on its adapter module.",
     ),
@@ -1288,6 +1336,7 @@ registry.registerPath({
     401: apiErrorResponse(
       "A bearer token was required but missing or invalid.",
     ),
+    ...rateLimitResponse(),
     404: apiErrorResponse("The service could not be found."),
     500: apiErrorResponse("The service could not be deleted."),
   },
@@ -1311,6 +1360,7 @@ registry.registerPath({
       "A bearer token was required but missing or invalid.",
     ),
     404: apiErrorResponse("The service could not be found."),
+    ...rateLimitResponse(),
     500: apiErrorResponse("The configuration schema could not be loaded."),
   },
 });
@@ -1332,6 +1382,7 @@ registry.registerPath({
     401: apiErrorResponse(
       "A bearer token was required but missing or invalid.",
     ),
+    ...rateLimitResponse(),
     500: apiErrorResponse("The configuration could not be loaded."),
   },
 });
@@ -1359,6 +1410,7 @@ registry.registerPath({
       "A bearer token was required but missing or invalid.",
     ),
     404: apiErrorResponse("The service could not be found."),
+    ...rateLimitResponse(),
     500: apiErrorResponse("The configuration could not be persisted."),
   },
 });
@@ -1381,6 +1433,7 @@ registry.registerPath({
       "A bearer token was required but missing or invalid.",
     ),
     404: apiErrorResponse("The service could not be found."),
+    ...rateLimitResponse(),
     500: apiErrorResponse("The secrets presence could not be determined."),
   },
 });
@@ -1403,6 +1456,7 @@ registry.registerPath({
       "A bearer token was required but missing or invalid.",
     ),
     404: apiErrorResponse("The service could not be found."),
+    ...rateLimitResponse(),
     500: apiErrorResponse("The secrets schema could not be loaded."),
   },
 });
@@ -1430,6 +1484,7 @@ registry.registerPath({
       "A bearer token was required but missing or invalid.",
     ),
     404: apiErrorResponse("The service could not be found."),
+    ...rateLimitResponse(),
     500: apiErrorResponse("The secrets could not be persisted."),
   },
 });
@@ -1471,6 +1526,7 @@ registry.registerPath({
     401: apiErrorResponse(
       "A bearer token was required but missing or invalid.",
     ),
+    ...rateLimitResponse(),
     500: apiErrorResponse("The tool list could not be loaded."),
   },
 });
@@ -1495,6 +1551,7 @@ registry.registerPath({
       "A bearer token was required but missing or invalid.",
     ),
     404: apiErrorResponse("The service or tool could not be found."),
+    ...rateLimitResponse(),
     500: apiErrorResponse("The tool details could not be loaded."),
   },
 });
@@ -1522,6 +1579,7 @@ registry.registerPath({
       "A bearer token was required but missing or invalid.",
     ),
     404: apiErrorResponse("The service or tool could not be found."),
+    ...rateLimitResponse(),
     500: apiErrorResponse("The tool documentation could not be generated."),
   },
 });
@@ -1547,6 +1605,7 @@ registry.registerPath({
       "A bearer token was required but missing or invalid.",
     ),
     404: apiErrorResponse("The tool could not be found."),
+    ...rateLimitResponse(),
     500: apiErrorResponse("The tool enabled state could not be updated."),
   },
 });
@@ -1587,6 +1646,7 @@ registry.registerPath({
     401: apiErrorResponse(
       "A bearer token was required but missing or invalid.",
     ),
+    ...rateLimitResponse(),
     500: apiErrorResponse("The module list could not be loaded."),
   },
 });
@@ -1603,6 +1663,7 @@ registry.registerPath({
     401: apiErrorResponse(
       "A bearer token was required but missing or invalid.",
     ),
+    ...rateLimitResponse(),
     500: apiErrorResponse("The modules could not be reloaded."),
   },
 });
@@ -1624,6 +1685,7 @@ registry.registerPath({
     401: apiErrorResponse(
       "A bearer token was required but missing or invalid.",
     ),
+    ...rateLimitResponse(),
     404: apiErrorResponse("The module could not be found."),
     500: apiErrorResponse("The module could not be loaded."),
   },
@@ -1648,6 +1710,7 @@ registry.registerPath({
     401: apiErrorResponse(
       "A bearer token was required but missing or invalid.",
     ),
+    ...rateLimitResponse(),
     409: apiErrorResponse("A module already exists with the requested id."),
     413: apiErrorResponse(
       "The downloaded archive exceeded the configured size limit.",
@@ -1676,6 +1739,7 @@ registry.registerPath({
     401: apiErrorResponse(
       "A bearer token was required but missing or invalid.",
     ),
+    ...rateLimitResponse(),
     409: apiErrorResponse("A module already exists with the requested id."),
     413: apiErrorResponse(
       "The downloaded archive exceeded the configured size limit.",
@@ -1701,6 +1765,7 @@ registry.registerPath({
     401: apiErrorResponse(
       "A bearer token was required but missing or invalid.",
     ),
+    ...rateLimitResponse(),
     404: apiErrorResponse("The module could not be found."),
     500: apiErrorResponse("The module could not be deleted."),
   },
@@ -1723,6 +1788,7 @@ registry.registerPath({
     401: apiErrorResponse(
       "A bearer token was required but missing or invalid.",
     ),
+    ...rateLimitResponse(),
     404: apiErrorResponse("The module could not be found."),
     409: apiErrorResponse(
       "The module has no stored registry source and cannot be updated automatically.",
@@ -1759,6 +1825,7 @@ registry.registerPath({
     401: apiErrorResponse(
       "A bearer token was required but missing or invalid.",
     ),
+    ...rateLimitResponse(),
     404: apiErrorResponse("The module could not be found."),
     413: apiErrorResponse(
       "The downloaded archive exceeded the configured size limit.",
@@ -1787,6 +1854,7 @@ registry.registerPath({
     401: apiErrorResponse(
       "A bearer token was required but missing or invalid.",
     ),
+    ...rateLimitResponse(),
     404: apiErrorResponse("The module could not be found."),
     409: apiErrorResponse("The module is missing and cannot be enabled."),
     500: apiErrorResponse("The module enabled state could not be updated."),
@@ -1811,6 +1879,7 @@ registry.registerPath({
     401: apiErrorResponse(
       "A bearer token was required but missing or invalid.",
     ),
+    ...rateLimitResponse(),
     500: apiErrorResponse(
       "The environment documentation could not be generated.",
     ),

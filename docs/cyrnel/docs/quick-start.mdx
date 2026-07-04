@@ -46,6 +46,7 @@ CYRNEL_SECRETS_KEY=your-base64-32-byte-key
 |---|---|---|
 | `CYRNEL_API_KEY` | _(unauthenticated)_ | Bearer token required on every API request |
 | `CYRNEL_SECRETS_KEY` | _(required)_ | AES-256-GCM key for encrypting service secrets |
+| `CYRNEL_SECRETS_PREVIOUS_KEYS` | _(optional)_ | Comma-separated old keys for rotation fallback |
 | `CYRNEL_DB_URL` | `file:/data/cyrnel.db` | Database connection (SQLite by default) |
 | `LOG_LEVEL` | `info` | `trace`, `debug`, `info`, `warn`, `error`, `fatal`, `silent` |
 

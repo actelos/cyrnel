@@ -108,6 +108,13 @@ openssl rand -base64 32
 # Paste the output into apps/api/.env as CYRNEL_SECRETS_KEY
 ```
 
+**Key rotation** is supported via `CYRNEL_SECRETS_PREVIOUS_KEYS`. To rotate:
+set the env var to the old key (comma-separated if multiple), replace
+`CYRNEL_SECRETS_KEY` with a new key, and restart. Existing ciphertext is
+decrypted using the fallback keys and re-encrypted with the primary key on
+first read. See the [security docs](docs/cyrnel/docs/security.mdx) for the
+full procedure.
+
 Open `apps/api/.example.env` directly to read the full list of variables and
 what each one does. The two most important ones beyond the secrets key are:
 
