@@ -347,6 +347,7 @@ async function pollUntilIdle(
 ): Promise<Record<string, unknown>> {
   const timeoutMs = (timeoutS ?? 30) * 1000;
   const deadline = Date.now() + timeoutMs * 2 + 1_000;
+  let attempt = 0;
 
   while (true) {
     const process = (await api.get(`processes/${id}`).json()) as {
@@ -358,7 +359,9 @@ async function pollUntilIdle(
         `Process ${id} did not become idle within the configured wait window.`,
       );
     }
-    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+    attempt++;
+    const delay = Math.min(pollIntervalMs * 1.5 ** (attempt - 1), 5000);
+    await new Promise((resolve) => setTimeout(resolve, delay));
   }
 }
 

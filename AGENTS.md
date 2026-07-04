@@ -111,3 +111,24 @@ CI (`publish.yml`) on push to `main`: publishes SDK to npm + builds/pushes Docke
 - `kebab-case` files in `apps/api/src/**`; `camelCase` fns/vars; `PascalCase` types
 - Avoid `any` — prefer `unknown` + narrowing
 - API logs: `pino`/`pino-http` with stable keys (`requestId`, `userId`, `adapterId`). Never log secrets.
+
+## Environment variables
+
+Full set of env vars (see `apps/api/.example.env` for defaults):
+
+| Variable | Purpose |
+|---|---|
+| `CYRNEL_RATE_LIMIT_MAX` | Global max requests per window (unset = disabled) |
+| `CYRNEL_RATE_LIMIT_WINDOW_MS` | Global rate-limit window duration |
+| `CYRNEL_ALLOWED_IPS` | Inbound IP allowlist (comma-separated CIDR) |
+| `CYRNEL_BLOCKED_IPS` | Inbound IP blocklist (comma-separated CIDR) |
+| `CYRNEL_MAX_ACTIVE_PROCESSES` | Max in-memory process records (default 1000) |
+| `CYRNEL_MAX_CODE_SIZE_BYTES` | Max sandbox code submission size (default 102400) |
+| `CYRNEL_INVOKE_TIMEOUT_MS` | Tool invocation timeout (default 30000) |
+| `CYRNEL_MAX_CONNECTIONS` | Max concurrent connections (0 = unlimited) |
+| `CYRNEL_KEEPALIVE_TIMEOUT_MS` | Keep-alive timeout (default 5000) |
+| `CYRNEL_HEADERS_TIMEOUT_MS` | Headers timeout (default 6000) |
+| `CYRNEL_REQUEST_TIMEOUT_MS` | Request timeout (0 = no timeout) |
+| `CYRNEL_REGISTRY_ALLOWED_IPS` | Registry egress allowlist |
+| `CYRNEL_REGISTRY_BLOCKED_IPS` | Registry egress blocklist |
+| `CYRNEL_BLOCK_ALL_REGISTRIES` | Deny all registry downloads (1/true) |

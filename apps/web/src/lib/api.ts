@@ -5,11 +5,13 @@ export const apiBase = apiUrl();
 
 export class ApiError extends Error {
   readonly status: number;
+  readonly retryAfter?: number;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, retryAfter?: number) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.retryAfter = retryAfter;
   }
 }
 
@@ -52,7 +54,20 @@ export async function apiFetch(
 ): Promise<Response> {
   const response = await fetch(url, init);
   if (!response.ok) {
-    throw new ApiError(await readErrorMessage(response), response.status);
+    let retryAfter: number | undefined;
+    if (response.status === 429) {
+      try {
+        const body = (await response.clone().json()) as {
+          retryAfter?: number;
+        };
+        retryAfter = body.retryAfter;
+      } catch {}
+    }
+    throw new ApiError(
+      await readErrorMessage(response),
+      response.status,
+      retryAfter,
+    );
   }
   return response;
 }
