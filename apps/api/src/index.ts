@@ -1,5 +1,7 @@
 import "dotenv/config";
 
+import http from "node:http";
+
 import { z } from "zod";
 
 import { App } from "@/app";
@@ -15,11 +17,13 @@ const { PORT, SHUTDOWN_TIMEOUT_MS } = z
 const app = new App();
 await app.setup();
 
-const server = app.express.listen(PORT, () =>
-  logger.info({ PORT }, "Server listening"),
-);
+const server = http
+  .createServer(app.express)
+  .listen(PORT, () => logger.info({ PORT }, "Server listening"));
 
-server.maxConnections = Number(process.env.CYRNEL_MAX_CONNECTIONS) || 0;
+if (process.env.CYRNEL_MAX_CONNECTIONS !== undefined) {
+  server.maxConnections = Number(process.env.CYRNEL_MAX_CONNECTIONS);
+}
 server.keepAliveTimeout =
   process.env.CYRNEL_KEEPALIVE_TIMEOUT_MS !== undefined
     ? Number(process.env.CYRNEL_KEEPALIVE_TIMEOUT_MS)
