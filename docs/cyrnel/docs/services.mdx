@@ -24,6 +24,8 @@ On disk, cyrnel extends that with:
 
 - `id`: the service identifier the client chose at install time. Must be a
   valid identifier (`[A-Za-z_$][A-Za-z0-9_$]*`).
+- `version`: semver version of the service definition. Defaults to `"0.0.0"`
+  for direct installs; set from the registry descriptor for registry installs.
 - `hash`: SHA-256 of the definition file used at install/update time.
 - `source`: the registry URL the service was installed from. `""` means the
   service was direct-installed (no registry reference).
@@ -84,18 +86,22 @@ Response (`201`):
 ```
 
 The `source` is a registry URL pointing to a metadata API endpoint. The server
-fetches `source`, expecting a JSON response:
+fetches `source`, expecting a versioned JSON response:
 
 ```ts
-interface ServiceRegistryResponse {
-  downloadUrl: string;   // URL to the definition file
-  hash?: string;         // SHA-256 of the definition text (skip + integrity)
-  id?: string;           // default service id (client can override)
-  adapter?: string;      // default adapter module id (client can override)
+interface RegistryDescriptor {
+  latestVersion: string;
+  versions: Record<string, {
+    downloadUrl: string;   // URL to the definition file
+    hash?: string;         // SHA-256 of the definition text (skip + integrity)
+    id?: string;           // default service id (client can override)
+    adapter?: string;      // default adapter module id (client can override)
+  }>;
 }
 ```
 
-If the response includes a `hash`, the server verifies the downloaded content
+The `version` request field (optional) selects a semver range; omitted or
+`"latest"` resolves to `latestVersion`. If the response includes a `hash`, the server verifies the downloaded content
 matches it. The effective `id` and `adapter` are merged from the request body
 and registry response (body wins over registry default). The `source` URL is
 persisted in the database so the service can be re-resolved later for updates.
@@ -233,7 +239,7 @@ silently re-encrypted with the current primary key and persisted.
 During a key rotation, both `CYRNEL_SECRETS_KEY` (new key) and
 `CYRNEL_SECRETS_PREVIOUS_KEYS` (old key, comma-separated if multiple) must
 be set. If the previous keys are missing and an existing record was encrypted
-under the old key, `decryptSecrets` throws `500` — the payload's key ID
+under the old key, `decryptSecrets` throws `500`, the payload's key ID
 won't match any key in the ring, and the fallback has nowhere to go.
 
 | Method | Path | Returns |

@@ -31,21 +31,27 @@ must contain a `module.json`:
 {
   "$schema": "https://raw.githubusercontent.com/actelos/cyrnel/main/schema/module.schema.json",
   "id": "my-adapter",
+  "version": "1.0.0",
   "name": "My Adapter",
   "type": "adapter",
   "description": "Talks to my service",
-  "main": "./index.js"
+  "main": "./index.js",
+  "engines": { "cyrnel": "^x.x.x" }
 }
 ```
 
 Fields:
 
 - `id`: Unique identifier for the module.
+- `version`: Semver version of the module (required, e.g. `"1.2.3"`).
 - `name`: Human readable name for the module.
-- `type`: `Adapter` or `environment`.
+- `type`: `adapter` or `environment`.
 - `description`: Surfaced in `GET /modules`.
 - `main`: Path to the built module file the host can `import()`. The file must
   default-export the module object (see below).
+- `engines` (optional): Object with an optional `cyrnel` string field. If set,
+  the Cyrnel core version must satisfy the semver range, or the module is
+  rejected at registration time.
 
 The full JSON Schema is available at
 [`schema/module.schema.json`](https://github.com/actelos/cyrnel/blob/main/schema/module.schema.json).

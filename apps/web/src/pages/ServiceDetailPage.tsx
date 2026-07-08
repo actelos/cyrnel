@@ -49,12 +49,14 @@ const serviceSchema = z.object({
   name: z.string(),
   description: z.string(),
   adapter: z.string(),
+  version: z.string(),
   enabled: z.boolean(),
   stale: z.boolean(),
 });
 
 const serviceDetailsSchema = serviceSchema.extend({
   hash: z.string(),
+  version: z.string(),
   source: z.string(),
   configSchema: z.record(z.string(), z.unknown()),
   secretsSchema: z.record(z.string(), z.unknown()),
@@ -525,6 +527,9 @@ export default function ServiceDetailPage() {
                   </div>
                   <p className="text-muted-foreground text-xs font-mono">
                     {serviceDetails.id}
+                  </p>
+                  <p className="text-muted-foreground text-xs">
+                    v{serviceDetails.version}
                   </p>
                   <div className="flex flex-wrap items-center gap-2">
                     <Button

@@ -62,6 +62,7 @@ const installServiceRegistryBodySchema = z.object({
   source: nonEmptyTrimmedString("source"),
   adapter: nonEmptyTrimmedString("adapter").optional(),
   id: nonEmptyTrimmedString("id").optional(),
+  version: nonEmptyTrimmedString("version").optional(),
 });
 
 const patchServiceBodySchema = z.object({

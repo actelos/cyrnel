@@ -196,6 +196,12 @@
             "type": "string",
             "description": "Human-readable description of the service."
           },
+          "version": {
+            "type": "string",
+            "minLength": 1,
+            "example": "1.3.0",
+            "description": "Semantic version of the installed service definition."
+          },
           "hash": {
             "type": "string",
             "minLength": 1,
@@ -228,6 +234,7 @@
           "id",
           "name",
           "description",
+          "version",
           "hash",
           "source",
           "adapter",
@@ -301,6 +308,12 @@
             "type": "string",
             "minLength": 1,
             "description": "Optional service identifier. Overrides registry default."
+          },
+          "version": {
+            "type": "string",
+            "minLength": 1,
+            "example": "^1.0.0",
+            "description": "Optional semantic range or exact version. Resolves from registry. Defaults to latest."
           }
         },
         "required": [
@@ -693,6 +706,12 @@
             "type": "string",
             "description": "Human-readable description of the module."
           },
+          "version": {
+            "type": "string",
+            "minLength": 1,
+            "example": "2.0.0",
+            "description": "Semantic version of the installed module manifest."
+          },
           "isBuiltin": {
             "type": "boolean",
             "description": "Whether the module is bundled with the API."
@@ -711,6 +730,7 @@
           "name",
           "type",
           "description",
+          "version",
           "isBuiltin",
           "enabled",
           "missing"
@@ -783,6 +803,12 @@
             "type": "string",
             "minLength": 1,
             "description": "Registry URL to resolve for module metadata, then download the .tar.zst archive."
+          },
+          "version": {
+            "type": "string",
+            "minLength": 1,
+            "example": "^1.0.0",
+            "description": "Optional semantic range or exact version. Resolves from registry. Defaults to latest."
           }
         },
         "required": [

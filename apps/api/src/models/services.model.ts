@@ -9,6 +9,7 @@ export interface ToolDefinitionRecord extends ToolDefinition {
 export interface ServiceDefinitionRecord extends ServiceDefinition {
   id: string;
   hash: string;
+  version: string;
   source: string;
   adapter: string;
   enabled: boolean;
@@ -75,6 +76,7 @@ export interface RegistryInstallServiceInput {
   source: string;
   adapter?: string;
   id?: string;
+  version?: string;
 }
 
 export interface PatchServiceSourceInput {

@@ -35,6 +35,7 @@ const moduleSchema = z.object({
   name: z.string(),
   type: moduleTypeSchema,
   description: z.string(),
+  version: z.string(),
   isBuiltin: z.boolean(),
   enabled: z.boolean(),
   missing: z.boolean(),
@@ -64,6 +65,7 @@ export default function ModulesPage() {
   );
   const [manualUrl, setManualUrl] = useState("");
   const [registrySource, setRegistrySource] = useState("");
+  const [registryVersion, setRegistryVersion] = useState("");
   const [isInstalling, setIsInstalling] = useState(false);
 
   const normalizedQuery = queryFilter.trim();
@@ -173,7 +175,11 @@ export default function ModulesPage() {
       await apiFetch(buildUrl("/modules/install"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ source: trimmed }),
+        body: JSON.stringify(
+          registryVersion.trim()
+            ? { source: trimmed, version: registryVersion.trim() }
+            : { source: trimmed },
+        ),
       });
       setRegistrySource("");
       setIsInstallOpen(false);
@@ -269,6 +275,22 @@ export default function ModulesPage() {
                             }
                             placeholder="https://registry.example.com/module"
                             value={registrySource}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="module-registry-version">
+                            Version{" "}
+                            <span className="text-muted-foreground">
+                              (optional, default: latest)
+                            </span>
+                          </Label>
+                          <Input
+                            id="module-registry-version"
+                            onChange={(event) =>
+                              setRegistryVersion(event.target.value)
+                            }
+                            placeholder="^1.0.0"
+                            value={registryVersion}
                           />
                         </div>
                         <div className="flex items-center justify-end gap-2">
