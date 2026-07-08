@@ -301,6 +301,7 @@ export class ServicesService {
           ...generatedDefinition,
           id: input.id,
           hash,
+          version: "0.0.0",
           source: "",
           adapter: input.adapter,
           enabled: false,
@@ -326,7 +327,7 @@ export class ServicesService {
     input: RegistryInstallServiceInput,
   ): Promise<string> {
     const { resolveServiceRegistry } = await import("@/utils/registry.util");
-    const registry = await resolveServiceRegistry(input.source);
+    const registry = await resolveServiceRegistry(input.source, input.version);
 
     const effectiveId = input.id ?? registry.id;
     const effectiveAdapter = input.adapter ?? registry.adapter;
@@ -384,6 +385,7 @@ export class ServicesService {
           ...generatedDefinition,
           id: effectiveId,
           hash: contentHash,
+          version: registry.version,
           source: input.source,
           adapter: effectiveAdapter,
           enabled: false,
@@ -491,6 +493,7 @@ export class ServicesService {
         adapter: services.adapter,
         source: services.source,
         hash: services.hash,
+        version: services.version,
       })
       .from(services)
       .where(eq(services.id, id))
@@ -506,7 +509,7 @@ export class ServicesService {
         `Service '${id}' has no stored install source and cannot be updated automatically. Only registry-installed services can be updated.`,
       );
 
-    let registry: { downloadUrl: string; hash?: string };
+    let registry: { version: string; downloadUrl: string; hash?: string };
     try {
       const { resolveServiceRegistry } = await import("@/utils/registry.util");
       registry = await resolveServiceRegistry(service.source);
@@ -523,14 +526,19 @@ export class ServicesService {
       );
     }
 
-    if (registry.hash && registry.hash === service.hash) return;
+    if (
+      registry.hash &&
+      registry.hash === service.hash &&
+      registry.version === service.version
+    )
+      return;
 
     const definitionContent = await this.downloadDefinition(
       registry.downloadUrl,
     );
     const hash = computeContentHash(definitionContent);
 
-    if (hash === service.hash) return;
+    if (hash === service.hash && registry.version === service.version) return;
 
     const parsedDefinition = await this.controller.generateDefinition({
       definition: definitionContent,
@@ -560,6 +568,7 @@ export class ServicesService {
           .set({
             ...parsedDefinition,
             hash,
+            version: registry.version,
             enabled: false,
             definitionContent,
             stale: false,
@@ -642,6 +651,7 @@ export class ServicesService {
           .set({
             ...generatedDefinition,
             hash,
+            version: "0.0.0",
             source: "",
             enabled: false,
             definitionContent,

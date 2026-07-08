@@ -3,6 +3,10 @@
   "id": "shell-environment",
   "name": "Shell Environment",
   "type": "environment",
+  "version": "1.0.0",
   "description": "Run shell commands",
-  "main": "./index.js"
+  "main": "./index.js",
+  "engines": {
+    "cyrnel": ">=3.0.0"
+  }
 }

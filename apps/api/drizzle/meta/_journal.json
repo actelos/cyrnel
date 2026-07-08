@@ -15,6 +15,13 @@
       "when": 1782390160113,
       "tag": "0001_add_timeout_ms_and_env_config",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1783512000000,
+      "tag": "0002_add_module_service_versions",
+      "breakpoints": true
     }
   ]
 }

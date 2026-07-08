@@ -3,6 +3,10 @@
   "id": "http-adapter",
   "name": "HTTP Adapter",
   "type": "adapter",
+  "version": "1.0.0",
   "description": "Call any HTTP API",
-  "main": "./index.js"
+  "main": "./index.js",
+  "engines": {
+    "cyrnel": ">=3.0.0"
+  }
 }

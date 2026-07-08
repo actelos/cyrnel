@@ -25,14 +25,20 @@ sources:
    ```json
    {
      "id": "my-adapter",
+     "version": "1.2.3",
      "type": "adapter",
      "name": "My Adapter",
      "description": "this is my my adapter",
      "main": "./index.js",
+     "engines": { "cyrnel": "^x.x.x" },
      "configSchema": { ... },
      "secretsSchema": { ... },
    }
    ```
+
+   `version` is a required semver string. `engines.cyrnel` is an optional semver
+   range; if set, the Cyrnel core version (`CYRNEL_CORE_VERSION`) must satisfy
+   it, or the module is rejected with a 400 error.
 
    `main` is an ES module exporting `instantiate(): AdapterModule` or
    `EnvironmentModule`. See
@@ -78,13 +84,24 @@ persisted to the database with `source = ""`.
 ```
 
 The `source` is a registry URL pointing to a metadata API endpoint. The server
-fetches `source`, expecting a JSON response:
+fetches `source`, expecting a JSON response with a versioned descriptor:
 
 ```ts
-interface ModuleRegistryResponse {
-  downloadUrl: string;   // URL to the .tar.zst archive
-  hash?: string;         // SHA-256 of the .tar.zst binary (skip + integrity)
+interface RegistryDescriptor {
+  latestVersion: string;                              // semver string
+  versions: Record<string, {
+    downloadUrl: string;                              // URL to the .tar.zst archive
+    hash?: string;                                    // SHA-256 of the archive
+    engines?: { cyrnel?: string };                    // optional engine constraint
+  }>;
 }
+```
+
+The server resolves the `latestVersion` entry by default, or a specific
+version/range when `version` is provided in the request body:
+
+```json
+{ "source": "https://registry.example.com/modules/my-module", "version": "^1.0.0" }
 ```
 
 If the response includes a `hash`, the server verifies the downloaded archive
@@ -216,6 +233,7 @@ interface ModuleManifestRecord {
   description: string;
   type: "adapter" | "environment";
   hash: string;
+  version: string;
   source: string;
   isBuiltin: boolean;
   enabled: boolean;

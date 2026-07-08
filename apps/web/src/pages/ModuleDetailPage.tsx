@@ -42,6 +42,7 @@ const moduleDetailSchema = z.object({
   name: z.string(),
   type: moduleTypeSchema,
   description: z.string(),
+  version: z.string(),
   hash: z.string(),
   source: z.string(),
   isBuiltin: z.boolean(),
@@ -426,6 +427,9 @@ export default function ModuleDetailPage() {
               </div>
               <p className="text-muted-foreground text-xs font-mono">
                 {moduleDetail.id}
+              </p>
+              <p className="text-muted-foreground text-xs">
+                v{moduleDetail.version}
               </p>
               <div className="flex flex-wrap items-center gap-2">
                 <Button

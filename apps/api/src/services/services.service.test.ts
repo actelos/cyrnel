@@ -136,15 +136,17 @@ async function seedService(
     configSchema?: JSONSchema;
     secretsSchema?: JSONSchema;
     tools?: { id: string; name: string; enabled?: boolean }[];
+    version?: string;
   } = {},
 ): Promise<void> {
   const adapter = options.adapter ?? "test-adapter";
   await db.run(
-    sql`INSERT INTO services (id, name, description, hash, source, adapter, enabled, config_schema, secrets_schema, adapter_domain)
+    sql`INSERT INTO services (id, name, description, hash, version, source, adapter, enabled, config_schema, secrets_schema, adapter_domain)
         VALUES (${id},
                 ${options.name ?? id},
                 ${options.description ?? ""},
                 ${options.hash ?? "hash"},
+                ${options.version ?? "1.0.0"},
                 ${options.source ?? "https://example.com/def.json"},
                 ${adapter},
                 ${options.enabled === false ? 0 : 1},
@@ -192,10 +194,16 @@ function mockFetchRegistryThen(
     vi.fn(async (_url: string) => {
       callCount++;
       if (callCount === 1) {
-        return new Response(JSON.stringify({ downloadUrl, hash }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        });
+        return new Response(
+          JSON.stringify({
+            latestVersion: "1.0.0",
+            versions: { "1.0.0": { downloadUrl, hash } },
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        );
       }
       return new Response(definitionContent, { status: 200 });
     }),

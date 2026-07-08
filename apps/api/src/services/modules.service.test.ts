@@ -357,6 +357,7 @@ describe("ModuleService", () => {
             name: "Custom Module",
             description: "custom",
             type: "adapter",
+            version: "1.0.0",
             main: "index.mjs",
           }),
         );
@@ -408,6 +409,7 @@ describe("ModuleService", () => {
             name: "Custom Module",
             description: "custom",
             type: "adapter",
+            version: "1.0.0",
             main: "index.mjs",
           }),
         );
@@ -482,6 +484,7 @@ describe("ModuleService", () => {
             name: "Evil Module",
             description: "tries to escape",
             type: "adapter",
+            version: "1.0.0",
             main: "../../../../../../etc/passwd",
           }),
         );
@@ -1084,6 +1087,7 @@ describe("ModuleService", () => {
             name: "Fresh Module",
             description: "x",
             type: "adapter",
+            version: "1.0.0",
             main: "index.mjs",
           }),
         );
@@ -1133,6 +1137,7 @@ describe("ModuleService", () => {
             name: "Transient Module",
             description: "x",
             type: "adapter",
+            version: "1.0.0",
             main: "index.mjs",
           }),
         );
@@ -1321,6 +1326,7 @@ describe("ModuleService", () => {
             name: "Null Config Module",
             description: "null config",
             type: "adapter",
+            version: "1.0.0",
             main: "index.mjs",
           }),
         );
@@ -1577,6 +1583,7 @@ describe("ModuleService", () => {
         const tarData = await createTestTar(dir, {
           "module.json": JSON.stringify({
             id: "installedMod",
+            version: "1.0.0",
             name: "Installed Module",
             description: "test module",
             type: "adapter",
@@ -1642,6 +1649,7 @@ describe("ModuleService", () => {
         const tarData = await createTestTar(dir, {
           "module.json": JSON.stringify({
             id: "dupeMod",
+            version: "1.0.0",
             name: "Dupe Module",
             description: "duplicate",
             type: "adapter",
@@ -1742,6 +1750,7 @@ describe("ModuleService", () => {
         const tarData = await createTestTar(dir, {
           "module.json": JSON.stringify({
             id: "escapeMod",
+            version: "1.0.0",
             name: "Escape",
             description: "escapes",
             type: "adapter",
@@ -1778,6 +1787,7 @@ describe("ModuleService", () => {
           path.join(modDir, "module.json"),
           JSON.stringify({
             id: "toBeDeleted",
+            version: "1.0.0",
             name: "Delete Me",
             description: "will be deleted",
             type: "adapter",
@@ -1833,6 +1843,7 @@ describe("ModuleService", () => {
           path.join(modDir, "module.json"),
           JSON.stringify({
             id: "adapterMod",
+            version: "1.0.0",
             name: "Adapter",
             description: "adapter",
             type: "adapter",
@@ -1904,6 +1915,7 @@ describe("ModuleService", () => {
         const tarData = await createTestTar(dir, {
           "module.json": JSON.stringify({
             id: "hashTestMod",
+            version: "1.0.0",
             name: "Hash Test",
             description: "testing",
             type: "adapter",
@@ -1979,6 +1991,7 @@ describe("ModuleService", () => {
           path.join(modDir, "module.json"),
           JSON.stringify({
             id: "noSourceMod",
+            version: "1.0.0",
             name: "No Source",
             description: "no source",
             type: "adapter",
@@ -2024,6 +2037,7 @@ describe("ModuleService", () => {
         const tarData = await createTestTar(dir, {
           "module.json": JSON.stringify({
             id: "stableMod",
+            version: "1.0.0",
             name: "Stable Module",
             description: "stable",
             type: "adapter",
@@ -2051,7 +2065,12 @@ describe("ModuleService", () => {
         decompressMock.mockReturnValue(tarUint8);
 
         const registryResponse = {
-          downloadUrl: "https://example.com/download/stable.tar.zst",
+          latestVersion: "1.0.0",
+          versions: {
+            "1.0.0": {
+              downloadUrl: "https://example.com/download/stable.tar.zst",
+            },
+          },
         };
         vi.stubGlobal(
           "fetch",
@@ -2085,6 +2104,7 @@ describe("ModuleService", () => {
         const tarData = await createTestTar(dir, {
           "module.json": JSON.stringify({
             id: "changedMod",
+            version: "1.0.0",
             name: "Changed Module",
             description: "original",
             type: "adapter",
@@ -2111,7 +2131,12 @@ describe("ModuleService", () => {
         decompressMock.mockReturnValue(tarUint8);
 
         const registryResponse = {
-          downloadUrl: "https://example.com/download/changed.tar.zst",
+          latestVersion: "1.0.0",
+          versions: {
+            "1.0.0": {
+              downloadUrl: "https://example.com/download/changed.tar.zst",
+            },
+          },
         };
         vi.stubGlobal(
           "fetch",
@@ -2133,6 +2158,7 @@ describe("ModuleService", () => {
         const newTarData = await createTestTar(dir, {
           "module.json": JSON.stringify({
             id: "changedMod",
+            version: "1.0.0",
             name: "Changed Module Updated",
             description: "updated",
             type: "adapter",
@@ -2192,6 +2218,7 @@ describe("ModuleService", () => {
         const tarData = await createTestTar(dir, {
           "module.json": JSON.stringify({
             id: "mismatchMod",
+            version: "1.0.0",
             name: "Mismatch Module",
             description: "original",
             type: "adapter",
@@ -2218,7 +2245,12 @@ describe("ModuleService", () => {
         decompressMock.mockReturnValue(tarUint8);
 
         const registryResponse = {
-          downloadUrl: "https://example.com/download/mismatch.tar.zst",
+          latestVersion: "1.0.0",
+          versions: {
+            "1.0.0": {
+              downloadUrl: "https://example.com/download/mismatch.tar.zst",
+            },
+          },
         };
         vi.stubGlobal(
           "fetch",
@@ -2240,6 +2272,7 @@ describe("ModuleService", () => {
         const mismatchedTarData = await createTestTar(dir, {
           "module.json": JSON.stringify({
             id: "mismatchedId",
+            version: "1.0.0",
             name: "Wrong Identity",
             description: "should not apply",
             type: "adapter",

@@ -1,5 +1,6 @@
 import type { JSONSchema } from "@cyrnel/sdk";
 import type { Operation } from "fast-json-patch";
+import { valid } from "semver";
 import { z } from "zod";
 
 export const MODULE_TYPES = ["adapter", "environment"] as const;
@@ -12,6 +13,7 @@ export interface ModuleManifestRecord {
   type: ModuleType;
   description: string;
   hash: string;
+  version: string;
   source: string;
   isBuiltin: boolean;
   enabled: boolean;
@@ -66,14 +68,23 @@ export interface PatchModuleSourceInput {
 
 export interface RegistryInstallModuleInput {
   source: string;
+  version?: string;
 }
 
 export const moduleManifestSchema = z.object({
   id: z.string().regex(/^[A-Za-z_$][A-Za-z0-9_$-]*$/),
   name: z.string().min(1),
+  version: z.string().refine((value) => valid(value) !== null, {
+    message: "Module manifest version must be a valid semver version.",
+  }),
   description: z.string(),
   type: z.enum(MODULE_TYPES),
   main: z.string().min(1),
+  engines: z
+    .object({
+      cyrnel: z.string().min(1).optional(),
+    })
+    .optional(),
 });
 
 export type ModuleManifestSchema = z.infer<typeof moduleManifestSchema>;

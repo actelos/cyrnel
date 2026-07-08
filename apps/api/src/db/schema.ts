@@ -15,6 +15,7 @@ export const services = sqliteTable("services", {
   name: text("name").notNull(),
   description: text("description").notNull().default(""),
   hash: text("hash").notNull(),
+  version: text("version").notNull().default("0.0.0"),
   source: text("source").notNull().default(""),
   adapter: text("adapter")
     .notNull()
@@ -88,6 +89,7 @@ export const modules = sqliteTable(
     type: text("type").$type<ModuleType>().notNull(),
     description: text("description").notNull().default(""),
     hash: text("hash").notNull().default(""),
+    version: text("version").notNull().default("0.0.0"),
     source: text("source").notNull().default(""),
     enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
     missing: integer("missing", { mode: "boolean" }).notNull().default(false),
