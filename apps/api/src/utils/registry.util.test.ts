@@ -33,25 +33,39 @@ function mockFetchError(): void {
   );
 }
 
+function versioned(entry: Record<string, unknown>): Record<string, unknown> {
+  return {
+    latestVersion: "1.0.0",
+    versions: {
+      "1.0.0": entry,
+    },
+  };
+}
+
 describe("resolveModuleRegistry", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });
 
   it("returns downloadUrl from a valid response", async () => {
-    mockFetchJson({ downloadUrl: "https://example.com/mod.tar.zst" });
+    mockFetchJson(
+      versioned({ downloadUrl: "https://example.com/mod.tar.zst" }),
+    );
     const result = await resolveModuleRegistry(
       "https://registry.example.com/mod",
     );
     expect(result.downloadUrl).toBe("https://example.com/mod.tar.zst");
+    expect(result.version).toBe("1.0.0");
     expect(result.hash).toBeUndefined();
   });
 
   it("returns hash when present", async () => {
-    mockFetchJson({
-      downloadUrl: "https://example.com/mod.tar.zst",
-      hash: "abc123",
-    });
+    mockFetchJson(
+      versioned({
+        downloadUrl: "https://example.com/mod.tar.zst",
+        hash: "abc123",
+      }),
+    );
     const result = await resolveModuleRegistry(
       "https://registry.example.com/mod",
     );
@@ -67,14 +81,14 @@ describe("resolveModuleRegistry", () => {
   });
 
   it("throws 400 when downloadUrl is empty", async () => {
-    mockFetchJson({ downloadUrl: "" });
+    mockFetchJson(versioned({ downloadUrl: "" }));
     await expect(
       resolveModuleRegistry("https://registry.example.com/mod"),
     ).rejects.toBeInstanceOf(HttpError);
   });
 
   it("throws 400 when downloadUrl is not a string", async () => {
-    mockFetchJson({ downloadUrl: 123 });
+    mockFetchJson(versioned({ downloadUrl: 123 }));
     await expect(
       resolveModuleRegistry("https://registry.example.com/mod"),
     ).rejects.toBeInstanceOf(HttpError);
@@ -105,7 +119,9 @@ describe("resolveModuleRegistry", () => {
   });
 
   it("trims downloadUrl whitespace", async () => {
-    mockFetchJson({ downloadUrl: "  https://example.com/mod.tar.zst  " });
+    mockFetchJson(
+      versioned({ downloadUrl: "  https://example.com/mod.tar.zst  " }),
+    );
     const result = await resolveModuleRegistry(
       "https://registry.example.com/mod",
     );
@@ -113,10 +129,12 @@ describe("resolveModuleRegistry", () => {
   });
 
   it("throws 400 when hash is present but empty", async () => {
-    mockFetchJson({
-      downloadUrl: "https://example.com/mod.tar.zst",
-      hash: "",
-    });
+    mockFetchJson(
+      versioned({
+        downloadUrl: "https://example.com/mod.tar.zst",
+        hash: "",
+      }),
+    );
     await expect(
       resolveModuleRegistry("https://registry.example.com/mod"),
     ).rejects.toBeInstanceOf(HttpError);
@@ -129,23 +147,26 @@ describe("resolveServiceRegistry", () => {
   });
 
   it("returns downloadUrl from a valid response", async () => {
-    mockFetchJson({ downloadUrl: "https://example.com/svc.json" });
+    mockFetchJson(versioned({ downloadUrl: "https://example.com/svc.json" }));
     const result = await resolveServiceRegistry(
       "https://registry.example.com/svc",
     );
     expect(result.downloadUrl).toBe("https://example.com/svc.json");
+    expect(result.version).toBe("1.0.0");
     expect(result.hash).toBeUndefined();
     expect(result.id).toBeUndefined();
     expect(result.adapter).toBeUndefined();
   });
 
   it("returns optional fields when present", async () => {
-    mockFetchJson({
-      downloadUrl: "https://example.com/svc.json",
-      hash: "def456",
-      id: "my-service",
-      adapter: "my-adapter",
-    });
+    mockFetchJson(
+      versioned({
+        downloadUrl: "https://example.com/svc.json",
+        hash: "def456",
+        id: "my-service",
+        adapter: "my-adapter",
+      }),
+    );
     const result = await resolveServiceRegistry(
       "https://registry.example.com/svc",
     );
@@ -170,32 +191,38 @@ describe("resolveServiceRegistry", () => {
   });
 
   it("throws 400 when id is present but empty", async () => {
-    mockFetchJson({
-      downloadUrl: "https://example.com/svc.json",
-      id: "",
-    });
+    mockFetchJson(
+      versioned({
+        downloadUrl: "https://example.com/svc.json",
+        id: "",
+      }),
+    );
     await expect(
       resolveServiceRegistry("https://registry.example.com/svc"),
     ).rejects.toBeInstanceOf(HttpError);
   });
 
   it("throws 400 when adapter is present but empty", async () => {
-    mockFetchJson({
-      downloadUrl: "https://example.com/svc.json",
-      adapter: "",
-    });
+    mockFetchJson(
+      versioned({
+        downloadUrl: "https://example.com/svc.json",
+        adapter: "",
+      }),
+    );
     await expect(
       resolveServiceRegistry("https://registry.example.com/svc"),
     ).rejects.toBeInstanceOf(HttpError);
   });
 
   it("trims all string fields", async () => {
-    mockFetchJson({
-      downloadUrl: "  https://example.com/svc.json  ",
-      hash: "  abc  ",
-      id: "  my-svc  ",
-      adapter: "  my-adapter  ",
-    });
+    mockFetchJson(
+      versioned({
+        downloadUrl: "  https://example.com/svc.json  ",
+        hash: "  abc  ",
+        id: "  my-svc  ",
+        adapter: "  my-adapter  ",
+      }),
+    );
     const result = await resolveServiceRegistry(
       "https://registry.example.com/svc",
     );

@@ -1,6 +1,7 @@
 import type { Dirent } from "node:fs";
 import fs from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
+import { pathToFileURL } from "node:url";
 import oapi from "@cyrnel/openapi";
 import type {
   AdapterModule,
@@ -21,9 +22,11 @@ import tsivm from "@cyrnel/typescript-ivm";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import jsonpatch from "fast-json-patch";
 import { decompress as zstdDecompress } from "fzstd";
+import { satisfies } from "semver";
 import { Unpack } from "tar";
 import { z } from "zod";
 
+import { CYRNEL_CORE_VERSION } from "@/constants";
 import { db } from "@/db/client";
 import {
   type ModuleRecord,
@@ -81,6 +84,7 @@ interface RegisteredModule {
   name: string;
   description: string;
   type: ModuleType;
+  version: string;
   isBuiltin: boolean;
   configSchema: JSONSchema;
   secretsSchema: JSONSchema;
@@ -586,6 +590,7 @@ export class ModuleService {
     const archiveHash = computeBinaryHash(buffer);
 
     const { manifest, tmpDir } = await this.extractModuleArchive(buffer);
+    this.assertEngineCompatibility(manifest.engines, `Module '${manifest.id}'`);
 
     if (this.factories.has(manifest.id)) {
       await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
@@ -617,8 +622,11 @@ export class ModuleService {
     let secretsSchema: JSONSchema;
 
     try {
-      const mainPath = resolve(installDir, manifest.main);
-      const imported = (await import(mainPath)) as {
+      const imported = (await this.importModuleExport(
+        installDir,
+        manifest.main,
+        archiveHash,
+      )) as {
         default: ModuleExport;
       };
       const def = imported.default;
@@ -644,6 +652,7 @@ export class ModuleService {
         name: manifest.name,
         description: manifest.description,
         type: manifest.type,
+        version: manifest.version,
         isBuiltin: false,
         configSchema,
         secretsSchema,
@@ -665,6 +674,7 @@ export class ModuleService {
         description: manifest.description,
         type: manifest.type,
         hash: archiveHash,
+        version: manifest.version,
         source: "",
         enabled: false,
         missing: false,
@@ -685,6 +695,7 @@ export class ModuleService {
       description: manifest.description,
       type: manifest.type,
       hash: archiveHash,
+      version: manifest.version,
       source: "",
       isBuiltin: false,
       enabled: false,
@@ -696,13 +707,15 @@ export class ModuleService {
 
   async installModuleFromRegistry(
     source: string,
+    version?: string,
   ): Promise<ModuleManifestRecord> {
     if (!this.modulesPath) {
       throw new HttpError(503, "ModuleService has not been initialized.");
     }
 
     const { resolveModuleRegistry } = await import("@/utils/registry.util");
-    const registry = await resolveModuleRegistry(source);
+    const registry = await resolveModuleRegistry(source, version);
+    this.assertEngineCompatibility(registry.engines, `Module '${source}'`);
 
     const buffer = await downloadBinary(
       registry.downloadUrl,
@@ -718,6 +731,14 @@ export class ModuleService {
     }
 
     const { manifest, tmpDir } = await this.extractModuleArchive(buffer);
+    this.assertEngineCompatibility(manifest.engines, `Module '${manifest.id}'`);
+    if (manifest.version !== registry.version) {
+      await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+      throw new HttpError(
+        400,
+        `Module manifest version '${manifest.version}' does not match registry version '${registry.version}'.`,
+      );
+    }
 
     if (this.factories.has(manifest.id)) {
       await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
@@ -749,8 +770,11 @@ export class ModuleService {
     let secretsSchema: JSONSchema;
 
     try {
-      const mainPath = resolve(installDir, manifest.main);
-      const imported = (await import(mainPath)) as {
+      const imported = (await this.importModuleExport(
+        installDir,
+        manifest.main,
+        archiveHash,
+      )) as {
         default: ModuleExport;
       };
       const def = imported.default;
@@ -776,6 +800,7 @@ export class ModuleService {
         name: manifest.name,
         description: manifest.description,
         type: manifest.type,
+        version: manifest.version,
         isBuiltin: false,
         configSchema,
         secretsSchema,
@@ -797,6 +822,7 @@ export class ModuleService {
         description: manifest.description,
         type: manifest.type,
         hash: archiveHash,
+        version: manifest.version,
         source: source,
         enabled: false,
         missing: false,
@@ -817,6 +843,7 @@ export class ModuleService {
       description: manifest.description,
       type: manifest.type,
       hash: archiveHash,
+      version: manifest.version,
       source: source,
       isBuiltin: false,
       enabled: false,
@@ -834,6 +861,7 @@ export class ModuleService {
     const [row] = await db
       .select({
         hash: modulesTable.hash,
+        version: modulesTable.version,
         source: modulesTable.source,
         type: modulesTable.type,
       })
@@ -851,10 +879,16 @@ export class ModuleService {
         `Module '${id}' has no stored install source and cannot be updated automatically. Only registry-installed modules can be updated.`,
       );
 
-    let registry: { downloadUrl: string; hash?: string };
+    let registry: {
+      version: string;
+      downloadUrl: string;
+      hash?: string;
+      engines?: { cyrnel?: string };
+    };
     try {
       const { resolveModuleRegistry } = await import("@/utils/registry.util");
       registry = await resolveModuleRegistry(row.source);
+      this.assertEngineCompatibility(registry.engines, `Module '${id}'`);
     } catch (err) {
       if (err instanceof HttpError) {
         throw new HttpError(
@@ -868,7 +902,11 @@ export class ModuleService {
       );
     }
 
-    if (registry.hash && registry.hash === row.hash) {
+    if (
+      registry.hash &&
+      registry.hash === row.hash &&
+      registry.version === row.version
+    ) {
       return { updated: false };
     }
 
@@ -883,6 +921,14 @@ export class ModuleService {
     }
 
     const { manifest, tmpDir } = await this.extractModuleArchive(buffer);
+    this.assertEngineCompatibility(manifest.engines, `Module '${manifest.id}'`);
+    if (manifest.version !== registry.version) {
+      await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+      throw new HttpError(
+        400,
+        `Module manifest version '${manifest.version}' does not match registry version '${registry.version}'.`,
+      );
+    }
 
     if (manifest.id !== id) {
       await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
@@ -929,8 +975,11 @@ export class ModuleService {
     const prevManifest = this.manifests.get(manifest.id);
 
     try {
-      const mainPath = resolve(installDir, manifest.main);
-      const imported = (await import(mainPath)) as {
+      const imported = (await this.importModuleExport(
+        installDir,
+        manifest.main,
+        newHash,
+      )) as {
         default: ModuleExport;
       };
       const def = imported.default;
@@ -954,6 +1003,7 @@ export class ModuleService {
         name: manifest.name,
         description: manifest.description,
         type: manifest.type,
+        version: manifest.version,
         isBuiltin: false,
         configSchema: def.configSchema,
         secretsSchema: def.secretsSchema,
@@ -978,6 +1028,7 @@ export class ModuleService {
           name: manifest.name,
           description: manifest.description,
           hash: newHash,
+          version: manifest.version,
         })
         .where(eq(modulesTable.id, id));
     } catch {
@@ -1030,6 +1081,7 @@ export class ModuleService {
     const [row] = await db
       .select({
         hash: modulesTable.hash,
+        version: modulesTable.version,
         type: modulesTable.type,
       })
       .from(modulesTable)
@@ -1095,8 +1147,11 @@ export class ModuleService {
     const prevManifest = this.manifests.get(manifest.id);
 
     try {
-      const mainPath = resolve(installDir, manifest.main);
-      const imported = (await import(mainPath)) as {
+      const imported = (await this.importModuleExport(
+        installDir,
+        manifest.main,
+        newHash,
+      )) as {
         default: ModuleExport;
       };
       const def = imported.default;
@@ -1120,6 +1175,7 @@ export class ModuleService {
         name: manifest.name,
         description: manifest.description,
         type: manifest.type,
+        version: manifest.version,
         isBuiltin: false,
         configSchema: def.configSchema,
         secretsSchema: def.secretsSchema,
@@ -1144,6 +1200,7 @@ export class ModuleService {
           name: manifest.name,
           description: manifest.description,
           hash: newHash,
+          version: manifest.version,
           source: "",
         })
         .where(eq(modulesTable.id, id));
@@ -1250,7 +1307,11 @@ export class ModuleService {
     const toSync = rows.filter((r) => {
       const manifest = this.manifests.get(r.id);
       if (!manifest) return false;
-      return manifest.name !== r.name || manifest.description !== r.description;
+      return (
+        manifest.name !== r.name ||
+        manifest.description !== r.description ||
+        manifest.version !== r.version
+      );
     });
 
     if (toInsert.length > 0) {
@@ -1263,6 +1324,7 @@ export class ModuleService {
             name: manifest.name,
             description: manifest.description,
             type: manifest.type,
+            version: manifest.version,
             enabled: true,
             missing: false,
           };
@@ -1294,6 +1356,7 @@ export class ModuleService {
             .set({
               name: manifest.name,
               description: manifest.description,
+              version: manifest.version,
             })
             .where(eq(modulesTable.id, row.id));
         }),
@@ -1754,6 +1817,7 @@ export class ModuleService {
       name: string;
       description: string;
       type: ModuleType;
+      version: string;
       configSchema: JSONSchema;
       secretsSchema: JSONSchema;
       instantiate: () => Module;
@@ -1763,6 +1827,7 @@ export class ModuleService {
         name: "OpenAPI Adapter",
         description: "Adapter for interacting with OpenAPI services",
         type: "adapter",
+        version: "1.0.0",
         ...oapi,
       },
       {
@@ -1770,6 +1835,7 @@ export class ModuleService {
         name: "Typescript Isolated VM",
         description: "TypeScript environment powered by isolated-vm",
         type: "environment",
+        version: "1.0.0",
         ...tsivm,
       },
     ];
@@ -1779,6 +1845,7 @@ export class ModuleService {
       name,
       description,
       type,
+      version,
       configSchema,
       secretsSchema,
       instantiate,
@@ -1794,6 +1861,7 @@ export class ModuleService {
         name,
         description,
         type,
+        version,
         isBuiltin: true,
         configSchema,
         secretsSchema,
@@ -1841,7 +1909,9 @@ export class ModuleService {
         );
       }
 
-      const { id, name, description, type, main } = parsed.data;
+      const { id, name, description, type, version, main, engines } =
+        parsed.data;
+      this.assertEngineCompatibility(engines, `Module '${id}'`);
 
       if (this.factories.has(id)) {
         throw new HttpError(
@@ -1859,9 +1929,11 @@ export class ModuleService {
         );
       }
 
-      const imported = (await import(mainPath)) as {
-        default: ModuleExport;
-      };
+      const imported = (await this.importModuleExport(
+        dirRoot,
+        main,
+        version,
+      )) as { default: ModuleExport };
       const { configSchema, secretsSchema, instantiate } = imported.default;
       assertPlainJsonSchema(configSchema, `configSchema for module '${id}'`);
       assertPlainJsonSchema(secretsSchema, `secretsSchema for module '${id}'`);
@@ -1877,10 +1949,36 @@ export class ModuleService {
         name,
         description,
         type,
+        version,
         isBuiltin: false,
         configSchema,
         secretsSchema,
       });
+    }
+  }
+
+  private async importModuleExport(
+    root: string,
+    main: string,
+    cacheKey: string,
+  ): Promise<unknown> {
+    const mainPath = resolve(root, main);
+    return import(
+      `${pathToFileURL(mainPath).href}?v=${encodeURIComponent(cacheKey)}`
+    );
+  }
+
+  private assertEngineCompatibility(
+    engines: { cyrnel?: string } | undefined,
+    label: string,
+  ): void {
+    const range = engines?.cyrnel?.trim();
+    if (!range) return;
+    if (!satisfies(CYRNEL_CORE_VERSION, range)) {
+      throw new HttpError(
+        400,
+        `${label} requires Cyrnel '${range}', but this server is '${CYRNEL_CORE_VERSION}'.`,
+      );
     }
   }
 
@@ -1894,6 +1992,7 @@ export class ModuleService {
       name: row.name,
       type: row.type,
       description: row.description,
+      version: row.version,
       isBuiltin: this.isBuiltin(row.id),
       enabled: row.enabled,
       missing: row.missing,
@@ -1905,6 +2004,7 @@ export class ModuleService {
     return {
       ...this.toListRecord(row),
       hash: row.hash,
+      version: row.version,
       source: row.source,
       configSchema: manifest?.configSchema ?? EMPTY_OBJECT_SCHEMA,
       secretsSchema: manifest?.secretsSchema ?? EMPTY_OBJECT_SCHEMA,

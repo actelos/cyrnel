@@ -22,6 +22,7 @@ const nonEmptyTrimmedString = (fieldName: string) =>
 
 const installModuleRegistryBodySchema = z.object({
   source: nonEmptyTrimmedString("source"),
+  version: nonEmptyTrimmedString("version").optional(),
 });
 
 const createModuleBodySchema = z.object({
@@ -123,13 +124,16 @@ export async function installModule(
   res: Response,
 ): Promise<void> {
   const moduleService = getModuleService(req);
-  const { source } = parseOrHttpError(
+  const { source, version } = parseOrHttpError(
     installModuleRegistryBodySchema,
     req.body,
     "Request body must be an object.",
   );
 
-  const manifest = await moduleService.installModuleFromRegistry(source);
+  const manifest = await moduleService.installModuleFromRegistry(
+    source,
+    version,
+  );
   res.status(201).json(manifest);
 }
 

@@ -33,6 +33,7 @@ const serviceSchema = z.object({
   name: z.string(),
   description: z.string(),
   adapter: z.string(),
+  version: z.string(),
   enabled: z.boolean(),
   stale: z.boolean(),
 });
@@ -101,8 +102,9 @@ export default function ServicesPage() {
   const [registrySource, setRegistrySource] = useState("");
   const [registryAdapter, setRegistryAdapter] = useState("");
   const [registryId, setRegistryId] = useState("");
+  const [registryVersion, setRegistryVersion] = useState("");
   const [registryErrors, setRegistryErrors] = useState<
-    Partial<Record<"source" | "adapter" | "id" | "form", string>>
+    Partial<Record<"source" | "adapter" | "id" | "version" | "form", string>>
   >({});
   const [isInstalling, setIsInstalling] = useState(false);
   const { addNotification } = useNotification();
@@ -206,6 +208,7 @@ export default function ServicesPage() {
     const body: Record<string, string> = { source: registrySource.trim() };
     if (registryAdapter.trim()) body.adapter = registryAdapter.trim();
     if (registryId.trim()) body.id = registryId.trim();
+    if (registryVersion.trim()) body.version = registryVersion.trim();
 
     const parsed = registryServiceSchema.safeParse(body);
 
@@ -410,6 +413,27 @@ export default function ServicesPage() {
                           {registryErrors.adapter ? (
                             <p className="text-xs text-destructive">
                               {registryErrors.adapter}
+                            </p>
+                          ) : null}
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="service-registry-version">
+                            Version{" "}
+                            <span className="text-muted-foreground">
+                              (optional, default: latest)
+                            </span>
+                          </Label>
+                          <Input
+                            id="service-registry-version"
+                            onChange={(event) =>
+                              setRegistryVersion(event.target.value)
+                            }
+                            placeholder="^1.0.0"
+                            value={registryVersion}
+                          />
+                          {registryErrors.version ? (
+                            <p className="text-xs text-destructive">
+                              {registryErrors.version}
                             </p>
                           ) : null}
                         </div>

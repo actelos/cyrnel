@@ -286,6 +286,11 @@ const ServiceListItemSchema = registry.register(
       description: z
         .string()
         .describe("Human-readable description of the service."),
+      version: z
+        .string()
+        .min(1)
+        .openapi({ example: "1.3.0" })
+        .describe("Semantic version of the installed service definition."),
       hash: z
         .string()
         .min(1)
@@ -362,6 +367,14 @@ const ServiceInstallRequestSchema = registry.register(
         .min(1)
         .optional()
         .describe("Optional service identifier. Overrides registry default."),
+      version: z
+        .string()
+        .min(1)
+        .optional()
+        .openapi({ example: "^1.0.0" })
+        .describe(
+          "Optional semantic range or exact version. Resolves from registry. Defaults to latest.",
+        ),
     })
     .describe("Request body used to install a service from a registry."),
 );
@@ -650,6 +663,11 @@ const ModuleSchema = registry.register(
       description: z
         .string()
         .describe("Human-readable description of the module."),
+      version: z
+        .string()
+        .min(1)
+        .openapi({ example: "2.0.0" })
+        .describe("Semantic version of the installed module manifest."),
       isBuiltin: z
         .boolean()
         .describe("Whether the module is bundled with the API."),
@@ -705,6 +723,14 @@ const ModuleInstallRequestSchema = registry.register(
         .min(1)
         .describe(
           "Registry URL to resolve for module metadata, then download the .tar.zst archive.",
+        ),
+      version: z
+        .string()
+        .min(1)
+        .optional()
+        .openapi({ example: "^1.0.0" })
+        .describe(
+          "Optional semantic range or exact version. Resolves from registry. Defaults to latest.",
         ),
     })
     .describe("Request body used to install a module from a registry."),

@@ -28,8 +28,24 @@
       "type": "string",
       "minLength": 1,
       "description": "Relative path to the built ESM entry file the host can import()."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$",
+      "description": "Semantic version of the module (e.g. '1.2.3')."
+    },
+    "engines": {
+      "type": "object",
+      "properties": {
+        "cyrnel": {
+          "type": "string",
+          "description": "Semantic range constraint for Cyrnel core version (e.g. '^1.0.0')."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Optional engine constraints."
     }
   },
-  "required": ["id", "name", "type", "description", "main"],
+  "required": ["id", "name", "type", "description", "main", "version"],
   "additionalProperties": false
 }

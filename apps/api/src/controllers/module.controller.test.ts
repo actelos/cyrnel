@@ -592,6 +592,7 @@ describe("module.controller", () => {
 
       expect(moduleService.installModuleFromRegistry).toHaveBeenCalledWith(
         "https://registry.example.com/mod",
+        undefined,
       );
       expect(res.status).toHaveBeenCalledWith(201);
       expect(res.json).toHaveBeenCalledWith(manifest);
