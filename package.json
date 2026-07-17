@@ -11,7 +11,7 @@
   "devDependencies": {
     "@biomejs/biome": "2.5.2",
     "@changesets/cli": "^2.31.0",
-    "turbo": "^2.9.17"
+    "turbo": "^2.10.5"
   },
   "pnpm": {
     "overrides": {
