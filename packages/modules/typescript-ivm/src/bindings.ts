@@ -106,7 +106,23 @@
                         toolId,
                         parameters,
                       } satisfies InvokeInput;
-                      return callAsync<unknown>(__cyrnel_invokeTool, input);
+                      const result = await callAsync<unknown>(
+                        __cyrnel_invokeTool,
+                        input,
+                      );
+                      if (
+                        result !== null &&
+                        typeof result === "object" &&
+                        "__ivmError" in result
+                      ) {
+                        const errorResult = result as Record<string, unknown>;
+                        const err = new Error(String(errorResult.__ivmError));
+                        if (typeof errorResult.__ivmStack === "string") {
+                          err.stack = errorResult.__ivmStack;
+                        }
+                        throw err;
+                      }
+                      return result;
                     },
                   };
                 },

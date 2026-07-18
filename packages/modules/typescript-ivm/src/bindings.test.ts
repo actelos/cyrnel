@@ -177,6 +177,62 @@ describe("bindings", () => {
       expect(result).toBe("success");
     });
 
+    it("re-throws __ivmError as a catchable Error in the sandbox", async () => {
+      const { bindings, invokeTool, emitStderr } = createBindings();
+      const environment = tsivm.instantiate();
+
+      invokeTool.mockRejectedValue(new Error("Tool invocation failed"));
+
+      await environment.setup({ bindings, config: {}, secrets: {} });
+
+      const result = await environment.execute({
+        eid: 1,
+        code: `
+          try {
+            await cyrnel.services.calc.tools.add.invoke({ x: 1 });
+            console.log("Should not reach here");
+          } catch (error) {
+            console.error("Caught:", error.message);
+          }
+        `,
+      } satisfies ExecutionInput);
+
+      expect(result).toBe("success");
+      expect(emitStderr).toHaveBeenCalled();
+      const message = emitStderr.mock.calls[0][1].toString("utf8");
+      expect(message).toContain("Caught:");
+      expect(message).toContain("Tool invocation failed");
+    });
+
+    it("re-throws with stack trace preserved", async () => {
+      const { bindings, invokeTool } = createBindings();
+      const environment = tsivm.instantiate();
+
+      const testError = new Error("Something broke");
+      testError.stack = "Error: Something broke\n    at test.js:1:1";
+      invokeTool.mockRejectedValue(testError);
+
+      await environment.setup({ bindings, config: {}, secrets: {} });
+
+      const result = await environment.execute({
+        eid: 1,
+        code: `
+          try {
+            await cyrnel.services.calc.tools.add.invoke({ x: 1 });
+            console.log("Should not reach here");
+          } catch (error) {
+            console.error("Stack:", error.stack);
+          }
+        `,
+      } satisfies ExecutionInput);
+
+      expect(result).toBe("success");
+      expect(bindings.emitStderr).toHaveBeenCalled();
+      const message = bindings.emitStderr.mock.calls[0][1].toString("utf8");
+      expect(message).toContain("Stack:");
+      expect(message).toContain("Something broke");
+    });
+
     it("throws TypeError when tool id is a symbol", async () => {
       const { bindings } = createBindings();
       const environment = tsivm.instantiate();

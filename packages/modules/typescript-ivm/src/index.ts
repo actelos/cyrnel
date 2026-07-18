@@ -757,8 +757,15 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
 
       const refInvoke = new ivm.Reference(async (jsonInput: string) => {
         const input = JSON.parse(jsonInput) as InvokeInput;
-        const result = await bindings.invokeTool(input);
-        return JSON.stringify(result);
+        try {
+          const result = await bindings.invokeTool(input);
+          return JSON.stringify(result);
+        } catch (err) {
+          return JSON.stringify({
+            __ivmError: String(err),
+            __ivmStack: err instanceof Error ? err.stack : undefined,
+          });
+        }
       });
       refs.push(refInvoke);
       await jail.set("__cyrnel_invokeTool", refInvoke);

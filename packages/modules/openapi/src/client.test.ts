@@ -1,4 +1,6 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import http, { type Server } from "node:http";
+import type { AddressInfo } from "node:net";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import {
   buildAuthHeaders,
@@ -214,26 +216,144 @@ describe("buildAuthHeaders", () => {
     );
     expect(result).toEqual({ "X-API-Key": "key" });
   });
+
+  describe("AND semantics across multiple schemes in one requirement", () => {
+    it("applies all matched schemes in a single requirement entry", () => {
+      const result = buildAuthHeaders(
+        { ApiKey: "my-key", Bearer: "my-token" },
+        schemes,
+        [{ ApiKey: [], Bearer: [] }],
+      );
+      expect(result).toEqual({
+        "X-API-Key": "my-key",
+        Authorization: "Bearer my-token",
+      });
+    });
+
+    it("applies only schemes that have secrets when some are missing", () => {
+      const result = buildAuthHeaders({ Bearer: "my-token" }, schemes, [
+        { ApiKey: [], Bearer: [] },
+      ]);
+      expect(result).toEqual({ Authorization: "Bearer my-token" });
+    });
+
+    it("returns empty headers when no schemes in the entry have secrets", () => {
+      const result = buildAuthHeaders({}, schemes, [
+        { ApiKey: [], Bearer: [] },
+      ]);
+      expect(result).toEqual({});
+    });
+
+    it("stops at first entry that produces headers (OR across entries)", () => {
+      const combined = {
+        ApiKey: "key",
+        Bearer: "token",
+        OAuth2: "oauth-token",
+      };
+      const result = buildAuthHeaders(combined, schemes, [
+        { ApiKey: [], Bearer: [] },
+        { OAuth2: [] },
+      ]);
+      expect(result).toEqual({
+        "X-API-Key": "key",
+        Authorization: "Bearer token",
+      });
+    });
+
+    it("applies apiKey and oauth2 schemes together in same entry", () => {
+      const result = buildAuthHeaders(
+        { ApiKey: "my-key", OAuth2: "my-token" },
+        schemes,
+        [{ ApiKey: [], OAuth2: [] }],
+      );
+      expect(result).toEqual({
+        "X-API-Key": "my-key",
+        Authorization: "Bearer my-token",
+      });
+    });
+  });
 });
 
 describe("makeRequest", () => {
+  let server: Server;
+  let port: number;
+  let slowServer: Server;
+  let slowPort: number;
+  const seen: Array<{
+    method: string;
+    url: string;
+    headers: Record<string, string | string[] | undefined>;
+    body: string;
+  }> = [];
+
+  beforeAll(async () => {
+    server = http.createServer((req, res) => {
+      let body = "";
+      req.on("data", (chunk) => {
+        body += chunk;
+      });
+      req.on("end", () => {
+        const method = req.method as string;
+        const url = req.url as string;
+        seen.push({
+          method,
+          url,
+          headers: { ...req.headers },
+          body,
+        });
+
+        const parsedUrl = new URL(
+          url,
+          `http://${req.headers.host ?? "localhost"}`,
+        );
+
+        if (parsedUrl.pathname === "/pets/123" && method === "GET") {
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({ id: "123", name: "Fluffy" }));
+        } else if (parsedUrl.pathname === "/pets" && method === "POST") {
+          res.writeHead(201, { "content-type": "application/json" });
+          res.end(JSON.stringify({ id: "456" }));
+        } else if (method === "DELETE") {
+          res.writeHead(204);
+          res.end();
+        } else if (parsedUrl.pathname === "/echo") {
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(
+            JSON.stringify({
+              method: req.method,
+              url: req.url,
+              headers: req.headers,
+              body: body || undefined,
+            }),
+          );
+        } else {
+          res.writeHead(500, { "content-type": "text/html" });
+          res.end("<html>error</html>");
+        }
+      });
+    });
+
+    slowServer = http.createServer(() => {});
+
+    await new Promise<void>((resolve) => server.listen(0, () => resolve()));
+    await new Promise<void>((resolve) => slowServer.listen(0, () => resolve()));
+    port = (server.address() as AddressInfo).port;
+    slowPort = (slowServer.address() as AddressInfo).port;
+  });
+
+  afterAll(() => {
+    server.close();
+    slowServer.close();
+  });
+
   afterEach(() => {
-    vi.restoreAllMocks();
+    seen.length = 0;
   });
 
   it("returns status and parsed body for a successful JSON response", async () => {
-    const mockResponse = new Response(
-      JSON.stringify({ id: "123", name: "Fluffy" }),
-      {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      },
-    );
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(mockResponse));
-
     const result = await makeRequest({
       method: "GET",
-      url: "https://api.example.com/pets/123",
+      url: `http://localhost:${port}/pets/123`,
       timeoutMs: 5000,
     });
 
@@ -244,43 +364,22 @@ describe("makeRequest", () => {
   });
 
   it("sends JSON body for POST/PUT requests", async () => {
-    const mockResponse = new Response(
-      JSON.stringify({ id: "456", name: "Buddy" }),
-      {
-        status: 201,
-        headers: { "content-type": "application/json" },
-      },
-    );
-    const fetchMock = vi.fn().mockResolvedValue(mockResponse);
-    vi.stubGlobal("fetch", fetchMock);
-
     await makeRequest({
       method: "POST",
-      url: "https://api.example.com/pets",
+      url: `http://localhost:${port}/echo`,
       body: { name: "Buddy" },
       timeoutMs: 5000,
     });
 
-    const callArgs = fetchMock.mock.calls[0];
-    expect(callArgs[0]).toBe("https://api.example.com/pets");
-    expect(callArgs[1].method).toBe("POST");
-    expect(callArgs[1].body).toBe(JSON.stringify({ name: "Buddy" }));
-    expect(callArgs[1].headers).toMatchObject({
-      "content-type": "application/json",
-      accept: "application/json",
-    });
+    expect(seen[0].method).toBe("POST");
+    expect(JSON.parse(seen[0].body)).toEqual({ name: "Buddy" });
+    expect(seen[0].headers["content-type"]).toBe("application/json");
   });
 
   it("returns status with no body for 204 response", async () => {
-    const mockResponse = new Response(null, {
-      status: 204,
-      headers: { "content-type": "application/json" },
-    });
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(mockResponse));
-
     const result = await makeRequest({
       method: "DELETE",
-      url: "https://api.example.com/pets/123",
+      url: `http://localhost:${port}/pets/123`,
       timeoutMs: 5000,
     });
 
@@ -288,71 +387,53 @@ describe("makeRequest", () => {
   });
 
   it("throws on non-JSON response body", async () => {
-    const mockResponse = new Response("<html>error</html>", {
-      status: 500,
-      headers: { "content-type": "text/html" },
-    });
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(mockResponse));
-
     await expect(
       makeRequest({
         method: "GET",
-        url: "https://api.example.com/pets/123",
+        url: `http://localhost:${port}/not-found`,
         timeoutMs: 5000,
       }),
     ).rejects.toThrow("HTTP 500: Non-JSON response body");
   });
 
   it("throws on network error", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("ENOTFOUND")));
-
     await expect(
       makeRequest({
         method: "GET",
-        url: "https://api.example.com/pets/123",
-        timeoutMs: 5000,
+        url: "http://localhost:1/nonexistent",
+        timeoutMs: 2000,
       }),
-    ).rejects.toThrow("ENOTFOUND");
+    ).rejects.toThrow();
   });
 
   it("throws on timeout", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi
-        .fn()
-        .mockRejectedValue(
-          new DOMException("The operation was aborted", "AbortError"),
-        ),
-    );
-
     await expect(
       makeRequest({
         method: "GET",
-        url: "https://api.example.com/pets/123",
-        timeoutMs: 5000,
+        url: `http://localhost:${slowPort}/hang`,
+        timeoutMs: 200,
       }),
-    ).rejects.toThrow("Request timed out after 5000ms");
+    ).rejects.toThrow("timed out after 200ms");
   });
 
   it("includes custom headers in the request", async () => {
-    const mockResponse = new Response(JSON.stringify({}), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    });
-    const fetchMock = vi.fn().mockResolvedValue(mockResponse);
-    vi.stubGlobal("fetch", fetchMock);
-
     await makeRequest({
       method: "GET",
-      url: "https://api.example.com/pets",
+      url: `http://localhost:${port}/echo`,
       headers: { "X-Custom": "value" },
       timeoutMs: 5000,
     });
 
-    const callArgs = fetchMock.mock.calls[0];
-    expect(callArgs[1].headers).toMatchObject({
-      "X-Custom": "value",
-      accept: "application/json",
+    expect(seen[0].headers["x-custom"]).toBe("value");
+  });
+
+  it("sets accept header by default", async () => {
+    await makeRequest({
+      method: "GET",
+      url: `http://localhost:${port}/echo`,
+      timeoutMs: 5000,
     });
+
+    expect(seen[0].headers.accept).toBe("application/json");
   });
 });
