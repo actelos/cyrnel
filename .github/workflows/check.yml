@@ -42,5 +42,16 @@ jobs:
       - name: Biome CI
         run: pnpx @biomejs/biome ci .
 
+      - name: Cache turbo
+        uses: actions/cache@v4
+        with:
+          path: .turbo/cache
+          key: turbo-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            turbo-${{ runner.os }}-
+
       - name: Typecheck, test and build
-        run: pnpm typecheck test build
+        run: pnpm turbo run typecheck test build --continue
+        env:
+          TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+          TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
