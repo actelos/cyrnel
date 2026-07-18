@@ -213,33 +213,33 @@ describe("tool.controller", () => {
   });
 
   describe("setToolEnabled", () => {
-    it.each([
-      true,
-      false,
-    ])("forwards enabled=%s and echoes id, serviceId, enabled", async (enabled) => {
-      const res = makeRes();
-      servicesService.setToolEnabled.mockResolvedValue(undefined);
+    it.each([true, false])(
+      "forwards enabled=%s and echoes id, serviceId, enabled",
+      async (enabled) => {
+        const res = makeRes();
+        servicesService.setToolEnabled.mockResolvedValue(undefined);
 
-      await setToolEnabled(
-        makeReq({
-          params: { serviceId: "svc", toolId: "t1" },
-          body: { enabled },
-        }),
-        cast(res),
-      );
+        await setToolEnabled(
+          makeReq({
+            params: { serviceId: "svc", toolId: "t1" },
+            body: { enabled },
+          }),
+          cast(res),
+        );
 
-      expect(servicesService.setToolEnabled).toHaveBeenCalledWith({
-        serviceId: "svc",
-        toolId: "t1",
-        enabled,
-      });
-      expect(res.status).toHaveBeenCalledWith(200);
-      expect(res.json).toHaveBeenCalledWith({
-        id: "t1",
-        serviceId: "svc",
-        enabled,
-      });
-    });
+        expect(servicesService.setToolEnabled).toHaveBeenCalledWith({
+          serviceId: "svc",
+          toolId: "t1",
+          enabled,
+        });
+        expect(res.status).toHaveBeenCalledWith(200);
+        expect(res.json).toHaveBeenCalledWith({
+          id: "t1",
+          serviceId: "svc",
+          enabled,
+        });
+      },
+    );
 
     it.each([
       { body: {}, why: "missing enabled" },

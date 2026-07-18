@@ -485,27 +485,27 @@ describe("service.controller", () => {
   });
 
   describe("setServiceEnabled", () => {
-    it.each([
-      true,
-      false,
-    ])("forwards enabled=%s and echoes it back", async (enabled) => {
-      const res = makeRes();
-      servicesService.setServiceEnabled.mockResolvedValue(undefined);
+    it.each([true, false])(
+      "forwards enabled=%s and echoes it back",
+      async (enabled) => {
+        const res = makeRes();
+        servicesService.setServiceEnabled.mockResolvedValue(undefined);
 
-      await setServiceEnabled(
-        makeReq({
-          params: { serviceId: "svc" },
-          body: { enabled },
-        }),
-        cast(res),
-      );
+        await setServiceEnabled(
+          makeReq({
+            params: { serviceId: "svc" },
+            body: { enabled },
+          }),
+          cast(res),
+        );
 
-      expect(servicesService.setServiceEnabled).toHaveBeenCalledWith({
-        id: "svc",
-        enabled,
-      });
-      expect(res.json).toHaveBeenCalledWith({ id: "svc", enabled });
-    });
+        expect(servicesService.setServiceEnabled).toHaveBeenCalledWith({
+          id: "svc",
+          enabled,
+        });
+        expect(res.json).toHaveBeenCalledWith({ id: "svc", enabled });
+      },
+    );
 
     it.each([
       { body: {}, why: "missing enabled" },
