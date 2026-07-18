@@ -1,3 +1,6 @@
+import http from "node:http";
+import https from "node:https";
+
 export interface RequestResult {
   status: string;
   body?: unknown;
@@ -80,9 +83,6 @@ export function buildAuthHeaders(
 
   if (!security?.length || !securitySchemes) return headers;
 
-  // Security requirements use OR semantics across entries, AND within an entry.
-  // We try each requirement entry in order; the first one where we can satisfy
-  // at least one scheme wins.
   for (const requirement of security) {
     for (const [schemeName] of Object.entries(requirement)) {
       const scheme = securitySchemes[schemeName] as
@@ -111,11 +111,8 @@ export function buildAuthHeaders(
       } else if (scheme.type === "oauth2" || scheme.type === "openIdConnect") {
         headers.Authorization = `Bearer ${String(secretValue)}`;
       }
-
-      // One matched scheme is enough for this requirement entry
-      break;
     }
-    // If we added headers from this requirement, stop (OR semantics)
+
     if (Object.keys(headers).length > 0) break;
   }
 
@@ -130,60 +127,85 @@ export interface RequestOptions {
   timeoutMs: number;
 }
 
+function httpRequest(
+  method: string,
+  urlStr: string,
+  reqHeaders: Record<string, string> | undefined,
+  reqBody: unknown,
+  timeoutMs: number,
+): Promise<{ status: string; text: string }> {
+  return new Promise((resolve, reject) => {
+    const parsedUrl = new URL(urlStr);
+    const httpModule = parsedUrl.protocol === "https:" ? https : http;
+
+    const bodyStr = reqBody !== undefined ? JSON.stringify(reqBody) : undefined;
+
+    const options: http.RequestOptions = {
+      method: method.toUpperCase(),
+      hostname: parsedUrl.hostname,
+      port: parsedUrl.port || (parsedUrl.protocol === "https:" ? 443 : 80),
+      path: parsedUrl.pathname + parsedUrl.search,
+      headers: {
+        accept: "application/json",
+        ...reqHeaders,
+        ...(bodyStr !== undefined
+          ? { "content-type": "application/json" }
+          : {}),
+      },
+      timeout: timeoutMs,
+    };
+
+    const req = httpModule.request(options, (res) => {
+      const chunks: Buffer[] = [];
+      res.on("data", (chunk: Buffer) => chunks.push(chunk));
+      res.on("end", () => {
+        const text = Buffer.concat(chunks).toString("utf8");
+        resolve({ status: String(res.statusCode ?? 0), text });
+      });
+    });
+
+    req.on("error", reject);
+    req.on("timeout", () => {
+      req.destroy();
+      reject(new Error(`Request timed out after ${timeoutMs}ms`));
+    });
+
+    if (bodyStr !== undefined) {
+      req.write(bodyStr);
+    }
+    req.end();
+  });
+}
+
 export async function makeRequest(
   options: RequestOptions,
 ): Promise<RequestResult> {
   const { method, url, headers, body, timeoutMs } = options;
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  const { status, text } = await httpRequest(
+    method,
+    url,
+    headers,
+    body,
+    timeoutMs,
+  );
 
-  try {
-    const init: RequestInit = {
-      method: method.toUpperCase(),
-      headers: {
-        accept: "application/json",
-        ...headers,
-      },
-      signal: controller.signal,
-    };
-
-    if (body !== undefined) {
-      init.body = JSON.stringify(body);
-      const h = init.headers as Record<string, string>;
-      if (!h["content-type"]) {
-        h["content-type"] = "application/json";
-      }
-    }
-
-    const response = await fetch(url, init);
-    const status = String(response.status);
-
-    if (status === "204" || status === "205") {
-      return { status };
-    }
-
-    const text = await response.text();
-    if (!text) {
-      return { status };
-    }
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      throw new Error(
-        `HTTP ${status}: Non-JSON response body: ${text.slice(0, 200)}`,
-      );
-    }
-
-    return { status, body: parsed };
-  } catch (err) {
-    if (err instanceof Error && err.name === "AbortError") {
-      throw new Error(`Request timed out after ${timeoutMs}ms`);
-    }
-    throw err;
-  } finally {
-    clearTimeout(timeoutId);
+  if (status === "204" || status === "205") {
+    return { status };
   }
+
+  if (!text) {
+    return { status };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error(
+      `HTTP ${status}: Non-JSON response body: ${text.slice(0, 200)}`,
+    );
+  }
+
+  return { status, body: parsed };
 }

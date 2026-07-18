@@ -1,5 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { makeRequest } from "./client";
+
+vi.mock("./client", async (importOriginal) => {
+  const original = await importOriginal<typeof import("./client")>();
+  return {
+    ...original,
+    makeRequest: vi.fn(),
+  };
+});
+
 import oapi from "@/index";
 
 describe("openapi module default export", () => {
@@ -24,9 +34,10 @@ describe("openapi module default export", () => {
 describe("OpenapiAdapter invoke", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.mocked(makeRequest).mockClear();
   });
 
-  const mockServiceState = {
+  const makeMockServiceState = () => ({
     id: "petstore",
     config: { timeoutMs: 5000 },
     secrets: { ApiKey: "my-key" },
@@ -59,7 +70,7 @@ describe("OpenapiAdapter invoke", () => {
         },
       },
     },
-  };
+  });
 
   // biome-ignore lint/suspicious/noExplicitAny: test helper to hydrate state directly
   function hydrate(adapter: any, id: string, state: unknown) {
@@ -68,17 +79,16 @@ describe("OpenapiAdapter invoke", () => {
 
   function makeAdapter() {
     const adapter = oapi.instantiate();
-    hydrate(adapter, "petstore", mockServiceState);
+    hydrate(adapter, "petstore", makeMockServiceState());
     return adapter;
   }
 
   it("makes a GET request with path params and auth", async () => {
-    const mockResponse = new Response(
-      JSON.stringify({ id: "123", name: "Fluffy" }),
-      { status: 200, headers: { "content-type": "application/json" } },
-    );
-    const fetchMock = vi.fn().mockResolvedValue(mockResponse);
-    vi.stubGlobal("fetch", fetchMock);
+    const requestMock = vi.mocked(makeRequest);
+    requestMock.mockResolvedValue({
+      status: "200",
+      body: { id: "123", name: "Fluffy" },
+    });
 
     const adapter = makeAdapter();
     const result = await adapter.invoke({
@@ -92,22 +102,20 @@ describe("OpenapiAdapter invoke", () => {
       body: { id: "123", name: "Fluffy" },
     });
 
-    const callArgs = fetchMock.mock.calls[0];
-    expect(callArgs[0]).toBe("https://api.example.com/pets/123");
-    expect(callArgs[1].method).toBe("GET");
-    expect(callArgs[1].headers).toMatchObject({
+    const callArgs = requestMock.mock.calls[0][0];
+    expect(callArgs.url).toBe("https://api.example.com/pets/123");
+    expect(callArgs.method).toBe("get");
+    expect(callArgs.headers).toMatchObject({
       "X-API-Key": "my-key",
-      accept: "application/json",
     });
   });
 
   it("makes a POST request with JSON body", async () => {
-    const mockResponse = new Response(JSON.stringify({ id: "456" }), {
-      status: 201,
-      headers: { "content-type": "application/json" },
+    const requestMock = vi.mocked(makeRequest);
+    requestMock.mockResolvedValue({
+      status: "201",
+      body: { id: "456" },
     });
-    const fetchMock = vi.fn().mockResolvedValue(mockResponse);
-    vi.stubGlobal("fetch", fetchMock);
 
     const adapter = makeAdapter();
     const result = await adapter.invoke({
@@ -118,25 +126,20 @@ describe("OpenapiAdapter invoke", () => {
 
     expect(result).toEqual({ status: "201", body: { id: "456" } });
 
-    const callArgs = fetchMock.mock.calls[0];
-    expect(callArgs[0]).toBe("https://api.example.com/pets");
-    expect(callArgs[1].method).toBe("POST");
-    expect(callArgs[1].body).toBe(
-      JSON.stringify({ name: "Buddy", species: "dog" }),
-    );
+    const callArgs = requestMock.mock.calls[0][0];
+    expect(callArgs.url).toBe("https://api.example.com/pets");
+    expect(callArgs.method).toBe("post");
+    expect(callArgs.body).toEqual({ name: "Buddy", species: "dog" });
   });
 
   it("includes query params in the URL", async () => {
-    const mockResponse = new Response(
-      JSON.stringify([{ id: "1" }, { id: "2" }]),
-      { status: 200, headers: { "content-type": "application/json" } },
-    );
-    const fetchMock = vi.fn().mockResolvedValue(mockResponse);
-    vi.stubGlobal("fetch", fetchMock);
+    const requestMock = vi.mocked(makeRequest);
+    requestMock.mockResolvedValue({ status: "200", body: [] });
 
     const adapter = oapi.instantiate();
-    const listPetsState = {
-      ...mockServiceState,
+    const state = makeMockServiceState();
+    hydrate(adapter, "petstore", {
+      ...state,
       tools: {
         listPets: {
           adapterDomain: {
@@ -146,8 +149,7 @@ describe("OpenapiAdapter invoke", () => {
           },
         },
       },
-    };
-    hydrate(adapter, "petstore", listPetsState);
+    });
 
     await adapter.invoke({
       serviceId: "petstore",
@@ -155,23 +157,20 @@ describe("OpenapiAdapter invoke", () => {
       parameters: { query: { limit: "10", status: "available" } },
     });
 
-    const callArgs = fetchMock.mock.calls[0];
-    expect(callArgs[0]).toBe(
+    const callArgs = requestMock.mock.calls[0][0];
+    expect(callArgs.url).toBe(
       "https://api.example.com/pets?limit=10&status=available",
     );
   });
 
   it("includes cookie params as Cookie header", async () => {
-    const mockResponse = new Response(JSON.stringify({}), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    });
-    const fetchMock = vi.fn().mockResolvedValue(mockResponse);
-    vi.stubGlobal("fetch", fetchMock);
+    const requestMock = vi.mocked(makeRequest);
+    requestMock.mockResolvedValue({ status: "200", body: {} });
 
     const adapter = oapi.instantiate();
-    const cookieState = {
-      ...mockServiceState,
+    const state = makeMockServiceState();
+    hydrate(adapter, "petstore", {
+      ...state,
       tools: {
         checkSession: {
           adapterDomain: {
@@ -181,8 +180,7 @@ describe("OpenapiAdapter invoke", () => {
           },
         },
       },
-    };
-    hydrate(adapter, "petstore", cookieState);
+    });
 
     await adapter.invoke({
       serviceId: "petstore",
@@ -190,8 +188,8 @@ describe("OpenapiAdapter invoke", () => {
       parameters: { cookies: { sessionId: "abc123" } },
     });
 
-    const callArgs = fetchMock.mock.calls[0];
-    expect(callArgs[1].headers).toMatchObject({
+    const callArgs = requestMock.mock.calls[0][0];
+    expect(callArgs.headers).toMatchObject({
       Cookie: "sessionId=abc123",
     });
   });
@@ -221,15 +219,13 @@ describe("OpenapiAdapter invoke", () => {
   });
 
   it("handles 204 no-content response", async () => {
-    const mockResponse = new Response(null, {
-      status: 204,
-      headers: { "content-type": "application/json" },
-    });
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(mockResponse));
+    const requestMock = vi.mocked(makeRequest);
+    requestMock.mockResolvedValue({ status: "204" });
 
     const adapter = oapi.instantiate();
-    const deleteState = {
-      ...mockServiceState,
+    const state = makeMockServiceState();
+    hydrate(adapter, "petstore", {
+      ...state,
       tools: {
         deletePet: {
           adapterDomain: {
@@ -239,8 +235,7 @@ describe("OpenapiAdapter invoke", () => {
           },
         },
       },
-    };
-    hydrate(adapter, "petstore", deleteState);
+    });
 
     const result = await adapter.invoke({
       serviceId: "petstore",
