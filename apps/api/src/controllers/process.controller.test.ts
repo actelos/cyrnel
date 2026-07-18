@@ -125,37 +125,33 @@ describe("process.controller", () => {
       });
     });
 
-    it.each([
-      "running",
-      "queued",
-      "idle",
-      "terminating",
-    ])("accepts state %s", async (state) => {
-      const res = makeRes();
-      processService.list.mockResolvedValue([]);
+    it.each(["running", "queued", "idle", "terminating"])(
+      "accepts state %s",
+      async (state) => {
+        const res = makeRes();
+        processService.list.mockResolvedValue([]);
 
-      await listProcesses(makeReq({ query: { state } }), cast(res));
+        await listProcesses(makeReq({ query: { state } }), cast(res));
 
-      expect(processService.list).toHaveBeenCalledWith(
-        expect.objectContaining({ state }),
-      );
-    });
+        expect(processService.list).toHaveBeenCalledWith(
+          expect.objectContaining({ state }),
+        );
+      },
+    );
 
-    it.each([
-      "success",
-      "failed",
-      "timeout",
-      "canceled",
-    ])("accepts status %s", async (status) => {
-      const res = makeRes();
-      processService.list.mockResolvedValue([]);
+    it.each(["success", "failed", "timeout", "canceled"])(
+      "accepts status %s",
+      async (status) => {
+        const res = makeRes();
+        processService.list.mockResolvedValue([]);
 
-      await listProcesses(makeReq({ query: { status } }), cast(res));
+        await listProcesses(makeReq({ query: { status } }), cast(res));
 
-      expect(processService.list).toHaveBeenCalledWith(
-        expect.objectContaining({ exitState: status }),
-      );
-    });
+        expect(processService.list).toHaveBeenCalledWith(
+          expect.objectContaining({ exitState: status }),
+        );
+      },
+    );
 
     it("rejects invalid state", async () => {
       const res = makeRes();
@@ -443,14 +439,15 @@ describe("process.controller", () => {
       expect(processService.run).toHaveBeenCalledWith(7, true);
     });
 
-    it.each([
-      { body: { force: "yes" }, why: "non-boolean force" },
-    ])("rejects $why", async ({ body }) => {
-      const res = makeRes();
-      await expect(
-        runProcess(makeReq({ params: { id: "7" }, body }), cast(res)),
-      ).rejects.toBeInstanceOf(HttpError);
-    });
+    it.each([{ body: { force: "yes" }, why: "non-boolean force" }])(
+      "rejects $why",
+      async ({ body }) => {
+        const res = makeRes();
+        await expect(
+          runProcess(makeReq({ params: { id: "7" }, body }), cast(res)),
+        ).rejects.toBeInstanceOf(HttpError);
+      },
+    );
 
     it("rejects when body is not an object", async () => {
       const res = makeRes();

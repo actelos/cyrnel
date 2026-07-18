@@ -145,6 +145,7 @@ class BoundedQueue<T> {
 
 function transpileWorkerCode(): string {
   return [
+    `(async () => {`,
     `const { parentPort, workerData } = await import("worker_threads");`,
     `const { code, typescriptUrl } = workerData;`,
     `try {`,
@@ -169,6 +170,7 @@ function transpileWorkerCode(): string {
     `} catch (err) {`,
     `  parentPort.postMessage({ error: String(err) });`,
     `}`,
+    `})();`,
   ].join("\n");
 }
 
