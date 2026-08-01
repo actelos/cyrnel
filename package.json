@@ -15,10 +15,16 @@
   },
   "pnpm": {
     "overrides": {
+      "@hono/node-server": ">=2.0.5",
+      "axios": ">=1.18.0",
+      "body-parser": "^2.3.0",
+      "brace-expansion": ">=5.0.8",
       "esbuild": ">=0.28.1",
+      "fast-uri": "^3.1.4",
       "form-data": "4.0.6",
-      "hono": ">=4.12.25",
-      "js-yaml": ">=4.2.0",
+      "hono": ">=4.12.27",
+      "js-yaml": ">=4.3.0 <5",
+      "postcss": ">=8.5.18",
       "read-yaml-file": ">=2.0.1 <3",
       "undici": "^7.28.0"
     }

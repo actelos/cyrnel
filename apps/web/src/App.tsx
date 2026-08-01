@@ -1,11 +1,5 @@
 import { Blocks, Braces, Server } from "lucide-react";
-import {
-  Navigate,
-  NavLink,
-  Route,
-  Routes,
-  useLocation,
-} from "react-router-dom";
+import { Navigate, NavLink, Route, Routes, useLocation } from "react-router";
 import { Toaster } from "sonner";
 import { ModeToggle } from "@/components/mode-toggle";
 import { useTheme } from "@/components/theme-provider";
