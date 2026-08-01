@@ -36,9 +36,10 @@ sources:
    }
    ```
 
-   `version` is a required semver string. `engines.cyrnel` is an optional semver
-   range; if set, the Cyrnel core version (`CYRNEL_CORE_VERSION`) must satisfy
-   it, or the module is rejected with a 400 error.
+   `version` is a required semver string. `engines` is optional, but when
+   present its `cyrnel` field is **required**: a semver range the Cyrnel core
+   version (`CYRNEL_CORE_VERSION`) must satisfy, or the module is rejected with
+   a 400 error. Omitting `engines` entirely means "no core version constraint".
 
    `main` is an ES module exporting `instantiate(): AdapterModule` or
    `EnvironmentModule`. See
