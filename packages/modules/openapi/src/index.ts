@@ -75,7 +75,8 @@ class OpenapiAdapter implements AdapterModule {
     );
     const path = substitutePathParams(toolDomain.path, params.path);
     const qs = buildQueryString(params.query);
-    const url = `${baseUrl.replace(/\/+$/, "")}${path}${qs}`;
+    const normalizedBaseUrl = baseUrl.replace(/\/v(\d+)(\/|$)/, "/$1$2");
+    const url = `${normalizedBaseUrl.replace(/\/+$/, "")}${path}${qs}`;
 
     const headerParams = (params.headers ?? {}) as Record<string, string>;
     const authHeaders = buildAuthHeaders(
