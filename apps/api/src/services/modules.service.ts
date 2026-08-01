@@ -266,7 +266,7 @@ export class ModuleService {
     if (row.serviceStale) {
       throw new HttpError(
         409,
-        `Service '${input.serviceId}' is stale and must be synced before it can be enabled.`,
+        `Service '${input.serviceId}' is stale and must be synced before it can be invoked.`,
       );
     }
 

@@ -218,6 +218,30 @@ describe("OpenapiAdapter invoke", () => {
     ).rejects.toThrow("Tool 'unknownTool' not found in service 'petstore'.");
   });
 
+  it("preserves versioned server URLs", async () => {
+    const requestMock = vi.mocked(makeRequest);
+    requestMock.mockResolvedValue({ status: "200", body: {} });
+
+    const adapter = oapi.instantiate();
+    const state = makeMockServiceState();
+    hydrate(adapter, "petstore", {
+      ...state,
+      adapterDomain: {
+        ...state.adapterDomain,
+        servers: [{ url: "https://api.example.com/api/v1" }],
+      },
+    });
+
+    await adapter.invoke({
+      serviceId: "petstore",
+      toolId: "getPet",
+      parameters: { path: { petId: "123" } },
+    });
+
+    const callArgs = requestMock.mock.calls[0][0];
+    expect(callArgs.url).toBe("https://api.example.com/api/v1/pets/123");
+  });
+
   it("handles 204 no-content response", async () => {
     const requestMock = vi.mocked(makeRequest);
     requestMock.mockResolvedValue({ status: "204" });

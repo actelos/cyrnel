@@ -56,12 +56,15 @@
     const jsonInput = JSON.stringify(input);
     const jsonResult = await ref.applySyncPromise(undefined, [jsonInput]);
     const parsed = JSON.parse(jsonResult as string) as unknown;
+    const parsedRecord = parsed as Record<string, unknown> | null;
     if (
-      parsed &&
-      typeof parsed === "object" &&
-      "__cyrnel_error" in (parsed as Record<string, unknown>)
+      parsedRecord !== null &&
+      typeof parsedRecord === "object" &&
+      Object.keys(parsedRecord).length === 1 &&
+      Object.keys(parsedRecord)[0] === "__cyrnel_error" &&
+      typeof parsedRecord.__cyrnel_error === "string"
     ) {
-      throw new Error((parsed as Record<string, string>).__cyrnel_error);
+      throw new Error(parsedRecord.__cyrnel_error);
     }
     return parsed as T;
   };
