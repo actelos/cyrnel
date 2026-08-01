@@ -60,7 +60,8 @@
     if (
       parsedRecord !== null &&
       typeof parsedRecord === "object" &&
-      Object.keys(parsedRecord).length === 1 && Object.keys(parsedRecord)[0] === "__cyrnel_error" &&
+      Object.keys(parsedRecord).length === 1 &&
+      Object.keys(parsedRecord)[0] === "__cyrnel_error" &&
       typeof parsedRecord.__cyrnel_error === "string"
     ) {
       throw new Error(parsedRecord.__cyrnel_error);
