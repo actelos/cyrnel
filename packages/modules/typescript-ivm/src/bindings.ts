@@ -55,7 +55,15 @@
   ): Promise<T> => {
     const jsonInput = JSON.stringify(input);
     const jsonResult = await ref.applySyncPromise(undefined, [jsonInput]);
-    return JSON.parse(jsonResult as string) as T;
+    const parsed = JSON.parse(jsonResult as string) as unknown;
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      "__cyrnel_error" in (parsed as Record<string, unknown>)
+    ) {
+      throw new Error((parsed as Record<string, string>).__cyrnel_error);
+    }
+    return parsed as T;
   };
 
   const cyrnel = {

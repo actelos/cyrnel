@@ -82,7 +82,7 @@ export const moduleManifestSchema = z.object({
   main: z.string().min(1),
   engines: z
     .object({
-      cyrnel: z.string().min(1).optional(),
+      cyrnel: z.string().min(1),
     })
     .optional(),
 });

@@ -49,9 +49,11 @@ Fields:
 - `description`: Surfaced in `GET /modules`.
 - `main`: Path to the built module file the host can `import()`. The file must
   default-export the module object (see below).
-- `engines` (optional): Object with an optional `cyrnel` string field. If set,
-  the Cyrnel core version must satisfy the semver range, or the module is
-  rejected at registration time.
+- `engines` (optional): Object declaring the Cyrnel core version range this
+  module supports. When present, the `cyrnel` field is **required**: it must be
+  a semver range (e.g. `">=3.0.0"`) that the Cyrnel core version must satisfy,
+  or the module is rejected at registration time. Omitting `engines` entirely
+  is allowed and means "no core version constraint".
 
 The full JSON Schema is available at
 [`schema/module.schema.json`](https://github.com/actelos/cyrnel/blob/main/schema/module.schema.json).

@@ -756,7 +756,14 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
       await jail.set("__cyrnel_emitOutput", refOutput);
 
       const refInvoke = new ivm.Reference(async (jsonInput: string) => {
-        const input = JSON.parse(jsonInput) as InvokeInput;
+        let input: InvokeInput;
+        try {
+          input = JSON.parse(jsonInput) as InvokeInput;
+        } catch {
+          return JSON.stringify({
+            __cyrnel_error: "Invalid invoke input JSON",
+          });
+        }
         try {
           const result = await bindings.invokeTool(input);
           return JSON.stringify(result);

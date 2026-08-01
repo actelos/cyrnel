@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft-07/schema#",
-  "$id": "https://raw.githubusercontent.com/actelos/cyrnel/main/schema/module-manifest.schema.json",
+  "$id": "https://raw.githubusercontent.com/actelos/cyrnel/main/schema/module.schema.json",
   "title": "Cyrnel Module Manifest",
   "description": "Schema for cyrnel custom module manifests (module.json)",
   "type": "object",
@@ -18,11 +18,11 @@
     "type": {
       "type": "string",
       "enum": ["adapter", "environment"],
-      "description": "Module type: 'adapter' (provides tools via external API) or 'environment' (executes user code)."
+      "description": "Module type: 'adapter' (provides tools via external API) or 'environment' (executes client code)."
     },
     "description": {
       "type": "string",
-      "description": "Human-readable description surfaced in GET /modules."
+      "description": "Human-readable description."
     },
     "main": {
       "type": "string",
@@ -42,6 +42,7 @@
           "description": "Semantic range constraint for Cyrnel core version (e.g. '^1.0.0')."
         }
       },
+      "required": ["cyrnel"],
       "additionalProperties": false,
       "description": "Optional engine constraints."
     }
