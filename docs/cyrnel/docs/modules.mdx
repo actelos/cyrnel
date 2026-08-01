@@ -30,9 +30,7 @@ sources:
      "name": "My Adapter",
      "description": "this is my my adapter",
      "main": "./index.js",
-     "engines": { "cyrnel": "^x.x.x" },
-     "configSchema": { ... },
-     "secretsSchema": { ... },
+     "engines": { "cyrnel": "^x.x.x" }
    }
    ```
 
@@ -177,8 +175,9 @@ teardown may happen seconds later.
 
 ## Configuration and Secrets
 
-Modules can declare `configSchema` and `secretsSchema` in their manifest.
-Cyrnel stores module configuration as plaintext JSON and module secrets as
+Modules declare `configSchema` and `secretsSchema` in their code export,
+not in `module.json`. Cyrnel stores module configuration as plaintext JSON
+and module secrets as
 AES-256-GCM ciphertext using `CYRNEL_SECRETS_KEY`. When a record is
 read that was encrypted with a previous key (during rotation), it is
 silently re-encrypted with the current primary key and persisted.
