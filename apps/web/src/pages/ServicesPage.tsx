@@ -1,7 +1,7 @@
 import { Plus, RotateCcw } from "lucide-react";
 import { useMemo, useState } from "react";
 import Markdown from "react-markdown";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import remarkGfm from "remark-gfm";
 import useSWR, { useSWRConfig } from "swr";
 import { z } from "zod";
