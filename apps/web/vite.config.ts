@@ -22,6 +22,12 @@ export default defineConfig(({ mode }) => {
   ).replace(/\/+$/, "");
   const apiKey = process.env.CYRNEL_API_KEY ?? env.CYRNEL_API_KEY ?? "";
 
+  if (env.VITE_CYRNEL_API_URL) {
+    console.warn(
+      "[cyrnel] VITE_CYRNEL_API_URL is set: the browser calls the API directly and bypasses the dev proxy, so CYRNEL_API_KEY will NOT be injected. Leave it empty and configure CYRNEL_API_URL/CYRNEL_API_KEY instead.",
+    );
+  }
+
   const proxy: Record<string, ProxyOptions> = {};
   for (const path of API_PATHS) {
     proxy[path] = {
