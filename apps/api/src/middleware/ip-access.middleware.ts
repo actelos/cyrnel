@@ -39,7 +39,12 @@ function getBlockedCIDRs(): ParsedCIDR[] {
 }
 
 function matchesCIDRs(address: string, cidrs: ParsedCIDR[]): boolean {
-  const parsed = ipaddr.process(address);
+  let parsed: ipaddr.IPv4 | ipaddr.IPv6;
+  try {
+    parsed = ipaddr.process(address);
+  } catch {
+    return false;
+  }
   return cidrs.some(
     ([range, prefix]) =>
       parsed.kind() === range.kind() && parsed.match(range, prefix),
