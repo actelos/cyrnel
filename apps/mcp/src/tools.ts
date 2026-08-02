@@ -348,6 +348,20 @@ const tools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
         await api.post(`processes/${id}/signals/kill`, { json: {} }).json(),
       ),
   },
+  {
+    name: "unload_process",
+    description: `
+    Remove an idle process from active memory, keeping its database record and
+    outputs intact. The process id remains valid and can be revived later via
+    \`run_process\`. Only accepts an unload signal for idle in-memory processes.
+    `,
+    annotations: { idempotentHint: false, openWorldHint: true },
+    parameters: z.object({ id: ProcessId }),
+    execute: async ({ id }) =>
+      JSON.stringify(
+        await api.post(`processes/${id}/signals/unload`, { json: {} }).json(),
+      ),
+  },
 ];
 
 async function pollUntilIdle(

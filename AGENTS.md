@@ -123,6 +123,7 @@ Full set of env vars (see `apps/api/.example.env` for defaults):
 | `CYRNEL_ALLOWED_IPS` | Inbound IP allowlist (comma-separated CIDR) |
 | `CYRNEL_BLOCKED_IPS` | Inbound IP blocklist (comma-separated CIDR) |
 | `CYRNEL_MAX_ACTIVE_PROCESSES` | Max in-memory process records (default 1000) |
+| `CYRNEL_MAX_IDLE_PROCESSES` | Max idle in-memory records before LRU auto-unload (unset = unlimited) |
 | `CYRNEL_MAX_CODE_SIZE_BYTES` | Max sandbox code submission size (default 102400) |
 | `CYRNEL_INVOKE_TIMEOUT_MS` | Tool invocation timeout (default 30000) |
 | `CYRNEL_MAX_CONNECTIONS` | Max concurrent connections (0 = unlimited) |

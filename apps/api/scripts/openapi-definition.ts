@@ -935,13 +935,17 @@ registry.registerPath({
     "Deletes a process and its associated data (code, output, stdout, stderr).",
   request: { params: idParam },
   responses: {
-    204: { description: "The process was deleted successfully." },
+    200: {
+      description: "The process was deleted successfully.",
+      content: jsonContent(ProcessSchema),
+    },
     400: apiErrorResponse("The id path parameter was invalid."),
     401: apiErrorResponse(
       "A bearer token was required but missing or invalid.",
     ),
     ...rateLimitResponse(),
     404: apiErrorResponse("The process could not be found."),
+    409: apiErrorResponse("The process is not idle and could not be deleted."),
     500: apiErrorResponse("The process could not be deleted."),
   },
 });
@@ -1099,6 +1103,35 @@ registry.registerPath({
       "The process is already idle or is already terminating.",
     ),
     500: apiErrorResponse("The process could not be terminated."),
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/processes/{id}/signals/unload",
+  tags: ["Processes"],
+  summary: "Send unload signal",
+  description:
+    "Removes an idle process from active memory, keeping its database record and outputs intact. The process id remains valid and can be revived later via the run signal. Returns a conflict when the process is not idle or is not in active memory.",
+  request: {
+    params: idParam,
+    body: { content: jsonContent(ProcessKillRequestSchema) },
+  },
+  responses: {
+    200: {
+      description: "The process was unloaded from active memory.",
+      content: jsonContent(ProcessSchema),
+    },
+    400: apiErrorResponse("The request body or id path parameter was invalid."),
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    404: apiErrorResponse("The process could not be found."),
+    ...rateLimitResponse(),
+    409: apiErrorResponse(
+      "The process is not idle or is not in active memory.",
+    ),
+    500: apiErrorResponse("The process could not be unloaded."),
   },
 });
 

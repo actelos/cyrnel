@@ -1,4 +1,5 @@
 import {
+  Archive,
   Copy,
   Maximize2,
   Play,
@@ -312,6 +313,10 @@ export default function ProcessesPage() {
     return process.state === "idle";
   };
 
+  const canUnload = (process: Process) => {
+    return process.state === "idle" && process.pid !== null;
+  };
+
   const needsRestartConfirmation = (process: Process) => {
     return process.state === "idle" && process.exitState !== null;
   };
@@ -434,6 +439,28 @@ export default function ProcessesPage() {
         type: "error",
         title: "Error",
         message: errorMessageFrom(error, "Unable to delete process."),
+      });
+    }
+  };
+
+  const handleUnloadProcess = async (process: Process) => {
+    try {
+      await apiFetch(buildUrl(`/processes/${process.id}/signals/unload`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      await mutate(processesUrl);
+      addNotification({
+        type: "success",
+        title: "Success",
+        message: "Process unloaded from memory.",
+      });
+    } catch (error) {
+      addNotification({
+        type: "error",
+        title: "Error",
+        message: errorMessageFrom(error, "Unable to unload process."),
       });
     }
   };
@@ -723,6 +750,22 @@ export default function ProcessesPage() {
                               }}
                             >
                               <RotateCcw />
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              className="h-8 w-8 p-0"
+                              aria-label="Unload process"
+                              disabled={!canUnload(process)}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                if (!canUnload(process)) {
+                                  return;
+                                }
+                                void handleUnloadProcess(process);
+                              }}
+                            >
+                              <Archive />
                             </Button>
                             <Button
                               type="button"
