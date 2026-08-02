@@ -1,8 +1,17 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { createClient } from "@libsql/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("@libsql/client", () => ({
+  createClient: vi.fn(),
+}));
 
 describe("db client", () => {
   const originalDbUrl = process.env.CYRNEL_DB_URL;
   const originalNodeEnv = process.env.NODE_ENV;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
 
   afterEach(() => {
     vi.resetModules();
@@ -20,31 +29,31 @@ describe("db client", () => {
     }
   });
 
-  it("uses CYRNEL_DB_URL when set", async () => {
-    process.env.CYRNEL_DB_URL = "file::memory:?cache=shared";
+  it("passes CYRNEL_DB_URL to the client factory in production", async () => {
+    process.env.CYRNEL_DB_URL = "file:./custom.db";
     process.env.NODE_ENV = "production";
 
-    const { db } = await import("@/db/client");
+    await import("@/db/client");
 
-    const result = await db.run("SELECT 1 AS one");
-
-    expect(result.rows).toHaveLength(1);
-    expect(result.rows[0]).toEqual({ one: 1 });
+    expect(vi.mocked(createClient)).toHaveBeenCalledOnce();
+    expect(vi.mocked(createClient)).toHaveBeenCalledWith({
+      url: "file:./custom.db",
+    });
   });
 
-  it("uses an in-memory database in test environment", async () => {
+  it("selects the in-memory database when VITEST masks NODE_ENV", async () => {
     delete process.env.CYRNEL_DB_URL;
-    process.env.NODE_ENV = "test";
+    process.env.NODE_ENV = "production";
 
-    const { db } = await import("@/db/client");
+    await import("@/db/client");
 
-    const result = await db.run("SELECT 1 AS one");
-
-    expect(result.rows).toHaveLength(1);
-    expect(result.rows[0]).toEqual({ one: 1 });
+    expect(vi.mocked(createClient)).toHaveBeenCalledWith({
+      url: "file::memory:?cache=shared",
+    });
   });
 
   it("exports the schema", async () => {
+    delete process.env.CYRNEL_DB_URL;
     process.env.NODE_ENV = "test";
 
     const { schema } = await import("@/db/client");

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { MODULE_TYPES, moduleManifestSchema } from "@/models/modules.model";
 
-const VALID_MANIFEST = {
+const validManifest = {
   id: "my-adapter",
   name: "My Adapter",
   version: "1.2.3",
@@ -19,14 +19,14 @@ describe("MODULE_TYPES", () => {
 
 describe("moduleManifestSchema", () => {
   it("accepts a valid adapter manifest", () => {
-    const result = moduleManifestSchema.safeParse(VALID_MANIFEST);
+    const result = moduleManifestSchema.safeParse(validManifest);
 
     expect(result.success).toBe(true);
   });
 
   it("accepts an environment manifest with engines", () => {
     const result = moduleManifestSchema.safeParse({
-      ...VALID_MANIFEST,
+      ...validManifest,
       type: "environment",
       engines: { cyrnel: "^3.0.0" },
     });
@@ -36,7 +36,7 @@ describe("moduleManifestSchema", () => {
 
   it("rejects an id with invalid characters", () => {
     const result = moduleManifestSchema.safeParse({
-      ...VALID_MANIFEST,
+      ...validManifest,
       id: "1invalid-id",
     });
 
@@ -45,7 +45,7 @@ describe("moduleManifestSchema", () => {
 
   it("rejects an id with spaces", () => {
     const result = moduleManifestSchema.safeParse({
-      ...VALID_MANIFEST,
+      ...validManifest,
       id: "my adapter",
     });
 
@@ -54,7 +54,7 @@ describe("moduleManifestSchema", () => {
 
   it("rejects an invalid semver version", () => {
     const result = moduleManifestSchema.safeParse({
-      ...VALID_MANIFEST,
+      ...validManifest,
       version: "not-a-version",
     });
 
@@ -63,7 +63,7 @@ describe("moduleManifestSchema", () => {
 
   it("rejects an unknown module type", () => {
     const result = moduleManifestSchema.safeParse({
-      ...VALID_MANIFEST,
+      ...validManifest,
       type: "plugin",
     });
 
@@ -71,7 +71,7 @@ describe("moduleManifestSchema", () => {
   });
 
   it("rejects a missing main field", () => {
-    const { main: _main, ...withoutMain } = VALID_MANIFEST;
+    const { main: _main, ...withoutMain } = validManifest;
     const result = moduleManifestSchema.safeParse(withoutMain);
 
     expect(result.success).toBe(false);
@@ -79,7 +79,7 @@ describe("moduleManifestSchema", () => {
 
   it("rejects an empty name", () => {
     const result = moduleManifestSchema.safeParse({
-      ...VALID_MANIFEST,
+      ...validManifest,
       name: "",
     });
 
@@ -87,7 +87,7 @@ describe("moduleManifestSchema", () => {
   });
 
   it("rejects a missing description", () => {
-    const { description: _description, ...withoutDescription } = VALID_MANIFEST;
+    const { description: _description, ...withoutDescription } = validManifest;
     const result = moduleManifestSchema.safeParse(withoutDescription);
 
     expect(result.success).toBe(false);

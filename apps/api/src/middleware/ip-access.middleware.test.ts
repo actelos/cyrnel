@@ -167,6 +167,32 @@ describe("ipAccessMiddleware", () => {
     expect(next).toHaveBeenCalledWith();
   });
 
+  it("treats a malformed IP as no match against the blocklist", () => {
+    process.env.CYRNEL_BLOCKED_IPS = "203.0.113.0/24";
+
+    const next = vi.fn();
+
+    ipAccessMiddleware(makeReq({ ip: "not-an-ip" }), {} as Response, next);
+
+    expect(next).toHaveBeenCalledOnce();
+    expect(next).toHaveBeenCalledWith();
+  });
+
+  it("denies a malformed IP when an allowlist is set", () => {
+    process.env.CYRNEL_ALLOWED_IPS = "203.0.113.0/24";
+
+    const next = vi.fn();
+
+    ipAccessMiddleware(makeReq({ ip: "not-an-ip" }), {} as Response, next);
+
+    expect(next).toHaveBeenCalledOnce();
+    expect(next).toHaveBeenCalledWith(expect.any(HttpError));
+
+    const error = nextError(next);
+    expect(error.statusCode).toBe(403);
+    expect(error.message).toBe("Access denied.");
+  });
+
   it("rejects request when no address is available and allowlist is set", () => {
     process.env.CYRNEL_ALLOWED_IPS = "203.0.113.0/24";
 
