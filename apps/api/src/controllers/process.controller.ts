@@ -197,6 +197,13 @@ export async function killProcess(req: Request, res: Response): Promise<void> {
   res.status(200).json(await getProcessService(req).kill(parseId(req)));
 }
 
+export async function unloadProcess(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  res.status(200).json(await getProcessService(req).unload(parseId(req)));
+}
+
 export async function deleteProcess(
   req: Request,
   res: Response,

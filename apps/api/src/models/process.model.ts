@@ -26,6 +26,7 @@ export interface ProcessRecord {
   output: Record<string, unknown>;
   stdout: Buffer;
   stderr: Buffer;
+  lastExecutedAt: number;
 }
 
 export type CreateProcessInput = Omit<
@@ -40,6 +41,7 @@ export type CreateProcessInput = Omit<
   | "stderr"
   | "timeoutMs"
   | "envConfig"
+  | "lastExecutedAt"
 > & {
   timeoutMs?: number | null;
   envConfig?: Record<string, unknown>;

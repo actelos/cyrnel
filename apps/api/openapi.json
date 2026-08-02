@@ -1265,8 +1265,15 @@
           }
         ],
         "responses": {
-          "204": {
-            "description": "The process was deleted successfully."
+          "200": {
+            "description": "The process was deleted successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Process"
+                }
+              }
+            }
           },
           "400": {
             "description": "The id path parameter was invalid.",
@@ -1290,6 +1297,16 @@
           },
           "404": {
             "description": "The process could not be found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The process is not idle and could not be deleted.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2031,6 +2048,134 @@
           },
           "500": {
             "description": "The process could not be terminated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/processes/{id}/signals/unload": {
+      "post": {
+        "tags": [
+          "Processes"
+        ],
+        "summary": "Send unload signal",
+        "description": "Removes an idle process from active memory, keeping its database record and outputs intact. The process id remains valid and can be revived later via the run signal. Returns a conflict when the process is not idle or is not in active memory.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Numeric process identifier serialized as a path parameter."
+            },
+            "required": true,
+            "description": "Numeric process identifier serialized as a path parameter.",
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProcessKillRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The process was unloaded from active memory.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Process"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body or id path parameter was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A bearer token was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The process could not be found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The process is not idle or is not in active memory.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded. The request was throttled. Check Retry-After header.",
+            "headers": {
+              "X-RateLimit-Limit": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Maximum requests allowed in the current window."
+              },
+              "X-RateLimit-Remaining": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Requests remaining in the current window."
+              },
+              "X-RateLimit-Reset": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Unix timestamp when the window resets."
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The process could not be unloaded.",
             "content": {
               "application/json": {
                 "schema": {

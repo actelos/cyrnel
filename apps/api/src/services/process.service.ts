@@ -5,7 +5,7 @@ import type {
   ExecutionInput,
   ExecutionState,
 } from "@cyrnel/sdk";
-import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
+import { and, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 
 import { db } from "@/db/client";
 import {
@@ -32,6 +32,13 @@ function getMaxActiveProcesses(): number {
     : DEFAULT_MAX_ACTIVE_PROCESSES;
 }
 
+function getMaxIdleProcesses(): number | null {
+  const raw = process.env.CYRNEL_MAX_IDLE_PROCESSES;
+  if (raw === undefined || raw.trim().length === 0) return null;
+  const value = Number(raw);
+  return Number.isInteger(value) && value >= 1 ? value : null;
+}
+
 interface ExecutionContext {
   stdoutDecoder: StringDecoder;
   stderrDecoder: StringDecoder;
@@ -52,6 +59,18 @@ interface RunExecutionInput {
   };
   context: ExecutionContext;
 }
+
+type DbProcessRow = {
+  id: number;
+  ref: string | null;
+  code: string;
+  timeoutMs: number | null;
+  envConfig: Record<string, unknown>;
+  createdAt: string;
+  exitState: string | null;
+  error: string | null;
+  completedAt: string | null;
+};
 
 export class ProcessService {
   private readonly executions = new Map<number, ExecutionContext>();
@@ -90,6 +109,8 @@ export class ProcessService {
     if (filters.state !== undefined) {
       if (filters.state === "idle") {
         conditions.push(isNotNull(processDataTable.exitState));
+      } else {
+        conditions.push(sql`1 = 0`);
       }
     }
 
@@ -179,10 +200,13 @@ export class ProcessService {
       output: {},
       stdout: Buffer.alloc(0),
       stderr: Buffer.alloc(0),
+      lastExecutedAt: Date.now(),
     });
 
     if (autorun) {
       this.startExecution(id);
+    } else {
+      this.trimIdleProcesses();
     }
 
     return { id };
@@ -194,36 +218,10 @@ export class ProcessService {
       return this.project(this.getStored(pid));
     }
 
-    const [row] = await db
-      .select({
-        id: processesTable.id,
-        ref: processesTable.ref,
-        createdAt: processesTable.createdAt,
-        exitState: processDataTable.exitState,
-        error: processDataTable.error,
-        completedAt: processDataTable.completedAt,
-      })
-      .from(processesTable)
-      .leftJoin(
-        processDataTable,
-        eq(processDataTable.processId, processesTable.id),
-      )
-      .where(eq(processesTable.id, id))
-      .limit(1)
-      .all();
-
+    const row = await this.loadDbProcess(id);
     if (!row) throw new HttpError(404, "Process not found.");
 
-    return {
-      id: row.id,
-      pid: null,
-      ref: row.ref ?? undefined,
-      state: "idle",
-      exitState: (row.exitState ?? null) as GetProcessResult["exitState"],
-      error: row.error,
-      createdAt: row.createdAt,
-      completedAt: row.completedAt,
-    };
+    return this.projectDbProcess(row);
   }
 
   async getOutput(id: number): Promise<Record<string, unknown>> {
@@ -276,7 +274,14 @@ export class ProcessService {
   }
 
   async kill(id: number): Promise<GetProcessResult> {
-    const pid = this.resolvePid(id);
+    const pid = this.pidIndex.get(id);
+
+    if (pid === undefined) {
+      const row = await this.loadDbProcess(id);
+      if (!row) throw new HttpError(404, "Process not found.");
+      throw new HttpError(409, "Process is already idle.");
+    }
+
     const stored = this.getStored(pid);
 
     if (stored.state === "idle")
@@ -296,7 +301,12 @@ export class ProcessService {
     if (this.isShuttingDown)
       throw new HttpError(503, "Service is shutting down.");
 
-    const pid = this.resolvePid(id);
+    const pid = this.pidIndex.get(id);
+
+    if (pid === undefined) {
+      return await this.reviveFromDb(id, force);
+    }
+
     const stored = this.getStored(pid);
 
     if (stored.state !== "idle")
@@ -329,8 +339,50 @@ export class ProcessService {
     return await this.get(id);
   }
 
+  async unload(id: number): Promise<GetProcessResult> {
+    const pid = this.pidIndex.get(id);
+
+    if (pid === undefined) {
+      const row = await this.loadDbProcess(id);
+      if (!row) throw new HttpError(404, "Process not found.");
+      throw new HttpError(409, "Process is not in active memory.");
+    }
+
+    const stored = this.getStored(pid);
+
+    if (stored.state !== "idle") {
+      throw new HttpError(
+        409,
+        "Process must be idle before it can be unloaded.",
+      );
+    }
+
+    const result = this.project(stored);
+
+    this.releaseFromMemory(pid);
+
+    return { ...result, pid: null };
+  }
+
   async delete(id: number): Promise<GetProcessResult> {
-    const pid = this.resolvePid(id);
+    const pid = this.pidIndex.get(id);
+
+    if (pid === undefined) {
+      const row = await this.loadDbProcess(id);
+      if (!row) throw new HttpError(404, "Process not found.");
+
+      const result = this.projectDbProcess(row);
+
+      await db
+        .delete(processesTable)
+        .where(eq(processesTable.id, id))
+        .catch((err) => {
+          logger.warn({ err, id }, "Failed to delete process from database");
+        });
+
+      return result;
+    }
+
     const stored = this.getStored(pid);
 
     if (stored.state !== "idle") {
@@ -342,9 +394,7 @@ export class ProcessService {
 
     const result = this.project(stored);
 
-    this.processes.delete(pid);
-    this.pidIndex.delete(id);
-    this.pidPool.push(pid);
+    this.releaseFromMemory(pid);
 
     await db
       .delete(processesTable)
@@ -454,6 +504,8 @@ export class ProcessService {
 
     if (!stored) return;
 
+    stored.lastExecutedAt = Date.now();
+
     const context: ExecutionContext = {
       stdoutDecoder: new StringDecoder("utf8"),
       stderrDecoder: new StringDecoder("utf8"),
@@ -529,18 +581,33 @@ export class ProcessService {
     this.executions.delete(pid);
 
     try {
-      await db.insert(processDataTable).values({
-        processId: stored.dbId,
-        exitState,
-        error: stored.error,
-        output: stored.output,
-        stdout: stored.stdout.toString("utf8"),
-        stderr: stored.stderr.toString("utf8"),
-        completedAt: new Date().toISOString(),
-      });
+      await db
+        .insert(processDataTable)
+        .values({
+          processId: stored.dbId,
+          exitState,
+          error: stored.error,
+          output: stored.output,
+          stdout: stored.stdout.toString("utf8"),
+          stderr: stored.stderr.toString("utf8"),
+          completedAt: new Date().toISOString(),
+        })
+        .onConflictDoUpdate({
+          target: processDataTable.processId,
+          set: {
+            exitState,
+            error: stored.error,
+            output: stored.output,
+            stdout: stored.stdout.toString("utf8"),
+            stderr: stored.stderr.toString("utf8"),
+            completedAt: new Date().toISOString(),
+          },
+        });
     } catch (err) {
       logger.warn({ err, id: stored.dbId }, "Failed to persist process result");
     }
+
+    this.trimIdleProcesses();
   }
 
   private resolvePid(id: number): number {
@@ -550,10 +617,108 @@ export class ProcessService {
     return pid;
   }
 
+  private async reviveFromDb(
+    id: number,
+    force: boolean,
+  ): Promise<GetProcessResult> {
+    const row = await this.loadDbProcess(id);
+    if (!row) throw new HttpError(404, "Process not found.");
+
+    if (row.completedAt !== null && !force) {
+      throw new HttpError(
+        400,
+        "Process has existing outputs. Set force: true to overwrite.",
+      );
+    }
+
+    const pid = this.createPid();
+
+    this.pidIndex.set(id, pid);
+    this.processes.set(pid, {
+      dbId: id,
+      pid,
+      ref: row.ref ?? undefined,
+      state: "queued",
+      exitState: null,
+      error: null,
+      code: row.code,
+      timeoutMs: row.timeoutMs,
+      envConfig: row.envConfig,
+      autorun: true,
+      output: {},
+      stdout: Buffer.alloc(0),
+      stderr: Buffer.alloc(0),
+      lastExecutedAt: Date.now(),
+    });
+
+    this.startExecution(id);
+
+    return await this.get(id);
+  }
+
+  private async loadDbProcess(id: number): Promise<DbProcessRow | null> {
+    const [row] = await db
+      .select({
+        id: processesTable.id,
+        ref: processesTable.ref,
+        code: processesTable.code,
+        timeoutMs: processesTable.timeoutMs,
+        envConfig: processesTable.envConfig,
+        createdAt: processesTable.createdAt,
+        exitState: processDataTable.exitState,
+        error: processDataTable.error,
+        completedAt: processDataTable.completedAt,
+      })
+      .from(processesTable)
+      .leftJoin(
+        processDataTable,
+        eq(processDataTable.processId, processesTable.id),
+      )
+      .where(eq(processesTable.id, id))
+      .limit(1)
+      .all();
+
+    return row ?? null;
+  }
+
+  private projectDbProcess(row: DbProcessRow): GetProcessResult {
+    return {
+      id: row.id,
+      pid: null,
+      ref: row.ref ?? undefined,
+      state: "idle",
+      exitState: (row.exitState ?? null) as GetProcessResult["exitState"],
+      error: row.error,
+      createdAt: row.createdAt,
+      completedAt: row.completedAt,
+    };
+  }
+
   private getStored(pid: number): ProcessRecord {
     const found = this.processes.get(pid);
     if (!found) throw new HttpError(404, "Process not found.");
     return found;
+  }
+
+  private releaseFromMemory(pid: number): void {
+    const stored = this.processes.get(pid);
+    if (!stored) return;
+    this.processes.delete(pid);
+    this.pidIndex.delete(stored.dbId);
+    this.pidPool.push(pid);
+  }
+
+  private trimIdleProcesses(): void {
+    const maxIdle = getMaxIdleProcesses();
+    if (maxIdle === null) return;
+
+    const idle = Array.from(this.processes.entries())
+      .filter(([, stored]) => stored.state === "idle")
+      .sort((a, b) => a[1].lastExecutedAt - b[1].lastExecutedAt);
+
+    for (let i = 0; i < idle.length - maxIdle; i++) {
+      this.releaseFromMemory(idle[i][0]);
+    }
   }
 
   private async resolveDbData(id: number): Promise<{

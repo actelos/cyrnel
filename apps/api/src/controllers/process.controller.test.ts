@@ -12,6 +12,7 @@ import {
   killProcess,
   listProcesses,
   runProcess,
+  unloadProcess,
 } from "@/controllers/process.controller";
 import { HttpError } from "@/models/error.model";
 
@@ -27,6 +28,7 @@ const processService = {
   kill: vi.fn(),
   delete: vi.fn(),
   run: vi.fn(),
+  unload: vi.fn(),
 };
 
 interface MockResponse {
@@ -410,6 +412,22 @@ describe("process.controller", () => {
       await deleteProcess(makeReq({ params: { id: "7" } }), cast(res));
 
       expect(processService.delete).toHaveBeenCalledWith(7);
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith({ id: 7, state: "idle" });
+    });
+  });
+
+  describe("unloadProcess", () => {
+    it("returns the unloaded process record", async () => {
+      const res = makeRes();
+      processService.unload.mockResolvedValue({ id: 7, state: "idle" });
+
+      await unloadProcess(
+        makeReq({ params: { id: "7" }, body: {} }),
+        cast(res),
+      );
+
+      expect(processService.unload).toHaveBeenCalledWith(7);
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith({ id: 7, state: "idle" });
     });
