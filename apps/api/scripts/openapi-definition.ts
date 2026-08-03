@@ -498,8 +498,13 @@ const ServiceConfigurationResponseSchema = registry.register(
   z
     .object({
       config: jsonObjectSchema.describe(
-        "Current configuration payload stored for the service.",
+        "Current configuration payload stored for the service, projected to keys defined by the schema.",
       ),
+      outdated: z
+        .array(z.string())
+        .describe(
+          "RFC 6901 pointers of stored configuration values that are no longer defined by the schema.",
+        ),
     })
     .describe("Wrapper for a service configuration document."),
 );
@@ -546,6 +551,11 @@ const ServiceSecretsPresenceResponseSchema = registry.register(
       present: z
         .array(z.string())
         .describe("Secrets paths that currently have values set."),
+      outdated: z
+        .array(z.string())
+        .describe(
+          "RFC 6901 pointers of stored secret values that are no longer defined by the schema.",
+        ),
     })
     .describe("Indicates which secrets paths have values present (non-empty)."),
 );
@@ -1364,7 +1374,7 @@ registry.registerPath({
   tags: ["Services"],
   summary: "Toggle a service",
   description:
-    "Sets whether a service is enabled. When enabling, the stored configuration and secrets are validated against their schemas before the change is persisted and the service is hydrated on its adapter.",
+    "Sets whether a service is enabled. When enabling, the stored configuration and secrets are validated against their schemas (keys no longer defined by the schema are tolerated) before the change is persisted and the service is hydrated on its adapter.",
   request: {
     params: serviceIdParam,
     body: { content: jsonContent(ServiceEnabledRequestSchema) },
@@ -1438,7 +1448,7 @@ registry.registerPath({
   tags: ["Services"],
   summary: "Get service configuration",
   description:
-    "Returns the configuration payload stored for the service. If no configuration exists yet, an empty object is returned.",
+    "Returns the configuration payload stored for the service. The payload is projected to keys defined by the schema; `outdated` lists RFC 6901 pointers of stored values that no longer match the schema. If no configuration exists yet, an empty object is returned.",
   request: { params: serviceIdParam },
   responses: {
     200: {
@@ -1460,7 +1470,7 @@ registry.registerPath({
   tags: ["Services"],
   summary: "Patch service configuration",
   description:
-    "Applies a JSON Patch document to the stored configuration, validates the result against the schema, persists it, and returns the resulting configuration payload. The patch body must be an array of RFC 6902 operations.",
+    "Applies a JSON Patch document to the stored configuration, persists it, and returns the resulting configuration payload plus `outdated` paths. Remove operations targeting paths that do not exist are ignored. Stored values that are no longer defined by the schema are preserved; adding new schema-disallowed keys is rejected. The patch body must be an array of RFC 6902 operations.",
   request: {
     params: serviceIdParam,
     body: { content: jsonContent(patchBodySchema) },
@@ -1488,7 +1498,7 @@ registry.registerPath({
   tags: ["Services"],
   summary: "Get service secrets presence",
   description:
-    "Returns the list of secrets paths that currently have values set. Secrets values are never echoed back, only their presence or absence is exposed.",
+    "Returns the list of secrets paths that currently have values set, plus `outdated` pointers for stored values no longer defined by the schema. Secrets values are never echoed back, only their presence or absence is exposed.",
   request: { params: serviceIdParam },
   responses: {
     200: {
@@ -1534,7 +1544,7 @@ registry.registerPath({
   tags: ["Services"],
   summary: "Patch service secrets",
   description:
-    "Applies a JSON Patch document to the encrypted secrets payload, validates the result against the schema, and persists the updated secrets. The response only confirms success; secrets are never echoed back.",
+    "Applies a JSON Patch document to the encrypted secrets payload, persists the updated secrets, and returns a confirmation. Remove operations targeting paths that do not exist are ignored. Stored values that are no longer defined by the schema are preserved; adding new schema-disallowed keys is rejected. The response only confirms success; secrets are never echoed back.",
   request: {
     params: serviceIdParam,
     body: { content: jsonContent(patchBodySchema) },

@@ -186,18 +186,23 @@ Configuration is readable and patchable:
 
 - `GET /modules/:moduleId/config/schema` returns the module's configuration
   JSON Schema.
-- `GET /modules/:moduleId/config` returns the currently stored configuration.
-- `PATCH /modules/:moduleId/config` accepts a JSON Patch array, validates the
-  resulting object against `configSchema`, persists it, and reloads the active
-  module instance when required.
+- `GET /modules/:moduleId/config` returns `{ config, outdated }`: the stored
+  configuration projected to keys defined by the schema, plus RFC 6901
+  pointers of stored values that no longer match the schema.
+- `PATCH /modules/:moduleId/config` accepts a JSON Patch array, persists the
+  result, and reloads the active module instance when required. Stored values
+  that are no longer defined by the schema are preserved; adding new
+  schema-disallowed keys is rejected; `remove` operations on missing paths
+  are ignored.
 
 Secrets are write-only:
 
 - `GET /modules/:moduleId/secrets/schema` returns the module's secrets JSON
   Schema.
 - `PATCH /modules/:moduleId/secrets` accepts a JSON Patch array, applies it to
-  the decrypted secret document, validates against `secretsSchema`, then
-  re-encrypts and persists the result.
+  the decrypted secret document, re-encrypts and persists the result. Stored
+  values that are no longer defined by the schema are preserved; adding new
+  schema-disallowed keys is rejected.
 
 There is no endpoint that returns plaintext module secrets. Use configuration
 for non-sensitive values only; put credentials and tokens in secrets.
@@ -215,7 +220,7 @@ for non-sensitive values only; put credentials and tokens in secrets.
 | `POST` | `/modules/:moduleId/enabled` | -- | Toggle `{ enabled: boolean }` |
 | `POST` | `/modules/reload` | -- | Re-scan custom modules from disk |
 | `GET` | `/modules/:moduleId/config/schema` | -- | Module configuration schema |
-| `GET` | `/modules/:moduleId/config` | -- | Current module configuration |
+| `GET` | `/modules/:moduleId/config` | -- | `{ config, outdated }` |
 | `PATCH` | `/modules/:moduleId/config` | -- | Patch module configuration |
 | `GET` | `/modules/:moduleId/secrets/schema` | -- | Module secrets schema |
 | `PATCH` | `/modules/:moduleId/secrets` | -- | Patch encrypted module secrets |

@@ -180,9 +180,12 @@ syncing, only a service with no stored definition content returns `409`.
 ```
 
 Enable validates configuration and secrets against their schemas (applying
-defaults), then calls `adapter.hydrateService(state)`. If hydration throws,
-the `enabled` flag is rolled back. Stale services (`stale = true`) cannot
-be enabled, use `POST /services/:id/sync` to sync the service first.
+defaults), then calls `adapter.hydrateService(state)`. Keys stored from an
+older schema version that are no longer defined by the current schema are
+tolerated: they are excluded from validation and not passed to the adapter.
+If hydration throws, the `enabled` flag is rolled back. Stale services
+(`stale = true`) cannot be enabled, use `POST /services/:id/sync` to sync
+the service first.
 
 Disable calls `adapter.dehydrateService(serviceId)` and best-efforts logs
 any failure.
@@ -212,8 +215,8 @@ the service) and stored as a JSON blob.
 | Method | Path | Returns |
 | --- | --- | --- |
 | `GET` | `/services/:serviceId/config/schema` | `{ configSchema }` |
-| `GET` | `/services/:serviceId/config` | `{ config }` |
-| `PATCH` | `/services/:serviceId/config` | Apply an RFC 6902 JSON Patch |
+| `GET` | `/services/:serviceId/config` | `{ config, outdated }` |
+| `PATCH` | `/services/:serviceId/config` | `{ config, outdated }` |
 
 `PATCH` body is an array of JSON Patch operations:
 
@@ -224,10 +227,20 @@ the service) and stored as a JSON blob.
 ]
 ```
 
-The server applies the patch, validates the result against `configSchema`,
-fills in any missing defaults from the schema, and persists the merged
-object. If the service is currently enabled, cyrnel re-hydrates it on the
-adapter so the change takes effect immediately.
+The server applies the patch, persists the merged object, and returns the
+stored payload plus any `outdated` pointers. Stored values that are no
+longer defined by the schema are preserved; adding new schema-disallowed
+keys is rejected, and `remove` operations targeting paths that do not
+exist are ignored. If the service is currently enabled, cyrnel
+re-hydrates it on the adapter so the change takes effect immediately.
+
+`outdated` lists RFC 6901 pointers of stored values that are not part of
+the current schema (for example a key renamed in a newer service version).
+These values are excluded from the `config` payload and from adapter
+hydration, but they remain stored and are only removed through an explicit
+`remove` operation. Array item pointers are collapsed: an array containing
+outdated items is reported once as `/path/items` and can be removed as a
+whole via `/path`.
 
 ## Secrets
 
@@ -244,14 +257,16 @@ won't match any key in the ring, and the fallback has nowhere to go.
 
 | Method | Path | Returns |
 | --- | --- | --- |
-| `GET` | `/services/:serviceId/secrets` | `{ present: string[] }` |
+| `GET` | `/services/:serviceId/secrets` | `{ present, outdated }` |
 | `GET` | `/services/:serviceId/secrets/schema` | `{ secretsSchema }` |
 | `PATCH` | `/services/:serviceId/secrets` | Apply an RFC 6902 JSON Patch |
 
 Secret values never leave the server in plaintext through the API. The
 presence endpoint only exposes which paths have values set (without
-revealing the values themselves). Patches operate against the decrypted
-document in memory; the result is re-encrypted before being written back.
+revealing the values themselves), plus `outdated` pointers for stored
+values no longer defined by the schema. Patches operate against the
+decrypted document in memory; the result is re-encrypted before being
+written back.
 
 <Warning>
   If `CYRNEL_SECRETS_KEY` is missing or the wrong size, both reading and
