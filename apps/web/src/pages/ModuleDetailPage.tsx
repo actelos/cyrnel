@@ -5,6 +5,7 @@ import { useNavigate, useParams } from "react-router";
 import remarkGfm from "remark-gfm";
 import useSWR, { useSWRConfig } from "swr";
 import { z } from "zod";
+import { EntityIcon } from "@/components/entity-icon";
 import JsonSchemaForm from "@/components/JsonSchemaForm";
 import {
   AlertDialog,
@@ -48,6 +49,7 @@ const moduleDetailSchema = z.object({
   isBuiltin: z.boolean(),
   enabled: z.boolean(),
   missing: z.boolean(),
+  hasIcon: z.boolean(),
   configSchema: z.record(z.string(), z.unknown()),
   secretsSchema: z.record(z.string(), z.unknown()),
 });
@@ -417,15 +419,23 @@ export default function ModuleDetailPage() {
         <Card>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-lg font-semibold">{moduleDetail.name}</h2>
-                <Badge variant="secondary">{moduleDetail.type}</Badge>
-                {moduleDetail.isBuiltin ? (
-                  <Badge variant="outline">built-in</Badge>
-                ) : null}
-                {moduleDetail.missing ? (
-                  <Badge variant="destructive">missing</Badge>
-                ) : null}
+              <div className="flex items-center gap-3">
+                <EntityIcon
+                  kind="module"
+                  id={moduleDetail.id}
+                  label={moduleDetail.name}
+                  hasIcon={moduleDetail.hasIcon}
+                />
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-lg font-semibold">{moduleDetail.name}</h2>
+                  <Badge variant="secondary">{moduleDetail.type}</Badge>
+                  {moduleDetail.isBuiltin ? (
+                    <Badge variant="outline">built-in</Badge>
+                  ) : null}
+                  {moduleDetail.missing ? (
+                    <Badge variant="destructive">missing</Badge>
+                  ) : null}
+                </div>
               </div>
               <p className="text-muted-foreground text-xs font-mono">
                 {moduleDetail.id}

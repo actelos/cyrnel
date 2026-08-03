@@ -5,6 +5,7 @@ import { Link } from "react-router";
 import remarkGfm from "remark-gfm";
 import useSWR, { useSWRConfig } from "swr";
 import { z } from "zod";
+import { EntityIcon } from "@/components/entity-icon";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -39,6 +40,7 @@ const moduleSchema = z.object({
   isBuiltin: z.boolean(),
   enabled: z.boolean(),
   missing: z.boolean(),
+  hasIcon: z.boolean(),
 });
 
 const moduleListSchema = z.object({
@@ -463,7 +465,13 @@ export default function ModulesPage() {
                       to={`/modules/${module.id}`}
                       className="block -mx-4 -mt-4 -mr-4 mb-3 p-4"
                     >
-                      <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-3">
+                        <EntityIcon
+                          kind="module"
+                          id={module.id}
+                          label={module.name}
+                          hasIcon={module.hasIcon}
+                        />
                         <div className="space-y-2 min-w-0">
                           <div className="flex items-center justify-between flex-wrap gap-2">
                             <h3 className="text-sm font-semibold">

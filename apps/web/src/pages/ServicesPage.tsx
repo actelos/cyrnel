@@ -5,6 +5,7 @@ import { Link } from "react-router";
 import remarkGfm from "remark-gfm";
 import useSWR, { useSWRConfig } from "swr";
 import { z } from "zod";
+import { EntityIcon } from "@/components/entity-icon";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -36,6 +37,7 @@ const serviceSchema = z.object({
   version: z.string(),
   enabled: z.boolean(),
   stale: z.boolean(),
+  hasIcon: z.boolean(),
 });
 
 const serviceListSchema = z.object({
@@ -654,7 +656,13 @@ export default function ServicesPage() {
                       to={`/services/${service.id}`}
                       className="block -mx-4 -mt-4 -mr-4 mb-3 p-4"
                     >
-                      <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-3">
+                        <EntityIcon
+                          kind="service"
+                          id={service.id}
+                          label={service.name}
+                          hasIcon={service.hasIcon}
+                        />
                         <div className="space-y-2 min-w-0">
                           <div className="flex items-center justify-between flex-wrap gap-2">
                             <h3 className="text-sm font-semibold">
