@@ -34,6 +34,13 @@
             "exclusiveMinimum": true,
             "description": "Stable process identifier assigned at creation. Persists across restarts."
           },
+          "pid": {
+            "type": "integer",
+            "nullable": true,
+            "minimum": 0,
+            "exclusiveMinimum": true,
+            "description": "Ephemeral in-memory process identifier, or null when the process is not in active memory."
+          },
           "ref": {
             "type": "string",
             "minLength": 1,
@@ -78,6 +85,7 @@
         },
         "required": [
           "id",
+          "pid",
           "state",
           "exitState",
           "error",

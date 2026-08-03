@@ -7,22 +7,44 @@ import {
   processes as processesTable,
 } from "@/db/schema";
 import { HttpError } from "@/models/error.model";
-import { ProcessService } from "@/services/process.service";
+import { type DbProcessRow, ProcessService } from "@/services/process.service";
 
 type SelectChain = ReturnType<typeof db.select> & {
   where: ReturnType<typeof vi.fn>;
   all: ReturnType<typeof vi.fn>;
 };
 
+function serializeSql(predicate: unknown): string {
+  const seen = new WeakSet<object>();
+  try {
+    return JSON.stringify(predicate, (_key, value) => {
+      if (typeof value === "object" && value !== null) {
+        if (seen.has(value)) return "[Circular]";
+        seen.add(value);
+      }
+      return value;
+    });
+  } catch {
+    return "";
+  }
+}
+
 function makeSelectChain<T>(rows: T[] = []): SelectChain {
+  let predicate: unknown;
   const chain = {
     from: vi.fn().mockReturnThis(),
     leftJoin: vi.fn().mockReturnThis(),
-    where: vi.fn().mockReturnThis(),
+    where: vi.fn((value: unknown) => {
+      predicate = value;
+      return chain;
+    }),
     orderBy: vi.fn().mockReturnThis(),
     limit: vi.fn().mockReturnThis(),
-    all: vi.fn().mockReturnValue(rows),
-  } as unknown as SelectChain;
+    all: vi.fn(() => {
+      if (predicate === undefined) return rows;
+      return serializeSql(predicate).includes('"1 = 0"') ? [] : rows;
+    }),
+  } as unknown as SelectChain & { predicate: unknown };
   return chain;
 }
 
@@ -127,7 +149,7 @@ function mockInsertCreateThenPersist(ids: number[]) {
   >);
 }
 
-function makeDbRow(overrides: Partial<Record<string, unknown>> = {}) {
+function makeDbRow(overrides: Partial<DbProcessRow> = {}) {
   return {
     id: 1,
     ref: null,
@@ -430,9 +452,12 @@ describe("ProcessService", () => {
       const pid = controller.executeCalls[0].eid;
       service.recordState(pid, "running");
 
-      const runningChain = makeSelectChain([]);
-      const queuedChain = makeSelectChain([]);
-      const terminatingChain = makeSelectChain([]);
+      const runningChain = makeSelectChain([
+        makeDbRow({ id: 2 }),
+        makeDbRow({ id: 3 }),
+      ]);
+      const queuedChain = makeSelectChain([makeDbRow({ id: 4 })]);
+      const terminatingChain = makeSelectChain([makeDbRow({ id: 5 })]);
       const idleChain = makeSelectChain([makeDbRow({ id: 2 })]);
       vi.mocked(db.select)
         .mockReturnValueOnce(runningChain)
@@ -449,13 +474,10 @@ describe("ProcessService", () => {
         2,
       ]);
 
-      for (const chain of [
-        runningChain,
-        queuedChain,
-        terminatingChain,
-        idleChain,
-      ]) {
-        expect(chain.where.mock.calls[0][0]).toBeDefined();
+      for (const chain of [runningChain, queuedChain, terminatingChain]) {
+        const predicate = chain.where.mock.calls[0][0];
+        expect(predicate).toBeDefined();
+        expect(serializeSql(predicate)).toContain('"1 = 0"');
       }
     });
   });
@@ -673,6 +695,34 @@ describe("ProcessService", () => {
       expect(controller.executeCalls).toHaveLength(1);
     });
 
+    it("rejects reviving a database-only process at the active cap", async () => {
+      const originalMaxActive = process.env.CYRNEL_MAX_ACTIVE_PROCESSES;
+      process.env.CYRNEL_MAX_ACTIVE_PROCESSES = "1";
+
+      try {
+        const controller = makeController();
+        controller.executeImpl = () => new Promise(() => {});
+        const { service } = makeService(controller);
+        mockInsertReturning(1);
+        vi.mocked(db.select).mockReturnValue(
+          makeSelectChain([makeDbRow({ id: 7, completedAt: null })]),
+        );
+
+        await service.create({ ...BASE_CREATE_INPUT, autorun: false });
+
+        await expect(service.run(7, false)).rejects.toMatchObject({
+          statusCode: 429,
+        });
+        expect(controller.executeCalls).toHaveLength(0);
+      } finally {
+        if (originalMaxActive === undefined) {
+          delete process.env.CYRNEL_MAX_ACTIVE_PROCESSES;
+        } else {
+          process.env.CYRNEL_MAX_ACTIVE_PROCESSES = originalMaxActive;
+        }
+      }
+    });
+
     it("upserts process data when a revived process completes", async () => {
       const controller = makeController();
       const gate = deferred<ExecutionExitState>();
@@ -689,7 +739,17 @@ describe("ProcessService", () => {
 
       expect(onConflictDoUpdate).toHaveBeenCalled();
       expect(onConflictDoUpdate).toHaveBeenCalledWith(
-        expect.objectContaining({ target: processDataTable.processId }),
+        expect.objectContaining({
+          target: processDataTable.processId,
+          set: expect.objectContaining({
+            exitState: "success",
+            error: null,
+            output: {},
+            stdout: "",
+            stderr: "",
+            completedAt: expect.any(String),
+          }),
+        }),
       );
     });
 
@@ -816,6 +876,41 @@ describe("ProcessService", () => {
       expect(result).toMatchObject({ id: 7, state: "idle", pid: null });
       expect(db.delete).toHaveBeenCalledWith(processesTable);
     });
+
+    it("throws 500 when the database delete fails for a db-only process", async () => {
+      const { service } = makeService();
+      vi.mocked(db.select).mockReturnValue(
+        makeSelectChain([makeDbRow({ id: 7 })]),
+      );
+      vi.mocked(db.delete).mockReturnValue({
+        where: vi.fn().mockRejectedValue(new Error("db down")),
+      } as unknown as ReturnType<typeof db.delete>);
+
+      await expect(service.delete(7)).rejects.toMatchObject({
+        statusCode: 500,
+      });
+    });
+
+    it("restores the in-memory record when the database delete fails", async () => {
+      const { service } = makeService();
+      mockInsertReturning(1);
+      const { id } = await service.create({
+        ...BASE_CREATE_INPUT,
+        autorun: false,
+      });
+      await tick(5);
+      vi.mocked(db.delete).mockReturnValue({
+        where: vi.fn().mockRejectedValue(new Error("db down")),
+      } as unknown as ReturnType<typeof db.delete>);
+
+      await expect(service.delete(id)).rejects.toMatchObject({
+        statusCode: 500,
+      });
+
+      const after = await service.get(id);
+      expect(after).toMatchObject({ id, state: "idle" });
+      expect(after.pid).not.toBeNull();
+    });
   });
 
   describe("unload()", () => {
@@ -860,14 +955,20 @@ describe("ProcessService", () => {
       });
       await tick(5);
 
-      const result = await service.unload(id);
-
-      expect(result).toMatchObject({ id, state: "idle", pid: null });
-      expect(db.delete).not.toHaveBeenCalled();
-
       vi.mocked(db.select).mockReturnValue(
         makeSelectChain([makeDbRow({ id })]),
       );
+
+      const result = await service.unload(id);
+
+      expect(result).toMatchObject({
+        id,
+        state: "idle",
+        pid: null,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        completedAt: "2026-01-01T00:00:01.000Z",
+      });
+      expect(db.delete).not.toHaveBeenCalled();
 
       const after = await service.get(id);
       expect(after).toMatchObject({ id, state: "idle", pid: null });
@@ -892,6 +993,8 @@ describe("ProcessService", () => {
       const aPid = (await service.get(a.id)).pid;
       const bPid = (await service.get(b.id)).pid;
       expect(aPid).not.toBe(bPid);
+
+      vi.mocked(db.select).mockReturnValue(makeSelectChain([makeDbRow()]));
 
       await service.unload(a.id);
 
@@ -979,6 +1082,40 @@ describe("ProcessService", () => {
         autorun: false,
       });
       expect((await service.get(c.id)).pid).toBe(aPid);
+    });
+
+    it("skips trimming when persistence fails, keeping results in memory", async () => {
+      process.env.CYRNEL_MAX_IDLE_PROCESSES = "1";
+      const controller = makeController();
+      const gate = deferred<ExecutionExitState>();
+      controller.executeImpl = () => gate.promise;
+      const { service } = makeService(controller);
+
+      const calls = [
+        { returning: vi.fn().mockResolvedValue([{ id: 1 }]) },
+        { returning: vi.fn().mockResolvedValue([{ id: 2 }]) },
+        { onConflictDoUpdate: vi.fn().mockRejectedValue(new Error("db down")) },
+      ];
+      vi.mocked(db.insert).mockImplementation(
+        () =>
+          ({
+            values: vi.fn().mockReturnValue(calls.shift()),
+          }) as unknown as ReturnType<typeof db.insert>,
+      );
+
+      const a = await service.create(BASE_CREATE_INPUT);
+      const c = await service.create({
+        ...BASE_CREATE_INPUT,
+        autorun: false,
+      });
+      await tick(5);
+
+      gate.resolve("success");
+      await tick(5);
+
+      expect((await service.get(a.id)).pid).not.toBeNull();
+      expect((await service.get(c.id)).pid).not.toBeNull();
+      expect(await service.getOutput(a.id)).toEqual({});
     });
 
     it("never unloads queued or running processes", async () => {

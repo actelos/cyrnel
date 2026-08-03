@@ -32,11 +32,21 @@ function getMaxActiveProcesses(): number {
     : DEFAULT_MAX_ACTIVE_PROCESSES;
 }
 
+let maxIdleWarningLogged = false;
+
 function getMaxIdleProcesses(): number | null {
   const raw = process.env.CYRNEL_MAX_IDLE_PROCESSES;
   if (raw === undefined || raw.trim().length === 0) return null;
   const value = Number(raw);
-  return Number.isInteger(value) && value >= 1 ? value : null;
+  if (Number.isInteger(value) && value >= 1) return value;
+  if (!maxIdleWarningLogged) {
+    maxIdleWarningLogged = true;
+    logger.warn(
+      { value: raw },
+      "CYRNEL_MAX_IDLE_PROCESSES must be a positive integer; treating as unlimited",
+    );
+  }
+  return null;
 }
 
 interface ExecutionContext {
@@ -60,7 +70,7 @@ interface RunExecutionInput {
   context: ExecutionContext;
 }
 
-type DbProcessRow = {
+export type DbProcessRow = {
   id: number;
   ref: string | null;
   code: string;
@@ -357,11 +367,12 @@ export class ProcessService {
       );
     }
 
-    const result = this.project(stored);
-
     this.releaseFromMemory(pid);
 
-    return { ...result, pid: null };
+    const row = await this.loadDbProcess(id);
+    if (!row) throw new HttpError(404, "Process not found.");
+
+    return this.projectDbProcess(row);
   }
 
   async delete(id: number): Promise<GetProcessResult> {
@@ -373,12 +384,12 @@ export class ProcessService {
 
       const result = this.projectDbProcess(row);
 
-      await db
-        .delete(processesTable)
-        .where(eq(processesTable.id, id))
-        .catch((err) => {
-          logger.warn({ err, id }, "Failed to delete process from database");
-        });
+      try {
+        await db.delete(processesTable).where(eq(processesTable.id, id));
+      } catch (err) {
+        logger.error({ err, id }, "Failed to delete process from database");
+        throw new HttpError(500, "Failed to delete process.");
+      }
 
       return result;
     }
@@ -396,12 +407,13 @@ export class ProcessService {
 
     this.releaseFromMemory(pid);
 
-    await db
-      .delete(processesTable)
-      .where(eq(processesTable.id, id))
-      .catch((err) => {
-        logger.warn({ err, id }, "Failed to delete process from database");
-      });
+    try {
+      await db.delete(processesTable).where(eq(processesTable.id, id));
+    } catch (err) {
+      this.restoreToMemory(pid, stored);
+      logger.error({ err, id }, "Failed to delete process from database");
+      throw new HttpError(500, "Failed to delete process.");
+    }
 
     return result;
   }
@@ -580,34 +592,30 @@ export class ProcessService {
 
     this.executions.delete(pid);
 
+    const payload = {
+      processId: stored.dbId,
+      exitState,
+      error: stored.error,
+      output: stored.output,
+      stdout: stored.stdout.toString("utf8"),
+      stderr: stored.stderr.toString("utf8"),
+      completedAt: new Date().toISOString(),
+    };
+
+    let persisted = true;
     try {
-      await db
-        .insert(processDataTable)
-        .values({
-          processId: stored.dbId,
-          exitState,
-          error: stored.error,
-          output: stored.output,
-          stdout: stored.stdout.toString("utf8"),
-          stderr: stored.stderr.toString("utf8"),
-          completedAt: new Date().toISOString(),
-        })
-        .onConflictDoUpdate({
-          target: processDataTable.processId,
-          set: {
-            exitState,
-            error: stored.error,
-            output: stored.output,
-            stdout: stored.stdout.toString("utf8"),
-            stderr: stored.stderr.toString("utf8"),
-            completedAt: new Date().toISOString(),
-          },
-        });
+      await db.insert(processDataTable).values(payload).onConflictDoUpdate({
+        target: processDataTable.processId,
+        set: payload,
+      });
     } catch (err) {
+      persisted = false;
       logger.warn({ err, id: stored.dbId }, "Failed to persist process result");
     }
 
-    this.trimIdleProcesses();
+    if (persisted) {
+      this.trimIdleProcesses();
+    }
   }
 
   private resolvePid(id: number): number {
@@ -628,6 +636,14 @@ export class ProcessService {
       throw new HttpError(
         400,
         "Process has existing outputs. Set force: true to overwrite.",
+      );
+    }
+
+    const maxActiveProcesses = getMaxActiveProcesses();
+    if (this.processes.size >= maxActiveProcesses) {
+      throw new HttpError(
+        429,
+        `Too many active processes (${this.processes.size} >= ${maxActiveProcesses}).`,
       );
     }
 
@@ -706,6 +722,13 @@ export class ProcessService {
     this.processes.delete(pid);
     this.pidIndex.delete(stored.dbId);
     this.pidPool.push(pid);
+  }
+
+  private restoreToMemory(pid: number, stored: ProcessRecord): void {
+    const poolIndex = this.pidPool.indexOf(pid);
+    if (poolIndex !== -1) this.pidPool.splice(poolIndex, 1);
+    this.processes.set(pid, stored);
+    this.pidIndex.set(stored.dbId, pid);
   }
 
   private trimIdleProcesses(): void {
