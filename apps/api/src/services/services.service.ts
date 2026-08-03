@@ -10,7 +10,6 @@ import jsonpatch from "fast-json-patch";
 import { z } from "zod";
 
 import { db } from "@/db/client";
-import type { ServiceRecord } from "@/db/schema";
 import {
   modules as modulesTable,
   serviceConfigurations,
@@ -39,7 +38,8 @@ import type {
 } from "@/models/services.model";
 import { downloadText } from "@/utils/download.util";
 import { computeContentHash } from "@/utils/hash.util";
-import { fetchAndValidateIcon } from "@/utils/icon.util";
+import type { IconColumns } from "@/utils/icon.util";
+import { fetchAndValidateIcon, resolveIconUpdate } from "@/utils/icon.util";
 import {
   collectOutdatedPaths,
   filterPayloadToSchema,
@@ -583,28 +583,12 @@ export class ServicesService {
       );
     }
 
-    const iconChanged = (registry.icon?.hash ?? null) !== service.iconHash;
-
-    if (
-      registry.hash &&
-      registry.hash === service.hash &&
-      registry.version === service.version &&
-      !iconChanged
-    )
-      return;
-
-    const icon =
-      iconChanged && registry.icon
-        ? await fetchAndValidateIcon(registry.icon, "service", id)
-        : null;
-
-    const iconColumns = !iconChanged
-      ? {}
-      : icon !== null
-        ? { iconData: icon.data, iconMime: icon.mime, iconHash: icon.hash }
-        : registry.icon
-          ? {} // re-fetch failed: keep the previously stored icon
-          : { iconData: null, iconMime: null, iconHash: null };
+    const iconColumns = await resolveIconUpdate(
+      registry.icon,
+      service.iconHash,
+      "service",
+      id,
+    );
 
     if (
       registry.hash &&
@@ -657,7 +641,7 @@ export class ServicesService {
             enabled: false,
             definitionContent,
             stale: false,
-            ...iconColumns,
+            ...(iconColumns ?? {}),
           })
           .where(eq(services.id, id));
 
@@ -689,11 +673,9 @@ export class ServicesService {
 
   private async persistServiceIcon(
     id: string,
-    iconColumns: Partial<
-      Pick<ServiceRecord, "iconData" | "iconMime" | "iconHash">
-    >,
+    iconColumns: IconColumns | undefined,
   ): Promise<void> {
-    if (Object.keys(iconColumns).length === 0) return;
+    if (!iconColumns) return;
     await db
       .update(services)
       .set(iconColumns)

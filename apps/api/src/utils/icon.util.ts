@@ -55,7 +55,16 @@ export async function fetchAndValidateIcon(
         ? "oversized"
         : "download";
     logger.warn(
-      { event: "icon_fetch_failed", entityType, entityId, reason, err },
+      {
+        event: "icon_fetch_failed",
+        entityType,
+        entityId,
+        reason,
+        err: {
+          message: err instanceof Error ? err.message : String(err),
+          statusCode: err instanceof HttpError ? err.statusCode : undefined,
+        },
+      },
       "Failed to download icon",
     );
     return null;
@@ -84,4 +93,34 @@ export async function fetchAndValidateIcon(
   }
 
   return { data, mime, hash: icon.hash };
+}
+
+export interface IconColumns {
+  iconData: Buffer | null;
+  iconMime: string | null;
+  iconHash: string | null;
+}
+
+export async function resolveIconUpdate(
+  registryIcon: { url: string; hash: string } | undefined,
+  storedIconHash: string | null,
+  entityType: IconEntityType,
+  entityId: string,
+): Promise<IconColumns | undefined> {
+  const iconChanged = (registryIcon?.hash ?? null) !== storedIconHash;
+
+  if (!iconChanged) return undefined;
+
+  if (!registryIcon) {
+    return { iconData: null, iconMime: null, iconHash: null };
+  }
+
+  const icon = await fetchAndValidateIcon(registryIcon, entityType, entityId);
+  if (!icon) return undefined; // re-fetch failed: keep the stored icon
+
+  return {
+    iconData: icon.data,
+    iconMime: icon.mime,
+    iconHash: icon.hash,
+  };
 }

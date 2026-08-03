@@ -119,7 +119,8 @@ The icon is stored server-side and served from
 non-fatal: the module installs without an icon. Direct installs and direct
 updates (`PATCH`) never carry an icon. On registry updates the icon is
 re-fetched when its `hash` changes and cleared when the registry no longer
-declares one.
+declares one; a failed re-fetch is non-fatal and preserves the previously
+stored icon.
 
 Recommended icon properties: a square 256×256 px image (png or webp, with
 transparency if needed) no larger than 256 KB. Icons are displayed at 40×40 px

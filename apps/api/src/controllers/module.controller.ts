@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import type { Operation } from "fast-json-patch";
 import { z } from "zod";
+import { sendIconResponse } from "@/controllers/icon-response.util";
 import { HttpError } from "@/models/error.model";
 import {
   type FilterModuleManifestInput,
@@ -225,18 +226,7 @@ export async function getModuleIcon(
   const moduleId = parseOrHttpError(moduleIdSchema, req.params.moduleId);
   const icon = await moduleService.getIcon(moduleId);
 
-  if (!icon) {
-    res
-      .status(404)
-      .set("Cache-Control", "no-cache")
-      .json({ error: `Module '${moduleId}' has no icon.` });
-    return;
-  }
-
-  res.set("Content-Type", icon.mime);
-  res.set("Cache-Control", "public, max-age=86400");
-  res.set("ETag", `"${icon.hash}"`);
-  res.send(icon.data);
+  sendIconResponse(res, icon, `Module '${moduleId}'`);
 }
 
 export async function setModuleEnabled(

@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import type { Operation } from "fast-json-patch";
 import { z } from "zod";
 
+import { sendIconResponse } from "@/controllers/icon-response.util";
 import type { ServicesService } from "@/services/services.service";
 import { parseOrHttpError } from "@/utils/validation.util";
 
@@ -141,18 +142,7 @@ export async function getServiceIcon(
   const serviceId = parseServiceId(req.params.serviceId);
   const icon = await servicesService.getServiceIcon(serviceId);
 
-  if (!icon) {
-    res
-      .status(404)
-      .set("Cache-Control", "no-cache")
-      .json({ error: `Service '${serviceId}' has no icon.` });
-    return;
-  }
-
-  res.set("Content-Type", icon.mime);
-  res.set("Cache-Control", "public, max-age=86400");
-  res.set("ETag", `"${icon.hash}"`);
-  res.send(icon.data);
+  sendIconResponse(res, icon, `Service '${serviceId}'`);
 }
 
 export async function getServiceConfiguration(

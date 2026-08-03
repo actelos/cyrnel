@@ -2826,6 +2826,23 @@
               }
             }
           },
+          "304": {
+            "description": "The icon is unchanged since the client's last fetch; the request carried a matching If-None-Match so no body is returned.",
+            "headers": {
+              "ETag": {
+                "description": "Strong validator matching the client's If-None-Match.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cache-Control": {
+                "description": "Public cache for one day.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
           "400": {
             "description": "The serviceId path parameter was invalid.",
             "content": {
@@ -5645,6 +5662,23 @@
                 "schema": {
                   "type": "string",
                   "format": "binary"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "The icon is unchanged since the client's last fetch; the request carried a matching If-None-Match so no body is returned.",
+            "headers": {
+              "ETag": {
+                "description": "Strong validator matching the client's If-None-Match.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cache-Control": {
+                "description": "Public cache for one day.",
+                "schema": {
+                  "type": "string"
                 }
               }
             }

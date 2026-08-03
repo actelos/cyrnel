@@ -55,7 +55,8 @@ import {
 } from "@/models/modules.model";
 import { downloadBinary } from "@/utils/download.util";
 import { computeBinaryHash } from "@/utils/hash.util";
-import { fetchAndValidateIcon } from "@/utils/icon.util";
+import type { IconColumns } from "@/utils/icon.util";
+import { fetchAndValidateIcon, resolveIconUpdate } from "@/utils/icon.util";
 import {
   collectOutdatedPaths,
   filterPayloadToSchema,
@@ -1006,29 +1007,12 @@ export class ModuleService {
       );
     }
 
-    const iconChanged = (registry.icon?.hash ?? null) !== row.iconHash;
-
-    if (
-      registry.hash &&
-      registry.hash === row.hash &&
-      registry.version === row.version &&
-      !iconChanged
-    ) {
-      return { updated: false };
-    }
-
-    const icon =
-      iconChanged && registry.icon
-        ? await fetchAndValidateIcon(registry.icon, "module", id)
-        : null;
-
-    const iconColumns = !iconChanged
-      ? {}
-      : icon !== null
-        ? { iconData: icon.data, iconMime: icon.mime, iconHash: icon.hash }
-        : registry.icon
-          ? {} // re-fetch failed: keep the previously stored icon
-          : { iconData: null, iconMime: null, iconHash: null };
+    const iconColumns = await resolveIconUpdate(
+      registry.icon,
+      row.iconHash,
+      "module",
+      id,
+    );
 
     if (
       registry.hash &&
@@ -1159,7 +1143,7 @@ export class ModuleService {
           description: manifest.description,
           hash: newHash,
           version: manifest.version,
-          ...iconColumns,
+          ...(iconColumns ?? {}),
         })
         .where(eq(modulesTable.id, id));
     } catch {
@@ -2129,11 +2113,9 @@ export class ModuleService {
 
   private async persistModuleIcon(
     id: string,
-    iconColumns: Partial<
-      Pick<ModuleRecord, "iconData" | "iconMime" | "iconHash">
-    >,
+    iconColumns: IconColumns | undefined,
   ): Promise<void> {
-    if (Object.keys(iconColumns).length === 0) return;
+    if (!iconColumns) return;
     await db
       .update(modulesTable)
       .set(iconColumns)

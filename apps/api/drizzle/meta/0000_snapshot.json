@@ -166,6 +166,27 @@
           "notNull": true,
           "autoincrement": false,
           "default": false
+        },
+        "icon_data": {
+          "name": "icon_data",
+          "type": "blob",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "icon_mime": {
+          "name": "icon_mime",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "icon_hash": {
+          "name": "icon_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {
@@ -507,6 +528,27 @@
           "notNull": true,
           "autoincrement": false,
           "default": false
+        },
+        "icon_data": {
+          "name": "icon_data",
+          "type": "blob",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "icon_mime": {
+          "name": "icon_mime",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "icon_hash": {
+          "name": "icon_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {},
