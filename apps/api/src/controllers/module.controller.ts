@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import type { Operation } from "fast-json-patch";
 import { z } from "zod";
+import { sendIconResponse } from "@/controllers/icon-response.util";
 import { HttpError } from "@/models/error.model";
 import {
   type FilterModuleManifestInput,
@@ -215,6 +216,17 @@ export async function getModule(req: Request, res: Response): Promise<void> {
   if (!module) throw new HttpError(404, `Module '${moduleId}' not found.`);
 
   res.status(200).json(module);
+}
+
+export async function getModuleIcon(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const moduleService = getModuleService(req);
+  const moduleId = parseOrHttpError(moduleIdSchema, req.params.moduleId);
+  const icon = await moduleService.getIcon(moduleId);
+
+  sendIconResponse(res, icon, `Module '${moduleId}'`);
 }
 
 export async function setModuleEnabled(

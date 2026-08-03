@@ -119,6 +119,12 @@ const { downloadBinaryMock, decompressMock } = vi.hoisted(() => ({
   decompressMock: vi.fn(),
 }));
 
+const ICON_URL = "https://icons.example.com/m.png";
+const PNG_ICON = Buffer.concat([
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+  Buffer.alloc(16),
+]);
+
 vi.mock("@cyrnel/openapi", () => ({
   default: {
     configSchema: {
@@ -2103,6 +2109,231 @@ describe("ModuleService", () => {
     });
   });
 
+  describe("installModuleFromRegistry() (icon)", () => {
+    function stubRegistryWithIcon(icon?: { url: string; hash: string }) {
+      const registryResponse = {
+        latestVersion: "1.0.0",
+        versions: {
+          "1.0.0": {
+            downloadUrl: "https://example.com/download/mod.tar.zst",
+            ...(icon ? { icon } : {}),
+          },
+        },
+      };
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          async () =>
+            new Response(JSON.stringify(registryResponse), {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            }),
+        ),
+      );
+    }
+
+    function mockDownloads(png: Buffer) {
+      downloadBinaryMock.mockImplementation((url: string) =>
+        Promise.resolve(url === ICON_URL ? png : Buffer.from("mocked")),
+      );
+    }
+
+    it("stores the registry icon on install", async () => {
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-icn-"));
+      try {
+        const tarData = await createTestTar(dir, {
+          "module.json": JSON.stringify({
+            id: "iconMod",
+            version: "1.0.0",
+            name: "Icon Module",
+            description: "icon",
+            type: "adapter",
+            main: "index.mjs",
+          }),
+          "index.mjs": `export default {
+            configSchema: { type: "object", properties: {}, additionalProperties: false },
+            secretsSchema: { type: "null" },
+            instantiate() {
+              return {
+                async setup() {},
+                async teardown() {},
+                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async hydrateService() {},
+                async dehydrateService() {},
+                async invoke() { return null; },
+              };
+            },
+          }`,
+        });
+
+        const { computeBinaryHash } = await import("@/utils/hash.util");
+        const iconHash = computeBinaryHash(PNG_ICON);
+        const tarUint8 = new Uint8Array(tarData);
+        mockDownloads(PNG_ICON);
+        decompressMock.mockReturnValue(tarUint8);
+        stubRegistryWithIcon({ url: ICON_URL, hash: iconHash });
+
+        const service = new ModuleService(makeBindings(), makeLifecycle());
+        await service.initialize(dir);
+
+        const result = await service.installModuleFromRegistry(
+          "https://registry.example.com/icon",
+        );
+        expect(result.hasIcon).toBe(true);
+
+        const icon = await service.getIcon("iconMod");
+        expect(icon).not.toBeNull();
+        expect(icon?.data.equals(PNG_ICON)).toBe(true);
+        expect(icon?.mime).toBe("image/png");
+        expect(icon?.hash).toBe(iconHash);
+      } finally {
+        await fs.rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("installs without an icon when the icon hash does not match", async () => {
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-icn-"));
+      try {
+        const tarData = await createTestTar(dir, {
+          "module.json": JSON.stringify({
+            id: "iconBadMod",
+            version: "1.0.0",
+            name: "Bad Icon",
+            description: "bad icon",
+            type: "adapter",
+            main: "index.mjs",
+          }),
+          "index.mjs": `export default {
+            configSchema: { type: "object", properties: {}, additionalProperties: false },
+            secretsSchema: { type: "null" },
+            instantiate() {
+              return {
+                async setup() {},
+                async teardown() {},
+                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async hydrateService() {},
+                async dehydrateService() {},
+                async invoke() { return null; },
+              };
+            },
+          }`,
+        });
+
+        const tarUint8 = new Uint8Array(tarData);
+        mockDownloads(PNG_ICON);
+        decompressMock.mockReturnValue(tarUint8);
+        stubRegistryWithIcon({ url: ICON_URL, hash: "wrong-hash" });
+
+        const service = new ModuleService(makeBindings(), makeLifecycle());
+        await service.initialize(dir);
+
+        const result = await service.installModuleFromRegistry(
+          "https://registry.example.com/badicon",
+        );
+        expect(result.hasIcon).toBe(false);
+        expect(await service.getIcon("iconBadMod")).toBeNull();
+      } finally {
+        await fs.rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("installs without an icon when the icon download fails", async () => {
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-icn-"));
+      try {
+        const tarData = await createTestTar(dir, {
+          "module.json": JSON.stringify({
+            id: "iconNetMod",
+            version: "1.0.0",
+            name: "Net Fail",
+            description: "net fail",
+            type: "adapter",
+            main: "index.mjs",
+          }),
+          "index.mjs": `export default {
+            configSchema: { type: "object", properties: {}, additionalProperties: false },
+            secretsSchema: { type: "null" },
+            instantiate() {
+              return {
+                async setup() {},
+                async teardown() {},
+                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async hydrateService() {},
+                async dehydrateService() {},
+                async invoke() { return null; },
+              };
+            },
+          }`,
+        });
+
+        const { computeBinaryHash } = await import("@/utils/hash.util");
+        const iconHash = computeBinaryHash(PNG_ICON);
+        const tarUint8 = new Uint8Array(tarData);
+        downloadBinaryMock.mockImplementation((url: string) => {
+          if (url === ICON_URL) return Promise.reject(new Error("down"));
+          return Promise.resolve(Buffer.from("mocked"));
+        });
+        decompressMock.mockReturnValue(tarUint8);
+        stubRegistryWithIcon({ url: ICON_URL, hash: iconHash });
+
+        const service = new ModuleService(makeBindings(), makeLifecycle());
+        await service.initialize(dir);
+
+        const result = await service.installModuleFromRegistry(
+          "https://registry.example.com/netfail",
+        );
+        expect(result.hasIcon).toBe(false);
+        expect(await service.getIcon("iconNetMod")).toBeNull();
+      } finally {
+        await fs.rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("reports no icon for direct installs", async () => {
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-icn-"));
+      try {
+        const tarData = await createTestTar(dir, {
+          "module.json": JSON.stringify({
+            id: "directIconMod",
+            version: "1.0.0",
+            name: "Direct",
+            description: "direct",
+            type: "adapter",
+            main: "index.mjs",
+          }),
+          "index.mjs": `export default {
+            configSchema: { type: "object", properties: {}, additionalProperties: false },
+            secretsSchema: { type: "null" },
+            instantiate() {
+              return {
+                async setup() {},
+                async teardown() {},
+                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async hydrateService() {},
+                async dehydrateService() {},
+                async invoke() { return null; },
+              };
+            },
+          }`,
+        });
+
+        const tarUint8 = new Uint8Array(tarData);
+        downloadBinaryMock.mockResolvedValue(Buffer.from("mocked"));
+        decompressMock.mockReturnValue(tarUint8);
+
+        const service = new ModuleService(makeBindings(), makeLifecycle());
+        await service.initialize(dir);
+
+        const result = await service.installModuleDirect(
+          "https://example.com/direct.tar.zst",
+        );
+        expect(result.hasIcon).toBe(false);
+        expect(await service.getIcon("directIconMod")).toBeNull();
+      } finally {
+        await fs.rm(dir, { recursive: true, force: true });
+      }
+    });
+  });
+
   describe("updateModule()", () => {
     it("throws 404 when the module does not exist", async () => {
       const service = new ModuleService(makeBindings(), makeLifecycle());
@@ -2441,6 +2672,429 @@ describe("ModuleService", () => {
         await expect(
           fs.access(path.join(dir, "mismatchedId")),
         ).rejects.toThrow();
+      } finally {
+        await fs.rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("updates the icon when the registry icon hash changes", async () => {
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-upd-"));
+      try {
+        const tarData = await createTestTar(dir, {
+          "module.json": JSON.stringify({
+            id: "iconUpdateMod",
+            version: "1.0.0",
+            name: "Icon Update",
+            description: "update",
+            type: "adapter",
+            main: "index.mjs",
+          }),
+          "index.mjs": `export default {
+            configSchema: { type: "object", properties: {}, additionalProperties: false },
+            secretsSchema: { type: "null" },
+            instantiate() {
+              return {
+                async setup() {},
+                async teardown() {},
+                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async hydrateService() {},
+                async dehydrateService() {},
+                async invoke() { return null; },
+              };
+            },
+          }`,
+        });
+
+        const { computeBinaryHash } = await import("@/utils/hash.util");
+        const newHash = computeBinaryHash(PNG_ICON);
+        const tarUint8 = new Uint8Array(tarData);
+        downloadBinaryMock.mockResolvedValue(Buffer.from("mocked"));
+        decompressMock.mockReturnValue(tarUint8);
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(
+            async () =>
+              new Response(
+                JSON.stringify({
+                  latestVersion: "1.0.0",
+                  versions: {
+                    "1.0.0": {
+                      downloadUrl: "https://example.com/download/mod.tar.zst",
+                    },
+                  },
+                }),
+                {
+                  status: 200,
+                  headers: { "content-type": "application/json" },
+                },
+              ),
+          ),
+        );
+
+        const service = new ModuleService(makeBindings(), makeLifecycle());
+        await service.initialize(dir);
+        await service.installModuleFromRegistry(
+          "https://registry.example.com/iconupdate",
+        );
+        await db.run(
+          sql`UPDATE modules SET icon_hash = 'old-hash' WHERE id = 'iconUpdateMod'`,
+        );
+
+        downloadBinaryMock.mockImplementation((url: string) =>
+          Promise.resolve(url === ICON_URL ? PNG_ICON : Buffer.from("mocked")),
+        );
+        decompressMock.mockReturnValue(tarUint8);
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(
+            async () =>
+              new Response(
+                JSON.stringify({
+                  latestVersion: "1.0.0",
+                  versions: {
+                    "1.0.0": {
+                      downloadUrl: "https://example.com/download/mod.tar.zst",
+                      icon: { url: ICON_URL, hash: newHash },
+                    },
+                  },
+                }),
+                {
+                  status: 200,
+                  headers: { "content-type": "application/json" },
+                },
+              ),
+          ),
+        );
+
+        const result = await service.updateModule("iconUpdateMod");
+        expect(result).toEqual({ updated: false });
+
+        const icon = await service.getIcon("iconUpdateMod");
+        expect(icon).not.toBeNull();
+        expect(icon?.data.equals(PNG_ICON)).toBe(true);
+        expect(icon?.mime).toBe("image/png");
+        expect(icon?.hash).toBe(newHash);
+        expect(await service.get("iconUpdateMod")).toMatchObject({
+          hasIcon: true,
+        });
+      } finally {
+        await fs.rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("keeps the stored icon when the icon re-fetch fails", async () => {
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-upd-"));
+      try {
+        const tarData = await createTestTar(dir, {
+          "module.json": JSON.stringify({
+            id: "iconKeepMod",
+            version: "1.0.0",
+            name: "Icon Keep",
+            description: "keep",
+            type: "adapter",
+            main: "index.mjs",
+          }),
+          "index.mjs": `export default {
+            configSchema: { type: "object", properties: {}, additionalProperties: false },
+            secretsSchema: { type: "null" },
+            instantiate() {
+              return {
+                async setup() {},
+                async teardown() {},
+                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async hydrateService() {},
+                async dehydrateService() {},
+                async invoke() { return null; },
+              };
+            },
+          }`,
+        });
+
+        const { computeBinaryHash } = await import("@/utils/hash.util");
+        const storedHash = computeBinaryHash(PNG_ICON);
+        const tarUint8 = new Uint8Array(tarData);
+        downloadBinaryMock.mockResolvedValue(Buffer.from("mocked"));
+        decompressMock.mockReturnValue(tarUint8);
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(
+            async () =>
+              new Response(
+                JSON.stringify({
+                  latestVersion: "1.0.0",
+                  versions: {
+                    "1.0.0": {
+                      downloadUrl: "https://example.com/download/mod.tar.zst",
+                    },
+                  },
+                }),
+                {
+                  status: 200,
+                  headers: { "content-type": "application/json" },
+                },
+              ),
+          ),
+        );
+
+        const service = new ModuleService(makeBindings(), makeLifecycle());
+        await service.initialize(dir);
+        await service.installModuleFromRegistry(
+          "https://registry.example.com/iconkeep",
+        );
+        await db.run(
+          sql`UPDATE modules SET icon_hash = ${storedHash}, icon_data = ${PNG_ICON}, icon_mime = 'image/png' WHERE id = 'iconKeepMod'`,
+        );
+
+        downloadBinaryMock.mockImplementation((url: string) =>
+          url === ICON_URL
+            ? Promise.reject(new Error("icon network failure"))
+            : Promise.resolve(Buffer.from("mocked")),
+        );
+        decompressMock.mockReturnValue(tarUint8);
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(
+            async () =>
+              new Response(
+                JSON.stringify({
+                  latestVersion: "1.0.0",
+                  versions: {
+                    "1.0.0": {
+                      downloadUrl: "https://example.com/download/mod.tar.zst",
+                      icon: { url: ICON_URL, hash: "new-hash" },
+                    },
+                  },
+                }),
+                {
+                  status: 200,
+                  headers: { "content-type": "application/json" },
+                },
+              ),
+          ),
+        );
+
+        const result = await service.updateModule("iconKeepMod");
+        expect(result).toEqual({ updated: false });
+
+        const icon = await service.getIcon("iconKeepMod");
+        expect(icon).not.toBeNull();
+        expect(icon?.data.equals(PNG_ICON)).toBe(true);
+        expect(icon?.mime).toBe("image/png");
+        expect(icon?.hash).toBe(storedHash);
+        expect(await service.get("iconKeepMod")).toMatchObject({
+          hasIcon: true,
+        });
+      } finally {
+        await fs.rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("clears the stored icon when the registry no longer declares one", async () => {
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-upd-"));
+      try {
+        const tarData = await createTestTar(dir, {
+          "module.json": JSON.stringify({
+            id: "iconClearMod",
+            version: "1.0.0",
+            name: "Icon Clear",
+            description: "clear",
+            type: "adapter",
+            main: "index.mjs",
+          }),
+          "index.mjs": `export default {
+            configSchema: { type: "object", properties: {}, additionalProperties: false },
+            secretsSchema: { type: "null" },
+            instantiate() {
+              return {
+                async setup() {},
+                async teardown() {},
+                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async hydrateService() {},
+                async dehydrateService() {},
+                async invoke() { return null; },
+              };
+            },
+          }`,
+        });
+
+        const { computeBinaryHash } = await import("@/utils/hash.util");
+        const oldHash = computeBinaryHash(PNG_ICON);
+        const tarUint8 = new Uint8Array(tarData);
+        downloadBinaryMock.mockResolvedValue(Buffer.from("mocked"));
+        decompressMock.mockReturnValue(tarUint8);
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(
+            async () =>
+              new Response(
+                JSON.stringify({
+                  latestVersion: "1.0.0",
+                  versions: {
+                    "1.0.0": {
+                      downloadUrl: "https://example.com/download/mod.tar.zst",
+                    },
+                  },
+                }),
+                {
+                  status: 200,
+                  headers: { "content-type": "application/json" },
+                },
+              ),
+          ),
+        );
+
+        const service = new ModuleService(makeBindings(), makeLifecycle());
+        await service.initialize(dir);
+        await service.installModuleFromRegistry(
+          "https://registry.example.com/iconclear",
+        );
+        await db.run(
+          sql`UPDATE modules SET icon_hash = ${oldHash}, icon_data = ${PNG_ICON}, icon_mime = 'image/png' WHERE id = 'iconClearMod'`,
+        );
+
+        downloadBinaryMock.mockResolvedValue(Buffer.from("mocked"));
+        decompressMock.mockReturnValue(tarUint8);
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(
+            async () =>
+              new Response(
+                JSON.stringify({
+                  latestVersion: "1.0.0",
+                  versions: {
+                    "1.0.0": {
+                      downloadUrl: "https://example.com/download/mod.tar.zst",
+                    },
+                  },
+                }),
+                {
+                  status: 200,
+                  headers: { "content-type": "application/json" },
+                },
+              ),
+          ),
+        );
+
+        const result = await service.updateModule("iconClearMod");
+        expect(result).toEqual({ updated: false });
+
+        expect(await service.getIcon("iconClearMod")).toBeNull();
+        expect(await service.get("iconClearMod")).toMatchObject({
+          hasIcon: false,
+        });
+      } finally {
+        await fs.rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("updates the icon without re-downloading the archive when the registry hash matches", async () => {
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-upd-"));
+      const ARCHIVE_URL = "https://example.com/download/mod.tar.zst";
+      try {
+        const tarData = await createTestTar(dir, {
+          "module.json": JSON.stringify({
+            id: "iconHashMod",
+            version: "1.0.0",
+            name: "Icon Hash",
+            description: "hash",
+            type: "adapter",
+            main: "index.mjs",
+          }),
+          "index.mjs": `export default {
+            configSchema: { type: "object", properties: {}, additionalProperties: false },
+            secretsSchema: { type: "null" },
+            instantiate() {
+              return {
+                async setup() {},
+                async teardown() {},
+                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async hydrateService() {},
+                async dehydrateService() {},
+                async invoke() { return null; },
+              };
+            },
+          }`,
+        });
+
+        const { computeBinaryHash } = await import("@/utils/hash.util");
+        const newHash = computeBinaryHash(PNG_ICON);
+        const storedHash = computeBinaryHash(Buffer.from("mocked"));
+        const tarUint8 = new Uint8Array(tarData);
+        downloadBinaryMock.mockResolvedValue(Buffer.from("mocked"));
+        decompressMock.mockReturnValue(tarUint8);
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(
+            async () =>
+              new Response(
+                JSON.stringify({
+                  latestVersion: "1.0.0",
+                  versions: {
+                    "1.0.0": {
+                      downloadUrl: ARCHIVE_URL,
+                    },
+                  },
+                }),
+                {
+                  status: 200,
+                  headers: { "content-type": "application/json" },
+                },
+              ),
+          ),
+        );
+
+        const service = new ModuleService(makeBindings(), makeLifecycle());
+        await service.initialize(dir);
+        await service.installModuleFromRegistry(
+          "https://registry.example.com/iconhash",
+        );
+        await db.run(
+          sql`UPDATE modules SET icon_hash = 'old-hash' WHERE id = 'iconHashMod'`,
+        );
+
+        downloadBinaryMock.mockClear();
+        downloadBinaryMock.mockImplementation((url: string) =>
+          url === ICON_URL
+            ? Promise.resolve(PNG_ICON)
+            : Promise.reject(new Error("unexpected download")),
+        );
+        decompressMock.mockReturnValue(tarUint8);
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(
+            async () =>
+              new Response(
+                JSON.stringify({
+                  latestVersion: "1.0.0",
+                  versions: {
+                    "1.0.0": {
+                      downloadUrl: ARCHIVE_URL,
+                      hash: storedHash,
+                      icon: { url: ICON_URL, hash: newHash },
+                    },
+                  },
+                }),
+                {
+                  status: 200,
+                  headers: { "content-type": "application/json" },
+                },
+              ),
+          ),
+        );
+
+        const result = await service.updateModule("iconHashMod");
+        expect(result).toEqual({ updated: false });
+
+        const icon = await service.getIcon("iconHashMod");
+        expect(icon).not.toBeNull();
+        expect(icon?.data.equals(PNG_ICON)).toBe(true);
+        expect(icon?.mime).toBe("image/png");
+        expect(icon?.hash).toBe(newHash);
+
+        const archiveCalls = downloadBinaryMock.mock.calls.filter(
+          ([url]) => url === ARCHIVE_URL,
+        );
+        expect(archiveCalls).toHaveLength(0);
       } finally {
         await fs.rm(dir, { recursive: true, force: true });
       }

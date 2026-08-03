@@ -1216,6 +1216,56 @@ registry.registerPath({
 });
 
 registry.registerPath({
+  method: "get",
+  path: "/services/{serviceId}/icon",
+  tags: ["Services"],
+  summary: "Get a service icon",
+  description:
+    "Returns the stored service icon bytes. The response is cached for a day and carries a strong ETag derived from the icon hash, so clients can send If-None-Match to get 304 Not Modified responses. Only registry-installed services with a declared png/webp icon have one.",
+  request: { params: serviceIdParam },
+  responses: {
+    200: {
+      description: "Service icon image bytes.",
+      content: {
+        "image/png": { schema: { type: "string", format: "binary" } },
+        "image/webp": { schema: { type: "string", format: "binary" } },
+      },
+      headers: {
+        ETag: {
+          description: "Strong validator derived from the icon hash.",
+          schema: { type: "string" },
+        },
+        "Cache-Control": {
+          description: "Public cache for one day.",
+          schema: { type: "string" },
+        },
+      },
+    },
+    304: {
+      description:
+        "The icon is unchanged since the client's last fetch; the request carried a matching If-None-Match so no body is returned.",
+      headers: {
+        ETag: {
+          description: "Strong validator matching the client's If-None-Match.",
+          schema: { type: "string" },
+        },
+        "Cache-Control": {
+          description: "Public cache for one day.",
+          schema: { type: "string" },
+        },
+      },
+    },
+    400: apiErrorResponse("The serviceId path parameter was invalid."),
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    ...rateLimitResponse(),
+    404: apiErrorResponse("The service has no stored icon."),
+    500: apiErrorResponse("The service icon could not be loaded."),
+  },
+});
+
+registry.registerPath({
   method: "post",
   path: "/services",
   tags: ["Services"],
@@ -1765,6 +1815,56 @@ registry.registerPath({
     ...rateLimitResponse(),
     404: apiErrorResponse("The module could not be found."),
     500: apiErrorResponse("The module could not be loaded."),
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/modules/{moduleId}/icon",
+  tags: ["Modules"],
+  summary: "Get a module icon",
+  description:
+    "Returns the stored module icon bytes. The response is cached for a day and carries a strong ETag derived from the icon hash, so clients can send If-None-Match to get 304 Not Modified responses. Only registry-installed modules with a declared png/webp icon have one.",
+  request: { params: moduleIdParam },
+  responses: {
+    200: {
+      description: "Module icon image bytes.",
+      content: {
+        "image/png": { schema: { type: "string", format: "binary" } },
+        "image/webp": { schema: { type: "string", format: "binary" } },
+      },
+      headers: {
+        ETag: {
+          description: "Strong validator derived from the icon hash.",
+          schema: { type: "string" },
+        },
+        "Cache-Control": {
+          description: "Public cache for one day.",
+          schema: { type: "string" },
+        },
+      },
+    },
+    304: {
+      description:
+        "The icon is unchanged since the client's last fetch; the request carried a matching If-None-Match so no body is returned.",
+      headers: {
+        ETag: {
+          description: "Strong validator matching the client's If-None-Match.",
+          schema: { type: "string" },
+        },
+        "Cache-Control": {
+          description: "Public cache for one day.",
+          schema: { type: "string" },
+        },
+      },
+    },
+    400: apiErrorResponse("The moduleId path parameter was invalid."),
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    ...rateLimitResponse(),
+    404: apiErrorResponse("The module has no stored icon."),
+    500: apiErrorResponse("The module icon could not be loaded."),
   },
 });
 

@@ -6,6 +6,7 @@ import {
   getService,
   getServiceConfiguration,
   getServiceConfigurationSchema,
+  getServiceIcon,
   getServiceSecrets,
   getServiceSecretsSchema,
   installServiceRegistry,
@@ -23,6 +24,7 @@ export const serviceRouter: ExpressRouter = Router();
 
 serviceRouter.get("/", listServices);
 serviceRouter.get("/:serviceId", getService);
+serviceRouter.get("/:serviceId/icon", getServiceIcon);
 serviceRouter.post(
   "/",
   createRateLimiter(10, 60_000, "POST /services"),

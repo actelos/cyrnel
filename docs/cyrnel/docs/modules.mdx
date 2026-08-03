@@ -92,6 +92,10 @@ interface RegistryDescriptor {
     downloadUrl: string;                              // URL to the .tar.zst archive
     hash?: string;                                    // SHA-256 of the archive
     engines?: { cyrnel?: string };                    // optional engine constraint
+    icon?: {                                          // optional module icon
+      url: string;                                    //   raster image URL (png/webp only)
+      hash: string;                                   //   SHA-256 of the image bytes
+    };
   }>;
 }
 ```
@@ -106,6 +110,21 @@ version/range when `version` is provided in the request body:
 If the response includes a `hash`, the server verifies the downloaded archive
 content matches it. The `source` URL is persisted in the database so the module
 can be re-resolved later for updates. The module starts disabled.
+
+If a version entry declares an `icon`, the server downloads the image bytes
+through the same SSRF-guarded egress path as archives, verifies the SHA-256
+`hash`, and only accepts png/webp content sniffed from the file magic.
+The icon is stored server-side and served from
+`GET /modules/:moduleId/icon` with an `ETag` for caching. Icon failures are
+non-fatal: the module installs without an icon. Direct installs and direct
+updates (`PATCH`) never carry an icon. On registry updates the icon is
+re-fetched when its `hash` changes and cleared when the registry no longer
+declares one; a failed re-fetch is non-fatal and preserves the previously
+stored icon.
+
+Recommended icon properties: a square 256×256 px image (png or webp, with
+transparency if needed) no larger than 256 KB. Icons are displayed at 40×40 px
+in the web UI.
 
 ## Update
 

@@ -210,6 +210,51 @@ function mockFetchRegistryThen(
   );
 }
 
+function mockFetchRegistryWithIcon(opts: {
+  registryUrl?: string;
+  registryHash?: string;
+  downloadUrl: string;
+  definitionContent: string;
+  icon?: { url: string; hash: string; data?: Buffer; error?: boolean };
+}) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: string | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (opts.icon && url === opts.icon.url) {
+        if (opts.icon.error) throw new Error("icon network failure");
+        return new Response(opts.icon.data ?? PNG_ICON, { status: 200 });
+      }
+      if (url === (opts.registryUrl ?? "https://registry.example.com/svc")) {
+        return new Response(
+          JSON.stringify({
+            latestVersion: "1.0.0",
+            versions: {
+              "1.0.0": {
+                downloadUrl: opts.downloadUrl,
+                hash: opts.registryHash,
+                ...(opts.icon
+                  ? { icon: { url: opts.icon.url, hash: opts.icon.hash } }
+                  : {}),
+              },
+            },
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      }
+      return new Response(opts.definitionContent, { status: 200 });
+    }),
+  );
+}
+
+const PNG_ICON = Buffer.concat([
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+  Buffer.alloc(16),
+]);
+
 describe("ServicesService", () => {
   beforeAll(async () => {
     process.env.CYRNEL_SECRETS_KEY = SECRETS_KEY;
@@ -605,6 +650,121 @@ describe("ServicesService", () => {
     });
   });
 
+  describe("createServiceFromRegistry() (icon)", () => {
+    it("stores the icon when the registry declares one", async () => {
+      const { computeBinaryHash } = await import("@/utils/hash.util");
+      const iconHash = computeBinaryHash(PNG_ICON);
+
+      mockFetchRegistryWithIcon({
+        registryUrl: "https://registry.example.com/svc",
+        downloadUrl: "https://example.com/download",
+        definitionContent: "payload",
+        icon: { url: "https://icons.example.com/a.png", hash: iconHash },
+      });
+
+      const svc = new ServicesService(makeController());
+      await svc.createServiceFromRegistry({
+        id: "alpha",
+        source: "https://registry.example.com/svc",
+        adapter: "test-adapter",
+      });
+
+      const row = await svc.getService("alpha");
+      expect(row.hasIcon).toBe(true);
+
+      const icon = await svc.getServiceIcon("alpha");
+      expect(icon).not.toBeNull();
+      expect(icon?.data.equals(PNG_ICON)).toBe(true);
+      expect(icon?.mime).toBe("image/png");
+      expect(icon?.hash).toBe(iconHash);
+    });
+
+    it("installs without an icon when the icon download fails", async () => {
+      const { computeBinaryHash } = await import("@/utils/hash.util");
+
+      mockFetchRegistryWithIcon({
+        registryUrl: "https://registry.example.com/svc",
+        downloadUrl: "https://example.com/download",
+        definitionContent: "payload",
+        icon: {
+          url: "https://icons.example.com/a.png",
+          hash: computeBinaryHash(PNG_ICON),
+          error: true,
+        },
+      });
+
+      const svc = new ServicesService(makeController());
+      await svc.createServiceFromRegistry({
+        id: "alpha",
+        source: "https://registry.example.com/svc",
+        adapter: "test-adapter",
+      });
+
+      const row = await svc.getService("alpha");
+      expect(row.hasIcon).toBe(false);
+      expect(await svc.getServiceIcon("alpha")).toBeNull();
+    });
+
+    it("installs without an icon when the icon hash does not match", async () => {
+      mockFetchRegistryWithIcon({
+        registryUrl: "https://registry.example.com/svc",
+        downloadUrl: "https://example.com/download",
+        definitionContent: "payload",
+        icon: { url: "https://icons.example.com/a.png", hash: "wrong-hash" },
+      });
+
+      const svc = new ServicesService(makeController());
+      await svc.createServiceFromRegistry({
+        id: "alpha",
+        source: "https://registry.example.com/svc",
+        adapter: "test-adapter",
+      });
+
+      const row = await svc.getService("alpha");
+      expect(row.hasIcon).toBe(false);
+    });
+
+    it("installs without an icon when the content is not a supported raster", async () => {
+      const { computeBinaryHash } = await import("@/utils/hash.util");
+      const svg = Buffer.from("<svg xmlns='http://www.w3.org/2000/svg'/>");
+
+      mockFetchRegistryWithIcon({
+        registryUrl: "https://registry.example.com/svc",
+        downloadUrl: "https://example.com/download",
+        definitionContent: "payload",
+        icon: {
+          url: "https://icons.example.com/a.svg",
+          hash: computeBinaryHash(svg),
+          data: svg,
+        },
+      });
+
+      const svc = new ServicesService(makeController());
+      await svc.createServiceFromRegistry({
+        id: "alpha",
+        source: "https://registry.example.com/svc",
+        adapter: "test-adapter",
+      });
+
+      const row = await svc.getService("alpha");
+      expect(row.hasIcon).toBe(false);
+    });
+
+    it("reports no icon for manual installs", async () => {
+      mockFetchOnce("payload");
+      const svc = new ServicesService(makeController());
+      await svc.createServiceDirect({
+        id: "alpha",
+        url: "https://example.com/def.json",
+        adapter: "test-adapter",
+      });
+
+      const row = await svc.getService("alpha");
+      expect(row.hasIcon).toBe(false);
+      expect(await svc.getServiceIcon("alpha")).toBeNull();
+    });
+  });
+
   describe("updateService()", () => {
     it("throws 404 when the service is unknown", async () => {
       const svc = new ServicesService(makeController());
@@ -726,6 +886,167 @@ describe("ServicesService", () => {
         "test-adapter",
         "alpha",
       );
+    });
+
+    it("skips the definition download when nothing changed", async () => {
+      const { computeBinaryHash } = await import("@/utils/hash.util");
+      const iconHash = computeBinaryHash(PNG_ICON);
+      await seedService("alpha");
+      await db.run(
+        sql`UPDATE services SET icon_hash = ${iconHash} WHERE id = 'alpha'`,
+      );
+
+      mockFetchRegistryWithIcon({
+        registryUrl: "https://example.com/def.json",
+        registryHash: "hash",
+        downloadUrl: "https://example.com/download",
+        definitionContent: "unused",
+        icon: { url: "https://icons.example.com/a.png", hash: iconHash },
+      });
+
+      const svc = new ServicesService(makeController());
+      await svc.updateService("alpha");
+
+      const calls = vi.mocked(fetch).mock.calls.map(([input]) => String(input));
+      expect(calls).toEqual(["https://example.com/def.json"]);
+    });
+
+    it("re-fetches and stores the icon when the registry icon hash changes", async () => {
+      const { computeBinaryHash } = await import("@/utils/hash.util");
+      const newHash = computeBinaryHash(PNG_ICON);
+      await seedService("alpha");
+      await db.run(
+        sql`UPDATE services SET icon_hash = 'old-hash' WHERE id = 'alpha'`,
+      );
+
+      mockFetchRegistryWithIcon({
+        registryUrl: "https://example.com/def.json",
+        downloadUrl: "https://example.com/download",
+        definitionContent: "payload",
+        icon: { url: "https://icons.example.com/a.png", hash: newHash },
+      });
+
+      const svc = new ServicesService(makeController());
+      await svc.updateService("alpha");
+
+      const icon = await svc.getServiceIcon("alpha");
+      expect(icon).not.toBeNull();
+      expect(icon?.data.equals(PNG_ICON)).toBe(true);
+      expect(icon?.mime).toBe("image/png");
+      expect(icon?.hash).toBe(newHash);
+      expect(await svc.getService("alpha")).toMatchObject({ hasIcon: true });
+    });
+
+    it("keeps the stored icon when the icon re-fetch fails", async () => {
+      const { computeBinaryHash } = await import("@/utils/hash.util");
+      const storedHash = computeBinaryHash(PNG_ICON);
+      await seedService("alpha");
+      await db.run(
+        sql`UPDATE services SET icon_hash = ${storedHash}, icon_data = ${PNG_ICON}, icon_mime = 'image/png' WHERE id = 'alpha'`,
+      );
+
+      mockFetchRegistryWithIcon({
+        registryUrl: "https://example.com/def.json",
+        downloadUrl: "https://example.com/download",
+        definitionContent: "payload",
+        icon: {
+          url: "https://icons.example.com/a.png",
+          hash: "new-hash",
+          error: true,
+        },
+      });
+
+      const svc = new ServicesService(makeController());
+      await svc.updateService("alpha");
+
+      const icon = await svc.getServiceIcon("alpha");
+      expect(icon).not.toBeNull();
+      expect(icon?.data.equals(PNG_ICON)).toBe(true);
+      expect(icon?.mime).toBe("image/png");
+      expect(icon?.hash).toBe(storedHash);
+      expect(await svc.getService("alpha")).toMatchObject({ hasIcon: true });
+    });
+
+    it("skips the definition download when only the icon changed and the registry hash matches", async () => {
+      const { computeBinaryHash, computeContentHash } = await import(
+        "@/utils/hash.util"
+      );
+      const contentHash = computeContentHash("payload");
+      const newHash = computeBinaryHash(PNG_ICON);
+      await seedService("alpha", { hash: contentHash });
+      await db.run(
+        sql`UPDATE services SET icon_hash = 'old-hash' WHERE id = 'alpha'`,
+      );
+
+      mockFetchRegistryWithIcon({
+        registryUrl: "https://example.com/def.json",
+        registryHash: contentHash,
+        downloadUrl: "https://example.com/download",
+        definitionContent: "unused",
+        icon: { url: "https://icons.example.com/a.png", hash: newHash },
+      });
+
+      const svc = new ServicesService(makeController());
+      await svc.updateService("alpha");
+
+      const icon = await svc.getServiceIcon("alpha");
+      expect(icon).not.toBeNull();
+      expect(icon?.hash).toBe(newHash);
+
+      const calls = vi.mocked(fetch).mock.calls.map(([input]) => String(input));
+      expect(calls).toEqual([
+        "https://example.com/def.json",
+        "https://icons.example.com/a.png",
+      ]);
+    });
+
+    it("clears the stored icon when the registry no longer declares one", async () => {
+      const { computeBinaryHash } = await import("@/utils/hash.util");
+      const oldHash = computeBinaryHash(PNG_ICON);
+      await seedService("alpha");
+      await db.run(
+        sql`UPDATE services SET icon_hash = ${oldHash}, icon_data = ${PNG_ICON}, icon_mime = 'image/png' WHERE id = 'alpha'`,
+      );
+
+      mockFetchRegistryWithIcon({
+        registryUrl: "https://example.com/def.json",
+        downloadUrl: "https://example.com/download",
+        definitionContent: "payload",
+      });
+
+      const svc = new ServicesService(makeController());
+      await svc.updateService("alpha");
+
+      expect(await svc.getServiceIcon("alpha")).toBeNull();
+      expect(await svc.getService("alpha")).toMatchObject({ hasIcon: false });
+    });
+
+    it("keeps the stored icon untouched when the icon hash matches and content is unchanged", async () => {
+      const { computeBinaryHash, computeContentHash } = await import(
+        "@/utils/hash.util"
+      );
+      const iconHash = computeBinaryHash(PNG_ICON);
+      const contentHash = computeContentHash("payload");
+      await seedService("alpha", { hash: contentHash });
+      await db.run(
+        sql`UPDATE services SET icon_hash = ${iconHash}, icon_data = ${PNG_ICON}, icon_mime = 'image/png' WHERE id = 'alpha'`,
+      );
+
+      mockFetchRegistryWithIcon({
+        registryUrl: "https://example.com/def.json",
+        downloadUrl: "https://example.com/download",
+        definitionContent: "payload",
+        icon: { url: "https://icons.example.com/a.png", hash: iconHash },
+      });
+
+      const svc = new ServicesService(makeController());
+      await svc.updateService("alpha");
+
+      expect(await svc.getServiceIcon("alpha")).toMatchObject({
+        mime: "image/png",
+        hash: iconHash,
+      });
+      expect(await svc.getService("alpha")).toMatchObject({ hasIcon: true });
     });
   });
 

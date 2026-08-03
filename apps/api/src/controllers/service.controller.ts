@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import type { Operation } from "fast-json-patch";
 import { z } from "zod";
 
+import { sendIconResponse } from "@/controllers/icon-response.util";
 import type { ServicesService } from "@/services/services.service";
 import { parseOrHttpError } from "@/utils/validation.util";
 
@@ -131,6 +132,17 @@ export async function getService(req: Request, res: Response): Promise<void> {
   const service = await servicesService.getService(serviceId);
 
   res.status(200).json(service);
+}
+
+export async function getServiceIcon(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const servicesService = getServicesService(req);
+  const serviceId = parseServiceId(req.params.serviceId);
+  const icon = await servicesService.getServiceIcon(serviceId);
+
+  sendIconResponse(res, icon, `Service '${serviceId}'`);
 }
 
 export async function getServiceConfiguration(

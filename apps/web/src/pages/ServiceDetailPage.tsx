@@ -12,6 +12,7 @@ import { useNavigate, useParams } from "react-router";
 import remarkGfm from "remark-gfm";
 import useSWR, { useSWRConfig } from "swr";
 import { z } from "zod";
+import { EntityIcon } from "@/components/entity-icon";
 import JsonSchemaForm from "@/components/JsonSchemaForm";
 import {
   AlertDialog,
@@ -52,6 +53,7 @@ const serviceSchema = z.object({
   version: z.string(),
   enabled: z.boolean(),
   stale: z.boolean(),
+  hasIcon: z.boolean(),
 });
 
 const serviceDetailsSchema = serviceSchema.extend({
@@ -518,14 +520,24 @@ export default function ServiceDetailPage() {
             <Card>
               <CardContent className="space-y-4">
                 <div className="space-y-2">
-                  <div className="flex items-center flex-wrap gap-2">
-                    <h2 className="text-lg font-semibold">
-                      {serviceDetails.name}
-                    </h2>
-                    <Badge variant="secondary">{serviceDetails.adapter}</Badge>
-                    {serviceDetails.stale ? (
-                      <Badge variant="destructive">Stale</Badge>
-                    ) : null}
+                  <div className="flex items-center gap-3">
+                    <EntityIcon
+                      kind="service"
+                      id={serviceDetails.id}
+                      label={serviceDetails.name}
+                      hasIcon={serviceDetails.hasIcon}
+                    />
+                    <div className="flex items-center flex-wrap gap-2">
+                      <h2 className="text-lg font-semibold">
+                        {serviceDetails.name}
+                      </h2>
+                      <Badge variant="secondary">
+                        {serviceDetails.adapter}
+                      </Badge>
+                      {serviceDetails.stale ? (
+                        <Badge variant="destructive">Stale</Badge>
+                      ) : null}
+                    </div>
                   </div>
                   <p className="text-muted-foreground text-xs font-mono">
                     {serviceDetails.id}

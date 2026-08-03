@@ -1,5 +1,6 @@
 import type { JSONSchema } from "@cyrnel/sdk";
 import {
+  blob,
   index,
   integer,
   primaryKey,
@@ -32,6 +33,9 @@ export const services = sqliteTable("services", {
     .notNull(),
   definitionContent: text("definition_content").notNull().default(""),
   stale: integer("stale", { mode: "boolean" }).notNull().default(false),
+  iconData: blob("icon_data", { mode: "buffer" }),
+  iconMime: text("icon_mime"),
+  iconHash: text("icon_hash"),
 });
 
 export const serviceConfigurations = sqliteTable("service_configurations", {
@@ -93,6 +97,9 @@ export const modules = sqliteTable(
     source: text("source").notNull().default(""),
     enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
     missing: integer("missing", { mode: "boolean" }).notNull().default(false),
+    iconData: blob("icon_data", { mode: "buffer" }),
+    iconMime: text("icon_mime"),
+    iconHash: text("icon_hash"),
   },
   (table) => [index("modules_type_idx").on(table.type)],
 );
