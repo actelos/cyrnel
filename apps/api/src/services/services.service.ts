@@ -10,6 +10,7 @@ import jsonpatch from "fast-json-patch";
 import { z } from "zod";
 
 import { db } from "@/db/client";
+import type { ServiceRecord } from "@/db/schema";
 import {
   modules as modulesTable,
   serviceConfigurations,
@@ -38,6 +39,7 @@ import type {
 } from "@/models/services.model";
 import { downloadText } from "@/utils/download.util";
 import { computeContentHash } from "@/utils/hash.util";
+import { fetchAndValidateIcon } from "@/utils/icon.util";
 import {
   collectOutdatedPaths,
   filterPayloadToSchema,
@@ -89,12 +91,15 @@ export class ServicesService {
         hash,
         source,
         definitionContent,
+        iconData,
+        iconMime,
         ...serviceColumns
       } = getTableColumns(services);
 
       const query = db
         .select({
           ...serviceColumns,
+          iconHash: services.iconHash,
           effectivelyEnabled: sql<boolean>`${services.enabled} AND ${modulesTable.enabled} AND NOT ${modulesTable.missing}`,
         })
         .from(services)
@@ -121,20 +126,31 @@ export class ServicesService {
         )
         .orderBy(asc(services.id));
 
-      return await (input?.limit !== undefined
+      const rows = await (input?.limit !== undefined
         ? query.limit(Number(input.limit))
         : query);
+
+      return rows.map(({ iconHash, ...row }) => ({
+        ...row,
+        hasIcon: iconHash !== null,
+      }));
     } catch {
       throw new HttpError(500, "Failed to list services.");
     }
   }
 
   async getService(id: string): Promise<GetServiceDefinitionResult> {
-    const { adapterDomain, definitionContent, ...serviceColumns } =
-      getTableColumns(services);
+    const {
+      adapterDomain,
+      definitionContent,
+      iconData,
+      iconMime,
+      ...serviceColumns
+    } = getTableColumns(services);
     const [row] = await db
       .select({
         ...serviceColumns,
+        iconHash: services.iconHash,
         effectivelyEnabled: sql<boolean>`${services.enabled} AND ${modulesTable.enabled} AND NOT ${modulesTable.missing}`,
       })
       .from(services)
@@ -146,7 +162,29 @@ export class ServicesService {
       });
 
     if (!row) throw new HttpError(404, `Service '${id}' not found.`);
-    return row;
+    const { iconHash, ...rest } = row;
+    return { ...rest, hasIcon: iconHash !== null };
+  }
+
+  async getServiceIcon(
+    id: string,
+  ): Promise<{ data: Buffer; mime: string; hash: string } | null> {
+    const [row] = await db
+      .select({
+        iconData: services.iconData,
+        iconMime: services.iconMime,
+        iconHash: services.iconHash,
+      })
+      .from(services)
+      .where(eq(services.id, id))
+      .limit(1)
+      .catch(() => {
+        throw new HttpError(500, `Failed to load service '${id}'.`);
+      });
+
+    if (!row) throw new HttpError(404, `Service '${id}' not found.`);
+    if (!row.iconData || !row.iconMime || !row.iconHash) return null;
+    return { data: row.iconData, mime: row.iconMime, hash: row.iconHash };
   }
 
   async listTools(input: ListToolsInput): Promise<ListToolsResult[]> {
@@ -360,9 +398,12 @@ export class ServicesService {
       );
     }
 
-    const definitionContent = await this.downloadDefinition(
-      registry.downloadUrl,
-    );
+    const [definitionContent, icon] = await Promise.all([
+      this.downloadDefinition(registry.downloadUrl),
+      registry.icon
+        ? fetchAndValidateIcon(registry.icon, "service", effectiveId)
+        : Promise.resolve(null),
+    ]);
     const contentHash = computeContentHash(definitionContent);
 
     if (registry.hash && contentHash !== registry.hash) {
@@ -397,6 +438,9 @@ export class ServicesService {
           adapter: effectiveAdapter,
           enabled: false,
           definitionContent,
+          iconData: icon?.data ?? null,
+          iconMime: icon?.mime ?? null,
+          iconHash: icon?.hash ?? null,
         });
         await tx.insert(tools).values(
           generatedDefinition.tools.map((tool) => ({
@@ -501,6 +545,7 @@ export class ServicesService {
         source: services.source,
         hash: services.hash,
         version: services.version,
+        iconHash: services.iconHash,
       })
       .from(services)
       .where(eq(services.id, id))
@@ -516,7 +561,12 @@ export class ServicesService {
         `Service '${id}' has no stored install source and cannot be updated automatically. Only registry-installed services can be updated.`,
       );
 
-    let registry: { version: string; downloadUrl: string; hash?: string };
+    let registry: {
+      version: string;
+      downloadUrl: string;
+      hash?: string;
+      icon?: { url: string; hash: string };
+    };
     try {
       const { resolveServiceRegistry } = await import("@/utils/registry.util");
       registry = await resolveServiceRegistry(service.source);
@@ -533,19 +583,47 @@ export class ServicesService {
       );
     }
 
+    const iconChanged = (registry.icon?.hash ?? null) !== service.iconHash;
+
+    if (
+      registry.hash &&
+      registry.hash === service.hash &&
+      registry.version === service.version &&
+      !iconChanged
+    )
+      return;
+
+    const icon =
+      iconChanged && registry.icon
+        ? await fetchAndValidateIcon(registry.icon, "service", id)
+        : null;
+
+    const iconColumns = !iconChanged
+      ? {}
+      : icon !== null
+        ? { iconData: icon.data, iconMime: icon.mime, iconHash: icon.hash }
+        : registry.icon
+          ? {} // re-fetch failed: keep the previously stored icon
+          : { iconData: null, iconMime: null, iconHash: null };
+
     if (
       registry.hash &&
       registry.hash === service.hash &&
       registry.version === service.version
-    )
+    ) {
+      await this.persistServiceIcon(id, iconColumns);
       return;
+    }
 
     const definitionContent = await this.downloadDefinition(
       registry.downloadUrl,
     );
     const hash = computeContentHash(definitionContent);
 
-    if (hash === service.hash && registry.version === service.version) return;
+    if (hash === service.hash && registry.version === service.version) {
+      await this.persistServiceIcon(id, iconColumns);
+      return;
+    }
 
     const parsedDefinition = await this.controller.generateDefinition({
       definition: definitionContent,
@@ -579,6 +657,7 @@ export class ServicesService {
             enabled: false,
             definitionContent,
             stale: false,
+            ...iconColumns,
           })
           .where(eq(services.id, id));
 
@@ -606,6 +685,22 @@ export class ServicesService {
         "Failed to dehydrate service on update",
       );
     }
+  }
+
+  private async persistServiceIcon(
+    id: string,
+    iconColumns: Partial<
+      Pick<ServiceRecord, "iconData" | "iconMime" | "iconHash">
+    >,
+  ): Promise<void> {
+    if (Object.keys(iconColumns).length === 0) return;
+    await db
+      .update(services)
+      .set(iconColumns)
+      .where(eq(services.id, id))
+      .catch(() => {
+        throw new HttpError(500, `Failed to update icon for service '${id}'.`);
+      });
   }
 
   async patchService(id: string, url: string): Promise<{ updated: boolean }> {
@@ -663,6 +758,9 @@ export class ServicesService {
             enabled: false,
             definitionContent,
             stale: false,
+            iconData: null,
+            iconMime: null,
+            iconHash: null,
           })
           .where(eq(services.id, id));
 

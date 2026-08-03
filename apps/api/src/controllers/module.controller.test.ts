@@ -7,6 +7,7 @@ import {
   getModule,
   getModuleConfiguration,
   getModuleConfigurationSchema,
+  getModuleIcon,
   getModuleSecrets,
   getModuleSecretsSchema,
   installModule,
@@ -37,6 +38,7 @@ const moduleService = {
   patchModule: vi.fn(),
   deleteModule: vi.fn(),
   updateModule: vi.fn(),
+  getIcon: vi.fn(),
 };
 
 interface MockResponse {
@@ -45,6 +47,7 @@ interface MockResponse {
   end: ReturnType<typeof vi.fn>;
   type: ReturnType<typeof vi.fn>;
   send: ReturnType<typeof vi.fn>;
+  set: ReturnType<typeof vi.fn>;
 }
 
 const makeRes = (): MockResponse => {
@@ -54,6 +57,7 @@ const makeRes = (): MockResponse => {
   res.end = vi.fn().mockReturnValue(res);
   res.type = vi.fn().mockReturnValue(res);
   res.send = vi.fn().mockReturnValue(res);
+  res.set = vi.fn().mockReturnValue(res);
   return res;
 };
 
@@ -259,6 +263,49 @@ describe("module.controller", () => {
       const res = makeRes();
       await expect(
         getModule(makeReq({ params: { moduleId } }), cast(res)),
+      ).rejects.toBeInstanceOf(HttpError);
+    });
+  });
+
+  describe("getModuleIcon", () => {
+    it("returns the icon bytes with cache headers and an ETag", async () => {
+      const res = makeRes();
+      const data = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+      moduleService.getIcon.mockResolvedValue({
+        data,
+        mime: "image/png",
+        hash: "abc123",
+      });
+
+      await getModuleIcon(makeReq({ params: { moduleId: "m1" } }), cast(res));
+
+      expect(moduleService.getIcon).toHaveBeenCalledWith("m1");
+      expect(res.set).toHaveBeenCalledWith("Content-Type", "image/png");
+      expect(res.set).toHaveBeenCalledWith(
+        "Cache-Control",
+        "public, max-age=86400",
+      );
+      expect(res.set).toHaveBeenCalledWith("ETag", '"abc123"');
+      expect(res.send).toHaveBeenCalledWith(data);
+    });
+
+    it("returns 404 without cache when the module has no icon", async () => {
+      const res = makeRes();
+      moduleService.getIcon.mockResolvedValue(null);
+
+      await getModuleIcon(makeReq({ params: { moduleId: "m1" } }), cast(res));
+
+      expect(res.status).toHaveBeenCalledWith(404);
+      expect(res.set).toHaveBeenCalledWith("Cache-Control", "no-cache");
+      expect(res.json).toHaveBeenCalledWith({
+        error: "Module 'm1' has no icon.",
+      });
+    });
+
+    it("rejects an empty moduleId", async () => {
+      const res = makeRes();
+      await expect(
+        getModuleIcon(makeReq({ params: { moduleId: "" } }), cast(res)),
       ).rejects.toBeInstanceOf(HttpError);
     });
   });

@@ -34,7 +34,7 @@ export type ListServiceDefinitionResult = Omit<
   | "secretsSchema"
   | "adapterDomain"
   | "definitionContent"
-> & { effectivelyEnabled: boolean };
+> & { effectivelyEnabled: boolean; hasIcon: boolean };
 
 export interface ListToolsInput {
   serviceId?: string;
@@ -54,7 +54,7 @@ export interface ListToolsResult
 export type GetServiceDefinitionResult = Omit<
   ServiceDefinitionRecord,
   "tools" | "adapterDomain" | "definitionContent"
-> & { effectivelyEnabled: boolean };
+> & { effectivelyEnabled: boolean; hasIcon: boolean };
 
 export interface GetToolInput {
   serviceId: string;

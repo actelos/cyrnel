@@ -139,6 +139,94 @@ describe("resolveModuleRegistry", () => {
       resolveModuleRegistry("https://registry.example.com/mod"),
     ).rejects.toBeInstanceOf(HttpError);
   });
+
+  it("returns icon when present", async () => {
+    mockFetchJson(
+      versioned({
+        downloadUrl: "https://example.com/mod.tar.zst",
+        icon: { url: "https://example.com/icon.png", hash: "abc123" },
+      }),
+    );
+    const result = await resolveModuleRegistry(
+      "https://registry.example.com/mod",
+    );
+    expect(result.icon).toEqual({
+      url: "https://example.com/icon.png",
+      hash: "abc123",
+    });
+  });
+
+  it("throws 400 when icon is not an object", async () => {
+    mockFetchJson(
+      versioned({
+        downloadUrl: "https://example.com/mod.tar.zst",
+        icon: "https://example.com/icon.png",
+      }),
+    );
+    await expect(
+      resolveModuleRegistry("https://registry.example.com/mod"),
+    ).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it("throws 400 when icon url is missing or empty", async () => {
+    mockFetchJson(
+      versioned({
+        downloadUrl: "https://example.com/mod.tar.zst",
+        icon: { hash: "abc123" },
+      }),
+    );
+    await expect(
+      resolveModuleRegistry("https://registry.example.com/mod"),
+    ).rejects.toMatchObject({ statusCode: 400 });
+
+    mockFetchJson(
+      versioned({
+        downloadUrl: "https://example.com/mod.tar.zst",
+        icon: { url: "", hash: "abc123" },
+      }),
+    );
+    await expect(
+      resolveModuleRegistry("https://registry.example.com/mod"),
+    ).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it("throws 400 when icon hash is missing or empty", async () => {
+    mockFetchJson(
+      versioned({
+        downloadUrl: "https://example.com/mod.tar.zst",
+        icon: { url: "https://example.com/icon.png" },
+      }),
+    );
+    await expect(
+      resolveModuleRegistry("https://registry.example.com/mod"),
+    ).rejects.toMatchObject({ statusCode: 400 });
+
+    mockFetchJson(
+      versioned({
+        downloadUrl: "https://example.com/mod.tar.zst",
+        icon: { url: "https://example.com/icon.png", hash: "" },
+      }),
+    );
+    await expect(
+      resolveModuleRegistry("https://registry.example.com/mod"),
+    ).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it("trims icon url and hash", async () => {
+    mockFetchJson(
+      versioned({
+        downloadUrl: "https://example.com/mod.tar.zst",
+        icon: { url: "  https://example.com/icon.png  ", hash: "  abc  " },
+      }),
+    );
+    const result = await resolveModuleRegistry(
+      "https://registry.example.com/mod",
+    );
+    expect(result.icon).toEqual({
+      url: "https://example.com/icon.png",
+      hash: "abc",
+    });
+  });
 });
 
 describe("resolveServiceRegistry", () => {
@@ -230,5 +318,33 @@ describe("resolveServiceRegistry", () => {
     expect(result.hash).toBe("abc");
     expect(result.id).toBe("my-svc");
     expect(result.adapter).toBe("my-adapter");
+  });
+
+  it("returns icon when present", async () => {
+    mockFetchJson(
+      versioned({
+        downloadUrl: "https://example.com/svc.json",
+        icon: { url: "https://example.com/icon.png", hash: "def456" },
+      }),
+    );
+    const result = await resolveServiceRegistry(
+      "https://registry.example.com/svc",
+    );
+    expect(result.icon).toEqual({
+      url: "https://example.com/icon.png",
+      hash: "def456",
+    });
+  });
+
+  it("throws 400 when icon is present but malformed", async () => {
+    mockFetchJson(
+      versioned({
+        downloadUrl: "https://example.com/svc.json",
+        icon: { url: "https://example.com/icon.png" },
+      }),
+    );
+    await expect(
+      resolveServiceRegistry("https://registry.example.com/svc"),
+    ).rejects.toMatchObject({ statusCode: 400 });
   });
 });

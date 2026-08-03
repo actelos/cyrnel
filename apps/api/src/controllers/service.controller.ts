@@ -133,6 +133,28 @@ export async function getService(req: Request, res: Response): Promise<void> {
   res.status(200).json(service);
 }
 
+export async function getServiceIcon(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const servicesService = getServicesService(req);
+  const serviceId = parseServiceId(req.params.serviceId);
+  const icon = await servicesService.getServiceIcon(serviceId);
+
+  if (!icon) {
+    res
+      .status(404)
+      .set("Cache-Control", "no-cache")
+      .json({ error: `Service '${serviceId}' has no icon.` });
+    return;
+  }
+
+  res.set("Content-Type", icon.mime);
+  res.set("Cache-Control", "public, max-age=86400");
+  res.set("ETag", `"${icon.hash}"`);
+  res.send(icon.data);
+}
+
 export async function getServiceConfiguration(
   req: Request,
   res: Response,

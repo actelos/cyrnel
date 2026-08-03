@@ -7,6 +7,7 @@ import {
   getService,
   getServiceConfiguration,
   getServiceConfigurationSchema,
+  getServiceIcon,
   getServiceSecrets,
   getServiceSecretsSchema,
   installServiceRegistry,
@@ -35,6 +36,7 @@ const servicesService = {
   updateService: vi.fn(),
   setServiceEnabled: vi.fn(),
   deleteService: vi.fn(),
+  getServiceIcon: vi.fn(),
 };
 
 interface MockResponse {
@@ -42,6 +44,7 @@ interface MockResponse {
   json: ReturnType<typeof vi.fn>;
   send: ReturnType<typeof vi.fn>;
   type: ReturnType<typeof vi.fn>;
+  set: ReturnType<typeof vi.fn>;
 }
 
 const makeRes = (): MockResponse => {
@@ -50,6 +53,7 @@ const makeRes = (): MockResponse => {
   res.json = vi.fn().mockReturnValue(res);
   res.send = vi.fn().mockReturnValue(res);
   res.type = vi.fn().mockReturnValue(res);
+  res.set = vi.fn().mockReturnValue(res);
   return res;
 };
 
@@ -172,6 +176,55 @@ describe("service.controller", () => {
       const res = makeRes();
       await expect(
         getService(makeReq({ params: {} }), cast(res)),
+      ).rejects.toBeInstanceOf(HttpError);
+    });
+  });
+
+  describe("getServiceIcon", () => {
+    it("returns the icon bytes with cache headers and an ETag", async () => {
+      const res = makeRes();
+      const data = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+      servicesService.getServiceIcon.mockResolvedValue({
+        data,
+        mime: "image/png",
+        hash: "abc123",
+      });
+
+      await getServiceIcon(
+        makeReq({ params: { serviceId: "svc" } }),
+        cast(res),
+      );
+
+      expect(servicesService.getServiceIcon).toHaveBeenCalledWith("svc");
+      expect(res.set).toHaveBeenCalledWith("Content-Type", "image/png");
+      expect(res.set).toHaveBeenCalledWith(
+        "Cache-Control",
+        "public, max-age=86400",
+      );
+      expect(res.set).toHaveBeenCalledWith("ETag", '"abc123"');
+      expect(res.send).toHaveBeenCalledWith(data);
+    });
+
+    it("returns 404 without cache when the service has no icon", async () => {
+      const res = makeRes();
+      servicesService.getServiceIcon.mockResolvedValue(null);
+
+      await getServiceIcon(
+        makeReq({ params: { serviceId: "svc" } }),
+        cast(res),
+      );
+
+      expect(res.status).toHaveBeenCalledWith(404);
+      expect(res.set).toHaveBeenCalledWith("Cache-Control", "no-cache");
+      expect(res.json).toHaveBeenCalledWith({
+        error: "Service 'svc' has no icon.",
+      });
+    });
+
+    it("rejects when serviceId is missing", async () => {
+      const res = makeRes();
+      await expect(
+        getServiceIcon(makeReq({ params: {} }), cast(res)),
       ).rejects.toBeInstanceOf(HttpError);
     });
   });

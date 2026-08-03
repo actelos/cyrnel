@@ -18,6 +18,7 @@ export interface ModuleManifestRecord {
   isBuiltin: boolean;
   enabled: boolean;
   missing: boolean;
+  hasIcon: boolean;
   configSchema: JSONSchema;
   secretsSchema: JSONSchema;
 }

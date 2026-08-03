@@ -217,6 +217,28 @@ export async function getModule(req: Request, res: Response): Promise<void> {
   res.status(200).json(module);
 }
 
+export async function getModuleIcon(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const moduleService = getModuleService(req);
+  const moduleId = parseOrHttpError(moduleIdSchema, req.params.moduleId);
+  const icon = await moduleService.getIcon(moduleId);
+
+  if (!icon) {
+    res
+      .status(404)
+      .set("Cache-Control", "no-cache")
+      .json({ error: `Module '${moduleId}' has no icon.` });
+    return;
+  }
+
+  res.set("Content-Type", icon.mime);
+  res.set("Cache-Control", "public, max-age=86400");
+  res.set("ETag", `"${icon.hash}"`);
+  res.send(icon.data);
+}
+
 export async function setModuleEnabled(
   req: Request,
   res: Response,

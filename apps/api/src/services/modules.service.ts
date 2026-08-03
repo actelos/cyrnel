@@ -19,7 +19,7 @@ import type {
   ToolDocsInput,
 } from "@cyrnel/sdk";
 import tsivm from "@cyrnel/typescript-ivm";
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, getTableColumns, inArray, sql } from "drizzle-orm";
 import jsonpatch from "fast-json-patch";
 import { decompress as zstdDecompress } from "fzstd";
 import { satisfies } from "semver";
@@ -55,6 +55,7 @@ import {
 } from "@/models/modules.model";
 import { downloadBinary } from "@/utils/download.util";
 import { computeBinaryHash } from "@/utils/hash.util";
+import { fetchAndValidateIcon } from "@/utils/icon.util";
 import {
   collectOutdatedPaths,
   filterPayloadToSchema,
@@ -307,8 +308,14 @@ export class ModuleService {
       conditions.push(eq(modulesTable.missing, filters.missing));
     }
 
+    const { iconData, iconMime, ...moduleColumns } =
+      getTableColumns(modulesTable);
+
     const rows = await db
-      .select()
+      .select({
+        ...moduleColumns,
+        iconHash: modulesTable.iconHash,
+      })
       .from(modulesTable)
       .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(asc(modulesTable.id));
@@ -331,13 +338,36 @@ export class ModuleService {
   }
 
   async get(id: string): Promise<GetModuleManifestResult | undefined> {
+    const { iconData, iconMime, ...moduleColumns } =
+      getTableColumns(modulesTable);
     const [row] = await db
-      .select()
+      .select({
+        ...moduleColumns,
+        iconHash: modulesTable.iconHash,
+      })
       .from(modulesTable)
       .where(eq(modulesTable.id, id))
       .limit(1);
 
     return row ? this.toManifestRecord(row) : undefined;
+  }
+
+  async getIcon(
+    id: string,
+  ): Promise<{ data: Buffer; mime: string; hash: string } | null> {
+    const [row] = await db
+      .select({
+        iconData: modulesTable.iconData,
+        iconMime: modulesTable.iconMime,
+        iconHash: modulesTable.iconHash,
+      })
+      .from(modulesTable)
+      .where(eq(modulesTable.id, id))
+      .limit(1);
+
+    if (!row) throw new HttpError(404, `Module '${id}' not found.`);
+    if (!row.iconData || !row.iconMime || !row.iconHash) return null;
+    return { data: row.iconData, mime: row.iconMime, hash: row.iconHash };
   }
 
   async setEnabled(input: SetModuleEnabledInput): Promise<void> {
@@ -763,6 +793,7 @@ export class ModuleService {
       isBuiltin: false,
       enabled: false,
       missing: false,
+      hasIcon: false,
       configSchema,
       secretsSchema,
     };
@@ -878,6 +909,10 @@ export class ModuleService {
       );
     }
 
+    const icon = registry.icon
+      ? await fetchAndValidateIcon(registry.icon, "module", manifest.id)
+      : null;
+
     try {
       await db.insert(modulesTable).values({
         id: manifest.id,
@@ -889,6 +924,9 @@ export class ModuleService {
         source: source,
         enabled: false,
         missing: false,
+        iconData: icon?.data ?? null,
+        iconMime: icon?.mime ?? null,
+        iconHash: icon?.hash ?? null,
       });
     } catch {
       await fs.rm(installDir, { recursive: true, force: true }).catch(() => {});
@@ -911,6 +949,7 @@ export class ModuleService {
       isBuiltin: false,
       enabled: false,
       missing: false,
+      hasIcon: icon !== null,
       configSchema,
       secretsSchema,
     };
@@ -927,6 +966,7 @@ export class ModuleService {
         version: modulesTable.version,
         source: modulesTable.source,
         type: modulesTable.type,
+        iconHash: modulesTable.iconHash,
       })
       .from(modulesTable)
       .where(eq(modulesTable.id, id))
@@ -946,6 +986,7 @@ export class ModuleService {
       version: string;
       downloadUrl: string;
       hash?: string;
+      icon?: { url: string; hash: string };
       engines?: { cyrnel?: string };
     };
     try {
@@ -965,11 +1006,36 @@ export class ModuleService {
       );
     }
 
+    const iconChanged = (registry.icon?.hash ?? null) !== row.iconHash;
+
+    if (
+      registry.hash &&
+      registry.hash === row.hash &&
+      registry.version === row.version &&
+      !iconChanged
+    ) {
+      return { updated: false };
+    }
+
+    const icon =
+      iconChanged && registry.icon
+        ? await fetchAndValidateIcon(registry.icon, "module", id)
+        : null;
+
+    const iconColumns = !iconChanged
+      ? {}
+      : icon !== null
+        ? { iconData: icon.data, iconMime: icon.mime, iconHash: icon.hash }
+        : registry.icon
+          ? {} // re-fetch failed: keep the previously stored icon
+          : { iconData: null, iconMime: null, iconHash: null };
+
     if (
       registry.hash &&
       registry.hash === row.hash &&
       registry.version === row.version
     ) {
+      await this.persistModuleIcon(id, iconColumns);
       return { updated: false };
     }
 
@@ -980,6 +1046,7 @@ export class ModuleService {
     const newHash = computeBinaryHash(buffer);
 
     if (newHash === row.hash) {
+      await this.persistModuleIcon(id, iconColumns);
       return { updated: false };
     }
 
@@ -1092,6 +1159,7 @@ export class ModuleService {
           description: manifest.description,
           hash: newHash,
           version: manifest.version,
+          ...iconColumns,
         })
         .where(eq(modulesTable.id, id));
     } catch {
@@ -1265,6 +1333,9 @@ export class ModuleService {
           hash: newHash,
           version: manifest.version,
           source: "",
+          iconData: null,
+          iconMime: null,
+          iconHash: null,
         })
         .where(eq(modulesTable.id, id));
     } catch {
@@ -2056,7 +2127,25 @@ export class ModuleService {
     return this.manifests.get(id)?.isBuiltin ?? false;
   }
 
-  private toListRecord(row: ModuleRecord): ListModuleManifestResult {
+  private async persistModuleIcon(
+    id: string,
+    iconColumns: Partial<
+      Pick<ModuleRecord, "iconData" | "iconMime" | "iconHash">
+    >,
+  ): Promise<void> {
+    if (Object.keys(iconColumns).length === 0) return;
+    await db
+      .update(modulesTable)
+      .set(iconColumns)
+      .where(eq(modulesTable.id, id))
+      .catch(() => {
+        throw new HttpError(500, `Failed to update icon for module '${id}'.`);
+      });
+  }
+
+  private toListRecord(
+    row: Omit<ModuleRecord, "iconData" | "iconMime">,
+  ): ListModuleManifestResult {
     return {
       id: row.id,
       name: row.name,
@@ -2066,10 +2155,13 @@ export class ModuleService {
       isBuiltin: this.isBuiltin(row.id),
       enabled: row.enabled,
       missing: row.missing,
+      hasIcon: row.iconHash !== null,
     };
   }
 
-  private toManifestRecord(row: ModuleRecord): GetModuleManifestResult {
+  private toManifestRecord(
+    row: Omit<ModuleRecord, "iconData" | "iconMime">,
+  ): GetModuleManifestResult {
     const manifest = this.manifests.get(row.id);
     return {
       ...this.toListRecord(row),

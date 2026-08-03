@@ -6,6 +6,7 @@ import {
   getModule,
   getModuleConfiguration,
   getModuleConfigurationSchema,
+  getModuleIcon,
   getModuleSecrets,
   getModuleSecretsSchema,
   installModule,
@@ -23,6 +24,7 @@ export const moduleRouter: ExpressRouter = Router();
 
 moduleRouter.get("/", listModules);
 moduleRouter.get("/:moduleId", getModule);
+moduleRouter.get("/:moduleId/icon", getModuleIcon);
 moduleRouter.post("/", createModule);
 moduleRouter.post(
   "/reload",

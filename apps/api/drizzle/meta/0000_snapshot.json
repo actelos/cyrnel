@@ -135,6 +135,14 @@
           "autoincrement": false,
           "default": "''"
         },
+        "version": {
+          "name": "version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'0.0.0'"
+        },
         "source": {
           "name": "source",
           "type": "text",
@@ -272,8 +280,15 @@
           "notNull": true,
           "autoincrement": false
         },
-        "options": {
-          "name": "options",
+        "timeout_ms": {
+          "name": "timeout_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "env_config": {
+          "name": "env_config",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -424,6 +439,14 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "version": {
+          "name": "version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'0.0.0'"
         },
         "source": {
           "name": "source",

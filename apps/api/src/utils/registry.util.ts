@@ -5,11 +5,17 @@ import { assertRegistryAddressAllowed } from "@/utils/download.util";
 
 const REGISTRY_FETCH_TIMEOUT_MS = 10_000;
 
+export interface RegistryIcon {
+  url: string;
+  hash: string;
+}
+
 interface RegistryVersionEntry {
   downloadUrl: string;
   hash?: string;
   id?: string;
   adapter?: string;
+  icon?: RegistryIcon;
   engines?: {
     cyrnel?: string;
   };
@@ -24,6 +30,7 @@ export interface ModuleRegistryResponse {
   version: string;
   downloadUrl: string;
   hash?: string;
+  icon?: RegistryIcon;
   engines?: {
     cyrnel?: string;
   };
@@ -35,6 +42,7 @@ export interface ServiceRegistryResponse {
   hash?: string;
   id?: string;
   adapter?: string;
+  icon?: RegistryIcon;
 }
 
 async function fetchRegistryJson(
@@ -132,6 +140,31 @@ function validateVersionEntry(
     );
   }
 
+  const icon = entry.icon;
+  if (
+    icon !== undefined &&
+    (typeof icon !== "object" || icon === null || Array.isArray(icon))
+  ) {
+    throw new HttpError(
+      400,
+      `${label} registry version '${version}' 'icon' must be an object if provided.`,
+    );
+  }
+  const iconUrl = normalizeOptionalString(
+    (icon as Record<string, unknown> | undefined)?.url,
+    `${label} registry version '${version}' 'icon.url' must be a non-empty string if provided.`,
+  );
+  const iconHash = normalizeOptionalString(
+    (icon as Record<string, unknown> | undefined)?.hash,
+    `${label} registry version '${version}' 'icon.hash' must be a non-empty string if provided.`,
+  );
+  if (icon !== undefined && (iconUrl === undefined || iconHash === undefined)) {
+    throw new HttpError(
+      400,
+      `${label} registry version '${version}' 'icon' must include non-empty 'url' and 'hash' strings.`,
+    );
+  }
+
   return {
     downloadUrl: entry.downloadUrl.trim(),
     hash: normalizeOptionalString(
@@ -146,6 +179,10 @@ function validateVersionEntry(
       entry.adapter,
       `${label} registry version '${version}' 'adapter' must be a non-empty string if provided.`,
     ),
+    icon:
+      iconUrl === undefined || iconHash === undefined
+        ? undefined
+        : { url: iconUrl, hash: iconHash },
     engines: cyrnel === undefined ? undefined : { cyrnel: cyrnel.trim() },
   };
 }
@@ -242,6 +279,7 @@ export async function resolveModuleRegistry(
     version,
     downloadUrl: entry.downloadUrl,
     hash: entry.hash,
+    icon: entry.icon,
     engines: entry.engines,
   };
 }
@@ -263,5 +301,6 @@ export async function resolveServiceRegistry(
     hash: entry.hash,
     id: entry.id,
     adapter: entry.adapter,
+    icon: entry.icon,
   };
 }
