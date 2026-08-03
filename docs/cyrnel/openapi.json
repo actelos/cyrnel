@@ -2774,6 +2774,137 @@
         }
       }
     },
+    "/services/{serviceId}/icon": {
+      "get": {
+        "tags": [
+          "Services"
+        ],
+        "summary": "Get a service icon",
+        "description": "Returns the stored service icon bytes. The response is cached for a day and carries a strong ETag derived from the icon hash, so clients can send If-None-Match to get 304 Not Modified responses. Only registry-installed services with a declared png/webp icon have one.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Service identifier matching the installed manifest id."
+            },
+            "required": true,
+            "description": "Service identifier matching the installed manifest id.",
+            "name": "serviceId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Service icon image bytes.",
+            "headers": {
+              "ETag": {
+                "description": "Strong validator derived from the icon hash.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cache-Control": {
+                "description": "Public cache for one day.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "image/png": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The serviceId path parameter was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A bearer token was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The service has no stored icon.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded. The request was throttled. Check Retry-After header.",
+            "headers": {
+              "X-RateLimit-Limit": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Maximum requests allowed in the current window."
+              },
+              "X-RateLimit-Remaining": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Requests remaining in the current window."
+              },
+              "X-RateLimit-Reset": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Unix timestamp when the window resets."
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The service icon could not be loaded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/services/install": {
       "post": {
         "tags": [
@@ -5455,6 +5586,137 @@
           },
           "502": {
             "description": "The archive file could not be downloaded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/modules/{moduleId}/icon": {
+      "get": {
+        "tags": [
+          "Modules"
+        ],
+        "summary": "Get a module icon",
+        "description": "Returns the stored module icon bytes. The response is cached for a day and carries a strong ETag derived from the icon hash, so clients can send If-None-Match to get 304 Not Modified responses. Only registry-installed modules with a declared png/webp icon have one.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Module identifier."
+            },
+            "required": true,
+            "description": "Module identifier.",
+            "name": "moduleId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Module icon image bytes.",
+            "headers": {
+              "ETag": {
+                "description": "Strong validator derived from the icon hash.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cache-Control": {
+                "description": "Public cache for one day.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "image/png": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The moduleId path parameter was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A bearer token was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The module has no stored icon.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded. The request was throttled. Check Retry-After header.",
+            "headers": {
+              "X-RateLimit-Limit": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Maximum requests allowed in the current window."
+              },
+              "X-RateLimit-Remaining": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Requests remaining in the current window."
+              },
+              "X-RateLimit-Reset": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Unix timestamp when the window resets."
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The module icon could not be loaded.",
             "content": {
               "application/json": {
                 "schema": {
