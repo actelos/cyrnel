@@ -53,7 +53,7 @@ const moduleDetailSchema = z.object({
 });
 
 const moduleConfigSchema = z.object({
-  config: z.record(z.string(), z.unknown()),
+  config: z.record(z.string(), z.unknown()).nullable(),
   outdated: z.array(z.string()).default([]),
 });
 

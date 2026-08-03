@@ -149,11 +149,12 @@ function removalPlan(
   path: string,
   schema: JSONSchema,
 ): { pointer: string; confirm: boolean } {
-  if (path.endsWith("/items")) {
-    const parent = path.slice(0, -"/items".length);
-    const subschema = subschemaAtPointer(schema, parent);
+  const arrayItem = /\/items\/\d+/.exec(path);
+  if (arrayItem && arrayItem.index > 0) {
+    const arrayPointer = path.slice(0, arrayItem.index);
+    const subschema = subschemaAtPointer(schema, arrayPointer);
     if (subschema && isArrayType(subschema.type)) {
-      return { pointer: parent, confirm: true };
+      return { pointer: arrayPointer, confirm: true };
     }
   }
   return { pointer: path, confirm: false };

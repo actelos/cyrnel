@@ -1249,6 +1249,25 @@ describe("ServicesService", () => {
       });
     });
 
+    it("patchServiceConfig on a null-only schema keeps the updated non-empty config and reports no outdated paths", async () => {
+      await seedStaleConfig("alpha", { type: "null" });
+      const svc = new ServicesService(makeController());
+
+      const view = await svc.patchServiceConfig({
+        id: "alpha",
+        patch: [{ op: "replace", path: "/host", value: "new.example.com" }],
+      });
+
+      expect(view).toEqual({
+        config: { host: "new.example.com", stalePort: 9999 },
+        outdated: [],
+      });
+      expect(await svc.getServiceConfig("alpha")).toEqual({
+        host: "new.example.com",
+        stalePort: 9999,
+      });
+    });
+
     it("patchServiceConfig rejects adding new schema-disallowed keys", async () => {
       await seedStaleConfig("alpha");
       const svc = new ServicesService(makeController());

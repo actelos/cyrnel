@@ -27,6 +27,15 @@ function isPermissiveLevel(additionalProperties: unknown): boolean {
   );
 }
 
+function escapePointerSegment(segment: string): string {
+  return segment.replace(/~/g, "~0").replace(/\//g, "~1");
+}
+
+function childPath(base: string, key: string): string {
+  const escaped = escapePointerSegment(key);
+  return base ? `${base}/${escaped}` : `/${escaped}`;
+}
+
 function walk(
   schema: unknown,
   value: unknown,
@@ -37,19 +46,21 @@ function walk(
     const items = isSchemaObject(schema) ? schema.items : undefined;
     if (isSchemaObject(items) || Array.isArray(items)) {
       const projected: unknown[] = [];
-      let foundOutdated = false;
+      const outdated: string[] = [];
       for (let i = 0; i < value.length; i++) {
         const itemSchema = Array.isArray(items)
           ? items[Math.min(i, items.length - 1)]
           : items;
-        const item = walk(itemSchema, value[i], keepPermitted, "");
+        const item = walk(
+          itemSchema,
+          value[i],
+          keepPermitted,
+          `${path}/items/${i}`,
+        );
         projected.push(item.value);
-        if (item.outdated.length > 0) foundOutdated = true;
+        outdated.push(...item.outdated);
       }
-      return {
-        value: projected,
-        outdated: foundOutdated ? [`${path}/items`] : [],
-      };
+      return { value: projected, outdated };
     }
     return { value, outdated: [] };
   }
@@ -68,14 +79,13 @@ function walk(
     const out: Record<string, unknown> = {};
     const outdated: string[] = [];
     for (const [key, child] of Object.entries(value)) {
-      const childPath = path ? `${path}/${key}` : `/${key}`;
       const sub = properties?.[key];
       if (sub !== undefined) {
-        const result = walk(sub, child, keepPermitted, childPath);
+        const result = walk(sub, child, keepPermitted, childPath(path, key));
         out[key] = result.value;
         outdated.push(...result.outdated);
       } else {
-        outdated.push(childPath);
+        outdated.push(childPath(path, key));
       }
     }
     return { value: out, outdated };
@@ -88,9 +98,8 @@ function walk(
       ? additionalProperties
       : undefined;
     for (const [key, child] of Object.entries(value)) {
-      const childPath = path ? `${path}/${key}` : `/${key}`;
       const sub = properties?.[key] ?? additionalSchema;
-      const result = walk(sub, child, keepPermitted, childPath);
+      const result = walk(sub, child, keepPermitted, childPath(path, key));
       out[key] = result.value;
       outdated.push(...result.outdated);
     }
@@ -100,10 +109,9 @@ function walk(
   const out: Record<string, unknown> = {};
   const outdated: string[] = [];
   for (const [key, child] of Object.entries(value)) {
-    const childPath = path ? `${path}/${key}` : `/${key}`;
     const sub = properties?.[key];
     if (sub !== undefined) {
-      const result = walk(sub, child, keepPermitted, childPath);
+      const result = walk(sub, child, keepPermitted, childPath(path, key));
       out[key] = result.value;
       outdated.push(...result.outdated);
     }
@@ -192,7 +200,8 @@ export function pathExists(doc: unknown, path: string): boolean {
   if (path === "") return true;
   if (!path.startsWith("/")) return false;
   let current = doc;
-  for (const segment of path.slice(1).split("/")) {
+  for (const rawSegment of path.slice(1).split("/")) {
+    const segment = rawSegment.replace(/~1/g, "/").replace(/~0/g, "~");
     if (Array.isArray(current)) {
       if (!/^\d+$/.test(segment)) return false;
       const index = Number(segment);

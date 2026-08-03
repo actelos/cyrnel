@@ -238,9 +238,9 @@ re-hydrates it on the adapter so the change takes effect immediately.
 the current schema (for example a key renamed in a newer service version).
 These values are excluded from the `config` payload and from adapter
 hydration, but they remain stored and are only removed through an explicit
-`remove` operation. Array item pointers are collapsed: an array containing
-outdated items is reported once as `/path/items` and can be removed as a
-whole via `/path`.
+`remove` operation. Pointers into array items include the item index and
+key (for example `/list/items/0/extra`); removing the whole array via its
+pointer (for example `/list`) also clears any outdated items it contains.
 
 ## Secrets
 
