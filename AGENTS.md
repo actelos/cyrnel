@@ -51,6 +51,33 @@ pnpm check:fix && pnpm test && pnpm typecheck && pnpm build
 
 Iterating during dev? Use scoped forms (`pnpm -C <pkg> ...`), run full gauntlet before commit.
 
+## Branch workflow
+
+`develop` is the integration branch (default on GitHub) and the only branch kept locally most of the time. `main` is production and receives only `develop` → `main` release PRs.
+
+**Implementing a change (feature / fix / chore / docs):**
+
+1. Start from latest develop: `git switch develop && git pull`
+2. Create a short-lived branch: `git switch -c feat/<name>` / `fix/<name>` / `chore/<name>` / `docs/<name>`
+3. Implement, then run the validation gauntlet above
+4. Commit with conventional style matching history — `feat(scope): …`, `fix(scope): …`, `chore(deps): …`, `docs: …`
+5. Push: `git push -u token-origin <branch>` (use `token-origin` — `origin` is SSH and may not have a working key)
+6. Open a PR → `develop` (the default target). CI gates: `checks` (biome / typecheck / test / build) + Docker image builds
+7. Merge to `develop` (squash, matching history). No review approval required on `develop`
+8. Delete the branch locally and on the remote
+
+**Promoting to main (release):**
+
+1. Open a PR `develop` → `main` (e.g. `release: vX.Y.Z`)
+2. Gates: all checks + Docker builds, **1 required approval**, branch up-to-date
+3. Merge → CI (`publish.yml`) publishes the SDK to npm and pushes Docker images
+4. Merge `main` back into `develop` immediately after, so the next release PR is clean
+
+**Branch protection (GitHub):**
+
+- `main` — PR required + 1 approval, required checks: `checks`, `build (api)`, `build (web)`, `build (mcp)`; strict; force-push and deletion blocked; enforced for admins
+- `develop` — PR required (no approval), required check: `checks`; strict; force-push and deletion blocked
+
 ## Quirks & gotchas
 
 - **Express 5** — API uses Express v5; verify `@types/express` version if adding type augmentations
@@ -60,7 +87,6 @@ Iterating during dev? Use scoped forms (`pnpm -C <pkg> ...`), run full gauntlet 
 - **`inject-workspace-packages: true`** — workspace deps are symlinked, SDK changes propagate instantly
 - **`.npmrc`**: `auto-install-peers=false`
 - **Environment** — copy `apps/api/.example.env` → `apps/api/.env`. `CYRNEL_SECRETS_KEY` is AES-256-GCM, 32 bytes base64: `openssl rand -base64 32`. Unset `CYRNEL_API_KEY` = unauthenticated access.
-- **PR target** is `develop` branch (not `main`)
 - **Migrations don't auto-run** — run `pnpm -C apps/api db:migrate` explicitly before `pnpm -C apps/api dev` if schema changed
 - **`@cyrnel/sdk` has no tests** (no vitest dep, no test script)
 
@@ -86,7 +112,7 @@ pnpm changeset          # create .changeset/*.md file
 # Don't hand-edit CHANGELOG.md
 ```
 
-CI (`publish.yml`) on push to `main`: publishes SDK to npm + builds/pushes Docker images for `api`, `web`, `mcp` to ghcr.io.
+CI (`publish.yml`) on merge to `main` (via the `develop` → `main` PR): publishes SDK to npm + builds/pushes Docker images for `api`, `web`, `mcp` to ghcr.io.
 
 ## Package.json editing rules
 
