@@ -191,7 +191,7 @@ describe("schema.util", () => {
       ).toEqual(["/extra/bad"]);
     });
 
-    it("collapses array item paths to a single /items path", () => {
+    it("reports outdated keys inside array items at per-item paths", () => {
       const schema = {
         type: "object",
         properties: {
@@ -210,7 +210,7 @@ describe("schema.util", () => {
         collectOutdatedPaths(schema, {
           list: [{ a: "1", bad: 2 }, { bad: 3 }],
         }),
-      ).toEqual(["/list/items"]);
+      ).toEqual(["/list/items/0/bad", "/list/items/1/bad"]);
     });
 
     it("does not report clean arrays", () => {
@@ -260,6 +260,57 @@ describe("schema.util", () => {
 
     it("returns an empty array when nothing new was added", () => {
       expect(newOutdatedPaths(["/a"], ["/a"])).toEqual([]);
+    });
+
+    it("distinguishes new disallowed keys inside array items from pre-existing ones", () => {
+      const schema = {
+        type: "object",
+        properties: {
+          list: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: { a: { type: "string" } },
+              additionalProperties: false,
+            },
+          },
+        },
+        additionalProperties: false,
+      };
+      const before = collectOutdatedPaths(schema, {
+        list: [{ a: "1", bad: 2 }],
+      });
+      const after = collectOutdatedPaths(schema, {
+        list: [{ a: "1", bad: 2, worse: 3 }],
+      });
+      expect(before).toEqual(["/list/items/0/bad"]);
+      expect(newOutdatedPaths(before, after)).toEqual(["/list/items/0/worse"]);
+    });
+  });
+
+  describe("RFC 6901 pointer escaping", () => {
+    it("escapes ~ and / in outdated paths", () => {
+      const schema = {
+        type: "object",
+        properties: { ok: { type: "string" } },
+        additionalProperties: false,
+      };
+      expect(
+        collectOutdatedPaths(schema, {
+          "a/b": { "c~d": 1 },
+          "e~/f": 2,
+          ok: "x",
+        }),
+      ).toEqual(["/a~1b", "/e~0~1f"]);
+    });
+
+    it("pathExists resolves escaped pointer segments", () => {
+      const doc = { "a/b": { "c~d": 1 }, list: ["x", "y"] };
+      expect(pathExists(doc, "/a~1b/c~0d")).toBe(true);
+      expect(pathExists(doc, "/a~1b/missing")).toBe(false);
+      expect(pathExists(doc, "/list/1")).toBe(true);
+      expect(pathExists(doc, "/list/2")).toBe(false);
+      expect(pathExists(doc, "/list/x")).toBe(false);
     });
   });
 
