@@ -140,6 +140,14 @@ const ProcessSchema = registry.register(
         .describe(
           "Stable process identifier assigned at creation. Persists across restarts.",
         ),
+      pid: z
+        .number()
+        .int()
+        .positive()
+        .nullable()
+        .describe(
+          "Ephemeral in-memory process identifier, or null when the process is not in active memory.",
+        ),
       ref: z
         .string()
         .min(1)
