@@ -54,6 +54,7 @@ const moduleDetailSchema = z.object({
 
 const moduleConfigSchema = z.object({
   config: z.record(z.string(), z.unknown()),
+  outdated: z.array(z.string()).default([]),
 });
 
 const moduleConfigSchemaSchema = z.object({
@@ -66,6 +67,7 @@ const moduleSecretsSchemaSchema = z.object({
 
 const secretsPresenceSchema = z.object({
   present: z.array(z.string()),
+  outdated: z.array(z.string()).default([]),
 });
 
 function buildFormSkeleton(
@@ -602,6 +604,7 @@ export default function ModuleDetailPage() {
               (moduleConfig?.config ?? {}) as Record<string, unknown>
             }
             patchUrl={buildUrl(`/modules/${moduleDetail.id}/config`)}
+            outdatedPaths={moduleConfig?.outdated}
             onSaved={handleRefetchAll}
           />
           <JsonSchemaForm
@@ -610,6 +613,7 @@ export default function ModuleDetailPage() {
             currentValues={currentSecretsValues}
             presentSet={presentSet}
             patchUrl={buildUrl(`/modules/${moduleDetail.id}/secrets`)}
+            outdatedPaths={moduleSecretsPresence?.outdated}
             onSaved={handleRefetchAll}
           />
         </div>

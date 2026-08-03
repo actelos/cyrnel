@@ -26,6 +26,7 @@ const moduleService = {
   setEnabled: vi.fn(),
   reload: vi.fn(),
   getConfig: vi.fn(),
+  getConfigView: vi.fn(),
   getConfigSchema: vi.fn(),
   getSecretsPresence: vi.fn(),
   getSecretsSchema: vi.fn(),
@@ -365,17 +366,23 @@ describe("module.controller", () => {
   });
 
   describe("getModuleConfiguration", () => {
-    it("wraps the config under { config }", async () => {
+    it("returns the config view with outdated paths", async () => {
       const res = makeRes();
-      moduleService.getConfig.mockResolvedValue({ foo: "bar" });
+      moduleService.getConfigView.mockResolvedValue({
+        config: { foo: "bar" },
+        outdated: [],
+      });
 
       await getModuleConfiguration(
         makeReq({ params: { moduleId: "m1" } }),
         cast(res),
       );
 
-      expect(moduleService.getConfig).toHaveBeenCalledWith("m1");
-      expect(res.json).toHaveBeenCalledWith({ config: { foo: "bar" } });
+      expect(moduleService.getConfigView).toHaveBeenCalledWith("m1");
+      expect(res.json).toHaveBeenCalledWith({
+        config: { foo: "bar" },
+        outdated: [],
+      });
     });
 
     it("rejects an empty moduleId", async () => {
@@ -454,11 +461,13 @@ describe("module.controller", () => {
   });
 
   describe("patchModuleConfiguration", () => {
-    it("applies a JSON Patch and returns the resulting config", async () => {
+    it("applies a JSON Patch and returns the resulting config view", async () => {
       const res = makeRes();
       const patch = [{ op: "replace", path: "/foo", value: "bar" }] as const;
-      moduleService.patchConfig.mockResolvedValue(undefined);
-      moduleService.getConfig.mockResolvedValue({ foo: "bar" });
+      moduleService.patchConfig.mockResolvedValue({
+        config: { foo: "bar" },
+        outdated: [],
+      });
 
       await patchModuleConfiguration(
         makeReq({ params: { moduleId: "m1" }, body: patch }),
@@ -469,15 +478,19 @@ describe("module.controller", () => {
         id: "m1",
         patch,
       });
-      expect(moduleService.getConfig).toHaveBeenCalledWith("m1");
-      expect(res.json).toHaveBeenCalledWith({ config: { foo: "bar" } });
+      expect(res.json).toHaveBeenCalledWith({
+        config: { foo: "bar" },
+        outdated: [],
+      });
     });
 
     it("accepts a root JSON Pointer path", async () => {
       const res = makeRes();
       const patch = [{ op: "replace", path: "", value: { foo: "bar" } }];
-      moduleService.patchConfig.mockResolvedValue(undefined);
-      moduleService.getConfig.mockResolvedValue({ foo: "bar" });
+      moduleService.patchConfig.mockResolvedValue({
+        config: { foo: "bar" },
+        outdated: [],
+      });
 
       await patchModuleConfiguration(
         makeReq({ params: { moduleId: "m1" }, body: patch }),

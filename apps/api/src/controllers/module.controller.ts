@@ -247,8 +247,8 @@ export async function getModuleConfiguration(
 ): Promise<void> {
   const moduleService = getModuleService(req);
   const moduleId = parseOrHttpError(moduleIdSchema, req.params.moduleId);
-  const config = await moduleService.getConfig(moduleId);
-  res.status(200).json({ config });
+  const view = await moduleService.getConfigView(moduleId);
+  res.status(200).json(view);
 }
 
 export async function getModuleConfigurationSchema(
@@ -294,9 +294,8 @@ export async function patchModuleConfiguration(
     "Request body must be a JSON Patch array.",
   );
 
-  await moduleService.patchConfig({ id: moduleId, patch });
-  const config = await moduleService.getConfig(moduleId);
-  res.status(200).json({ config });
+  const view = await moduleService.patchConfig({ id: moduleId, patch });
+  res.status(200).json(view);
 }
 
 export async function patchModuleSecrets(

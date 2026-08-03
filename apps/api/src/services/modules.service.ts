@@ -43,8 +43,10 @@ import {
   type GenerateDefinitionInput,
   type GetModuleManifestResult,
   type ListModuleManifestResult,
+  type ModuleConfigView,
   type ModuleManifestRecord,
   type ModuleManifestSchema,
+  type ModuleSecretsPresence,
   type ModuleType,
   moduleManifestSchema,
   type PatchModuleConfigInput,
@@ -54,6 +56,14 @@ import {
 import { downloadBinary } from "@/utils/download.util";
 import { computeBinaryHash } from "@/utils/hash.util";
 import {
+  collectOutdatedPaths,
+  filterPayloadToSchema,
+  isNullOnlySchema,
+  mergeStaleKeys,
+  newOutdatedPaths,
+  pathExists,
+} from "@/utils/schema.util";
+import {
   collectPresentPaths,
   decryptAndMaybeReEncrypt,
   encryptSecrets,
@@ -61,7 +71,6 @@ import {
 import {
   applyJsonSchemaDefaults,
   assertPlainJsonSchema,
-  validateJsonSchema,
 } from "@/utils/validation.util";
 
 const MODULE_DOWNLOAD_MAX_BYTES = 10 * 1024 * 1024;
@@ -406,21 +415,48 @@ export class ModuleService {
     return this.requireRegistered(id).secretsSchema;
   }
 
-  async getSecretsPresence(id: string): Promise<{ present: string[] }> {
-    const payload = await this.loadSecrets(id);
-    return { present: collectPresentPaths(payload) };
+  async getConfigView(id: string): Promise<ModuleConfigView> {
+    const manifest = this.requireRegistered(id);
+    const payload = await this.getConfig(id);
+    if (isNullOnlySchema(manifest.configSchema)) {
+      return { config: payload, outdated: [] };
+    }
+    return {
+      config: filterPayloadToSchema(manifest.configSchema, payload),
+      outdated: collectOutdatedPaths(manifest.configSchema, payload),
+    };
   }
 
-  async patchConfig(input: PatchModuleConfigInput): Promise<void> {
+  async getSecretsPresence(id: string): Promise<ModuleSecretsPresence> {
+    const manifest = this.requireRegistered(id);
+    const payload = await this.loadSecrets(id);
+    if (isNullOnlySchema(manifest.secretsSchema)) {
+      return { present: collectPresentPaths(payload), outdated: [] };
+    }
+    return {
+      present: collectPresentPaths(
+        filterPayloadToSchema(manifest.secretsSchema, payload, {
+          keepPermitted: true,
+        }),
+      ),
+      outdated: collectOutdatedPaths(manifest.secretsSchema, payload),
+    };
+  }
+
+  async patchConfig(input: PatchModuleConfigInput): Promise<ModuleConfigView> {
     const manifest = this.requireRegistered(input.id);
     const current = await this.getConfig(input.id);
     const nullOnly = isNullOnlySchema(manifest.configSchema);
+
+    const patch = input.patch.filter(
+      (op) => !(op.op === "remove" && !pathExists(current, op.path)),
+    );
 
     let updated: JsonObject | null;
     try {
       const result = jsonpatch.applyPatch(
         current,
-        input.patch,
+        patch,
         true,
         false,
       ).newDocument;
@@ -456,15 +492,23 @@ export class ModuleService {
           "Configuration payload must be a JSON object.",
         );
       }
-      validateJsonSchema(
-        manifest.configSchema,
-        updated,
-        `Invalid configuration for module '${input.id}'.`,
+      const added = newOutdatedPaths(
+        collectOutdatedPaths(manifest.configSchema, current),
+        collectOutdatedPaths(manifest.configSchema, updated),
       );
-      payload = applyJsonSchemaDefaults(
-        manifest.configSchema,
+      if (added.length > 0) {
+        throw new HttpError(
+          400,
+          `Invalid configuration for module '${input.id}': schema-disallowed keys ${added.join(", ")} cannot be added.`,
+        );
+      }
+      payload = mergeStaleKeys(
+        applyJsonSchemaDefaults(
+          manifest.configSchema,
+          filterPayloadToSchema(manifest.configSchema, updated),
+          `Invalid configuration for module '${input.id}'.`,
+        ),
         updated,
-        `Invalid configuration for module '${input.id}'.`,
       );
     }
 
@@ -489,17 +533,28 @@ export class ModuleService {
       });
 
     await this.reloadIfActive(input.id);
+
+    return {
+      config: nullOnly
+        ? payload
+        : filterPayloadToSchema(manifest.configSchema, payload ?? {}),
+      outdated: collectOutdatedPaths(manifest.configSchema, payload ?? {}),
+    };
   }
 
   async patchSecrets(input: PatchModuleSecretsInput): Promise<void> {
     const manifest = this.requireRegistered(input.id);
     const current = await this.loadSecrets(input.id);
 
+    const patch = input.patch.filter(
+      (op) => !(op.op === "remove" && !pathExists(current, op.path)),
+    );
+
     let updated: Record<string, unknown>;
     try {
       const result = jsonpatch.applyPatch(
         current,
-        input.patch,
+        patch,
         true,
         false,
       ).newDocument;
@@ -517,19 +572,27 @@ export class ModuleService {
 
     const nullOnly = isNullOnlySchema(manifest.secretsSchema);
     if (!nullOnly) {
-      validateJsonSchema(
-        manifest.secretsSchema,
-        updated,
-        `Invalid secrets for module '${input.id}'.`,
+      const added = newOutdatedPaths(
+        collectOutdatedPaths(manifest.secretsSchema, current),
+        collectOutdatedPaths(manifest.secretsSchema, updated),
       );
+      if (added.length > 0) {
+        throw new HttpError(
+          400,
+          `Invalid secrets for module '${input.id}': schema-disallowed keys ${added.join(", ")} cannot be added.`,
+        );
+      }
     }
 
     const payload = nullOnly
       ? updated
-      : applyJsonSchemaDefaults(
-          manifest.secretsSchema,
+      : mergeStaleKeys(
+          applyJsonSchemaDefaults(
+            manifest.secretsSchema,
+            filterPayloadToSchema(manifest.secretsSchema, updated),
+            `Invalid secrets for module '${input.id}'.`,
+          ),
           updated,
-          `Invalid secrets for module '${input.id}'.`,
         );
 
     const encrypted = encryptSecrets(payload);
@@ -1614,7 +1677,12 @@ export class ModuleService {
       ? config
       : applyJsonSchemaDefaults(
           manifest.configSchema,
-          config,
+          // Conformant projection: validates identically to the
+          // declared-only projection (permitted keys are unconstrained)
+          // while delivering schema-permitted keys to the module.
+          filterPayloadToSchema(manifest.configSchema, config, {
+            keepPermitted: true,
+          }),
           `Invalid configuration for module '${id}'.`,
         );
 
@@ -1622,7 +1690,9 @@ export class ModuleService {
       ? secrets
       : applyJsonSchemaDefaults(
           manifest.secretsSchema,
-          secrets,
+          filterPayloadToSchema(manifest.secretsSchema, secrets, {
+            keepPermitted: true,
+          }),
           `Invalid secrets for module '${id}'.`,
         );
 
@@ -2010,11 +2080,4 @@ export class ModuleService {
       secretsSchema: manifest?.secretsSchema ?? EMPTY_OBJECT_SCHEMA,
     };
   }
-}
-
-function isNullOnlySchema(schema: Record<string, unknown>): boolean {
-  const t = schema.type;
-  return (
-    t === "null" || (Array.isArray(t) && t.length === 1 && t[0] === "null")
-  );
 }

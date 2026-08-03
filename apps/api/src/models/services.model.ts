@@ -99,3 +99,13 @@ export interface PatchInput {
   id: string;
   patch: Operation[];
 }
+
+export interface ServiceConfigView {
+  config: Record<string, unknown>;
+  outdated: string[];
+}
+
+export interface SecretsPresence {
+  present: string[];
+  outdated: string[];
+}

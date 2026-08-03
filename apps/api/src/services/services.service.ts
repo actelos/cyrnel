@@ -31,20 +31,27 @@ import type {
   ListToolsResult,
   PatchInput,
   RegistryInstallServiceInput,
+  SecretsPresence,
+  ServiceConfigView,
   SetServiceEnabledInput,
   SetToolEnablesInput,
 } from "@/models/services.model";
 import { downloadText } from "@/utils/download.util";
 import { computeContentHash } from "@/utils/hash.util";
 import {
+  collectOutdatedPaths,
+  filterPayloadToSchema,
+  isNullOnlySchema,
+  mergeStaleKeys,
+  newOutdatedPaths,
+  pathExists,
+} from "@/utils/schema.util";
+import {
   collectPresentPaths,
   decryptAndMaybeReEncrypt,
   encryptSecrets,
 } from "@/utils/secrets.util";
-import {
-  applyJsonSchemaDefaults,
-  validateJsonSchema,
-} from "@/utils/validation.util";
+import { applyJsonSchemaDefaults } from "@/utils/validation.util";
 
 const DEFINITION_DOWNLOAD_MAX_BYTES = 30 * 1024 * 1024;
 const IDENTIFIER_SCHEMA = z.string().regex(/^[A-Za-z_$][A-Za-z0-9_$]*$/);
@@ -760,7 +767,7 @@ export class ServicesService {
       if (!isNullOnlySchema(schema)) {
         applyJsonSchemaDefaults(
           schema,
-          config,
+          filterPayloadToSchema(schema, config),
           `Invalid configuration for service '${input.id}'.`,
         );
       }
@@ -772,7 +779,7 @@ export class ServicesService {
       if (!isNullOnlySchema(secretsSchema)) {
         applyJsonSchemaDefaults(
           secretsSchema,
-          secrets,
+          filterPayloadToSchema(secretsSchema, secrets),
           `Invalid secrets for service '${input.id}'.`,
         );
       }
@@ -865,9 +872,34 @@ export class ServicesService {
       : {};
   }
 
-  async getServiceSecretsPresence(id: string): Promise<{ present: string[] }> {
-    const payload = await this.loadServiceSecrets(id);
-    return { present: collectPresentPaths(payload) };
+  async getServiceConfigView(id: string): Promise<ServiceConfigView> {
+    const [schema, config] = await Promise.all([
+      this.getServiceConfigSchema(id),
+      this.getServiceConfig(id),
+    ]);
+    if (isNullOnlySchema(schema)) {
+      return { config, outdated: [] };
+    }
+    return {
+      config: filterPayloadToSchema(schema, config),
+      outdated: collectOutdatedPaths(schema, config),
+    };
+  }
+
+  async getServiceSecretsPresence(id: string): Promise<SecretsPresence> {
+    const [schema, payload] = await Promise.all([
+      this.getServiceSecretsSchema(id),
+      this.loadServiceSecrets(id),
+    ]);
+    if (isNullOnlySchema(schema)) {
+      return { present: collectPresentPaths(payload), outdated: [] };
+    }
+    return {
+      present: collectPresentPaths(
+        filterPayloadToSchema(schema, payload, { keepPermitted: true }),
+      ),
+      outdated: collectOutdatedPaths(schema, payload),
+    };
   }
 
   async getServiceConfigSchema(id: string): Promise<JSONSchema> {
@@ -884,17 +916,21 @@ export class ServicesService {
     return row.configSchema;
   }
 
-  async patchServiceConfig(input: PatchInput): Promise<void> {
+  async patchServiceConfig(input: PatchInput): Promise<ServiceConfigView> {
     const [current, schema] = await Promise.all([
       this.getServiceConfig(input.id),
       this.getServiceConfigSchema(input.id),
     ]);
 
+    const patch = input.patch.filter(
+      (op) => !(op.op === "remove" && !pathExists(current, op.path)),
+    );
+
     let updated: Record<string, unknown>;
     try {
       const result = jsonpatch.applyPatch(
         current,
-        input.patch,
+        patch,
         true,
         false,
       ).newDocument;
@@ -915,19 +951,27 @@ export class ServicesService {
 
     const nullOnly = isNullOnlySchema(schema);
     if (!nullOnly) {
-      validateJsonSchema(
-        schema,
-        updated,
-        `Invalid configuration for service '${input.id}'.`,
+      const added = newOutdatedPaths(
+        collectOutdatedPaths(schema, current),
+        collectOutdatedPaths(schema, updated),
       );
+      if (added.length > 0) {
+        throw new HttpError(
+          400,
+          `Invalid configuration for service '${input.id}': schema-disallowed keys ${added.join(", ")} cannot be added.`,
+        );
+      }
     }
 
     const payload = nullOnly
       ? updated
-      : applyJsonSchemaDefaults(
-          schema,
+      : mergeStaleKeys(
+          applyJsonSchemaDefaults(
+            schema,
+            filterPayloadToSchema(schema, updated),
+            `Invalid configuration for service '${input.id}'.`,
+          ),
           updated,
-          `Invalid configuration for service '${input.id}'.`,
         );
 
     await db
@@ -945,6 +989,11 @@ export class ServicesService {
       });
 
     await this.hydrateIfEnabled(input.id);
+
+    return {
+      config: nullOnly ? payload : filterPayloadToSchema(schema, payload),
+      outdated: collectOutdatedPaths(schema, payload),
+    };
   }
 
   async getServiceSecretsSchema(id: string): Promise<JSONSchema> {
@@ -967,12 +1016,16 @@ export class ServicesService {
       this.loadServiceSecrets(input.id),
     ]);
 
+    const patch = input.patch.filter(
+      (op) => !(op.op === "remove" && !pathExists(current, op.path)),
+    );
+
     let updated: Record<string, unknown>;
     try {
       updated = (() => {
         const result = jsonpatch.applyPatch(
           current,
-          input.patch,
+          patch,
           true,
           false,
         ).newDocument;
@@ -989,18 +1042,29 @@ export class ServicesService {
       );
     }
 
-    validateJsonSchema(
-      schema,
-      updated,
-      `Invalid secrets for service '${input.id}'.`,
-    );
+    const nullOnly = isNullOnlySchema(schema);
+    if (!nullOnly) {
+      const added = newOutdatedPaths(
+        collectOutdatedPaths(schema, current),
+        collectOutdatedPaths(schema, updated),
+      );
+      if (added.length > 0) {
+        throw new HttpError(
+          400,
+          `Invalid secrets for service '${input.id}': schema-disallowed keys ${added.join(", ")} cannot be added.`,
+        );
+      }
+    }
 
-    const payload = isNullOnlySchema(schema)
+    const payload = nullOnly
       ? updated
-      : applyJsonSchemaDefaults(
-          schema,
+      : mergeStaleKeys(
+          applyJsonSchemaDefaults(
+            schema,
+            filterPayloadToSchema(schema, updated),
+            `Invalid secrets for service '${input.id}'.`,
+          ),
           updated,
-          `Invalid secrets for service '${input.id}'.`,
         );
 
     const encrypted = encryptSecrets(payload);
@@ -1092,17 +1156,23 @@ export class ServicesService {
 
     if (!serviceRow) throw new HttpError(404, `Service '${id}' not found.`);
 
-    const [toolRows, config, secrets] = await Promise.all([
-      db
-        .select({ id: tools.id, adapterDomain: tools.adapterDomain })
-        .from(tools)
-        .where(eq(tools.serviceId, id))
-        .catch(() => {
-          throw new HttpError(500, `Failed to load tools for service '${id}'.`);
-        }),
-      this.getServiceConfig(id),
-      this.loadServiceSecrets(id),
-    ]);
+    const [toolRows, config, secrets, configSchema, secretsSchema] =
+      await Promise.all([
+        db
+          .select({ id: tools.id, adapterDomain: tools.adapterDomain })
+          .from(tools)
+          .where(eq(tools.serviceId, id))
+          .catch(() => {
+            throw new HttpError(
+              500,
+              `Failed to load tools for service '${id}'.`,
+            );
+          }),
+        this.getServiceConfig(id),
+        this.loadServiceSecrets(id),
+        this.getServiceConfigSchema(id),
+        this.getServiceSecretsSchema(id),
+      ]);
 
     return {
       id,
@@ -1110,8 +1180,27 @@ export class ServicesService {
       tools: Object.fromEntries(
         toolRows.map((t) => [t.id, { adapterDomain: t.adapterDomain }]),
       ),
-      config,
-      secrets,
+      config: isNullOnlySchema(configSchema)
+        ? config
+        : applyJsonSchemaDefaults(
+            configSchema,
+            // Conformant projection: validates identically to the
+            // declared-only projection (permitted keys are unconstrained)
+            // while delivering schema-permitted keys to the adapter.
+            filterPayloadToSchema(configSchema, config, {
+              keepPermitted: true,
+            }),
+            `Invalid configuration for service '${id}'.`,
+          ),
+      secrets: isNullOnlySchema(secretsSchema)
+        ? secrets
+        : applyJsonSchemaDefaults(
+            secretsSchema,
+            filterPayloadToSchema(secretsSchema, secrets, {
+              keepPermitted: true,
+            }),
+            `Invalid secrets for service '${id}'.`,
+          ),
     };
   }
 
@@ -1148,13 +1237,6 @@ export class ServicesService {
   private async downloadDefinition(fileUrl: string): Promise<string> {
     return downloadText(fileUrl, DEFINITION_DOWNLOAD_MAX_BYTES, "definition");
   }
-}
-
-function isNullOnlySchema(schema: Record<string, unknown>): boolean {
-  const t = schema.type;
-  return (
-    t === "null" || (Array.isArray(t) && t.length === 1 && t[0] === "null")
-  );
 }
 
 function isUniqueConstraintError(

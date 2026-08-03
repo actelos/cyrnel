@@ -23,6 +23,7 @@ const servicesService = {
   listServices: vi.fn(),
   getService: vi.fn(),
   getServiceConfig: vi.fn(),
+  getServiceConfigView: vi.fn(),
   getServiceConfigSchema: vi.fn(),
   getServiceSecretsPresence: vi.fn(),
   getServiceSecretsSchema: vi.fn(),
@@ -176,17 +177,23 @@ describe("service.controller", () => {
   });
 
   describe("getServiceConfiguration", () => {
-    it("wraps the config under { config }", async () => {
+    it("returns the config view with outdated paths", async () => {
       const res = makeRes();
-      servicesService.getServiceConfig.mockResolvedValue({ foo: "bar" });
+      servicesService.getServiceConfigView.mockResolvedValue({
+        config: { foo: "bar" },
+        outdated: ["/stale"],
+      });
 
       await getServiceConfiguration(
         makeReq({ params: { serviceId: "svc" } }),
         cast(res),
       );
 
-      expect(servicesService.getServiceConfig).toHaveBeenCalledWith("svc");
-      expect(res.json).toHaveBeenCalledWith({ config: { foo: "bar" } });
+      expect(servicesService.getServiceConfigView).toHaveBeenCalledWith("svc");
+      expect(res.json).toHaveBeenCalledWith({
+        config: { foo: "bar" },
+        outdated: ["/stale"],
+      });
     });
   });
 
@@ -245,11 +252,13 @@ describe("service.controller", () => {
   });
 
   describe("patchServiceConfiguration", () => {
-    it("applies a JSON Patch and returns the resulting config", async () => {
+    it("applies a JSON Patch and returns the resulting config view", async () => {
       const res = makeRes();
       const patch = [{ op: "replace", path: "/foo", value: "bar" }] as const;
-      servicesService.patchServiceConfig.mockResolvedValue(undefined);
-      servicesService.getServiceConfig.mockResolvedValue({ foo: "bar" });
+      servicesService.patchServiceConfig.mockResolvedValue({
+        config: { foo: "bar" },
+        outdated: [],
+      });
 
       await patchServiceConfiguration(
         makeReq({ params: { serviceId: "svc" }, body: patch }),
@@ -260,8 +269,10 @@ describe("service.controller", () => {
         id: "svc",
         patch,
       });
-      expect(servicesService.getServiceConfig).toHaveBeenCalledWith("svc");
-      expect(res.json).toHaveBeenCalledWith({ config: { foo: "bar" } });
+      expect(res.json).toHaveBeenCalledWith({
+        config: { foo: "bar" },
+        outdated: [],
+      });
     });
 
     it.each([
@@ -273,8 +284,10 @@ describe("service.controller", () => {
       [{ op: "test", path: "/x", value: 3 }],
     ])("accepts %j operation", async (operation) => {
       const res = makeRes();
-      servicesService.patchServiceConfig.mockResolvedValue(undefined);
-      servicesService.getServiceConfig.mockResolvedValue({});
+      servicesService.patchServiceConfig.mockResolvedValue({
+        config: {},
+        outdated: [],
+      });
 
       await patchServiceConfiguration(
         makeReq({ params: { serviceId: "svc" }, body: [operation] }),

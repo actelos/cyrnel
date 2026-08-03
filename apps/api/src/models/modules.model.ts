@@ -57,6 +57,16 @@ export interface PatchModuleSecretsInput {
   patch: Operation[];
 }
 
+export interface ModuleConfigView {
+  config: Record<string, unknown> | null;
+  outdated: string[];
+}
+
+export interface ModuleSecretsPresence {
+  present: string[];
+  outdated: string[];
+}
+
 export interface DirectInstallModuleInput {
   url: string;
 }
