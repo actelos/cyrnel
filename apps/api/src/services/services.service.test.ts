@@ -978,7 +978,7 @@ describe("ServicesService", () => {
 
       await expect(
         svc.patchServiceConfig({ id: "alpha", patch: [] }),
-      ).resolves.toBeUndefined();
+      ).resolves.toEqual({ config: {}, outdated: [] });
     });
 
     it("patchServiceConfig rejects a patch that turns the payload into a non-object", async () => {
@@ -1084,12 +1084,12 @@ describe("ServicesService", () => {
       );
     });
 
-    it("getServiceSecretsPresence returns empty array when no secrets are stored", async () => {
+    it("getServiceSecretsPresence returns empty present and outdated arrays when no secrets are stored", async () => {
       await seedService("alpha");
       const svc = new ServicesService(makeController());
 
       const result = await svc.getServiceSecretsPresence("alpha");
-      expect(result).toEqual({ present: [] });
+      expect(result).toEqual({ present: [], outdated: [] });
     });
 
     it("getServiceSecretsPresence returns paths for flat string secrets", async () => {
@@ -1108,6 +1108,7 @@ describe("ServicesService", () => {
 
       const result = await svc.getServiceSecretsPresence("alpha");
       expect(result.present.sort()).toEqual(["/apiKey", "/endpoint"]);
+      expect(result.outdated).toEqual([]);
     });
 
     it("getServiceSecretsPresence returns paths for nested object secrets", async () => {
@@ -1143,6 +1144,184 @@ describe("ServicesService", () => {
 
       const result = await svc.getServiceSecretsPresence("alpha");
       expect(result.present).toEqual(["/apiKeys"]);
+    });
+  });
+
+  describe("schema-outdated stored payloads", () => {
+    const strictConfigSchema: JSONSchema = {
+      type: "object",
+      properties: { host: { type: "string" } },
+      additionalProperties: false,
+    };
+    const strictSecretsSchema: JSONSchema = {
+      type: "object",
+      properties: { token: { type: "string" } },
+      additionalProperties: false,
+    };
+
+    async function seedStaleConfig(
+      id: string,
+      configSchema: JSONSchema = strictConfigSchema,
+    ): Promise<void> {
+      await seedService(id, { configSchema, enabled: false });
+      await db.run(
+        sql`INSERT INTO service_configurations (service_id, payload, updated_at)
+            VALUES (${id}, ${JSON.stringify({
+              host: "example.com",
+              stalePort: 9999,
+            })}, ${Date.now()})`,
+      );
+    }
+
+    async function seedStaleSecrets(id: string): Promise<void> {
+      await seedService(id, { secretsSchema: strictSecretsSchema });
+      const encrypted = encryptSecrets({ token: "abc", oldKey: "x" });
+      await db.run(
+        sql`INSERT INTO service_secrets (service_id, payload, updated_at)
+            VALUES (${id}, ${JSON.stringify(encrypted)}, ${Date.now()})`,
+      );
+    }
+
+    it("getServiceConfigView filters outdated keys and reports them", async () => {
+      await seedStaleConfig("alpha");
+      const svc = new ServicesService(makeController());
+
+      const view = await svc.getServiceConfigView("alpha");
+      expect(view).toEqual({
+        config: { host: "example.com" },
+        outdated: ["/stalePort"],
+      });
+    });
+
+    it("getServiceSecretsPresence reports outdated secrets keys", async () => {
+      await seedStaleSecrets("alpha");
+      const svc = new ServicesService(makeController());
+
+      const result = await svc.getServiceSecretsPresence("alpha");
+      expect(result).toEqual({ present: ["/token"], outdated: ["/oldKey"] });
+    });
+
+    it("setServiceEnabled succeeds with outdated stored keys and hydrates a conformant state", async () => {
+      await seedStaleConfig("alpha");
+      const controller = makeController();
+      const svc = new ServicesService(controller);
+
+      await svc.setServiceEnabled({ id: "alpha", enabled: true });
+
+      const state = controller.hydrateService.mock.calls[0][1] as ServiceState;
+      expect(state.config).toEqual({ host: "example.com" });
+    });
+
+    it("setServiceEnabled keeps permissive keys in the hydrated state", async () => {
+      await seedService("alpha", {
+        enabled: false,
+        configSchema: { type: "object", additionalProperties: true },
+      });
+      await db.run(
+        sql`INSERT INTO service_configurations (service_id, payload, updated_at)
+            VALUES ('alpha', ${JSON.stringify({ anyKey: 1 })}, ${Date.now()})`,
+      );
+      const controller = makeController();
+      const svc = new ServicesService(controller);
+
+      await svc.setServiceEnabled({ id: "alpha", enabled: true });
+
+      const state = controller.hydrateService.mock.calls[0][1] as ServiceState;
+      expect(state.config).toEqual({ anyKey: 1 });
+    });
+
+    it("patchServiceConfig tolerates pre-existing outdated keys and preserves them", async () => {
+      await seedStaleConfig("alpha");
+      const svc = new ServicesService(makeController());
+
+      const view = await svc.patchServiceConfig({
+        id: "alpha",
+        patch: [{ op: "replace", path: "/host", value: "new.example.com" }],
+      });
+
+      expect(view).toEqual({
+        config: { host: "new.example.com" },
+        outdated: ["/stalePort"],
+      });
+      expect(await svc.getServiceConfig("alpha")).toEqual({
+        host: "new.example.com",
+        stalePort: 9999,
+      });
+    });
+
+    it("patchServiceConfig rejects adding new schema-disallowed keys", async () => {
+      await seedStaleConfig("alpha");
+      const svc = new ServicesService(makeController());
+
+      await expect(
+        svc.patchServiceConfig({
+          id: "alpha",
+          patch: [{ op: "add", path: "/freshStale", value: 1 }],
+        }),
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it("patchServiceConfig treats removes of missing paths as no-ops", async () => {
+      await seedStaleConfig("alpha");
+      const svc = new ServicesService(makeController());
+
+      const view = await svc.patchServiceConfig({
+        id: "alpha",
+        patch: [
+          { op: "remove", path: "/host" },
+          { op: "remove", path: "/missing" },
+        ],
+      });
+
+      expect(view).toEqual({ config: {}, outdated: ["/stalePort"] });
+      expect(await svc.getServiceConfig("alpha")).toEqual({
+        stalePort: 9999,
+      });
+    });
+
+    it("patchServiceSecrets tolerates and preserves pre-existing outdated secrets keys", async () => {
+      await seedStaleSecrets("alpha");
+      const svc = new ServicesService(makeController());
+
+      await svc.patchServiceSecrets({
+        id: "alpha",
+        patch: [{ op: "replace", path: "/token", value: "def" }],
+      });
+
+      expect(await svc.getServiceSecretsPresence("alpha")).toEqual({
+        present: ["/token"],
+        outdated: ["/oldKey"],
+      });
+    });
+
+    it("patchServiceSecrets rejects adding new schema-disallowed keys", async () => {
+      await seedStaleSecrets("alpha");
+      const svc = new ServicesService(makeController());
+
+      await expect(
+        svc.patchServiceSecrets({
+          id: "alpha",
+          patch: [{ op: "add", path: "/freshStale", value: 1 }],
+        }),
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it("patchServiceSecrets treats removes of missing paths as no-ops", async () => {
+      await seedStaleSecrets("alpha");
+      const svc = new ServicesService(makeController());
+
+      await svc.patchServiceSecrets({
+        id: "alpha",
+        patch: [
+          { op: "remove", path: "/token" },
+          { op: "remove", path: "/missing" },
+        ],
+      });
+
+      expect(await svc.getServiceSecretsPresence("alpha")).toEqual({
+        present: [],
+        outdated: ["/oldKey"],
+      });
     });
   });
 

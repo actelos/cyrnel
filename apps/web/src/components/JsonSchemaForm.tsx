@@ -1,5 +1,15 @@
 import { Loader2, RotateCcw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -19,6 +29,7 @@ interface JsonSchemaFormProps {
   currentValues: Record<string, unknown>;
   patchUrl: string;
   presentSet?: Set<string>;
+  outdatedPaths?: string[];
   onSaved?: () => void | Promise<void>;
 }
 
@@ -109,6 +120,47 @@ function buildPatch(
     patch.push({ op, path: jsonPointer(key), value });
   }
   return patch;
+}
+
+function subschemaAtPointer(
+  schema: JSONSchema,
+  pointer: string,
+): JSONSchema | undefined {
+  const segments = pointer
+    .split("/")
+    .slice(1)
+    .map((s) => s.replace(/~1/g, "/").replace(/~0/g, "~"));
+  let node: JSONSchema | undefined = schema;
+  for (const segment of segments) {
+    const properties = node?.properties as
+      | Record<string, JSONSchema>
+      | undefined;
+    if (!properties) return undefined;
+    node = properties[segment];
+  }
+  return node;
+}
+
+function isArrayType(type: unknown): boolean {
+  return type === "array" || (Array.isArray(type) && type.includes("array"));
+}
+
+function removalPlan(
+  path: string,
+  schema: JSONSchema,
+): { pointer: string; confirm: boolean } {
+  if (path.endsWith("/items")) {
+    const parent = path.slice(0, -"/items".length);
+    const subschema = subschemaAtPointer(schema, parent);
+    if (subschema && isArrayType(subschema.type)) {
+      return { pointer: parent, confirm: true };
+    }
+  }
+  return { pointer: path, confirm: false };
+}
+
+function isPathCovered(pointer: string, path: string): boolean {
+  return path === pointer || path.startsWith(`${pointer}/`);
 }
 
 function renderField(
@@ -385,11 +437,14 @@ export default function JsonSchemaForm({
   currentValues,
   patchUrl,
   presentSet,
+  outdatedPaths,
   onSaved,
 }: JsonSchemaFormProps) {
   const { addNotification } = useNotification();
   const [values, setValues] = useState<Record<string, unknown>>({});
   const [saving, setSaving] = useState(false);
+  const [pendingRemovals, setPendingRemovals] = useState<string[]>([]);
+  const [confirmTarget, setConfirmTarget] = useState<string | null>(null);
 
   const properties = (schema.properties ?? {}) as Record<string, JSONSchema>;
 
@@ -402,14 +457,33 @@ export default function JsonSchemaForm({
     [currentValues, values],
   );
 
-  const hasChanges = patch.length > 0;
+  const outstanding = useMemo(
+    () =>
+      (outdatedPaths ?? []).filter(
+        (path) => !pendingRemovals.some((p) => isPathCovered(p, path)),
+      ),
+    [outdatedPaths, pendingRemovals],
+  );
+
+  const hasChanges = patch.length > 0 || pendingRemovals.length > 0;
 
   const handleChange = (name: string, value: unknown) => {
     setValues((prev) => ({ ...prev, [name]: value }));
   };
 
+  const handleStageRemoval = (path: string) => {
+    const plan = removalPlan(path, schema);
+    if (plan.confirm) {
+      setConfirmTarget(plan.pointer);
+    } else {
+      setPendingRemovals((prev) =>
+        prev.includes(plan.pointer) ? prev : [...prev, plan.pointer],
+      );
+    }
+  };
+
   const handleSave = async () => {
-    if (patch.length === 0) {
+    if (!hasChanges) {
       addNotification({
         type: "success",
         title: "No changes",
@@ -418,7 +492,10 @@ export default function JsonSchemaForm({
       return;
     }
 
-    const body = presentSet ? expandPatch(patch, presentSet) : patch;
+    const body = [
+      ...(presentSet ? expandPatch(patch, presentSet) : patch),
+      ...pendingRemovals.map((path) => ({ op: "remove", path })),
+    ];
 
     if (body.length === 0) {
       addNotification({
@@ -437,6 +514,7 @@ export default function JsonSchemaForm({
         body: JSON.stringify(body),
       });
 
+      setPendingRemovals([]);
       addNotification({
         type: "success",
         title: "Saved",
@@ -457,6 +535,8 @@ export default function JsonSchemaForm({
 
   const handleReset = () => {
     setValues({ ...currentValues });
+    setPendingRemovals([]);
+    setConfirmTarget(null);
   };
 
   const isEmpty = Object.keys(properties).length === 0;
@@ -466,9 +546,10 @@ export default function JsonSchemaForm({
       <CardHeader className="flex flex-row items-center justify-between gap-2">
         <h3 className="text-sm font-semibold">{title}</h3>
         <div className="flex items-center gap-2">
-          {patch.length > 0 ? (
+          {hasChanges ? (
             <span className="text-xs text-muted-foreground">
-              {patch.length} change{patch.length !== 1 ? "s" : ""}
+              {patch.length + pendingRemovals.length} change
+              {patch.length + pendingRemovals.length !== 1 ? "s" : ""}
             </span>
           ) : null}
           <Button
@@ -500,6 +581,64 @@ export default function JsonSchemaForm({
       <CardContent className="min-h-0 flex-1 overflow-hidden">
         <ScrollArea className="h-full">
           <div className="space-y-4">
+            {outstanding.length > 0 || pendingRemovals.length > 0 ? (
+              <div className="space-y-2 rounded-md border border-dashed p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <h4 className="text-sm font-medium">Outdated keys</h4>
+                  {outstanding.length + pendingRemovals.length > 1 ? (
+                    <Badge variant="outline">
+                      {outstanding.length + pendingRemovals.length}
+                    </Badge>
+                  ) : null}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Stored values that no longer match the schema. Removals are
+                  applied when you save.
+                </p>
+                {outstanding.map((path) => {
+                  const plan = removalPlan(path, schema);
+                  return (
+                    <div key={path} className="flex items-center gap-2">
+                      <span className="flex-1 truncate font-mono text-xs">
+                        {plan.pointer}
+                      </span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 px-2 text-destructive"
+                        onClick={() => handleStageRemoval(path)}
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                  );
+                })}
+                {pendingRemovals.map((pointer) => (
+                  <div key={pointer} className="flex items-center gap-2">
+                    <span className="flex-1 truncate font-mono text-xs text-muted-foreground line-through">
+                      {pointer}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground">
+                      will be removed
+                    </span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 w-8 p-0"
+                      onClick={() =>
+                        setPendingRemovals((prev) =>
+                          prev.filter((p) => p !== pointer),
+                        )
+                      }
+                    >
+                      ×
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
             {isEmpty ? (
               <p className="text-sm text-muted-foreground">
                 No configuration options available.
@@ -521,6 +660,41 @@ export default function JsonSchemaForm({
           </div>
         </ScrollArea>
       </CardContent>
+      <AlertDialog
+        open={confirmTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setConfirmTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove entire value?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The value at{" "}
+              <code className="font-mono text-xs">{confirmTarget}</code>{" "}
+              contains items that are no longer defined by the schema. Removing
+              it deletes the entire value, including any still-valid items.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (confirmTarget) {
+                  setPendingRemovals((prev) =>
+                    prev.includes(confirmTarget)
+                      ? prev
+                      : [...prev, confirmTarget],
+                  );
+                }
+                setConfirmTarget(null);
+              }}
+            >
+              Remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 }

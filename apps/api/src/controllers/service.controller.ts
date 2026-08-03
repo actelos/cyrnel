@@ -139,9 +139,9 @@ export async function getServiceConfiguration(
 ): Promise<void> {
   const servicesService = getServicesService(req);
   const serviceId = parseServiceId(req.params.serviceId);
-  const config = await servicesService.getServiceConfig(serviceId);
+  const view = await servicesService.getServiceConfigView(serviceId);
 
-  res.status(200).json({ config });
+  res.status(200).json(view);
 }
 
 export async function getServiceConfigurationSchema(
@@ -190,10 +190,12 @@ export async function patchServiceConfiguration(
     "Request body must be a JSON Patch array.",
   );
 
-  await servicesService.patchServiceConfig({ id: serviceId, patch });
-  const config = await servicesService.getServiceConfig(serviceId);
+  const view = await servicesService.patchServiceConfig({
+    id: serviceId,
+    patch,
+  });
 
-  res.status(200).json({ config });
+  res.status(200).json(view);
 }
 
 export async function patchServiceSecrets(

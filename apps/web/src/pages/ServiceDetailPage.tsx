@@ -64,6 +64,7 @@ const serviceDetailsSchema = serviceSchema.extend({
 
 const serviceConfigSchema = z.object({
   config: z.record(z.string(), z.unknown()),
+  outdated: z.array(z.string()).default([]),
 });
 
 const serviceConfigSchemaSchema = z.object({
@@ -76,6 +77,7 @@ const serviceSecretsSchemaSchema = z.object({
 
 const secretsPresenceSchema = z.object({
   present: z.array(z.string()),
+  outdated: z.array(z.string()).default([]),
 });
 
 const toolSchema = z.object({
@@ -790,6 +792,7 @@ export default function ServiceDetailPage() {
                     (serviceConfig?.config ?? {}) as Record<string, unknown>
                   }
                   patchUrl={buildUrl(`/services/${serviceDetails.id}/config`)}
+                  outdatedPaths={serviceConfig?.outdated}
                   onSaved={handleRefetchAll}
                 />
                 <JsonSchemaForm
@@ -798,6 +801,7 @@ export default function ServiceDetailPage() {
                   currentValues={currentSecretsValues}
                   presentSet={presentSet}
                   patchUrl={buildUrl(`/services/${serviceDetails.id}/secrets`)}
+                  outdatedPaths={serviceSecretsPresence?.outdated}
                   onSaved={handleRefetchAll}
                 />
               </div>

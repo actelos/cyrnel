@@ -1356,7 +1356,7 @@ describe("ModuleService", () => {
             id: "nullConfig",
             patch: [{ op: "replace", path: "", value: null }],
           }),
-        ).resolves.toBeUndefined();
+        ).resolves.toEqual({ config: null, outdated: [] });
 
         const stored = await db.run(
           sql`SELECT payload FROM module_configurations WHERE module_id = 'nullConfig'`,
@@ -1515,7 +1515,7 @@ describe("ModuleService", () => {
       ).rejects.toBeInstanceOf(HttpError);
     });
 
-    it("setEnabled refuses to enable when config is invalid", async () => {
+    it("setEnabled tolerates schema-outdated keys in stored config", async () => {
       const service = new ModuleService(makeBindings(), makeLifecycle());
       await db.run(
         sql`INSERT INTO modules (id, name, type, description, enabled, missing)
@@ -1523,7 +1523,7 @@ describe("ModuleService", () => {
       );
       await service.initialize(MISSING_PATH);
 
-      // the validation in setEnabled rejects it.
+      // stored under a looser schema: 'unknown' is now schema-disallowed
       await db.run(
         sql`INSERT INTO module_configurations (module_id, payload, updated_at)
             VALUES ('openapi', '{"unknown":1}', 0)`,
@@ -1531,8 +1531,10 @@ describe("ModuleService", () => {
 
       await expect(
         service.setEnabled({ id: "openapi", enabled: true }),
-      ).rejects.toBeInstanceOf(HttpError);
-      expect(adapterInstances).toHaveLength(0);
+      ).resolves.toBeUndefined();
+
+      const adapter = unwrap(adapterInstances[0], "adapter");
+      expect(adapter.setupCalls[0]).toMatchObject({ config: { timeout: 30 } });
     });
 
     it("config/secrets survive reload() and are still applied on next enable", async () => {
@@ -1559,7 +1561,7 @@ describe("ModuleService", () => {
       await service.initialize(MISSING_PATH);
 
       const result = await service.getSecretsPresence("openapi");
-      expect(result).toEqual({ present: [] });
+      expect(result).toEqual({ present: [], outdated: [] });
     });
 
     it("getSecretsPresence returns paths after secrets are set", async () => {
@@ -1572,7 +1574,137 @@ describe("ModuleService", () => {
       });
 
       const result = await service.getSecretsPresence("openapi");
-      expect(result).toEqual({ present: ["/apiKey"] });
+      expect(result).toEqual({ present: ["/apiKey"], outdated: [] });
+    });
+
+    it("getConfigView filters outdated keys and reports them", async () => {
+      const service = new ModuleService(makeBindings(), makeLifecycle());
+      await service.initialize(MISSING_PATH);
+
+      await db.run(
+        sql`INSERT INTO module_configurations (module_id, payload, updated_at)
+            VALUES ('openapi', '{"stale":1}', 0)`,
+      );
+
+      const view = await service.getConfigView("openapi");
+      expect(view).toEqual({ config: {}, outdated: ["/stale"] });
+    });
+
+    it("patchConfig tolerates pre-existing outdated keys and preserves them", async () => {
+      const service = new ModuleService(makeBindings(), makeLifecycle());
+      await service.initialize(MISSING_PATH);
+
+      await db.run(
+        sql`INSERT INTO module_configurations (module_id, payload, updated_at)
+            VALUES ('openapi', '{"stale":1}', 0)`,
+      );
+
+      const view = await service.patchConfig({
+        id: "openapi",
+        patch: [{ op: "add", path: "/baseUrl", value: "https://x" }],
+      });
+
+      expect(view).toEqual({
+        config: { baseUrl: "https://x", timeout: 30 },
+        outdated: ["/stale"],
+      });
+      expect(await service.getConfig("openapi")).toEqual({
+        baseUrl: "https://x",
+        timeout: 30,
+        stale: 1,
+      });
+    });
+
+    it("patchConfig rejects adding new schema-disallowed keys", async () => {
+      const service = new ModuleService(makeBindings(), makeLifecycle());
+      await service.initialize(MISSING_PATH);
+
+      await expect(
+        service.patchConfig({
+          id: "openapi",
+          patch: [{ op: "add", path: "/freshStale", value: 1 }],
+        }),
+      ).rejects.toBeInstanceOf(HttpError);
+    });
+
+    it("patchConfig treats removes of missing paths as no-ops", async () => {
+      const service = new ModuleService(makeBindings(), makeLifecycle());
+      await service.initialize(MISSING_PATH);
+
+      await db.run(
+        sql`INSERT INTO module_configurations (module_id, payload, updated_at)
+            VALUES ('openapi', '{"baseUrl":"https://x","stale":1}', 0)`,
+      );
+
+      const view = await service.patchConfig({
+        id: "openapi",
+        patch: [
+          { op: "remove", path: "/baseUrl" },
+          { op: "remove", path: "/missing" },
+        ],
+      });
+
+      expect(view).toEqual({ config: { timeout: 30 }, outdated: ["/stale"] });
+      expect(await service.getConfig("openapi")).toEqual({
+        timeout: 30,
+        stale: 1,
+      });
+    });
+
+    it("setEnabled delivers permissive secrets keys to module setup", async () => {
+      const customSetupCalls: Record<string, unknown>[] = [];
+      (globalThis as Record<string, unknown>).__cyrnelTestSetupCalls =
+        customSetupCalls;
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-mod-"));
+      try {
+        const moduleDir = path.join(dir, "permissiveSecrets");
+        await fs.mkdir(moduleDir);
+        await fs.writeFile(
+          path.join(moduleDir, "module.json"),
+          JSON.stringify({
+            id: "permissiveSecrets",
+            name: "Permissive Secrets Module",
+            description: "permissive secrets",
+            type: "adapter",
+            version: "1.0.0",
+            main: "index.mjs",
+          }),
+        );
+        await fs.writeFile(
+          path.join(moduleDir, "index.mjs"),
+          `export default {
+            configSchema: { type: "object", additionalProperties: true },
+            secretsSchema: { type: "object", additionalProperties: true },
+            instantiate() {
+              return {
+                async setup(ctx) { globalThis.__cyrnelTestSetupCalls.push(ctx); },
+                async teardown() {},
+                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async hydrateService() {},
+                async dehydrateService() {},
+                async invoke() { return null; },
+              };
+            },
+          }`,
+        );
+
+        const service = new ModuleService(makeBindings(), makeLifecycle());
+        await service.initialize(dir);
+        await service.setEnabled({ id: "permissiveSecrets", enabled: false });
+        customSetupCalls.length = 0;
+
+        await service.patchSecrets({
+          id: "permissiveSecrets",
+          patch: [{ op: "add", path: "/anyKey", value: "x" }],
+        });
+        await service.setEnabled({ id: "permissiveSecrets", enabled: true });
+
+        expect(customSetupCalls[0]).toMatchObject({
+          secrets: { anyKey: "x" },
+        });
+      } finally {
+        await fs.rm(dir, { recursive: true, force: true });
+      }
     });
   });
 
