@@ -57,12 +57,12 @@ Iterating during dev? Use scoped forms (`pnpm -C <pkg> ...`), run full gauntlet 
 
 **Implementing a change (feature / fix / chore / docs):**
 
-1. Start from latest develop: `git switch develop && git pull`
+1. Start from latest develop: `git switch develop && git pull token-origin develop`
 2. Create a short-lived branch: `git switch -c feat/<name>` / `fix/<name>` / `chore/<name>` / `docs/<name>`
 3. Implement, then run the validation gauntlet above
 4. Commit with conventional style matching history — `feat(scope): …`, `fix(scope): …`, `chore(deps): …`, `docs: …`
 5. Push: `git push -u token-origin <branch>` (use `token-origin` — `origin` is SSH and may not have a working key)
-6. Open a PR → `develop` (the default target). CI gates: `checks` (biome / typecheck / test / build) + Docker image builds
+6. Open a PR → `develop` (the default target). CI gates: `checks` (biome / typecheck / test / build) is the required check; Docker image builds (`build (api/web/mcp)`) also run on develop PRs but are informational there — they only gate `main`
 7. Merge to `develop` (squash, matching history). No review approval required on `develop`
 8. Delete the branch locally and on the remote
 
@@ -112,7 +112,7 @@ pnpm changeset          # create .changeset/*.md file
 # Don't hand-edit CHANGELOG.md
 ```
 
-CI (`publish.yml`) on merge to `main` (via the `develop` → `main` PR): publishes SDK to npm + builds/pushes Docker images for `api`, `web`, `mcp` to ghcr.io.
+CI (`publish.yml`) runs on any push to `main` — including direct pushes and revert commits, not only PR merges — and publishes the SDK to npm plus builds/pushes Docker images for `api`, `web`, `mcp` to ghcr.io. In practice pushes to `main` are governed by branch protection (PR + approval), i.e. the `develop` → `main` release PR.
 
 ## Package.json editing rules
 
