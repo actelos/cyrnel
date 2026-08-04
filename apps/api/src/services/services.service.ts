@@ -36,6 +36,7 @@ import type {
   SetServiceEnabledInput,
   SetToolEnablesInput,
 } from "@/models/services.model";
+import type { ToolSearchIndex } from "@/services/search.service";
 import { downloadText } from "@/utils/download.util";
 import { computeContentHash } from "@/utils/hash.util";
 import type { IconColumns } from "@/utils/icon.util";
@@ -60,6 +61,7 @@ import {
 
 const DEFINITION_DOWNLOAD_MAX_BYTES = 30 * 1024 * 1024;
 const IDENTIFIER_SCHEMA = z.string().regex(/^[A-Za-z_$][A-Za-z0-9_$]*$/);
+const SEARCH_DEFAULT_LIMIT = 50;
 
 export interface AdapterController {
   generateDefinition(
@@ -79,7 +81,10 @@ const encryptedSecretsSchema = z.object({
 });
 
 export class ServicesService {
-  constructor(private readonly controller: AdapterController) {}
+  constructor(
+    private readonly controller: AdapterController,
+    private readonly search?: ToolSearchIndex,
+  ) {}
 
   async listServices(
     input?: ListServicesInput,
@@ -213,6 +218,33 @@ export class ServicesService {
     }
 
     const normalizedQuery = input.query?.trim();
+
+    if (normalizedQuery && this.search) {
+      try {
+        const hits = await this.search.searchTools(normalizedQuery, {
+          serviceId: input.serviceId,
+          enabled: input.enabled,
+          limit: input.limit ?? SEARCH_DEFAULT_LIMIT,
+        });
+        return hits.map((hit) => ({
+          serviceId: hit.serviceId,
+          id: hit.toolId,
+          name: hit.name,
+          summary: hit.summary,
+          description: hit.description,
+          enabled: hit.enabled,
+          score: hit.score,
+          matchType: hit.matchType,
+          ...(hit.ftsRank !== undefined ? { ftsRank: hit.ftsRank } : {}),
+          ...(hit.vectorRank !== undefined
+            ? { vectorRank: hit.vectorRank }
+            : {}),
+          effectivelyEnabled: (serviceEnabled ?? true) && hit.enabled,
+        }));
+      } catch {
+        throw new HttpError(500, `Failed to search tools.`);
+      }
+    }
 
     const query = db
       .select({
@@ -376,6 +408,8 @@ export class ServicesService {
       }
       throw new HttpError(500, `Failed to create service '${input.id}'.`);
     }
+
+    await this.reindexServiceSearch(input.id);
   }
 
   async createServiceFromRegistry(
@@ -469,6 +503,8 @@ export class ServicesService {
       throw new HttpError(500, `Failed to create service '${effectiveId}'.`);
     }
 
+    await this.reindexServiceSearch(effectiveId);
+
     return effectiveId;
   }
 
@@ -541,6 +577,8 @@ export class ServicesService {
     } catch {
       throw new HttpError(500, `Failed to sync service '${id}'.`);
     }
+
+    await this.reindexServiceSearch(id);
 
     try {
       await this.controller.dehydrateService(service.adapter, id);
@@ -677,6 +715,8 @@ export class ServicesService {
       throw new HttpError(500, `Failed to update service '${id}'.`);
     }
 
+    await this.reindexServiceSearch(id);
+
     try {
       await this.controller.dehydrateService(service.adapter, id);
     } catch (err) {
@@ -780,6 +820,8 @@ export class ServicesService {
       throw new HttpError(500, `Failed to patch service '${id}'.`);
     }
 
+    await this.reindexServiceSearch(id);
+
     try {
       await this.controller.dehydrateService(service.adapter, id);
     } catch (err) {
@@ -802,6 +844,8 @@ export class ServicesService {
       });
 
     if (!deleted) throw new HttpError(404, `Service '${id}' not found.`);
+
+    await this.deleteServiceSearch(id);
 
     try {
       await this.controller.dehydrateService(deleted.adapter, id);
@@ -1334,6 +1378,30 @@ export class ServicesService {
 
   private async downloadDefinition(fileUrl: string): Promise<string> {
     return downloadText(fileUrl, DEFINITION_DOWNLOAD_MAX_BYTES, "definition");
+  }
+
+  private async reindexServiceSearch(serviceId: string): Promise<void> {
+    if (!this.search) return;
+    try {
+      await this.search.reindexService(serviceId);
+    } catch (err) {
+      logger.warn(
+        { err, serviceId },
+        "Failed to regenerate tool embeddings; reconciliation will retry",
+      );
+    }
+  }
+
+  private async deleteServiceSearch(serviceId: string): Promise<void> {
+    if (!this.search) return;
+    try {
+      await this.search.deleteEmbeddings(serviceId);
+    } catch (err) {
+      logger.warn(
+        { err, serviceId },
+        "Failed to delete tool embeddings; reconciliation will retry",
+      );
+    }
   }
 }
 

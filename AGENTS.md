@@ -87,6 +87,7 @@ Iterating during dev? Use scoped forms (`pnpm -C <pkg> ...`), run full gauntlet 
 - **`inject-workspace-packages: true`** — workspace deps are symlinked, SDK changes propagate instantly
 - **`.npmrc`**: `auto-install-peers=false`
 - **Environment** — copy `apps/api/.example.env` → `apps/api/.env`. `CYRNEL_SECRETS_KEY` is AES-256-GCM, 32 bytes base64: `openssl rand -base64 32`. Unset `CYRNEL_API_KEY` = unauthenticated access.
+- **Search & Vector Engine** — uses `@xenova/transformers` (local ONNX model, default `Xenova/bge-small-en-v1.5`) and `sqlite-vec` native extension alongside SQLite FTS5 for hybrid tool search.
 - **Migrations don't auto-run** — run `pnpm -C apps/api db:migrate` explicitly before `pnpm -C apps/api dev` if schema changed
 - **`@cyrnel/sdk` has no tests** (no vitest dep, no test script)
 
@@ -159,3 +160,5 @@ Full set of env vars (see `apps/api/.example.env` for defaults):
 | `CYRNEL_REGISTRY_ALLOWED_IPS` | Registry egress allowlist |
 | `CYRNEL_REGISTRY_BLOCKED_IPS` | Registry egress blocklist |
 | `CYRNEL_BLOCK_ALL_REGISTRIES` | Deny all registry downloads (1/true) |
+| `CYRNEL_EMBEDDING_MODEL` | Local ONNX embedding model (default `Xenova/bge-small-en-v1.5`) |
+| `CYRNEL_RECONCILE_INTERVAL_MS` | Background search vector reconciliation sweep interval in ms (default `1800000`) |

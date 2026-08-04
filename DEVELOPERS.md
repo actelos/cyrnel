@@ -123,6 +123,8 @@ what each one does. The two most important ones beyond the secrets key are:
 - `CYRNEL_API_KEY`: If set, every request to the API must include
   `Authorization: Bearer <key>`. Leave it unset for unauthenticated local
   development on `127.0.0.1`.
+- `CYRNEL_EMBEDDING_MODEL`: Local ONNX embedding model (defaults to `Xenova/bge-small-en-v1.5`)
+- `CYRNEL_RECONCILE_INTERVAL_MS`: Background search vector reconciliation sweep interval in ms (defaults to `1800000`)
 
 ### Initialise the database
 
@@ -211,6 +213,11 @@ cyrnel/
 │       └── typescript-ivm/     # @cyrnel/typescript-ivm: Built-in environment module
 ├── docs/                       # In-repo documentation
 ```
+
+### Local Dev Quirks & Native Dependencies
+
+- `@xenova/transformers`: Used for running local ONNX embeddings in `apps/api`.
+- `sqlite-vec`: Loaded as a native extension inside `apps/api` for high-performance vector similarity search alongside SQLite FTS5. Ensure your local environment has standard build tools available if native modules compile from source.
 
 ## Testing
 

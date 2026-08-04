@@ -48,6 +48,8 @@ CYRNEL_SECRETS_KEY=your-base64-32-byte-key
 | `CYRNEL_SECRETS_KEY` | _(required)_ | AES-256-GCM key for encrypting service secrets |
 | `CYRNEL_SECRETS_PREVIOUS_KEYS` | _(optional)_ | Comma-separated old keys for rotation fallback |
 | `CYRNEL_DB_URL` | `file:/data/cyrnel.db` | Database connection (SQLite by default) |
+| `CYRNEL_EMBEDDING_MODEL` | `Xenova/bge-small-en-v1.5` | Local ONNX embedding model to download and load |
+| `CYRNEL_RECONCILE_INTERVAL_MS` | `1800000` | Reconciliation interval in ms for syncing embeddings (default: 30 min) |
 | `LOG_LEVEL` | `info` | `trace`, `debug`, `info`, `warn`, `error`, `fatal`, `silent` |
 
 <Warning>
@@ -59,6 +61,12 @@ CYRNEL_SECRETS_KEY=your-base64-32-byte-key
   openssl rand -base64 32
   ```
 </Warning>
+
+<Info>
+  **Embedding Model First-Startup Note**  
+  On the first container startup, Cyrnel will automatically attempt to download the local embedding model specified by `CYRNEL_EMBEDDING_MODEL` (~120MB) into the `.cache` directory.  
+  During the download or in case of loading failure (e.g., due to CPU/memory limits or offline environments), search will gracefully fallback to FTS5-only mode.
+</Info>
 
 ### Full reference
 

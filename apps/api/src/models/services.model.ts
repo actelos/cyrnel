@@ -51,6 +51,10 @@ export interface ListToolsResult
     "inputSchema" | "outputSchema" | "adapterDomain"
   > {
   effectivelyEnabled: boolean;
+  score?: number;
+  matchType?: "fts" | "vector" | "both";
+  ftsRank?: number;
+  vectorRank?: number;
 }
 
 export type GetServiceDefinitionResult = Omit<

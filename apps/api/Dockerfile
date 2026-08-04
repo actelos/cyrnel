@@ -1,4 +1,4 @@
-FROM node:24-alpine AS builder
+FROM node:24-slim AS builder
 RUN corepack enable && corepack prepare pnpm@10.30.3 --activate
 WORKDIR /app
 
@@ -17,7 +17,7 @@ COPY apps/ apps/
 RUN pnpm turbo build --filter=@cyrnel/api
 RUN pnpm deploy --filter=@cyrnel/api --prod --legacy /tmp/deploy
 
-FROM node:24-alpine
+FROM node:24-slim
 WORKDIR /app
 COPY --from=builder /tmp/deploy .
 COPY --from=builder /app/apps/api/drizzle ./drizzle/
@@ -36,6 +36,8 @@ ENV CYRNEL_BLOCKED_IPS=
 ENV CYRNEL_REGISTRY_ALLOWED_IPS=
 ENV CYRNEL_REGISTRY_BLOCKED_IPS=
 ENV CYRNEL_BLOCK_ALL_REGISTRIES=false
+ENV CYRNEL_EMBEDDING_MODEL=Xenova/bge-small-en-v1.5
+ENV CYRNEL_RECONCILE_INTERVAL_MS=1800000
 
 EXPOSE 9371
 VOLUME ["/data"]

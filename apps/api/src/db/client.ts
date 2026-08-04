@@ -15,7 +15,7 @@ function resolveDatabaseUrl(): string {
   return `file:${path.join(dataDir, "data.db")}`;
 }
 
-export { schema };
+export { resolveDatabaseUrl, schema };
 export const db = drizzle(createClient({ url: resolveDatabaseUrl() }), {
   schema,
 });

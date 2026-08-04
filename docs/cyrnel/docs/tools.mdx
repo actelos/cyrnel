@@ -47,14 +47,20 @@ On disk:
 Query parameters (all optional):
 
 - `serviceId`: Restrict to one service
-- `query`: Case-insensitive substring match against `name`, `summary`, and
-  `description`
+- `query`: Free-text query. Triggers a hybrid FTS5 + vector similarity search (if vector search is available). It uses Reciprocal Rank Fusion (RRF) to combine results from both sqlite-vec vector search and FTS5 full-text match.
 - `enabled`: `true` / `false`
 - `limit`: Positive integer
 
-The list response includes a derived `effectivelyEnabled` flag:
-`tool.enabled && service.enabled`. Use it when deciding what to surface to
-clients.
+The list response includes a derived `effectivelyEnabled` flag (`tool.enabled && service.enabled`) as well as hybrid search relevance metadata if a `query` was provided.
+
+#### Search Relevance Metadata
+
+When a search `query` is passed, the response items include the following metadata fields:
+
+- `score`: `number` (optional) — The combined hybrid relevance score calculated via Reciprocal Rank Fusion (RRF). Higher scores mean greater relevance.
+- `matchType`: `"fts" | "vector" | "both"` (optional) — Indicates which search strategy matched the tool.
+- `ftsRank`: `number` (optional) — The 1-indexed rank position returned by the FTS5 full-text engine.
+- `vectorRank`: `number` (optional) — The 1-indexed rank position returned by the vector similarity search.
 
 ### Tool docs
 

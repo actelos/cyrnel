@@ -91,6 +91,10 @@ const toolSchema = z.object({
   serviceId: z.string(),
   enabled: z.boolean(),
   effectivelyEnabled: z.boolean(),
+  score: z.number().optional(),
+  matchType: z.enum(["fts", "vector", "both"]).optional(),
+  ftsRank: z.number().optional(),
+  vectorRank: z.number().optional(),
 });
 
 const toolListSchema = z.object({
