@@ -11,6 +11,7 @@ export interface ModuleManifestRecord {
   id: string;
   name: string;
   type: ModuleType;
+  summary: string;
   description: string;
   hash: string;
   version: string;
@@ -88,6 +89,7 @@ export const moduleManifestSchema = z.object({
   version: z.string().refine((value) => valid(value) !== null, {
     message: "Module manifest version must be a valid semver version.",
   }),
+  summary: z.string().optional(),
   description: z.string(),
   type: z.enum(MODULE_TYPES),
   main: z.string().min(1),

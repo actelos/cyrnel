@@ -48,6 +48,7 @@ import { cn } from "@/lib/utils";
 const serviceSchema = z.object({
   id: z.string(),
   name: z.string(),
+  summary: z.string(),
   description: z.string(),
   adapter: z.string(),
   version: z.string(),
@@ -85,6 +86,7 @@ const secretsPresenceSchema = z.object({
 const toolSchema = z.object({
   id: z.string(),
   name: z.string(),
+  summary: z.string(),
   description: z.string(),
   serviceId: z.string(),
   enabled: z.boolean(),
@@ -688,6 +690,11 @@ export default function ServiceDetailPage() {
                       Uninstall
                     </Button>
                   </div>
+                  {serviceDetails.summary ? (
+                    <p className="text-muted-foreground text-sm">
+                      {serviceDetails.summary}
+                    </p>
+                  ) : null}
                   {serviceDetails.description ? (
                     <ReactMarkdown
                       remarkPlugins={[remarkGfm]}
@@ -745,6 +752,11 @@ export default function ServiceDetailPage() {
                               <p className="text-muted-foreground text-xs font-mono">
                                 {tool.id}
                               </p>
+                              {tool.summary && tool.summary !== tool.name ? (
+                                <p className="text-muted-foreground text-xs">
+                                  {tool.summary}
+                                </p>
+                              ) : null}
                               {tool.description ? (
                                 <ReactMarkdown
                                   remarkPlugins={[remarkGfm]}

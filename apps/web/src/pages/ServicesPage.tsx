@@ -32,6 +32,7 @@ import { cn } from "@/lib/utils";
 const serviceSchema = z.object({
   id: z.string(),
   name: z.string(),
+  summary: z.string(),
   description: z.string(),
   adapter: z.string(),
   version: z.string(),
@@ -677,7 +678,9 @@ export default function ServicesPage() {
                             {service.id}
                           </p>
                           <div className="text-muted-foreground text-xs line-clamp-3">
-                            {service.description ? (
+                            {service.summary ? (
+                              service.summary
+                            ) : service.description ? (
                               <Markdown
                                 components={{
                                   p: ({ children }) => <>{children}</>,

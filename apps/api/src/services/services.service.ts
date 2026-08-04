@@ -53,7 +53,10 @@ import {
   decryptAndMaybeReEncrypt,
   encryptSecrets,
 } from "@/utils/secrets.util";
-import { applyJsonSchemaDefaults } from "@/utils/validation.util";
+import {
+  applyJsonSchemaDefaults,
+  normalizeSummary,
+} from "@/utils/validation.util";
 
 const DEFINITION_DOWNLOAD_MAX_BYTES = 30 * 1024 * 1024;
 const IDENTIFIER_SCHEMA = z.string().regex(/^[A-Za-z_$][A-Za-z0-9_$]*$/);
@@ -119,6 +122,7 @@ export class ServicesService {
               ? or(
                   like(services.id, `%${normalizedQuery}%`),
                   like(services.name, `%${normalizedQuery}%`),
+                  like(services.summary, `%${normalizedQuery}%`),
                   like(services.description, `%${normalizedQuery}%`),
                 )
               : undefined,
@@ -215,6 +219,7 @@ export class ServicesService {
         serviceId: tools.serviceId,
         id: tools.id,
         name: tools.name,
+        summary: tools.summary,
         description: tools.description,
         enabled: tools.enabled,
       })
@@ -228,6 +233,7 @@ export class ServicesService {
           normalizedQuery
             ? or(
                 like(tools.name, `%${normalizedQuery}%`),
+                like(tools.summary, `%${normalizedQuery}%`),
                 like(tools.description, `%${normalizedQuery}%`),
               )
             : undefined,
@@ -283,6 +289,7 @@ export class ServicesService {
   async getToolDocs(input: GetToolInput): Promise<string> {
     const [tool] = await db
       .select({
+        summary: tools.summary,
         description: tools.description,
         inputSchema: tools.inputSchema,
         outputSchema: tools.outputSchema,
@@ -308,6 +315,7 @@ export class ServicesService {
     const docsInput: ToolDocsInput = {
       serviceId: input.serviceId,
       toolId: input.toolId,
+      summary: tool.summary,
       description: tool.description,
       inputSchema: tool.inputSchema,
       outputSchema: tool.outputSchema,
@@ -344,6 +352,7 @@ export class ServicesService {
       await db.transaction(async (tx) => {
         await tx.insert(services).values({
           ...generatedDefinition,
+          summary: normalizeSummary(generatedDefinition.summary),
           id: input.id,
           hash,
           version: "0.0.0",
@@ -355,6 +364,7 @@ export class ServicesService {
         await tx.insert(tools).values(
           generatedDefinition.tools.map((tool) => ({
             ...tool,
+            summary: normalizeSummary(tool.summary),
             serviceId: input.id,
             enabled: true,
           })),
@@ -431,6 +441,7 @@ export class ServicesService {
       await db.transaction(async (tx) => {
         await tx.insert(services).values({
           ...generatedDefinition,
+          summary: normalizeSummary(generatedDefinition.summary),
           id: effectiveId,
           hash: contentHash,
           version: registry.version,
@@ -445,6 +456,7 @@ export class ServicesService {
         await tx.insert(tools).values(
           generatedDefinition.tools.map((tool) => ({
             ...tool,
+            summary: normalizeSummary(tool.summary),
             serviceId: effectiveId,
             enabled: true,
           })),
@@ -507,6 +519,7 @@ export class ServicesService {
           .update(services)
           .set({
             ...generatedDefinition,
+            summary: normalizeSummary(generatedDefinition.summary),
             enabled: false,
             stale: false,
           })
@@ -518,6 +531,7 @@ export class ServicesService {
           await tx.insert(tools).values(
             generatedDefinition.tools.map((tool) => ({
               ...tool,
+              summary: normalizeSummary(tool.summary),
               serviceId: id,
               enabled: enabledMap.get(tool.id) ?? false,
             })),
@@ -636,6 +650,7 @@ export class ServicesService {
           .update(services)
           .set({
             ...parsedDefinition,
+            summary: normalizeSummary(parsedDefinition.summary),
             hash,
             version: registry.version,
             enabled: false,
@@ -651,6 +666,7 @@ export class ServicesService {
           await tx.insert(tools).values(
             parsedDefinition.tools.map((tool) => ({
               ...tool,
+              summary: normalizeSummary(tool.summary),
               serviceId: id,
               enabled: enabledMap.get(tool.id) ?? false,
             })),
@@ -734,6 +750,7 @@ export class ServicesService {
           .update(services)
           .set({
             ...generatedDefinition,
+            summary: normalizeSummary(generatedDefinition.summary),
             hash,
             version: "0.0.0",
             source: "",
@@ -752,6 +769,7 @@ export class ServicesService {
           await tx.insert(tools).values(
             generatedDefinition.tools.map((tool) => ({
               ...tool,
+              summary: normalizeSummary(tool.summary),
               serviceId: id,
               enabled: enabledMap.get(tool.id) ?? false,
             })),

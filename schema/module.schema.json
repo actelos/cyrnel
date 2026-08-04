@@ -20,6 +20,10 @@
       "enum": ["adapter", "environment"],
       "description": "Module type: 'adapter' (provides tools via external API) or 'environment' (executes client code)."
     },
+    "summary": {
+      "type": "string",
+      "description": "Short plain-text description shown in lists and search. Optional; leave out or use an empty string when not needed."
+    },
     "description": {
       "type": "string",
       "description": "Human-readable description."

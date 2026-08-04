@@ -390,13 +390,20 @@ function renderProperties(schema: JSONSchema | undefined): string {
     .join("\n");
 }
 
+function escapePlainText(text: string): string {
+  return text.replace(/\s+/g, " ").replace(/[\\*_`[\]<>#]/g, "\\$&");
+}
+
 function renderToolDocs(input: ToolDocsInput): string {
   const exampleInput = exampleValue(input.inputSchema) ?? {};
   const exampleJson = JSON.stringify(exampleInput, null, 2);
   const description = input.description.trim() || "_(no description)_";
+  const summary = input.summary?.trim();
 
   return `
   # Tool: \`${input.serviceId}.${input.toolId}\`
+
+  ${summary ? `_${escapePlainText(summary)}_` : ""}
 
   ${description}
 

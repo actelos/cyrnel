@@ -42,6 +42,7 @@ const moduleDetailSchema = z.object({
   id: z.string(),
   name: z.string(),
   type: moduleTypeSchema,
+  summary: z.string(),
   description: z.string(),
   version: z.string(),
   hash: z.string(),
@@ -586,6 +587,11 @@ export default function ModuleDetailPage() {
                   </>
                 ) : null}
               </div>
+              {moduleDetail.summary ? (
+                <p className="text-muted-foreground text-sm">
+                  {moduleDetail.summary}
+                </p>
+              ) : null}
               {moduleDetail.description ? (
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}

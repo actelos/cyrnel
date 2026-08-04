@@ -12,6 +12,7 @@ that knows how to talk to the underlying end service.
 ```ts
 interface ServiceDefinition {
   name: string;
+  summary?: string;
   description: string;
   configSchema: JSONSchema;
   secretsSchema: JSONSchema;

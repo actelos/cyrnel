@@ -4,6 +4,7 @@ import type { Operation } from "fast-json-patch";
 export interface ToolDefinitionRecord extends ToolDefinition {
   serviceId: string;
   enabled: boolean;
+  summary: string;
 }
 
 export interface ServiceDefinitionRecord extends ServiceDefinition {
@@ -15,6 +16,7 @@ export interface ServiceDefinitionRecord extends ServiceDefinition {
   enabled: boolean;
   stale: boolean;
   tools: ToolDefinitionRecord[];
+  summary: string;
 }
 
 export interface ListServicesInput {

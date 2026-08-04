@@ -92,4 +92,31 @@ describe("moduleManifestSchema", () => {
 
     expect(result.success).toBe(false);
   });
+
+  it("accepts an optional summary", () => {
+    const result = moduleManifestSchema.safeParse({
+      ...validManifest,
+      summary: "A short plain-text description",
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("omits summary from the parsed output when absent", () => {
+    const result = moduleManifestSchema.safeParse(validManifest);
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.summary).toBeUndefined();
+    }
+  });
+
+  it("rejects a non-string summary", () => {
+    const result = moduleManifestSchema.safeParse({
+      ...validManifest,
+      summary: 123,
+    });
+
+    expect(result.success).toBe(false);
+  });
 });

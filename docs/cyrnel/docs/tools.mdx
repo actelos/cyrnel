@@ -15,6 +15,7 @@ The canonical shape is `ToolDefinition` from `@cyrnel/sdk`:
 interface ToolDefinition {
   id: string;
   name: string;
+  summary?: string;
   description: string;
   inputSchema: JSONSchema;
   outputSchema: JSONSchema;
@@ -27,6 +28,8 @@ On disk:
 - `(serviceId, id)` is the composite primary key. Tool `id` must be a valid
   TypeScript identifier.
 - `name` is human-friendly; `id` is what code addresses.
+- `summary` (optional) is a short plain-text label shown in lists and tool
+  docs; `description` is the long-form markdown.
 - `enabled` is per-tool, a service can be enabled with some of its tools
   disabled.
 
@@ -44,7 +47,8 @@ On disk:
 Query parameters (all optional):
 
 - `serviceId`: Restrict to one service
-- `query`: Case-insensitive substring match against `name` and `description`
+- `query`: Case-insensitive substring match against `name`, `summary`, and
+  `description`
 - `enabled`: `true` / `false`
 - `limit`: Positive integer
 
@@ -58,7 +62,7 @@ clients.
 the active environment module's `generateToolDocs`. The bundled
 `typescript-ivm` renders a usage page including:
 
-- the tool description
+- the tool summary and description
 - a typed parameter list derived from `inputSchema`
 - the return shape derived from `outputSchema`
 - a copy-pasteable `cyrnel.services[...].tools[...].invoke(...)` snippet
