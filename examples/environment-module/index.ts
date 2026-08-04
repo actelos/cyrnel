@@ -66,8 +66,10 @@ Executes shell commands via \`sh -c\`.
 
   async generateToolDocs(input: ToolDocsInput) {
     const summary = input.summary?.trim();
+    const escapePlainText = (text: string) =>
+      text.replace(/\s+/g, " ").replace(/[\\*_`[\]<>#]/g, "\\$&");
     return [
-      summary ? `_${summary}_` : "",
+      summary ? `_${escapePlainText(summary)}_` : "",
       `## ${input.description}`,
       "",
       "```sh",

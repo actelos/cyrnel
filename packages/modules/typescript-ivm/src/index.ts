@@ -390,6 +390,10 @@ function renderProperties(schema: JSONSchema | undefined): string {
     .join("\n");
 }
 
+function escapePlainText(text: string): string {
+  return text.replace(/\s+/g, " ").replace(/[\\*_`[\]<>#]/g, "\\$&");
+}
+
 function renderToolDocs(input: ToolDocsInput): string {
   const exampleInput = exampleValue(input.inputSchema) ?? {};
   const exampleJson = JSON.stringify(exampleInput, null, 2);
@@ -399,7 +403,7 @@ function renderToolDocs(input: ToolDocsInput): string {
   return `
   # Tool: \`${input.serviceId}.${input.toolId}\`
 
-  ${summary ? `_${summary}_` : ""}
+  ${summary ? `_${escapePlainText(summary)}_` : ""}
 
   ${description}
 
