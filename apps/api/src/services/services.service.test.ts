@@ -132,6 +132,7 @@ async function seedService(
     source?: string;
     hash?: string;
     name?: string;
+    summary?: string;
     description?: string;
     configSchema?: JSONSchema;
     secretsSchema?: JSONSchema;
@@ -141,9 +142,10 @@ async function seedService(
 ): Promise<void> {
   const adapter = options.adapter ?? "test-adapter";
   await db.run(
-    sql`INSERT INTO services (id, name, description, hash, version, source, adapter, enabled, config_schema, secrets_schema, adapter_domain)
+    sql`INSERT INTO services (id, name, summary, description, hash, version, source, adapter, enabled, config_schema, secrets_schema, adapter_domain)
         VALUES (${id},
                 ${options.name ?? id},
+                ${options.summary ?? ""},
                 ${options.description ?? ""},
                 ${options.hash ?? "hash"},
                 ${options.version ?? "1.0.0"},
@@ -326,6 +328,22 @@ describe("ServicesService", () => {
       ).toEqual(["alpha"]);
       expect(
         (await svc.listServices({ query: "demo" })).map((r) => r.id),
+      ).toEqual(["alpha"]);
+      expect(
+        (await svc.listServices({ query: "weather" })).map((r) => r.id),
+      ).toEqual(["beta"]);
+    });
+
+    it("matches against the summary with the query filter", async () => {
+      await seedService("alpha", {
+        name: "Demo One",
+        summary: "creates stuff",
+      });
+      await seedService("beta", { name: "Other", description: "weather" });
+      const svc = new ServicesService(makeController());
+
+      expect(
+        (await svc.listServices({ query: "creates" })).map((r) => r.id),
       ).toEqual(["alpha"]);
       expect(
         (await svc.listServices({ query: "weather" })).map((r) => r.id),
@@ -597,6 +615,58 @@ describe("ServicesService", () => {
       const tools = await svc.listTools({ serviceId: "alpha" });
       expect(tools.map((t) => t.name)).toEqual(["doStuff"]);
       expect(tools[0]?.enabled).toBe(true);
+    });
+
+    it("persists and trims the summary for the service and its tools", async () => {
+      mockFetchOnce("payload");
+      const controller = makeController({
+        generateDefinition: vi.fn(async () =>
+          sampleDefinition({
+            summary: "  Pet store API  ",
+            tools: [
+              {
+                id: "doStuff",
+                name: "doStuff",
+                summary: "  Does the stuff  ",
+                description: "does stuff",
+                inputSchema: EMPTY_OBJECT_SCHEMA,
+                outputSchema: EMPTY_OBJECT_SCHEMA,
+                adapterDomain: {},
+              },
+            ],
+          }),
+        ),
+      });
+      const svc = new ServicesService(controller);
+
+      await svc.createServiceDirect({
+        id: "alpha",
+        url: "https://example.com/def.json",
+        adapter: "test-adapter",
+      });
+
+      const row = await svc.getService("alpha");
+      expect(row.summary).toBe("Pet store API");
+
+      const tools = await svc.listTools({ serviceId: "alpha" });
+      expect(tools[0]?.summary).toBe("Does the stuff");
+    });
+
+    it("defaults the summary to an empty string when the definition omits it", async () => {
+      mockFetchOnce("payload");
+      const svc = new ServicesService(makeController());
+
+      await svc.createServiceDirect({
+        id: "alpha",
+        url: "https://example.com/def.json",
+        adapter: "test-adapter",
+      });
+
+      const row = await svc.getService("alpha");
+      expect(row.summary).toBe("");
+
+      const tools = await svc.listTools({ serviceId: "alpha" });
+      expect(tools[0]?.summary).toBe("");
     });
 
     it('rejects definitions whose tool id is not a valid identifier (createService says "Tool name" instead of the intended "Tool id")', async () => {

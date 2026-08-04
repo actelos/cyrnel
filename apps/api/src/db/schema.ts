@@ -14,6 +14,7 @@ import type { EncryptedSecretsPayload } from "@/models/secrets.model";
 export const services = sqliteTable("services", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
+  summary: text("summary").notNull().default(""),
   description: text("description").notNull().default(""),
   hash: text("hash").notNull(),
   version: text("version").notNull().default("0.0.0"),
@@ -67,6 +68,7 @@ export const tools = sqliteTable(
       .references(() => services.id, { onDelete: "cascade" }),
     id: text("id").notNull(),
     name: text("name").notNull(),
+    summary: text("summary").notNull().default(""),
     description: text("description").notNull().default(""),
     enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
     inputSchema: text("input_schema", { mode: "json" })
@@ -91,6 +93,7 @@ export const modules = sqliteTable(
     id: text("id").primaryKey(),
     name: text("name").notNull(),
     type: text("type").$type<ModuleType>().notNull(),
+    summary: text("summary").notNull().default(""),
     description: text("description").notNull().default(""),
     hash: text("hash").notNull().default(""),
     version: text("version").notNull().default("0.0.0"),

@@ -127,3 +127,11 @@ export function applyJsonSchemaDefaults<T extends Record<string, unknown>>(
   }
   return normalized;
 }
+
+/**
+ * Normalizes a summary for persistence: trims surrounding whitespace and
+ * falls back to an empty string when absent.
+ */
+export function normalizeSummary(value: string | undefined): string {
+  return value?.trim() ?? "";
+}

@@ -4,6 +4,7 @@
   "name": "HTTP Adapter",
   "type": "adapter",
   "version": "1.0.0",
+  "summary": "Make HTTP requests to any endpoint",
   "description": "Call any HTTP API",
   "main": "./index.js",
   "engines": {

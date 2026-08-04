@@ -34,7 +34,8 @@ must contain a `module.json`:
   "version": "1.0.0",
   "name": "My Adapter",
   "type": "adapter",
-  "description": "Talks to my service",
+  "summary": "Talks to my service",
+  "description": "Long-form markdown description of the module.",
   "main": "./index.js",
   "engines": { "cyrnel": "^x.x.x" }
 }
@@ -46,6 +47,8 @@ Fields:
 - `version`: Semver version of the module (required, e.g. `"1.2.3"`).
 - `name`: Human readable name for the module.
 - `type`: `adapter` or `environment`.
+- `summary` (optional): Short plain-text description shown in lists and search.
+  Leave empty when not needed.
 - `description`: Surfaced in `GET /modules`.
 - `main`: Path to the built module file the host can `import()`. The file must
   default-export the module object (see below).

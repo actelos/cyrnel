@@ -10,6 +10,7 @@ export type JSONSchema = Record<string, unknown>;
 export interface ToolDefinition {
   id: string;
   name: string;
+  summary?: string;
   description: string;
   inputSchema: JSONSchema;
   outputSchema: JSONSchema;
@@ -21,6 +22,7 @@ export interface ToolDefinition {
  */
 export interface ServiceDefinition {
   name: string;
+  summary?: string;
   description: string;
   configSchema: JSONSchema;
   secretsSchema: JSONSchema;
@@ -188,6 +190,7 @@ export type ExecutionExitState = (typeof EXECUTION_EXIT_STATES)[number];
 export interface ToolDocsInput {
   serviceId: string;
   toolId: string;
+  summary?: string;
   description: string;
   inputSchema: JSONSchema;
   outputSchema: JSONSchema;
@@ -248,7 +251,7 @@ export interface EnvironmentModule extends Module {
  */
 export type ToolState = Omit<
   ToolDefinition,
-  "id" | "name" | "description" | "inputSchema" | "outputSchema"
+  "id" | "name" | "summary" | "description" | "inputSchema" | "outputSchema"
 >;
 
 /**
@@ -257,7 +260,12 @@ export type ToolState = Omit<
 export interface ServiceState
   extends Omit<
     ServiceDefinition,
-    "name" | "description" | "configSchema" | "secretsSchema" | "tools"
+    | "name"
+    | "summary"
+    | "description"
+    | "configSchema"
+    | "secretsSchema"
+    | "tools"
   > {
   id: string;
   tools: Record<string, ToolState>;

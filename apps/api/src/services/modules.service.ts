@@ -73,6 +73,7 @@ import {
 import {
   applyJsonSchemaDefaults,
   assertPlainJsonSchema,
+  normalizeSummary,
 } from "@/utils/validation.util";
 
 const MODULE_DOWNLOAD_MAX_BYTES = 10 * 1024 * 1024;
@@ -93,6 +94,7 @@ interface AdapterLifecycle {
 interface RegisteredModule {
   id: string;
   name: string;
+  summary: string;
   description: string;
   type: ModuleType;
   version: string;
@@ -330,7 +332,7 @@ export class ModuleService {
       )
       .filter((row) =>
         query
-          ? `${row.id}\n${row.name}\n${row.description}`
+          ? `${row.id}\n${row.name}\n${row.summary}\n${row.description}`
               .toLowerCase()
               .includes(query)
           : true,
@@ -744,6 +746,7 @@ export class ModuleService {
       this.manifests.set(manifest.id, {
         id: manifest.id,
         name: manifest.name,
+        summary: normalizeSummary(manifest.summary),
         description: manifest.description,
         type: manifest.type,
         version: manifest.version,
@@ -765,6 +768,7 @@ export class ModuleService {
       await db.insert(modulesTable).values({
         id: manifest.id,
         name: manifest.name,
+        summary: normalizeSummary(manifest.summary),
         description: manifest.description,
         type: manifest.type,
         hash: archiveHash,
@@ -786,6 +790,7 @@ export class ModuleService {
     return {
       id: manifest.id,
       name: manifest.name,
+      summary: normalizeSummary(manifest.summary),
       description: manifest.description,
       type: manifest.type,
       hash: archiveHash,
@@ -893,6 +898,7 @@ export class ModuleService {
       this.manifests.set(manifest.id, {
         id: manifest.id,
         name: manifest.name,
+        summary: normalizeSummary(manifest.summary),
         description: manifest.description,
         type: manifest.type,
         version: manifest.version,
@@ -918,6 +924,7 @@ export class ModuleService {
       await db.insert(modulesTable).values({
         id: manifest.id,
         name: manifest.name,
+        summary: normalizeSummary(manifest.summary),
         description: manifest.description,
         type: manifest.type,
         hash: archiveHash,
@@ -942,6 +949,7 @@ export class ModuleService {
     return {
       id: manifest.id,
       name: manifest.name,
+      summary: normalizeSummary(manifest.summary),
       description: manifest.description,
       type: manifest.type,
       hash: archiveHash,
@@ -1115,6 +1123,7 @@ export class ModuleService {
       this.manifests.set(manifest.id, {
         id: manifest.id,
         name: manifest.name,
+        summary: normalizeSummary(manifest.summary),
         description: manifest.description,
         type: manifest.type,
         version: manifest.version,
@@ -1140,6 +1149,7 @@ export class ModuleService {
         .update(modulesTable)
         .set({
           name: manifest.name,
+          summary: normalizeSummary(manifest.summary),
           description: manifest.description,
           hash: newHash,
           version: manifest.version,
@@ -1288,6 +1298,7 @@ export class ModuleService {
       this.manifests.set(manifest.id, {
         id: manifest.id,
         name: manifest.name,
+        summary: normalizeSummary(manifest.summary),
         description: manifest.description,
         type: manifest.type,
         version: manifest.version,
@@ -1313,6 +1324,7 @@ export class ModuleService {
         .update(modulesTable)
         .set({
           name: manifest.name,
+          summary: normalizeSummary(manifest.summary),
           description: manifest.description,
           hash: newHash,
           version: manifest.version,
@@ -1427,6 +1439,7 @@ export class ModuleService {
       if (!manifest) return false;
       return (
         manifest.name !== r.name ||
+        manifest.summary !== r.summary ||
         manifest.description !== r.description ||
         manifest.version !== r.version
       );
@@ -1440,6 +1453,7 @@ export class ModuleService {
           return {
             id,
             name: manifest.name,
+            summary: normalizeSummary(manifest.summary),
             description: manifest.description,
             type: manifest.type,
             version: manifest.version,
@@ -1473,6 +1487,7 @@ export class ModuleService {
             .update(modulesTable)
             .set({
               name: manifest.name,
+              summary: normalizeSummary(manifest.summary),
               description: manifest.description,
               version: manifest.version,
             })
@@ -1590,6 +1605,7 @@ export class ModuleService {
               .update(servicesTable)
               .set({
                 ...def,
+                summary: normalizeSummary(def.summary),
                 stale: false,
               })
               .where(eq(servicesTable.id, service.id));
@@ -1602,6 +1618,7 @@ export class ModuleService {
               await tx.insert(toolsTable).values(
                 def.tools.map((tool) => ({
                   ...tool,
+                  summary: normalizeSummary(tool.summary),
                   serviceId: service.id,
                   enabled: enabledMap.get(tool.id) ?? false,
                 })),
@@ -1940,6 +1957,7 @@ export class ModuleService {
     const builtins: {
       id: string;
       name: string;
+      summary: string;
       description: string;
       type: ModuleType;
       version: string;
@@ -1950,6 +1968,7 @@ export class ModuleService {
       {
         id: "openapi",
         name: "OpenAPI Adapter",
+        summary: "Import HTTP APIs from OpenAPI documents",
         description: "Adapter for interacting with OpenAPI services",
         type: "adapter",
         version: "1.0.0",
@@ -1958,6 +1977,7 @@ export class ModuleService {
       {
         id: "typescript-ivm",
         name: "Typescript Isolated VM",
+        summary: "Run self-contained TypeScript code",
         description: "TypeScript environment powered by isolated-vm",
         type: "environment",
         version: "1.0.0",
@@ -1968,6 +1988,7 @@ export class ModuleService {
     for (const {
       id,
       name,
+      summary,
       description,
       type,
       version,
@@ -1984,6 +2005,7 @@ export class ModuleService {
       this.manifests.set(id, {
         id,
         name,
+        summary,
         description,
         type,
         version,
@@ -2034,7 +2056,7 @@ export class ModuleService {
         );
       }
 
-      const { id, name, description, type, version, main, engines } =
+      const { id, name, summary, description, type, version, main, engines } =
         parsed.data;
       this.assertEngineCompatibility(engines, `Module '${id}'`);
 
@@ -2072,6 +2094,7 @@ export class ModuleService {
       this.manifests.set(id, {
         id,
         name,
+        summary: normalizeSummary(summary),
         description,
         type,
         version,
@@ -2132,6 +2155,7 @@ export class ModuleService {
       id: row.id,
       name: row.name,
       type: row.type,
+      summary: row.summary,
       description: row.description,
       version: row.version,
       isBuiltin: this.isBuiltin(row.id),

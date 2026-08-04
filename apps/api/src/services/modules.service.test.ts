@@ -907,6 +907,12 @@ describe("ModuleService", () => {
         "typescript-ivm",
       ]);
       for (const row of rows) expect(row.isBuiltin).toBe(true);
+      expect(rows.find((r) => r.id === "openapi")?.summary).toBe(
+        "Import HTTP APIs from OpenAPI documents",
+      );
+      expect(rows.find((r) => r.id === "typescript-ivm")?.summary).toBe(
+        "Run self-contained TypeScript code",
+      );
     });
 
     it("filters by type, enabled, isBuiltin, and query", async () => {
@@ -925,6 +931,12 @@ describe("ModuleService", () => {
       expect(
         (await service.list({ query: "openapi adapter" })).map((r) => r.id),
       ).toEqual(["openapi"]);
+      expect(
+        (await service.list({ query: "import http apis" })).map((r) => r.id),
+      ).toEqual(["openapi"]);
+      expect(
+        (await service.list({ query: "self-contained" })).map((r) => r.id),
+      ).toEqual(["typescript-ivm"]);
       expect(await service.list({ isBuiltin: false })).toHaveLength(0);
     });
 

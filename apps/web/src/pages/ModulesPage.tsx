@@ -35,6 +35,7 @@ const moduleSchema = z.object({
   id: z.string(),
   name: z.string(),
   type: moduleTypeSchema,
+  summary: z.string(),
   description: z.string(),
   version: z.string(),
   isBuiltin: z.boolean(),
@@ -491,7 +492,9 @@ export default function ModulesPage() {
                             {module.id}
                           </p>
                           <div className="text-muted-foreground text-xs line-clamp-3">
-                            {module.description ? (
+                            {module.summary ? (
+                              module.summary
+                            ) : module.description ? (
                               <Markdown
                                 components={{
                                   p: ({ children }) => <>{children}</>,

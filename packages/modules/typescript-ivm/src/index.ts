@@ -394,9 +394,12 @@ function renderToolDocs(input: ToolDocsInput): string {
   const exampleInput = exampleValue(input.inputSchema) ?? {};
   const exampleJson = JSON.stringify(exampleInput, null, 2);
   const description = input.description.trim() || "_(no description)_";
+  const summary = input.summary?.trim();
 
   return `
   # Tool: \`${input.serviceId}.${input.toolId}\`
+
+  ${summary ? `_${summary}_` : ""}
 
   ${description}
 

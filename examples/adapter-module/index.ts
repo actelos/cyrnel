@@ -23,11 +23,13 @@ class HttpAdapter implements AdapterModule {
   async generateDefinition(input: string): Promise<ServiceDefinition> {
     const spec: {
       name: string;
+      summary?: string;
       description: string;
       baseUrl: string;
       endpoints: {
         id: string;
         name: string;
+        summary?: string;
         description: string;
         method: string;
         path: string;
@@ -38,6 +40,7 @@ class HttpAdapter implements AdapterModule {
 
     return {
       name: spec.name,
+      summary: spec.summary,
       description: spec.description,
       configSchema: {
         type: "object",
@@ -62,6 +65,7 @@ class HttpAdapter implements AdapterModule {
       tools: spec.endpoints.map((ep) => ({
         id: ep.id,
         name: ep.name,
+        summary: ep.summary,
         description: ep.description,
         inputSchema: ep.inputSchema,
         outputSchema: ep.outputSchema,

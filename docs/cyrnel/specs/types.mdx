@@ -22,6 +22,7 @@ treat schemas as opaque.
 ```ts
 interface ServiceDefinition {
   name: string;
+  summary?: string;
   description: string;
   configSchema: JSONSchema;
   secretsSchema: JSONSchema;
@@ -34,6 +35,8 @@ The shape an adapter returns from `generateDefinition`. Cyrnel persists this
 into the `services` table along with an `id`, `hash`, `source`,
 `adapter`, and `enabled` flag. See [Services](/cyrnel/docs/services).
 
+- `summary` is an optional short plain-text description shown in lists and
+  search. Keep it terse; use `description` for long-form markdown.
 - `configSchema` describes per-service configuration (validated on PATCH).
 - `secretsSchema` describes per-service secrets (validated on PATCH).
 - `adapterDomain` is opaque to cyrnel. Adapters use it to carry
@@ -45,6 +48,7 @@ into the `services` table along with an `id`, `hash`, `source`,
 interface ToolDefinition {
   id: string;
   name: string;
+  summary?: string;
   description: string;
   inputSchema: JSONSchema;
   outputSchema: JSONSchema;
@@ -53,20 +57,21 @@ interface ToolDefinition {
 ```
 
 The shape of each entry in `ServiceDefinition.tools`. `id` must be a
-valid TypeScript identifier; it is what process code addresses.
+valid TypeScript identifier; it is what process code addresses. `summary`
+is an optional short plain-text label, mirroring the service-level summary.
 
 ## `ServiceState` and `ToolState`
 
 ```ts
 type ToolState = Omit<
   ToolDefinition,
-  "id" | "name" | "description" | "inputSchema" | "outputSchema"
+  "id" | "name" | "summary" | "description" | "inputSchema" | "outputSchema"
 >;
 
 interface ServiceState
   extends Omit<
     ServiceDefinition,
-    "name" | "description" | "configSchema" | "secretsSchema" | "tools"
+    "name" | "summary" | "description" | "configSchema" | "secretsSchema" | "tools"
   > {
   id: string;
   tools: Record<string, ToolState>;

@@ -93,6 +93,7 @@ should document the shape it exposes.
 interface ToolDocsInput {
   serviceId: string;
   toolId: string;
+  summary?: string;
   description: string;
   inputSchema: JSONSchema;
   outputSchema: JSONSchema;
@@ -102,6 +103,10 @@ interface ToolDocsInput {
 Return Markdown documenting a single tool **as it should be invoked
 inside this environment**. Served at
 `GET /tools/:serviceId/:toolId/docs`.
+
+`summary` (when present) is a short plain-text label. The bundled
+`typescript-ivm` renders it as an italic line above the description; render
+it prominently so clients can scan tool lists quickly.
 
 If the environment exposes tools as `cyrnel.services[s].tools[t].invoke(p)`,
 render an example using that. If it exposes them as Python functions, do

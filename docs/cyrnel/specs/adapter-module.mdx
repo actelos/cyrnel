@@ -119,6 +119,7 @@ class MyAdapter implements AdapterModule {
   async generateDefinition(input: string): Promise<ServiceDefinition> {
     return {
       name: "...",
+      summary: "Short plain-text label shown in lists",
       description: "...",
       configSchema: { type: "object", properties: {} },
       secretsSchema: { type: "object", properties: {} },
@@ -127,6 +128,7 @@ class MyAdapter implements AdapterModule {
         {
           id: "ping",
           name: "ping",
+          summary: "Answers with a health status",
           description: "Health check",
           inputSchema: { type: "object" },
           outputSchema: { type: "object" },

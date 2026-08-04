@@ -43,6 +43,57 @@ describe("generateDefinition", () => {
 
       expect(result.description).toBe("");
     });
+
+    it("extracts summary from info.summary", async () => {
+      const spec = JSON.stringify({
+        openapi: "3.0.0",
+        info: {
+          title: "Pet Store API",
+          summary: "Manage pets in the store",
+          version: "1.0.0",
+        },
+        paths: {},
+      });
+
+      const result = await generateDefinition(spec);
+
+      expect(result.summary).toBe("Manage pets in the store");
+    });
+
+    it("uses empty string when summary is missing", async () => {
+      const spec = JSON.stringify({
+        openapi: "3.0.0",
+        info: {
+          title: "Pet Store API",
+          description: "A sample API for pet store operations",
+          version: "1.0.0",
+        },
+        paths: {},
+      });
+
+      const result = await generateDefinition(spec);
+
+      expect(result.summary).toBe("");
+      expect(result.description).toBe("A sample API for pet store operations");
+    });
+
+    it("keeps summary and description separate", async () => {
+      const spec = JSON.stringify({
+        openapi: "3.0.0",
+        info: {
+          title: "Pet Store API",
+          summary: "Manages pets",
+          description: "A sample API for pet store operations",
+          version: "1.0.0",
+        },
+        paths: {},
+      });
+
+      const result = await generateDefinition(spec);
+
+      expect(result.summary).toBe("Manages pets");
+      expect(result.description).toBe("A sample API for pet store operations");
+    });
   });
 
   describe("tool extraction from paths", () => {
@@ -104,6 +155,45 @@ describe("generateDefinition", () => {
       const result = await generateDefinition(spec);
 
       expect(result.tools[0].name).toBe("List all pets");
+    });
+
+    it("extracts tool summary from operation.summary", async () => {
+      const spec = JSON.stringify({
+        openapi: "3.0.0",
+        info: { title: "API", version: "1.0.0" },
+        paths: {
+          "/pets": {
+            get: {
+              operationId: "listPets",
+              summary: "List all pets",
+              responses: { "200": { description: "OK" } },
+            },
+          },
+        },
+      });
+
+      const result = await generateDefinition(spec);
+
+      expect(result.tools[0].summary).toBe("List all pets");
+    });
+
+    it("uses empty string for tool summary when missing", async () => {
+      const spec = JSON.stringify({
+        openapi: "3.0.0",
+        info: { title: "API", version: "1.0.0" },
+        paths: {
+          "/pets": {
+            get: {
+              operationId: "listPets",
+              responses: { "200": { description: "OK" } },
+            },
+          },
+        },
+      });
+
+      const result = await generateDefinition(spec);
+
+      expect(result.tools[0].summary).toBe("");
     });
 
     it("extracts tool description from requestBody.description", async () => {
