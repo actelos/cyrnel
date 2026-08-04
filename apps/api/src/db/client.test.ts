@@ -41,14 +41,14 @@ describe("db client", () => {
     });
   });
 
-  it("selects the in-memory database when VITEST masks NODE_ENV", async () => {
+  it("selects the test file database when VITEST is set", async () => {
     delete process.env.CYRNEL_DB_URL;
     process.env.NODE_ENV = "production";
 
     await import("@/db/client");
 
     expect(vi.mocked(createClient)).toHaveBeenCalledWith({
-      url: "file::memory:?cache=shared",
+      url: expect.stringMatching(/^file:\/.*\.db$/),
     });
   });
 

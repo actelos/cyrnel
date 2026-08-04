@@ -589,6 +589,9 @@ const ToolListItemSchema = registry.register(
         .min(1)
         .describe("Display name declared by the tool definition."),
       description: z.string().describe("Human-readable tool description."),
+      summary: z
+        .string()
+        .describe("Tool summary declared by the tool definition."),
       enabled: z
         .boolean()
         .describe("Whether the tool is enabled at the manifest level."),
@@ -596,6 +599,32 @@ const ToolListItemSchema = registry.register(
         .boolean()
         .describe(
           "Whether the tool is callable after accounting for its parent service state.",
+        ),
+      score: z
+        .number()
+        .optional()
+        .describe(
+          "Relevance score (reciprocal rank fusion of the FTS5 and vector ranks); present only when a query was supplied.",
+        ),
+      matchType: z
+        .enum(["fts", "vector", "both"])
+        .optional()
+        .describe(
+          "Which search signals matched the tool: FTS5 text match, vector similarity, or both.",
+        ),
+      ftsRank: z
+        .number()
+        .int()
+        .optional()
+        .describe(
+          "Rank of the tool in the FTS5 result list (1-based); present only when matched by FTS5.",
+        ),
+      vectorRank: z
+        .number()
+        .int()
+        .optional()
+        .describe(
+          "Rank of the tool in the vector result list (1-based); present only when matched by the embedding model.",
         ),
     })
     .describe("Tool summary returned by the tool listing endpoint."),
@@ -1632,12 +1661,14 @@ registry.registerPath({
       query: z
         .string()
         .optional()
-        .describe("Free-text query used to match tool names and descriptions."),
+        .describe(
+          "Free-text query matched against tool names, summaries, and descriptions via a hybrid FTS5 and vector index. Phrase naturally: word order, stopwords, and plural forms do not matter, and results are ranked by relevance when supplied.",
+        ),
       limit: z
         .string()
         .optional()
         .describe(
-          "Maximum number of matching tools to return, as a positive integer string.",
+          "Maximum number of matching tools to return, as a positive integer string. If omitted in the search path, the API applies the default search cap of 50 results.",
         ),
       enabled: booleanQuerySchema
         .optional()

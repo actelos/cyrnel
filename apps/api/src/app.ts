@@ -15,7 +15,12 @@ import { serviceRouter } from "@/routes/service.route";
 import { toolRouter } from "@/routes/tool.route";
 import { ModuleService } from "@/services/modules.service";
 import { ProcessService } from "@/services/process.service";
+import { SearchService } from "@/services/search.service";
 import { ServicesService } from "@/services/services.service";
+import { TransformersEmbedder } from "@/utils/embedder.util";
+
+const DEFAULT_RECONCILE_INTERVAL_MS = 1_800_000;
+const MAX_RECONCILE_INTERVAL_MS = 2_147_483_647;
 
 export class App {
   readonly express: express.Express;
@@ -23,6 +28,7 @@ export class App {
   readonly moduleService: ModuleService;
   readonly processService: ProcessService;
   readonly servicesService: ServicesService;
+  readonly searchService: SearchService;
 
   constructor() {
     this.moduleService = new ModuleService(
@@ -40,15 +46,20 @@ export class App {
       },
     );
 
-    this.servicesService = new ServicesService({
-      generateDefinition: (input) =>
-        this.moduleService.generateDefinition(input),
-      hydrateService: (adapterId, state) =>
-        this.moduleService.hydrateService(adapterId, state),
-      dehydrateService: (adapterId, serviceId) =>
-        this.moduleService.dehydrateService(adapterId, serviceId),
-      generateToolDocs: (input) => this.moduleService.generateToolDocs(input),
-    });
+    this.searchService = new SearchService(new TransformersEmbedder());
+
+    this.servicesService = new ServicesService(
+      {
+        generateDefinition: (input) =>
+          this.moduleService.generateDefinition(input),
+        hydrateService: (adapterId, state) =>
+          this.moduleService.hydrateService(adapterId, state),
+        dehydrateService: (adapterId, serviceId) =>
+          this.moduleService.dehydrateService(adapterId, serviceId),
+        generateToolDocs: (input) => this.moduleService.generateToolDocs(input),
+      },
+      this.searchService,
+    );
 
     this.processService = new ProcessService({
       execute: (input) => this.moduleService.execute(input),
@@ -60,10 +71,18 @@ export class App {
 
   async setup(): Promise<void> {
     const dataDir = process.env.CYRNEL_DATA_DIR || ".";
+    await this.searchService.init();
     await this.moduleService.initialize(path.join(dataDir, "modules"));
+
+    const interval = parseReconcileInterval(
+      process.env.CYRNEL_RECONCILE_INTERVAL_MS,
+    );
+    this.searchService.startReconciliation(interval);
+    void this.searchService.reconcileGuarded();
   }
 
   async shutdown(): Promise<void> {
+    this.searchService.close();
     await this.processService.shutdown();
     try {
       await this.moduleService.shutdown();
@@ -113,4 +132,25 @@ export class App {
 
     return app;
   }
+}
+
+function parseReconcileInterval(raw: string | undefined): number {
+  if (raw === undefined) return DEFAULT_RECONCILE_INTERVAL_MS;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    logger.warn({ raw }, "Invalid CYRNEL_RECONCILE_INTERVAL_MS; using default");
+    return DEFAULT_RECONCILE_INTERVAL_MS;
+  }
+  if (parsed === 0) {
+    logger.info("CYRNEL_RECONCILE_INTERVAL_MS is 0; reconciliation disabled");
+    return 0;
+  }
+  if (parsed > MAX_RECONCILE_INTERVAL_MS) {
+    logger.warn(
+      { raw, max: MAX_RECONCILE_INTERVAL_MS },
+      "Invalid CYRNEL_RECONCILE_INTERVAL_MS; using default",
+    );
+    return DEFAULT_RECONCILE_INTERVAL_MS;
+  }
+  return parsed;
 }

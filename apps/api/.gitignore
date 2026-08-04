@@ -24,3 +24,6 @@ data.db-*
 *.njsproj
 *.sln
 *.sw?
+
+# Local model cache
+.cache

@@ -581,6 +581,10 @@
             "type": "string",
             "description": "Human-readable tool description."
           },
+          "summary": {
+            "type": "string",
+            "description": "Tool summary declared by the tool definition."
+          },
           "enabled": {
             "type": "boolean",
             "description": "Whether the tool is enabled at the manifest level."
@@ -588,6 +592,27 @@
           "effectivelyEnabled": {
             "type": "boolean",
             "description": "Whether the tool is callable after accounting for its parent service state."
+          },
+          "score": {
+            "type": "number",
+            "description": "Relevance score (reciprocal rank fusion of the FTS5 and vector ranks); present only when a query was supplied."
+          },
+          "matchType": {
+            "type": "string",
+            "enum": [
+              "fts",
+              "vector",
+              "both"
+            ],
+            "description": "Which search signals matched the tool: FTS5 text match, vector similarity, or both."
+          },
+          "ftsRank": {
+            "type": "integer",
+            "description": "Rank of the tool in the FTS5 result list (1-based); present only when matched by FTS5."
+          },
+          "vectorRank": {
+            "type": "integer",
+            "description": "Rank of the tool in the vector result list (1-based); present only when matched by the embedding model."
           }
         },
         "required": [
@@ -595,6 +620,7 @@
           "id",
           "name",
           "description",
+          "summary",
           "enabled",
           "effectivelyEnabled"
         ],
@@ -4432,10 +4458,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "Free-text query used to match tool names and descriptions."
+              "description": "Free-text query matched against tool names, summaries, and descriptions via a hybrid FTS5 and vector index. Phrase naturally: word order, stopwords, and plural forms do not matter, and results are ranked by relevance when supplied."
             },
             "required": false,
-            "description": "Free-text query used to match tool names and descriptions.",
+            "description": "Free-text query matched against tool names, summaries, and descriptions via a hybrid FTS5 and vector index. Phrase naturally: word order, stopwords, and plural forms do not matter, and results are ranked by relevance when supplied.",
             "name": "query",
             "in": "query"
           },

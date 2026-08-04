@@ -28,8 +28,9 @@ const tools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
     name: "list_tools",
     description: `
     List and filter tools across services. Use to find candidate tools
-    across one or all services. If you know the tool and service id, use
-    \`get_tool_docs\` for detailed parameter information.
+    across one or all services using hybrid FTS5 and vector semantic search.
+    Results are returned in relevance-ranked order. If you know the tool and
+    service id, use \`get_tool_docs\` for detailed parameter information.
     `
       .replace(/\s+/g, " ")
       .trim(),
@@ -47,7 +48,9 @@ const tools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
       query: z
         .string()
         .optional()
-        .describe('Optional search string. Example: "issues".'),
+        .describe(
+          'Optional natural-language capability-oriented search query. Natural-language phrases (e.g., "find tools for creating GitHub issues") are preferred over literal substring or keyword lookups. Results are returned in relevance-ranked order.',
+        ),
       limit: z
         .number()
         .int()

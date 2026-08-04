@@ -37,6 +37,29 @@ conventions depend on which environment module is active. Never assume syntax.
 Do not call `get_tool_docs` for tools you are not going to use. Do not call
 `get_environment_docs` more than once per session.
 
+### Query phrasing for `list_tools`
+
+Tool search is a hybrid FTS5 + vector index, not substring matching. The
+following phrasing rules are backed by measurement against the real registry:
+
+- **Phrase queries naturally** — write what you mean ("create a new issue",
+  "send an email to the user"). Word order, stopwords, and singular/plural
+  forms do not matter: `"issue create"`, `"issues"`, and
+  `"create a new issue in the repository"` all find `issues_create`.
+- **Do not try to match tool names literally** — the index searches names,
+  summaries, and descriptions. Query `"starred repos"` and get
+  `activity_list_repos_starred_by_user`; never guess endpoint names.
+- **Use vocabulary the tool's description would use** — indexed text is the
+  match target. A synonym that never appears in the corpus may miss (e.g.
+  `"branch rules"` does not find `repos_get_branch_protection`). If a query
+  returns nothing relevant, rephrase with different words before concluding
+  the tool does not exist.
+- **Prefer distinctive words over ambiguous ones** — `"billing"` or
+  `"protection"` rank the right tool first; `"email"` or `"issue"` alone are
+  too broad to make the top 5.
+- **Avoid typos** — neither FTS5 nor the embedding model tolerate them; a
+  misspelled query silently returns unrelated results.
+
 ## 2. Execution — One Process, Many Calls
 
 When a task requires multiple tool invocations, **chain them inside a single
@@ -128,7 +151,7 @@ default is 30 seconds.
 | Step | Tool | When |
 |---|---|---|
 | Learn the runtime | `get_environment_docs` | Once per session |
-| Find tools | `list_tools` | With `query` + `limit` |
+| Find tools | `list_tools` | Natural-language `query` + low `limit` |
 | Read tool schemas | `get_tool_docs` | Per tool you will invoke |
 | Execute code | `create_process` | First run of a script |
 | Re-run code | `run_process` | Subsequent runs (use `force: true`) |
