@@ -46,7 +46,7 @@ describe("generateDefinition", () => {
 
     it("extracts summary from info.summary", async () => {
       const spec = JSON.stringify({
-        openapi: "3.0.0",
+        openapi: "3.1.0",
         info: {
           title: "Pet Store API",
           summary: "Manage pets in the store",
@@ -79,7 +79,7 @@ describe("generateDefinition", () => {
 
     it("keeps summary and description separate", async () => {
       const spec = JSON.stringify({
-        openapi: "3.0.0",
+        openapi: "3.1.0",
         info: {
           title: "Pet Store API",
           summary: "Manages pets",
