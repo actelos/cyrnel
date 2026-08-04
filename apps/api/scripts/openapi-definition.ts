@@ -1668,7 +1668,7 @@ registry.registerPath({
         .string()
         .optional()
         .describe(
-          "Maximum number of matching tools to return, as a positive integer string.",
+          "Maximum number of matching tools to return, as a positive integer string. If omitted in the search path, the API applies the default search cap of 50 results.",
         ),
       enabled: booleanQuerySchema
         .optional()

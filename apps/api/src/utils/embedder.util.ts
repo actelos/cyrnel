@@ -1,14 +1,13 @@
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 
-import { env, pipeline } from "@xenova/transformers";
-
 import { SEARCH_DIMENSIONS } from "@/db/search-schema";
 import { logger } from "@/logger";
 
 export const DEFAULT_EMBEDDING_MODEL = "Xenova/bge-small-en-v1.5";
 
 export interface Embedder {
+  readonly modelId: string;
   readonly dimensions: number;
   readonly available: boolean;
   init(): Promise<void>;
@@ -20,6 +19,8 @@ export type FeatureExtractor = (
   options: { pooling: "mean"; normalize: boolean },
 ) => Promise<{ data: Float32Array }>;
 
+type TransformersModule = typeof import("@xenova/transformers");
+
 /**
  * Local embedding model backed by @xenova/transformers. The model is loaded
  * once at startup; if loading fails (e.g. no network, cache miss) the
@@ -30,6 +31,8 @@ export class TransformersEmbedder implements Embedder {
   readonly dimensions = SEARCH_DIMENSIONS;
 
   private extractor: FeatureExtractor | null = null;
+  private initPromise: Promise<void> | null = null;
+  private initAttempted = false;
   private loaded = false;
 
   constructor(
@@ -42,30 +45,42 @@ export class TransformersEmbedder implements Embedder {
   }
 
   async init(): Promise<void> {
-    if (this.loaded) return;
-    const dataDir = process.env.CYRNEL_DATA_DIR ?? ".";
-    const cacheDir = path.join(dataDir, ".cache", "transformers");
-    mkdirSync(cacheDir, { recursive: true });
-    env.cacheDir = cacheDir;
+    if (this.loaded || this.initAttempted) return this.initPromise ?? undefined;
 
-    try {
-      const loaded = await pipeline("feature-extraction", this.modelId, {
-        quantized: true,
-      });
-      this.extractor = loaded as unknown as FeatureExtractor;
-      this.loaded = true;
-      logger.info(
-        { modelId: this.modelId, cacheDir },
-        "Embedding model loaded",
-      );
-    } catch (err) {
-      // Permanent fallback: FTS5-only mode for this process lifetime.
-      logger.warn(
-        { err, modelId: this.modelId },
-        "Embedding model failed to load; running in FTS5-only search mode",
-      );
-      this.loaded = false;
-    }
+    this.initAttempted = true;
+    this.initPromise = (async () => {
+      const dataDir = process.env.CYRNEL_DATA_DIR ?? ".";
+      const cacheDir = path.join(dataDir, ".cache", "transformers");
+
+      try {
+        mkdirSync(cacheDir, { recursive: true });
+
+        const { env, pipeline } = (await import(
+          "@xenova/transformers"
+        )) as TransformersModule;
+        env.cacheDir = cacheDir;
+
+        const loaded = await pipeline("feature-extraction", this.modelId, {
+          quantized: true,
+        });
+        this.extractor = loaded as unknown as FeatureExtractor;
+        this.loaded = true;
+        logger.info(
+          { modelId: this.modelId, cacheDir },
+          "Embedding model loaded",
+        );
+      } catch (err) {
+        // Permanent fallback: FTS5-only mode for this process lifetime.
+        logger.warn(
+          { err, modelId: this.modelId },
+          "Embedding model failed to load; running in FTS5-only search mode",
+        );
+        this.loaded = false;
+        this.extractor = null;
+      }
+    })();
+
+    await this.initPromise;
   }
 
   async embed(text: string): Promise<Float32Array> {
@@ -76,6 +91,11 @@ export class TransformersEmbedder implements Embedder {
       pooling: "mean",
       normalize: true,
     });
+    if (output.data.length !== SEARCH_DIMENSIONS) {
+      throw new Error(
+        `Embedding model output dimension ${output.data.length} does not match expected ${SEARCH_DIMENSIONS}`,
+      );
+    }
     return output.data;
   }
 }

@@ -124,7 +124,7 @@ what each one does. The two most important ones beyond the secrets key are:
   `Authorization: Bearer <key>`. Leave it unset for unauthenticated local
   development on `127.0.0.1`.
 - `CYRNEL_EMBEDDING_MODEL`: Local ONNX embedding model (defaults to `Xenova/bge-small-en-v1.5`)
-- `CYRNEL_RECONCILE_INTERVAL_MS`: Background search vector reconciliation sweep interval in ms (defaults to `1800000`)
+- `CYRNEL_RECONCILE_INTERVAL_MS`: Background search vector reconciliation sweep interval in ms. `0` disables the recurring interval, and valid values are integers from `0` through `2147483647` (defaults to `1800000`)
 
 ### Initialise the database
 

@@ -10,13 +10,21 @@ export const SEARCH_DIMENSIONS = 384;
 
 export const TOOLS_FTS_TABLE = "tools_fts";
 export const TOOL_EMBEDDINGS_TABLE = "tool_embeddings";
+export const TOOL_EMBEDDINGS_METADATA_TABLE = "tool_embeddings_metadata";
 
 // Mirror of `tools` rows that predate the triggers. Triggers only fire on
 // writes after they exist, so tools present before init() would otherwise
-// never reach the FTS mirror; this is idempotent (only missing rowids).
+// never reach the FTS mirror; startup clears the mirror and repopulates it.
+export const FTS5_BACKFILL_CLEAR = `DELETE FROM ${TOOLS_FTS_TABLE}`;
+
 export const FTS5_BACKFILL = `INSERT INTO ${TOOLS_FTS_TABLE} (rowid, service_id, tool_id, name, summary, description)
-  SELECT rowid, service_id, id, name, summary, description FROM tools
-  WHERE rowid NOT IN (SELECT rowid FROM ${TOOLS_FTS_TABLE})`;
+  SELECT rowid, service_id, id, name, summary, description FROM tools`;
+
+export const TOOL_EMBEDDINGS_METADATA_STATEMENT = `CREATE TABLE IF NOT EXISTS ${TOOL_EMBEDDINGS_METADATA_TABLE} (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  embedding_model TEXT NOT NULL,
+  embedding_dimensions INTEGER NOT NULL
+)`;
 
 // FTS5 mirror of `tools`. `service_id`/`tool_id` are stored UNINDEXED (for
 // join-back) while `name`, `summary` and `description` are indexed.

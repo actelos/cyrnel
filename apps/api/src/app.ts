@@ -20,6 +20,7 @@ import { ServicesService } from "@/services/services.service";
 import { TransformersEmbedder } from "@/utils/embedder.util";
 
 const DEFAULT_RECONCILE_INTERVAL_MS = 1_800_000;
+const MAX_RECONCILE_INTERVAL_MS = 2_147_483_647;
 
 export class App {
   readonly express: express.Express;
@@ -136,8 +137,19 @@ export class App {
 function parseReconcileInterval(raw: string | undefined): number {
   if (raw === undefined) return DEFAULT_RECONCILE_INTERVAL_MS;
   const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed < 0) {
+  if (!Number.isInteger(parsed) || parsed < 0) {
     logger.warn({ raw }, "Invalid CYRNEL_RECONCILE_INTERVAL_MS; using default");
+    return DEFAULT_RECONCILE_INTERVAL_MS;
+  }
+  if (parsed === 0) {
+    logger.info("CYRNEL_RECONCILE_INTERVAL_MS is 0; reconciliation disabled");
+    return 0;
+  }
+  if (parsed > MAX_RECONCILE_INTERVAL_MS) {
+    logger.warn(
+      { raw, max: MAX_RECONCILE_INTERVAL_MS },
+      "Invalid CYRNEL_RECONCILE_INTERVAL_MS; using default",
+    );
     return DEFAULT_RECONCILE_INTERVAL_MS;
   }
   return parsed;

@@ -241,8 +241,11 @@ export class ServicesService {
             : {}),
           effectivelyEnabled: (serviceEnabled ?? true) && hit.enabled,
         }));
-      } catch {
-        throw new HttpError(500, `Failed to search tools.`);
+      } catch (err) {
+        logger.warn(
+          { err, serviceId: input.serviceId, query: normalizedQuery },
+          "Search index lookup failed; falling back to LIKE query",
+        );
       }
     }
 

@@ -1,6 +1,9 @@
+import * as fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { SEARCH_DIMENSIONS } from "@/db/search-schema";
 import type { FeatureExtractor } from "@/utils/embedder.util";
 
 const mocks = vi.hoisted(() => ({
@@ -19,23 +22,29 @@ import {
 } from "@/utils/embedder.util";
 
 const EXTRACTOR: FeatureExtractor = vi.fn(async (text) => {
-  const data = new Float32Array(4).fill(text.length);
+  const data = new Float32Array(SEARCH_DIMENSIONS).fill(text.length);
   return { data };
 });
 
 describe("embedder.util", () => {
   const originalModel = process.env.CYRNEL_EMBEDDING_MODEL;
   const originalDataDir = process.env.CYRNEL_DATA_DIR;
+  let tempDataDir: string | undefined;
 
   beforeEach(() => {
     delete process.env.CYRNEL_EMBEDDING_MODEL;
-    delete process.env.CYRNEL_DATA_DIR;
+    tempDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "cyrnel-data-"));
+    process.env.CYRNEL_DATA_DIR = tempDataDir;
     mocks.pipeline.mockReset();
     mocks.pipeline.mockResolvedValue(EXTRACTOR);
     mocks.env.cacheDir = "";
   });
 
   afterEach(() => {
+    if (tempDataDir) {
+      fs.rmSync(tempDataDir, { recursive: true, force: true });
+      tempDataDir = undefined;
+    }
     if (originalModel === undefined) {
       delete process.env.CYRNEL_EMBEDDING_MODEL;
     } else {
@@ -85,13 +94,34 @@ describe("embedder.util", () => {
     });
 
     it("points the transformers cache at CYRNEL_DATA_DIR/.cache/transformers", async () => {
-      process.env.CYRNEL_DATA_DIR = "/tmp/cyrnel-data";
       const embedder = new TransformersEmbedder();
       await embedder.init();
 
       expect(mocks.env.cacheDir).toBe(
-        path.join("/tmp/cyrnel-data", ".cache", "transformers"),
+        path.join(tempDataDir!, ".cache", "transformers"),
       );
+    });
+
+    it("does not retry init after a failed pipeline load", async () => {
+      mocks.pipeline.mockRejectedValueOnce(new Error("no network"));
+      const embedder = new TransformersEmbedder();
+
+      await embedder.init();
+      await embedder.init();
+
+      expect(mocks.pipeline).toHaveBeenCalledTimes(1);
+      expect(embedder.available).toBe(false);
+    });
+
+    it("stays unavailable when cache directory creation fails", async () => {
+      const badDir = path.join(tempDataDir!, "file.txt");
+      fs.writeFileSync(badDir, "im a file");
+      process.env.CYRNEL_DATA_DIR = badDir;
+
+      const embedder = new TransformersEmbedder();
+      await expect(embedder.init()).resolves.toBeUndefined();
+      expect(embedder.available).toBe(false);
+      expect(mocks.pipeline).not.toHaveBeenCalled();
     });
 
     it("stays permanently unavailable when the model fails to load", async () => {
@@ -126,7 +156,21 @@ describe("embedder.util", () => {
         pooling: "mean",
         normalize: true,
       });
-      expect(vector).toEqual(new Float32Array(4).fill(10));
+      expect(vector).toEqual(new Float32Array(SEARCH_DIMENSIONS).fill(10));
+    });
+
+    it("rejects vectors with the wrong output dimension", async () => {
+      const wrongShapeExtractor: FeatureExtractor = vi.fn(async () => ({
+        data: new Float32Array(SEARCH_DIMENSIONS - 1),
+      }));
+      mocks.pipeline.mockResolvedValueOnce(wrongShapeExtractor);
+
+      const embedder = new TransformersEmbedder();
+      await embedder.init();
+
+      await expect(embedder.embed("hello")).rejects.toThrow(
+        /does not match expected 384/,
+      );
     });
 
     it("throws when called before init", async () => {

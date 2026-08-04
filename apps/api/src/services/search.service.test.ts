@@ -26,6 +26,7 @@ const DIMENSIONS = 8;
 const MIGRATIONS_DIR = path.resolve(import.meta.dirname, "../../drizzle");
 
 async function applyMigrations(): Promise<void> {
+  await db.run(sql.raw("PRAGMA journal_mode = WAL;"));
   const entries = (await fs.readdir(MIGRATIONS_DIR))
     .filter((name) => name.endsWith(".sql"))
     .sort();
@@ -42,6 +43,7 @@ async function applyMigrations(): Promise<void> {
 }
 
 class FakeEmbedder implements Embedder {
+  readonly modelId = "test-model";
   readonly dimensions = DIMENSIONS;
   available: boolean;
   failCount = 0;
@@ -125,6 +127,7 @@ async function insertService(serviceId: string): Promise<void> {
 
 function openProbe(): Database.Database {
   const probe = new Database(resolveDatabaseUrl());
+  probe.defaultSafeIntegers(true);
   probe.loadExtension(getLoadablePath());
   return probe;
 }
@@ -198,11 +201,11 @@ describe("SearchService (FTS5 + vector hybrid)", () => {
     embedder = new FakeEmbedder();
     search = new SearchService(embedder);
     await search.init();
+    probe = openProbe();
   });
 
   beforeEach(async () => {
     await resetDb();
-    probe = openProbe();
     probe.exec("DELETE FROM tool_embeddings");
   });
 
@@ -472,6 +475,11 @@ describe("SearchService (FTS5 + vector hybrid)", () => {
   });
 
   describe("reconcile", () => {
+    beforeEach(async () => {
+      embedder.available = true;
+      embedder.failCount = 0;
+    });
+
     it("embeds tools missing an embedding", async () => {
       await insertTool("svc", "sendEmail", "sendEmail", "sends email");
       const result = await search.reconcile();
@@ -526,21 +534,19 @@ describe("SearchService (FTS5 + vector hybrid)", () => {
 
   describe("reconciliation scheduling", () => {
     it("runs on the configured interval", async () => {
-      vi.useFakeTimers();
+      let intervalSearch: SearchService | null = null;
       try {
-        const intervalSearch = new SearchService(embedder);
+        intervalSearch = new SearchService(embedder);
         await intervalSearch.init();
-        intervalSearch.startReconciliation(1_000);
+        intervalSearch.startReconciliation(50);
 
         await insertTool("svc", "sendEmail", "sendEmail", "sends email");
         expect(embeddingFor(probe, "svc", "sendEmail")).toBeUndefined();
 
-        await vi.advanceTimersByTimeAsync(1_000);
+        await new Promise((resolve) => setTimeout(resolve, 150));
         expect(embeddingFor(probe, "svc", "sendEmail")).toBeDefined();
-
-        intervalSearch.close();
       } finally {
-        vi.useRealTimers();
+        intervalSearch?.close();
       }
     });
 

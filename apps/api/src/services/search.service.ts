@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import Database from "libsql";
 import { getLoadablePath } from "sqlite-vec";
 
@@ -7,7 +7,10 @@ import { tools } from "@/db/schema";
 import {
   embeddingsStatement,
   FTS5_BACKFILL,
+  FTS5_BACKFILL_CLEAR,
   FTS5_STATEMENTS,
+  TOOL_EMBEDDINGS_METADATA_STATEMENT,
+  TOOL_EMBEDDINGS_METADATA_TABLE,
   TOOL_EMBEDDINGS_TABLE,
   TOOLS_FTS_TABLE,
 } from "@/db/search-schema";
@@ -148,13 +151,42 @@ export class SearchService implements ToolSearchIndex {
     for (const statement of FTS5_STATEMENTS) {
       await this.appDb.run(sql.raw(statement));
     }
+    await this.appDb.run(sql.raw(TOOL_EMBEDDINGS_METADATA_STATEMENT));
+    await this.appDb.run(sql.raw(FTS5_BACKFILL_CLEAR));
     await this.appDb.run(sql.raw(FTS5_BACKFILL));
     try {
       this.searchDb = new Database(resolveDatabaseUrl(), {
         timeout: SEARCH_DB_TIMEOUT_MS,
       });
+      this.searchDb.defaultSafeIntegers(true);
+      this.searchDb.exec("PRAGMA journal_mode = WAL;");
       this.searchDb.loadExtension(getLoadablePath());
+      const metadata = await this.appDb.$client.execute({
+        sql: `SELECT embedding_model, embedding_dimensions FROM ${TOOL_EMBEDDINGS_METADATA_TABLE} WHERE id = 1`,
+      });
+      const recorded = metadata.rows[0]
+        ? {
+            embedding_model: String(metadata.rows[0].embedding_model),
+            embedding_dimensions: Number(metadata.rows[0].embedding_dimensions),
+          }
+        : null;
+      const needsRebuild =
+        recorded === null ||
+        recorded.embedding_model !== this.embedder.modelId ||
+        recorded.embedding_dimensions !== this.embedder.dimensions;
+      if (needsRebuild) {
+        this.searchDb.exec(`DROP TABLE IF EXISTS ${TOOL_EMBEDDINGS_TABLE}`);
+      }
       this.searchDb.exec(embeddingsStatement(this.embedder.dimensions));
+      if (needsRebuild) {
+        await this.appDb.run(sql`
+          INSERT INTO ${sql.raw(TOOL_EMBEDDINGS_METADATA_TABLE)} (id, embedding_model, embedding_dimensions)
+          VALUES (1, ${this.embedder.modelId}, ${this.embedder.dimensions})
+          ON CONFLICT(id) DO UPDATE SET
+            embedding_model = excluded.embedding_model,
+            embedding_dimensions = excluded.embedding_dimensions
+        `);
+      }
       this.schemaReady = true;
     } catch (err) {
       this.searchDb?.close();
@@ -164,9 +196,9 @@ export class SearchService implements ToolSearchIndex {
         "Vector search unavailable; running in FTS5-only mode",
       );
     }
-    // Model load is non-blocking: readiness is not delayed, and a failure
-    // (warned once inside) permanently drops this process to FTS5-only.
-    void this.embedder.init();
+    // Model load is awaited so the first reconciliation sweep can index
+    // vectors immediately instead of deferring until the next timer tick.
+    await this.embedder.init();
   }
 
   close(): void {
@@ -220,8 +252,8 @@ export class SearchService implements ToolSearchIndex {
     const match = tokenizeQuery(query);
 
     const [ftsKeys, vecKeys] = await Promise.all([
-      this.queryFts(match, cap),
-      this.queryVector(query, cap),
+      this.queryFts(match, cap, options.serviceId),
+      this.queryVector(query, cap, options.serviceId),
     ]);
 
     const keys = [...new Set([...ftsKeys, ...vecKeys])];
@@ -296,44 +328,56 @@ export class SearchService implements ToolSearchIndex {
         description: tools.description,
       })
       .from(tools)
+      .orderBy(asc(tools.serviceId), asc(tools.id))
       .where(eq(tools.serviceId, serviceId));
 
-    const settled = await Promise.allSettled(
-      rows.map(async (row) => ({
-        key: toolKey(row.service_id, row.id),
-        serviceId: row.service_id,
-        toolId: row.id,
-        vector: await this.embedder.embed(
-          embeddingText(
-            row.service_id,
-            row.id,
-            row.name,
-            row.description,
-            row.summary,
+    const embeddedRows: Array<{
+      serviceId: string;
+      toolId: string;
+      vector: Float32Array;
+    }> = [];
+    let anySucceeded = false;
+
+    for (let i = 0; i < rows.length; i += RECONCILE_BATCH_SIZE) {
+      const batch = rows.slice(i, i + RECONCILE_BATCH_SIZE);
+      const settled = await Promise.allSettled(
+        batch.map(async (row) => ({
+          serviceId: row.service_id,
+          toolId: row.id,
+          vector: await this.embedder.embed(
+            embeddingText(
+              row.service_id,
+              row.id,
+              row.name,
+              row.description,
+              row.summary,
+            ),
           ),
-        ),
-      })),
-    );
+        })),
+      );
+
+      for (const result of settled) {
+        if (result.status === "rejected") {
+          logger.warn(
+            { err: result.reason, serviceId },
+            "Failed to embed tool during reindex; skipping",
+          );
+          continue;
+        }
+        anySucceeded = true;
+        embeddedRows.push(result.value);
+      }
+    }
+
+    if (!anySucceeded) return;
 
     const db = this.searchDb;
     const run = db.transaction(() => {
       db.prepare(
         `DELETE FROM ${TOOL_EMBEDDINGS_TABLE} WHERE service_id = ?`,
       ).run(serviceId);
-      for (const result of settled) {
-        if (result.status === "rejected") {
-          logger.warn(
-            { err: result.reason, serviceId },
-            "Failed to embed tool; skipping",
-          );
-          continue;
-        }
-        this.insertEmbeddingRow(
-          db,
-          result.value.serviceId,
-          result.value.toolId,
-          result.value.vector,
-        );
+      for (const row of embeddedRows) {
+        this.insertEmbeddingRow(db, row.serviceId, row.toolId, row.vector);
       }
     });
     run();
@@ -368,14 +412,13 @@ export class SearchService implements ToolSearchIndex {
             description: tools.description,
           })
           .from(tools)
+          .orderBy(asc(tools.serviceId), asc(tools.id))
           .limit(RECONCILE_BATCH_SIZE)
           .offset(offset);
         if (batch.length === 0) break;
         offset += batch.length;
 
-        const existing = await this.embeddingKeysForServiceIds([
-          ...new Set(batch.map((row) => row.service_id)),
-        ]);
+        const existing = await this.embeddingKeysForBatch(batch);
         const missing = batch.filter(
           (row) => !existing.has(toolKey(row.service_id, row.id)),
         );
@@ -425,32 +468,49 @@ export class SearchService implements ToolSearchIndex {
     return result;
   }
 
-  private async queryFts(match: string, cap: number): Promise<string[]> {
+  private async queryFts(
+    match: string,
+    cap: number,
+    serviceId?: string,
+  ): Promise<string[]> {
     if (!match) return [];
-    const rows = await this.appDb.$client.execute({
-      sql: `SELECT service_id, tool_id FROM ${TOOLS_FTS_TABLE}
-            WHERE ${TOOLS_FTS_TABLE} MATCH ?
+    const args: Array<string | number> = [match];
+    let sqlText = `SELECT service_id, tool_id FROM ${TOOLS_FTS_TABLE}
+            WHERE ${TOOLS_FTS_TABLE} MATCH ?`;
+    if (serviceId !== undefined) {
+      sqlText += " AND service_id = ?";
+      args.push(serviceId);
+    }
+    sqlText += `
             ORDER BY bm25(${TOOLS_FTS_TABLE})
-            LIMIT ?`,
-      args: [match, cap],
-    });
+            LIMIT ?`;
+    args.push(cap);
+    const rows = await this.appDb.$client.execute({ sql: sqlText, args });
     return rows.rows.map((row) =>
       toolKey(String(row.service_id), String(row.tool_id)),
     );
   }
 
-  private async queryVector(query: string, cap: number): Promise<string[]> {
+  private async queryVector(
+    query: string,
+    cap: number,
+    serviceId?: string,
+  ): Promise<string[]> {
     if (!this.vectorAvailable || !this.searchDb) return [];
     try {
       const vector = await this.embedder.embed(query);
-      const rows = this.searchDb
-        .prepare(
-          `SELECT service_id, tool_id FROM ${TOOL_EMBEDDINGS_TABLE}
-           WHERE embedding MATCH ?
+      const args: Array<string | number> = [jsonVector(vector)];
+      let sqlText = `SELECT service_id, tool_id FROM ${TOOL_EMBEDDINGS_TABLE}
+           WHERE embedding MATCH ?`;
+      if (serviceId !== undefined) {
+        sqlText += " AND service_id = ?";
+        args.push(serviceId);
+      }
+      sqlText += `
            ORDER BY distance
-           LIMIT ?`,
-        )
-        .all(jsonVector(vector), cap);
+           LIMIT ?`;
+      args.push(cap);
+      const rows = this.searchDb.prepare(sqlText).all(...args);
       return rows.map((row) => {
         const r = row as EmbeddingRef;
         return toolKey(String(r.service_id), String(r.tool_id));
@@ -503,21 +563,21 @@ export class SearchService implements ToolSearchIndex {
     return resolved;
   }
 
-  private async embeddingKeysForServiceIds(
-    serviceIds: string[],
+  private async embeddingKeysForBatch(
+    rows: Array<{ service_id: string; id: string }>,
   ): Promise<Set<string>> {
     const keys = new Set<string>();
     if (!this.searchDb) return keys;
-    for (let i = 0; i < serviceIds.length; i += IN_CHUNK_SIZE) {
-      const chunk = serviceIds.slice(i, i + IN_CHUNK_SIZE);
+    for (let i = 0; i < rows.length; i += IN_CHUNK_SIZE) {
+      const chunk = rows.slice(i, i + IN_CHUNK_SIZE);
       const placeholders = chunk.map(() => "?").join(", ");
-      const rows = this.searchDb
+      const matchRows = this.searchDb
         .prepare(
           `SELECT service_id, tool_id FROM ${TOOL_EMBEDDINGS_TABLE}
-           WHERE service_id IN (${placeholders})`,
+           WHERE id IN (${placeholders})`,
         )
-        .all(...chunk);
-      for (const row of rows) {
+        .all(...chunk.map((row) => embeddingKey(row.service_id, row.id)));
+      for (const row of matchRows) {
         const ref = row as EmbeddingRef;
         keys.add(toolKey(String(ref.service_id), String(ref.tool_id)));
       }
@@ -527,11 +587,24 @@ export class SearchService implements ToolSearchIndex {
 
   private async deleteOrphanEmbeddings(result: ReconcileResult): Promise<void> {
     if (!this.searchDb) return;
-    const refs = this.searchDb
-      .prepare(`SELECT service_id, tool_id FROM ${TOOL_EMBEDDINGS_TABLE}`)
-      .all() as EmbeddingRef[];
-    for (let i = 0; i < refs.length; i += IN_CHUNK_SIZE) {
-      const chunk = refs.slice(i, i + IN_CHUNK_SIZE);
+    const deleteOrphan = this.searchDb.prepare(
+      `DELETE FROM ${TOOL_EMBEDDINGS_TABLE} WHERE id = ?`,
+    );
+    let lastId = -1n;
+    while (true) {
+      const refs = this.searchDb
+        .prepare(
+          `SELECT id, service_id, tool_id FROM ${TOOL_EMBEDDINGS_TABLE}
+           WHERE id > ?
+           ORDER BY id
+           LIMIT ?`,
+        )
+        .all(lastId, RECONCILE_BATCH_SIZE) as Array<
+        EmbeddingRef & { id: bigint | number | string }
+      >;
+      if (refs.length === 0) break;
+      lastId = BigInt(String(refs[refs.length - 1].id));
+      const chunk = refs;
       const placeholders = chunk.map(() => "(?, ?)").join(", ");
       const rows = await this.appDb.$client.execute({
         sql: `SELECT service_id, id FROM tools
@@ -548,9 +621,7 @@ export class SearchService implements ToolSearchIndex {
       const db = this.searchDb;
       const run = db.transaction(() => {
         for (const orphan of orphans) {
-          db.prepare(`DELETE FROM ${TOOL_EMBEDDINGS_TABLE} WHERE id = ?`).run(
-            embeddingKey(orphan.service_id, orphan.tool_id),
-          );
+          deleteOrphan.run(embeddingKey(orphan.service_id, orphan.tool_id));
         }
       });
       run();
@@ -564,14 +635,11 @@ export class SearchService implements ToolSearchIndex {
     toolId: string,
     vector: Float32Array,
   ): void {
+    const id = embeddingKey(serviceId, toolId);
+    db.prepare(`DELETE FROM ${TOOL_EMBEDDINGS_TABLE} WHERE id = ?`).run(id);
     db.prepare(
       `INSERT INTO ${TOOL_EMBEDDINGS_TABLE} (id, service_id, tool_id, embedding)
        VALUES (?, ?, ?, ?)`,
-    ).run(
-      embeddingKey(serviceId, toolId),
-      serviceId,
-      toolId,
-      jsonVector(vector),
-    );
+    ).run(id, serviceId, toolId, jsonVector(vector));
   }
 }
