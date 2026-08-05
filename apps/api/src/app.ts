@@ -9,6 +9,7 @@ import { errorMiddleware } from "@/middleware/error.middleware";
 import { ipAccessMiddleware } from "@/middleware/ip-access.middleware";
 import { globalRateLimiter } from "@/middleware/rate-limit.middleware";
 import { environmentRouter } from "@/routes/environment.route";
+import { logRouter } from "@/routes/log.route";
 import { moduleRouter } from "@/routes/module.route";
 import { processRouter } from "@/routes/process.route";
 import { serviceRouter } from "@/routes/service.route";
@@ -132,6 +133,7 @@ export class App {
     app.use("/tools", toolRouter);
     app.use("/processes", processRouter);
     app.use("/environment", environmentRouter);
+    app.use("/logs", logRouter);
     app.use(errorMiddleware);
 
     return app;

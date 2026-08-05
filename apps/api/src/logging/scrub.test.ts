@@ -25,7 +25,11 @@ describe("scrubString", () => {
   });
 
   it("redacts long opaque tokens", () => {
-    const token = ["a1b2c3d4e5f6a1b2c3d4e5f6", "a1b2c3d4e5f6a1b2c3d4e5f6", "a1b2"].join("");
+    const token = [
+      "a1b2c3d4e5f6a1b2c3d4e5f6",
+      "a1b2c3d4e5f6a1b2c3d4e5f6",
+      "a1b2",
+    ].join("");
     expect(scrubString(`value=${token}`)).not.toContain(token);
   });
 
@@ -34,9 +38,7 @@ describe("scrubString", () => {
       "api_key=***REDACTED***",
     );
     const tokenValue = ["abcdef", "1234567890"].join("");
-    expect(scrubString(`token: ${tokenValue}`)).toBe(
-      "token: ***REDACTED***",
-    );
+    expect(scrubString(`token: ${tokenValue}`)).toBe("token: ***REDACTED***");
     expect(scrubString("password=correcthorsebatterystaple")).toBe(
       "password=***REDACTED***",
     );

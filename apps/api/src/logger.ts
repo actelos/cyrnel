@@ -1,8 +1,9 @@
 import path from "node:path";
 import pino from "pino";
 import pretty from "pino-pretty";
-
+import type { LogEntry } from "@/logging/log-entry";
 import { LogSink, type LogSinkOptions } from "@/logging/log-sink";
+import type { RingBuffer } from "@/logging/ring-buffer";
 
 const { NODE_ENV, LOG_LEVEL } = process.env;
 
@@ -126,6 +127,10 @@ function createLogger() {
 
 export function flushLogSink(): void {
   sink?.close();
+}
+
+export function getLogBuffer(): RingBuffer<LogEntry> | null {
+  return sink?.buffer ?? null;
 }
 
 export const logger = createLogger();

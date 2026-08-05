@@ -162,3 +162,8 @@ Full set of env vars (see `apps/api/.example.env` for defaults):
 | `CYRNEL_BLOCK_ALL_REGISTRIES` | Deny all registry downloads (1/true) |
 | `CYRNEL_EMBEDDING_MODEL` | Local ONNX embedding model (default `Xenova/bge-small-en-v1.5`) |
 | `CYRNEL_RECONCILE_INTERVAL_MS` | Background search vector reconciliation sweep interval in ms (default `1800000`) |
+| `CYRNEL_LOG_FILE` | Persistent JSONL log file (default `<CYRNEL_DATA_DIR>/logs/app.log`; `false` disables) |
+| `CYRNEL_LOG_ROTATION_MB` | Rotate active log file at this size in MB (default `10`) |
+| `CYRNEL_LOG_MAX_FILES` | Max rotated log files kept (default `5`) |
+| `CYRNEL_LOG_RING_BUFFER` | In-memory entries served by `GET /logs` (default `10000`) |
+| `CYRNEL_LOG_DEDUPE_WINDOW_MS` | Dedupe window for identical warn/error messages, ms (default `0` = off) |
