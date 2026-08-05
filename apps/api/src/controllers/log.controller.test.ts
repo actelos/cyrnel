@@ -1,5 +1,9 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
 import type { Request, Response } from "express";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { listLogs, streamLogs } from "@/controllers/log.controller";
 import { LogBus } from "@/logging/bus";
@@ -9,15 +13,29 @@ import { RingBuffer } from "@/logging/ring-buffer";
 const mocks = vi.hoisted(() => ({
   getLogBuffer: vi.fn(),
   getLogBus: vi.fn(),
+  getLogFileOptions: vi.fn(),
 }));
 
 vi.mock("@/logger", () => ({
   getLogBuffer: mocks.getLogBuffer,
   getLogBus: mocks.getLogBus,
+  getLogFileOptions: mocks.getLogFileOptions,
 }));
 
 const getLogBufferMock = mocks.getLogBuffer;
 const getLogBusMock = mocks.getLogBus;
+const getLogFileOptionsMock = mocks.getLogFileOptions;
+
+let tmpDir: string;
+
+beforeEach(() => {
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "cyrnel-log-ctrl-"));
+  getLogFileOptionsMock.mockReturnValue(null);
+});
+
+afterEach(() => {
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+});
 
 interface MockResponse {
   status: ReturnType<typeof vi.fn>;
@@ -178,6 +196,125 @@ describe("log.controller listLogs", () => {
     await expect(
       listLogs(makeReq({ level: "loud" }), cast(res)),
     ).rejects.toThrow(/Invalid option: expected one of/);
+  });
+
+  it("appends file history when the buffer page is short", async () => {
+    const buffer = new RingBuffer<LogEntry>(100);
+    buffer.push(makeEntry({ timestamp: 500, seq: 5, message: "buffer" }));
+    getLogBufferMock.mockReturnValue(buffer);
+
+    const filePath = path.join(tmpDir, "app.log");
+    fs.writeFileSync(
+      filePath,
+      [
+        JSON.stringify(makeEntry({ timestamp: 100, seq: 1, message: "old" })),
+        JSON.stringify(makeEntry({ timestamp: 200, seq: 2, message: "older" })),
+      ].join("\n") + "\n",
+    );
+    getLogFileOptionsMock.mockReturnValue({ filePath, maxFiles: 5 });
+
+    const res = makeRes();
+    await listLogs(makeReq({ limit: 5 }), cast(res));
+
+    const body = res.json.mock.calls[0][0] as {
+      entries: LogEntry[];
+      nextCursor: string | null;
+    };
+    expect(body.entries.map((e) => e.message)).toEqual([
+      "buffer",
+      "older",
+      "old",
+    ]);
+    expect(body.nextCursor).toBeNull();
+  });
+
+  it("sets nextCursor when the file scan fills the page", async () => {
+    getLogBufferMock.mockReturnValue(new RingBuffer<LogEntry>(10));
+
+    const filePath = path.join(tmpDir, "app.log");
+    fs.writeFileSync(
+      filePath,
+      [1, 2, 3]
+        .map((n) =>
+          JSON.stringify(makeEntry({ timestamp: n * 100, seq: n })),
+        )
+        .join("\n") + "\n",
+    );
+    getLogFileOptionsMock.mockReturnValue({ filePath, maxFiles: 5 });
+
+    const res = makeRes();
+    await listLogs(makeReq({ limit: 2 }), cast(res));
+
+    const body = res.json.mock.calls[0][0] as {
+      entries: LogEntry[];
+      nextCursor: string | null;
+    };
+    expect(body.entries.map((e) => e.seq)).toEqual([3, 2]);
+    expect(body.nextCursor).toBe("200:2");
+  });
+
+  it("applies filters to the file scan", async () => {
+    getLogBufferMock.mockReturnValue(new RingBuffer<LogEntry>(10));
+
+    const filePath = path.join(tmpDir, "app.log");
+    fs.writeFileSync(
+      filePath,
+      [
+        JSON.stringify(makeEntry({ timestamp: 100, seq: 1, level: "info" })),
+        JSON.stringify(
+          makeEntry({ timestamp: 200, seq: 2, level: "error" }),
+        ),
+      ].join("\n") + "\n",
+    );
+    getLogFileOptionsMock.mockReturnValue({ filePath, maxFiles: 5 });
+
+    const res = makeRes();
+    await listLogs(makeReq({ limit: 10, level: "error" }), cast(res));
+
+    const body = res.json.mock.calls[0][0] as { entries: LogEntry[] };
+    expect(body.entries.map((e) => e.seq)).toEqual([2]);
+  });
+
+  it("continues file scan from an explicit before cursor", async () => {
+    getLogBufferMock.mockReturnValue(new RingBuffer<LogEntry>(10));
+
+    const filePath = path.join(tmpDir, "app.log");
+    fs.writeFileSync(
+      filePath,
+      [
+        JSON.stringify(makeEntry({ timestamp: 100, seq: 1 })),
+        JSON.stringify(makeEntry({ timestamp: 200, seq: 2 })),
+        JSON.stringify(makeEntry({ timestamp: 300, seq: 3 })),
+      ].join("\n") + "\n",
+    );
+    getLogFileOptionsMock.mockReturnValue({ filePath, maxFiles: 5 });
+
+    const res = makeRes();
+    await listLogs(makeReq({ before: "300:3" }), cast(res));
+
+    const body = res.json.mock.calls[0][0] as {
+      entries: LogEntry[];
+      nextCursor: string | null;
+    };
+    expect(body.entries.map((e) => e.seq)).toEqual([2, 1]);
+    expect(body.nextCursor).toBeNull();
+  });
+
+  it("does not scan files for non-desc sorts", async () => {
+    getLogBufferMock.mockReturnValue(new RingBuffer<LogEntry>(10));
+
+    const filePath = path.join(tmpDir, "app.log");
+    fs.writeFileSync(
+      filePath,
+      JSON.stringify(makeEntry({ timestamp: 100, seq: 1 })) + "\n",
+    );
+    getLogFileOptionsMock.mockReturnValue({ filePath, maxFiles: 5 });
+
+    const res = makeRes();
+    await listLogs(makeReq({ sort: "timestamp:asc" }), cast(res));
+
+    const body = res.json.mock.calls[0][0] as { entries: LogEntry[] };
+    expect(body.entries).toEqual([]);
   });
 });
 

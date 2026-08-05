@@ -27,6 +27,8 @@ function dayOf(date: Date): string {
 export class LogSink {
   readonly buffer: RingBuffer<LogEntry>;
   readonly bus: LogBus;
+  readonly filePath: string;
+  readonly maxFiles: number;
 
   private fd: number;
   private bytes = 0;
@@ -43,6 +45,8 @@ export class LogSink {
   constructor(private readonly options: LogSinkOptions) {
     fs.mkdirSync(path.dirname(options.filePath), { recursive: true });
     this.fd = fs.openSync(options.filePath, "a");
+    this.filePath = options.filePath;
+    this.maxFiles = options.maxFiles;
     this.currentDay = dayOf(new Date());
     this.buffer = new RingBuffer(options.ringCapacity);
     this.bus = new LogBus();

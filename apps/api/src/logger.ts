@@ -2,6 +2,7 @@ import path from "node:path";
 import pino from "pino";
 import pretty from "pino-pretty";
 import type { LogBus } from "@/logging/bus";
+import type { LogFileOptions } from "@/logging/file-scan";
 import type { LogEntry } from "@/logging/log-entry";
 import { LogSink, type LogSinkOptions } from "@/logging/log-sink";
 import type { RingBuffer } from "@/logging/ring-buffer";
@@ -136,6 +137,10 @@ export function getLogBuffer(): RingBuffer<LogEntry> | null {
 
 export function getLogBus(): LogBus | null {
   return sink?.bus ?? null;
+}
+
+export function getLogFileOptions(): LogFileOptions | null {
+  return sink ? { filePath: sink.filePath, maxFiles: sink.maxFiles } : null;
 }
 
 export const logger = createLogger();

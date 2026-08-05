@@ -1,9 +1,23 @@
 import type { Request, Response } from "express";
 import { z } from "zod";
 
-import { getLogBuffer, getLogBus } from "@/logger";
-import { LOG_LEVELS, type LogEntry, logEntryId } from "@/logging/log-entry";
-import { type LogSort, parseLogCursor, queryLogEntries } from "@/logging/query";
+import {
+  getLogBuffer,
+  getLogBus,
+  getLogFileOptions,
+} from "@/logger";
+import { tailScanLogFiles } from "@/logging/file-scan";
+import {
+  LOG_LEVELS,
+  logEntryId,
+  type LogEntry,
+} from "@/logging/log-entry";
+import {
+  parseLogCursor,
+  queryLogEntries,
+  type LogCursor,
+  type LogSort,
+} from "@/logging/query";
 import { HttpError } from "@/models/error.model";
 import { parseOrHttpError } from "@/utils/validation.util";
 
@@ -68,14 +82,48 @@ export async function listLogs(req: Request, res: Response): Promise<void> {
     }
   }
 
+  const sort = parseSort(query.sort);
   const buffer = getLogBuffer();
-  const { entries, nextCursor } = queryLogEntries(
-    buffer ? buffer.toArray() : [],
+  const { entries: bufferEntries, nextCursor: bufferNextCursor } =
+    queryLogEntries(
+      buffer ? buffer.toArray() : [],
+      toFilters(query),
+      sort,
+      query.limit,
+      before,
+    );
+
+  const fileOptions = getLogFileOptions();
+  const canScanFiles =
+    fileOptions !== null &&
+    sort.field === "timestamp" &&
+    sort.direction === "desc" &&
+    bufferEntries.length < query.limit;
+  if (!canScanFiles) {
+    res
+      .status(200)
+      .json({ entries: bufferEntries, nextCursor: bufferNextCursor });
+    return;
+  }
+
+  let deepBefore: LogCursor | undefined = before;
+  if (bufferEntries.length > 0) {
+    const oldest = bufferEntries[bufferEntries.length - 1];
+    deepBefore = { timestamp: oldest.timestamp, seq: oldest.seq };
+  }
+
+  const remaining = query.limit - bufferEntries.length;
+  const deep = tailScanLogFiles(
+    fileOptions,
     toFilters(query),
-    parseSort(query.sort),
-    query.limit,
-    before,
+    remaining,
+    deepBefore,
   );
+  const entries = [...bufferEntries, ...deep];
+  const nextCursor =
+    deep.length === remaining
+      ? logEntryId(entries[entries.length - 1])
+      : null;
 
   res.status(200).json({ entries, nextCursor });
 }
