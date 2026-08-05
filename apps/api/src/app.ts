@@ -105,13 +105,14 @@ export class App {
     app.use(
       pinoHttp({
         logger,
-        redact: {
-          paths: [
-            "req.headers.authorization",
-            "req.headers.cookie",
-            'req.headers["set-cookie"]',
-          ],
-          censor: "***REDACTED***",
+        genReqId: () => crypto.randomUUID(),
+        customLogLevel: (_req, res, err) => {
+          if (err || res.statusCode >= 500) return "error";
+          if (res.statusCode >= 400) return "warn";
+          return "debug";
+        },
+        autoLogging: {
+          ignore: (req) => req.url?.startsWith("/health") ?? false,
         },
       }),
     );
