@@ -1,11 +1,14 @@
 import type { Request, Response } from "express";
 import { z } from "zod";
 
-import { getLogBuffer } from "@/logger";
-import { LOG_LEVELS } from "@/logging/log-entry";
+import { getLogBuffer, getLogBus } from "@/logger";
+import { LOG_LEVELS, type LogEntry, logEntryId } from "@/logging/log-entry";
 import { type LogSort, parseLogCursor, queryLogEntries } from "@/logging/query";
 import { HttpError } from "@/models/error.model";
 import { parseOrHttpError } from "@/utils/validation.util";
+
+const STREAM_REPLAY_LIMIT = 100;
+const STREAM_HEARTBEAT_MS = 15_000;
 
 const LOG_TYPES = ["app", "request"] as const;
 
@@ -96,4 +99,62 @@ function toFilters(query: ListLogsQuery) {
     durationMin: query.durationMin,
     durationMax: query.durationMax,
   };
+}
+
+export function streamLogs(req: Request, res: Response): void {
+  const bus = getLogBus();
+  if (!bus)
+    throw new HttpError(503, "Log stream unavailable (logging disabled).");
+
+  let unsubscribe: (() => void) | undefined;
+  try {
+    unsubscribe = bus.subscribe(sendEntry);
+  } catch {
+    throw new HttpError(503, "Too many log stream subscribers.");
+  }
+
+  let closed = false;
+
+  const heartbeat = setInterval(() => {
+    if (closed) return;
+    try {
+      res.write(": ping\n\n");
+    } catch {
+      cleanup();
+    }
+  }, STREAM_HEARTBEAT_MS);
+  heartbeat.unref();
+
+  function sendEntry(entry: LogEntry): void {
+    if (closed) return;
+    try {
+      res.write(
+        `id: ${logEntryId(entry)}\nevent: log\ndata: ${JSON.stringify(entry)}\n\n`,
+      );
+    } catch {
+      cleanup();
+    }
+  }
+
+  function cleanup(): void {
+    if (closed) return;
+    closed = true;
+    clearInterval(heartbeat);
+    unsubscribe?.();
+    res.end();
+  }
+
+  req.on("close", cleanup);
+
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache, no-transform",
+    Connection: "keep-alive",
+    "X-Accel-Buffering": "no",
+  });
+  res.flushHeaders();
+
+  const buffer = getLogBuffer();
+  const recent = buffer ? buffer.toArray().slice(-STREAM_REPLAY_LIMIT) : [];
+  for (const entry of recent) sendEntry(entry);
 }

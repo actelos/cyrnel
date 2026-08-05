@@ -1,6 +1,7 @@
 import path from "node:path";
 import pino from "pino";
 import pretty from "pino-pretty";
+import type { LogBus } from "@/logging/bus";
 import type { LogEntry } from "@/logging/log-entry";
 import { LogSink, type LogSinkOptions } from "@/logging/log-sink";
 import type { RingBuffer } from "@/logging/ring-buffer";
@@ -131,6 +132,10 @@ export function flushLogSink(): void {
 
 export function getLogBuffer(): RingBuffer<LogEntry> | null {
   return sink?.buffer ?? null;
+}
+
+export function getLogBus(): LogBus | null {
+  return sink?.bus ?? null;
 }
 
 export const logger = createLogger();
