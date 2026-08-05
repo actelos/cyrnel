@@ -23,6 +23,7 @@ const API_PATHS = [
   "/tools",
   "/processes",
   "/environment",
+  "/logs",
 ];
 
 function isApiPath(pathname: string): boolean {

@@ -11,6 +11,7 @@ const API_PATHS = [
   "/tools",
   "/processes",
   "/environment",
+  "/logs",
 ] as const;
 
 export default defineConfig(({ mode }) => {
