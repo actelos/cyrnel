@@ -151,7 +151,7 @@ describe("createRateLimiter", () => {
 
     expect(logger.warn).toHaveBeenCalledOnce();
     expect(logger.warn).toHaveBeenCalledWith(
-      { rateLimited: true, route: "test-route" },
+      { event: "rate-limit-exceeded", rateLimited: true, route: "test-route" },
       "Rate limit exceeded",
     );
   });

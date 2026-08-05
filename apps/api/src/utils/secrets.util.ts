@@ -103,10 +103,13 @@ export async function decryptAndMaybeReEncrypt(
     try {
       const reEncrypted = encryptSecrets(secrets);
       await persist(reEncrypted);
-      logger.debug(logMeta, "Re-encrypted secrets with primary key");
+      logger.debug(
+        { event: "secrets-reencrypted", ...logMeta },
+        "Re-encrypted secrets with primary key",
+      );
     } catch (err) {
       logger.warn(
-        { err, ...logMeta },
+        { event: "secrets-reencrypt-persist-failed", err, ...logMeta },
         "Failed to persist re-encrypted secrets",
       );
     }

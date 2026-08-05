@@ -9,4 +9,7 @@ import { logger } from "@/logger";
 
 const migrationsFolder = path.join(import.meta.dirname, "..", "drizzle");
 await migrate(db, { migrationsFolder });
-logger.info({ migrationsFolder }, "Database migrations applied");
+logger.info(
+  { event: "migrations-applied", migrationsFolder },
+  "Database migrations applied",
+);

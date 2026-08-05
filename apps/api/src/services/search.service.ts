@@ -192,7 +192,7 @@ export class SearchService implements ToolSearchIndex {
       this.searchDb?.close();
       this.searchDb = null;
       logger.warn(
-        { err },
+        { event: "vector-search-unavailable", err },
         "Vector search unavailable; running in FTS5-only mode",
       );
     }
@@ -220,6 +220,7 @@ export class SearchService implements ToolSearchIndex {
     this.reconcileTimer = setInterval(() => {
       if (this.reconciling) {
         logger.debug(
+          { event: "reconcile-skipped" },
           "Skipping search reconciliation: previous run still in flight",
         );
         return;
@@ -235,7 +236,10 @@ export class SearchService implements ToolSearchIndex {
     try {
       await this.reconcile();
     } catch (err) {
-      logger.error({ err }, "Search reconciliation failed");
+      logger.error(
+        { event: "reconcile-failed", err },
+        "Search reconciliation failed",
+      );
     } finally {
       this.reconciling = false;
     }
@@ -359,7 +363,11 @@ export class SearchService implements ToolSearchIndex {
       for (const result of settled) {
         if (result.status === "rejected") {
           logger.warn(
-            { err: result.reason, serviceId },
+            {
+              event: "reindex-embed-failed",
+              err: result.reason,
+              serviceId,
+            },
             "Failed to embed tool during reindex; skipping",
           );
           continue;
@@ -445,7 +453,7 @@ export class SearchService implements ToolSearchIndex {
           for (const entry of settled) {
             if (entry.status === "rejected") {
               logger.warn(
-                { err: entry.reason },
+                { event: "reconcile-embed-failed", err: entry.reason },
                 "Reconciliation: failed to embed tool; skipping",
               );
               result.skipped += 1;
@@ -519,7 +527,7 @@ export class SearchService implements ToolSearchIndex {
       // Model is up but this single request failed to embed: degrade to
       // FTS5-only for this request, not for the process lifetime.
       logger.warn(
-        { err },
+        { event: "query-embed-failed", err },
         "Query embedding failed; degrading to FTS5-only for this request",
       );
       return [];

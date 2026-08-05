@@ -179,7 +179,12 @@ export class ModuleService {
         Array.from(instance.executions).map((eid) =>
           instance.module.kill(eid).catch((err) => {
             logger.warn(
-              { err, environmentId: instance.id, eid },
+              {
+                event: "execution-kill-failed",
+                err,
+                environmentId: instance.id,
+                eid,
+              },
               "Failed to kill execution during shutdown",
             );
           }),
@@ -190,7 +195,10 @@ export class ModuleService {
     await Promise.all(
       Array.from(this.adapters.entries()).map(([id, a]) =>
         a.teardown().catch((err) => {
-          logger.warn({ err, adapterId: id }, "Adapter teardown failed");
+          logger.warn(
+            { event: "adapter-teardown-failed", err, adapterId: id },
+            "Adapter teardown failed",
+          );
         }),
       ),
     );
@@ -1173,13 +1181,18 @@ export class ModuleService {
       const { updated, failed } = await this.regenerateAdapterServices(id);
       if (failed > 0) {
         logger.warn(
-          { moduleId: id, updated, failed },
+          {
+            event: "services-regeneration-partial",
+            moduleId: id,
+            updated,
+            failed,
+          },
           "Some services failed to regenerate after module update and have been marked stale",
         );
       }
     } catch (err) {
       logger.warn(
-        { err, moduleId: id },
+        { event: "services-regeneration-failed", err, moduleId: id },
         "Failed to regenerate services after module update",
       );
     }
@@ -1190,7 +1203,7 @@ export class ModuleService {
       await this.reloadIfActive(id);
     } catch (err) {
       logger.warn(
-        { err, moduleId: id },
+        { event: "module-reload-failed", err, moduleId: id },
         "Failed to reload active module after update",
       );
     }
@@ -1351,13 +1364,18 @@ export class ModuleService {
       const { updated, failed } = await this.regenerateAdapterServices(id);
       if (failed > 0) {
         logger.warn(
-          { moduleId: id, updated, failed },
+          {
+            event: "services-regeneration-partial",
+            moduleId: id,
+            updated,
+            failed,
+          },
           "Some services failed to regenerate after module patch and have been marked stale",
         );
       }
     } catch (err) {
       logger.warn(
-        { err, moduleId: id },
+        { event: "services-regeneration-failed", err, moduleId: id },
         "Failed to regenerate services after module patch",
       );
     }
@@ -1368,7 +1386,7 @@ export class ModuleService {
       await this.reloadIfActive(id);
     } catch (err) {
       logger.warn(
-        { err, moduleId: id },
+        { event: "module-reload-failed", err, moduleId: id },
         "Failed to reload active module after patch",
       );
     }
@@ -1415,7 +1433,7 @@ export class ModuleService {
         await fs.rm(moduleDir, { recursive: true, force: true });
       } catch (err) {
         logger.warn(
-          { err, moduleId: id },
+          { event: "module-directory-remove-failed", err, moduleId: id },
           "Failed to remove module filesystem directory",
         );
       }
@@ -1514,7 +1532,10 @@ export class ModuleService {
     try {
       await instance.teardown();
     } catch (err) {
-      logger.warn({ err, adapterId: id }, "Adapter teardown failed");
+      logger.warn(
+        { event: "adapter-teardown-failed", err, adapterId: id },
+        "Adapter teardown failed",
+      );
     }
   }
 
@@ -1634,7 +1655,11 @@ export class ModuleService {
             .where(eq(servicesTable.id, service.id))
             .catch(() => {});
           logger.warn(
-            { err, serviceId: service.id },
+            {
+              event: "service-regeneration-failed",
+              err,
+              serviceId: service.id,
+            },
             "Failed to regenerate service after module update",
           );
           failed++;
@@ -1645,7 +1670,12 @@ export class ModuleService {
     }
 
     logger.info(
-      { moduleId: id, updated, failed },
+      {
+        event: "service-regeneration-complete",
+        moduleId: id,
+        updated,
+        failed,
+      },
       "Adapter service regeneration complete",
     );
     return { updated, failed };
@@ -1671,7 +1701,11 @@ export class ModuleService {
           await next.teardown();
         } catch (teardownErr) {
           logger.warn(
-            { err: teardownErr, adapterId: id },
+            {
+              event: "adapter-teardown-failed",
+              err: teardownErr,
+              adapterId: id,
+            },
             "Adapter teardown failed",
           );
         }
@@ -1680,7 +1714,10 @@ export class ModuleService {
       try {
         await previous.teardown();
       } catch (err) {
-        logger.warn({ err, adapterId: id }, "Adapter teardown failed");
+        logger.warn(
+          { event: "adapter-teardown-failed", err, adapterId: id },
+          "Adapter teardown failed",
+        );
       }
       return;
     }
@@ -1813,7 +1850,11 @@ export class ModuleService {
       await instance.module.teardown();
     } catch (err) {
       logger.warn(
-        { err, environmentId: instance.id },
+        {
+          event: "environment-teardown-failed",
+          err,
+          environmentId: instance.id,
+        },
         "Environment teardown failed",
       );
     }

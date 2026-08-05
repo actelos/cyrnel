@@ -66,13 +66,13 @@ export class TransformersEmbedder implements Embedder {
         this.extractor = loaded as unknown as FeatureExtractor;
         this.loaded = true;
         logger.info(
-          { modelId: this.modelId, cacheDir },
+          { event: "embedding-model-loaded", modelId: this.modelId, cacheDir },
           "Embedding model loaded",
         );
       } catch (err) {
         // Permanent fallback: FTS5-only mode for this process lifetime.
         logger.warn(
-          { err, modelId: this.modelId },
+          { event: "embedding-model-load-failed", err, modelId: this.modelId },
           "Embedding model failed to load; running in FTS5-only search mode",
         );
         this.loaded = false;

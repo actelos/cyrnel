@@ -15,7 +15,10 @@ export function createRateLimiter(
     legacyHeaders: false,
     handler: (_req: Request, res: Response) => {
       const retryAfter = Math.ceil(windowMs / 1000);
-      logger.warn({ rateLimited: true, route: label }, "Rate limit exceeded");
+      logger.warn(
+        { event: "rate-limit-exceeded", rateLimited: true, route: label },
+        "Rate limit exceeded",
+      );
       res.status(429).json({
         error: "rate_limit_exceeded",
         message: `Too many requests. Try again in ${retryAfter} seconds.`,

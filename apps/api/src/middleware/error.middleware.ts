@@ -18,12 +18,23 @@ export function errorMiddleware(
 
   if (isHttpError) {
     logger.debug(
-      { err: error, method: req.method, url: req.originalUrl, statusCode },
+      {
+        event: "http-error-rejected",
+        err: error,
+        method: req.method,
+        url: req.originalUrl,
+        statusCode,
+      },
       "Request rejected with HttpError",
     );
   } else {
     logger.error(
-      { err: error, method: req.method, url: req.originalUrl },
+      {
+        event: "unhandled-error",
+        err: error,
+        method: req.method,
+        url: req.originalUrl,
+      },
       "Unhandled error in request pipeline",
     );
   }

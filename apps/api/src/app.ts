@@ -87,7 +87,10 @@ export class App {
     try {
       await this.moduleService.shutdown();
     } catch (err) {
-      logger.warn({ err }, "Module service shutdown failed");
+      logger.warn(
+        { event: "module-shutdown-failed", err },
+        "Module service shutdown failed",
+      );
     }
   }
 
@@ -138,16 +141,26 @@ function parseReconcileInterval(raw: string | undefined): number {
   if (raw === undefined) return DEFAULT_RECONCILE_INTERVAL_MS;
   const parsed = Number(raw);
   if (!Number.isInteger(parsed) || parsed < 0) {
-    logger.warn({ raw }, "Invalid CYRNEL_RECONCILE_INTERVAL_MS; using default");
+    logger.warn(
+      { event: "invalid-reconcile-interval", raw },
+      "Invalid CYRNEL_RECONCILE_INTERVAL_MS; using default",
+    );
     return DEFAULT_RECONCILE_INTERVAL_MS;
   }
   if (parsed === 0) {
-    logger.info("CYRNEL_RECONCILE_INTERVAL_MS is 0; reconciliation disabled");
+    logger.info(
+      { event: "reconcile-disabled" },
+      "CYRNEL_RECONCILE_INTERVAL_MS is 0; reconciliation disabled",
+    );
     return 0;
   }
   if (parsed > MAX_RECONCILE_INTERVAL_MS) {
     logger.warn(
-      { raw, max: MAX_RECONCILE_INTERVAL_MS },
+      {
+        event: "invalid-reconcile-interval",
+        raw,
+        max: MAX_RECONCILE_INTERVAL_MS,
+      },
       "Invalid CYRNEL_RECONCILE_INTERVAL_MS; using default",
     );
     return DEFAULT_RECONCILE_INTERVAL_MS;
