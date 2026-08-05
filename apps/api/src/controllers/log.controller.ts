@@ -1,22 +1,14 @@
 import type { Request, Response } from "express";
 import { z } from "zod";
 
-import {
-  getLogBuffer,
-  getLogBus,
-  getLogFileOptions,
-} from "@/logger";
+import { getLogBuffer, getLogBus, getLogFileOptions } from "@/logger";
 import { tailScanLogFiles } from "@/logging/file-scan";
+import { LOG_LEVELS, type LogEntry, logEntryId } from "@/logging/log-entry";
 import {
-  LOG_LEVELS,
-  logEntryId,
-  type LogEntry,
-} from "@/logging/log-entry";
-import {
-  parseLogCursor,
-  queryLogEntries,
   type LogCursor,
   type LogSort,
+  parseLogCursor,
+  queryLogEntries,
 } from "@/logging/query";
 import { HttpError } from "@/models/error.model";
 import { parseOrHttpError } from "@/utils/validation.util";
@@ -121,9 +113,7 @@ export async function listLogs(req: Request, res: Response): Promise<void> {
   );
   const entries = [...bufferEntries, ...deep];
   const nextCursor =
-    deep.length === remaining
-      ? logEntryId(entries[entries.length - 1])
-      : null;
+    deep.length === remaining ? logEntryId(entries[entries.length - 1]) : null;
 
   res.status(200).json({ entries, nextCursor });
 }

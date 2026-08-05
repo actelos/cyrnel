@@ -235,9 +235,7 @@ describe("log.controller listLogs", () => {
     fs.writeFileSync(
       filePath,
       [1, 2, 3]
-        .map((n) =>
-          JSON.stringify(makeEntry({ timestamp: n * 100, seq: n })),
-        )
+        .map((n) => JSON.stringify(makeEntry({ timestamp: n * 100, seq: n })))
         .join("\n") + "\n",
     );
     getLogFileOptionsMock.mockReturnValue({ filePath, maxFiles: 5 });
@@ -261,9 +259,7 @@ describe("log.controller listLogs", () => {
       filePath,
       [
         JSON.stringify(makeEntry({ timestamp: 100, seq: 1, level: "info" })),
-        JSON.stringify(
-          makeEntry({ timestamp: 200, seq: 2, level: "error" }),
-        ),
+        JSON.stringify(makeEntry({ timestamp: 200, seq: 2, level: "error" })),
       ].join("\n") + "\n",
     );
     getLogFileOptionsMock.mockReturnValue({ filePath, maxFiles: 5 });

@@ -3,9 +3,9 @@ import fs from "node:fs";
 import type { LogEntry } from "@/logging/log-entry";
 import {
   entryIsAfterOrAtCursor,
-  matchesLogFilters,
   type LogCursor,
   type LogQueryFilters,
+  matchesLogFilters,
 } from "@/logging/query";
 
 export interface LogFileOptions {

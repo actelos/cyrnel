@@ -43,11 +43,7 @@ describe("tailScanLogFiles", () => {
       makeEntry({ timestamp: 300, seq: 3, message: "third" }),
     ]);
 
-    const result = tailScanLogFiles(
-      { filePath: file, maxFiles: 5 },
-      {},
-      10,
-    );
+    const result = tailScanLogFiles({ filePath: file, maxFiles: 5 }, {}, 10);
 
     expect(result.map((e) => e.seq)).toEqual([3, 2, 1]);
   });
@@ -64,11 +60,7 @@ describe("tailScanLogFiles", () => {
       makeEntry({ timestamp: 200, seq: 2 }),
     ]);
 
-    const result = tailScanLogFiles(
-      { filePath: active, maxFiles: 5 },
-      {},
-      10,
-    );
+    const result = tailScanLogFiles({ filePath: active, maxFiles: 5 }, {}, 10);
 
     expect(result.map((e) => e.seq)).toEqual([4, 3, 2, 1]);
   });
@@ -81,12 +73,10 @@ describe("tailScanLogFiles", () => {
       makeEntry({ timestamp: 300, seq: 3 }),
     ]);
 
-    const result = tailScanLogFiles(
-      { filePath: file, maxFiles: 5 },
-      {},
-      10,
-      { timestamp: 200, seq: 2 },
-    );
+    const result = tailScanLogFiles({ filePath: file, maxFiles: 5 }, {}, 10, {
+      timestamp: 200,
+      seq: 2,
+    });
 
     expect(result.map((e) => e.seq)).toEqual([1]);
   });
@@ -127,11 +117,7 @@ describe("tailScanLogFiles", () => {
       `${JSON.stringify(makeEntry({ timestamp: 100, seq: 1 }))}\nnot-json\n{"timestamp":200}\n${JSON.stringify(makeEntry({ timestamp: 300, seq: 2 }))}\n`,
     );
 
-    const result = tailScanLogFiles(
-      { filePath: file, maxFiles: 5 },
-      {},
-      10,
-    );
+    const result = tailScanLogFiles({ filePath: file, maxFiles: 5 }, {}, 10);
 
     expect(result.map((e) => e.seq)).toEqual([2, 1]);
 
