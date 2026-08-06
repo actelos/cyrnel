@@ -13,7 +13,7 @@ import {
 } from "@/infra/logging/query";
 import { HttpError } from "@/models/error.model";
 
-export { flushLogSink, logger } from "@/infra/logging/logger";
+export { closeLogger, initLogger, logger } from "@/infra/logging/logger";
 
 export interface LogListResult {
   entries: LogEntry[];

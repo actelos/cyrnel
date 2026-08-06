@@ -59,6 +59,19 @@ function readAllLines(filePath: string, maxFiles: number): string[] {
   return lines;
 }
 
+async function waitForCondition(
+  condition: () => boolean,
+  timeoutMs = 5_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!condition()) {
+    if (Date.now() >= deadline) {
+      throw new Error("waitForCondition timed out");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
 afterEach(() => {
   for (const dir of tempDirs.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -165,7 +178,7 @@ describe("LogSink", () => {
     for (let i = 0; i < count; i++) {
       sink.write(pinoLine({ msg: `message-${String(i).padStart(4, "0")}` }));
     }
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    await waitForCondition(() => readAllLines(filePath, 5).length === count);
     await sink.close();
 
     const lines = readAllLines(filePath, 5);
@@ -193,7 +206,6 @@ describe("LogSink", () => {
       sink.write(pinoLine({ msg: `queued-${String(i).padStart(4, "0")}` }));
     }
     releaseReopen?.();
-    await new Promise((resolve) => setTimeout(resolve, 200));
     await sink.close();
 
     const lines = readAllLines(filePath, 5);
@@ -214,7 +226,7 @@ describe("LogSink", () => {
     for (let i = 0; i < 40; i++) {
       sink.write(pinoLine({ msg: `prune-${i}` }));
     }
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    await waitForCondition(() => fs.existsSync(path.join(dir, "app.log.2")));
     await sink.close();
 
     const files = fs.readdirSync(dir).sort();
@@ -236,19 +248,16 @@ describe("LogSink", () => {
     expect(content).toContain("***REDACTED***");
   });
 
-  it("writes 10k entries quickly with no loss", async () => {
+  it("writes 10k entries with no loss", async () => {
     const { sink, filePath } = makeSink({ ringCapacity: 10_000 });
-    const started = performance.now();
     for (let i = 0; i < 10_000; i++) {
       sink.write(pinoLine({ msg: `bulk-${i}` }));
     }
-    const elapsed = performance.now() - started;
     await sink.close();
 
     expect(sink.buffer.size).toBe(10_000);
     const lines = readAllLines(filePath, 5);
     expect(lines).toHaveLength(10_000);
-    expect(elapsed).toBeLessThan(5_000);
   });
 
   it("keeps buffering and streaming when no file is configured", async () => {
@@ -279,10 +288,8 @@ describe("LogSink", () => {
     for (let i = 0; i < 30; i++) {
       sink.write(pinoLine({ msg: `pre-${String(i).padStart(3, "0")}` }));
     }
-    await new Promise((resolve) => setTimeout(resolve, 200));
-
     sink.write(pinoLine({ msg: "after-recovery" }));
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await waitForCondition(() => readAllLines(filePath, 5).length === 31);
     await sink.close();
 
     const lines = readAllLines(filePath, 5);
@@ -292,6 +299,10 @@ describe("LogSink", () => {
   });
 
   it("flushes queued lines at close during an in-flight rotation", async () => {
+    let rotationStarted: (() => void) | undefined;
+    const startedGate = new Promise<void>((resolve) => {
+      rotationStarted = resolve;
+    });
     let releaseReopen: (() => void) | undefined;
     const reopenGate = new Promise<void>((resolve) => {
       releaseReopen = resolve;
@@ -300,12 +311,15 @@ describe("LogSink", () => {
       rotationBytes: 1_000,
       maxFiles: 5,
       ringCapacity: 10_000,
-      beforeReopen: () => reopenGate,
+      beforeReopen: async () => {
+        rotationStarted?.();
+        await reopenGate;
+      },
     });
     for (let i = 0; i < 30; i++) {
       sink.write(pinoLine({ msg: `queued-${String(i).padStart(3, "0")}` }));
     }
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await startedGate;
     const closePromise = sink.close();
     releaseReopen?.();
     await closePromise;

@@ -3,9 +3,9 @@ import {
   OpenAPIRegistry,
   OpenApiGeneratorV3,
 } from "@asteasolutions/zod-to-openapi";
+import { createLogEntrySchema, LOG_LEVELS, LOG_TYPES } from "@cyrnel/sdk";
 import type { OpenAPIObject } from "openapi3-ts/oas30";
 import { z } from "zod";
-
 import { MODULE_TYPES } from "../src/models/modules.model";
 import {
   PROCESS_EXIT_STATES,
@@ -2094,57 +2094,7 @@ registry.registerPath({
   },
 });
 
-const logLevelSchema = z.enum([
-  "trace",
-  "debug",
-  "info",
-  "warn",
-  "error",
-  "fatal",
-]);
-const logTypeSchema = z.enum(["app", "request"]);
-
-const LogEntrySchema = registry.register(
-  "LogEntry",
-  z
-    .object({
-      timestamp: z
-        .number()
-        .int()
-        .describe("Unix millisecond timestamp of the entry."),
-      seq: z.number().int().describe("Per-sink sequence number."),
-      level: logLevelSchema.describe("Log severity level."),
-      type: logTypeSchema.describe("Entry category."),
-      message: z.string().describe("Human-readable log message."),
-      event: z
-        .string()
-        .optional()
-        .describe("Structured event key attached by the caller."),
-      requestId: z.string().optional(),
-      processId: z.union([z.number(), z.string()]).optional(),
-      adapterId: z.string().optional(),
-      serviceId: z.string().optional(),
-      moduleId: z.string().optional(),
-      environmentId: z.string().optional(),
-      pid: z.number().int().describe("Process id that emitted the entry."),
-      method: z.string().optional(),
-      path: z.string().optional(),
-      statusCode: z.number().int().optional(),
-      durationMs: z.number().optional(),
-      req: z
-        .record(z.string(), z.unknown())
-        .optional()
-        .describe("Normalized request object for request entries."),
-      res: z
-        .record(z.string(), z.unknown())
-        .optional()
-        .describe("Normalized response object for request entries."),
-      error: z.unknown().optional(),
-      suppressedCount: z.number().int().optional(),
-      metadata: z.record(z.string(), z.unknown()).optional(),
-    })
-    .describe("A normalized log entry."),
-);
+const LogEntrySchema = registry.register("LogEntry", createLogEntrySchema());
 
 const LogListResponseSchema = registry.register(
   "LogListResponse",
@@ -2164,9 +2114,9 @@ const LogListResponseSchema = registry.register(
 const logListQuerySchema = z.object({
   from: z.coerce.number().int().nonnegative().optional(),
   to: z.coerce.number().int().nonnegative().optional(),
-  level: logLevelSchema.optional(),
-  levelMin: logLevelSchema.optional(),
-  type: logTypeSchema.optional(),
+  level: z.enum(LOG_LEVELS).optional(),
+  levelMin: z.enum(LOG_LEVELS).optional(),
+  type: z.enum(LOG_TYPES).optional(),
   query: z
     .string()
     .max(500)

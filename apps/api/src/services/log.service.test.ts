@@ -10,10 +10,11 @@ import { RingBuffer } from "@/infra/logging/ring-buffer";
 import { listLogs, recentLogs, subscribeLogs } from "@/services/log.service";
 
 const mocks = vi.hoisted(() => ({
+  initLogger: vi.fn(),
   getLogBuffer: vi.fn(),
   getLogBus: vi.fn(),
   getLogFileOptions: vi.fn(),
-  flushLogSink: vi.fn(),
+  closeLogger: vi.fn(),
   logger: {
     trace: vi.fn(),
     debug: vi.fn(),

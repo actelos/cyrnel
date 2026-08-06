@@ -35,5 +35,8 @@
     "@types/node": "^25.9.3",
     "typescript": "^6.0.3"
   },
-  "packageManager": "pnpm@10.30.3"
+  "packageManager": "pnpm@10.30.3",
+  "dependencies": {
+    "zod": "^4.4.3"
+  }
 }

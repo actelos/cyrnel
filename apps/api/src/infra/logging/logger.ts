@@ -1,4 +1,5 @@
 import path from "node:path";
+import { Writable } from "node:stream";
 import pino from "pino";
 import pretty from "pino-pretty";
 import type { LogBus } from "@/infra/logging/bus";
@@ -107,11 +108,38 @@ function resolveLogSinkOptions(): LogSinkOptions {
 
 let sink: LogSink | null = null;
 
+const destination = new Writable({
+  write(chunk, _encoding, callback) {
+    const target = sink;
+    if (target !== null) target.write(chunk.toString());
+    callback();
+  },
+});
+
 function createLogger() {
   if (NODE_ENV === "test") {
     return pino({ level: "silent" });
   }
 
+  return pino(
+    {
+      level: LOG_LEVEL ?? (NODE_ENV === "production" ? "info" : "debug"),
+      redact: redactConfig,
+      serializers: { err: serializeError },
+    },
+    destination,
+  );
+}
+
+/**
+ * Initializes the file-backed log sink. Idempotent; safe to call from every
+ * entrypoint (server bootstrap, migration runner). Until called, log lines
+ * are dropped (nothing logs before bootstrap). Failure to open the log file
+ * degrades to in-memory logging instead of throwing.
+ */
+export function initLogger(): void {
+  if (NODE_ENV === "test") return;
+  if (sink !== null) return;
   const options = resolveLogSinkOptions();
   if (NODE_ENV !== "production") {
     options.prettyStream = pretty({
@@ -121,20 +149,13 @@ function createLogger() {
     });
     options.prettyStream.pipe(process.stdout);
   }
-
   sink = new LogSink(options);
-  return pino(
-    {
-      level: LOG_LEVEL ?? (NODE_ENV === "production" ? "info" : "debug"),
-      redact: redactConfig,
-      serializers: { err: serializeError },
-    },
-    sink,
-  );
 }
 
-export async function flushLogSink(): Promise<void> {
-  await sink?.close();
+export async function closeLogger(): Promise<void> {
+  const target = sink;
+  sink = null;
+  if (target !== null) await target.close();
 }
 
 export function getLogBuffer(): RingBuffer<LogEntry> | null {

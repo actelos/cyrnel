@@ -1,13 +1,12 @@
-export const LOG_LEVELS = [
-  "trace",
-  "debug",
-  "info",
-  "warn",
-  "error",
-  "fatal",
-] as const;
+import {
+  LOG_LEVELS,
+  LOG_TYPES,
+  type LogEntry,
+  type LogLevel,
+  type LogType,
+} from "@cyrnel/sdk";
 
-export type LogLevel = (typeof LOG_LEVELS)[number];
+export { LOG_LEVELS, LOG_TYPES, type LogEntry, type LogLevel, type LogType };
 
 export const PINO_LEVEL_SEVERITY: Record<number, LogLevel> = {
   10: "trace",
@@ -26,35 +25,6 @@ export const LOG_LEVEL_SEVERITY: Record<LogLevel, number> = {
   error: 50,
   fatal: 60,
 };
-
-export type LogType = "app" | "request";
-
-export const LOG_TYPES = ["app", "request"] as const;
-
-export interface LogEntry {
-  timestamp: number;
-  seq: number;
-  level: LogLevel;
-  type: LogType;
-  message: string;
-  event?: string;
-  requestId?: string;
-  processId?: string | number;
-  adapterId?: string;
-  serviceId?: string;
-  moduleId?: string;
-  environmentId?: string;
-  pid: number;
-  method?: string;
-  path?: string;
-  statusCode?: number;
-  durationMs?: number;
-  req?: Record<string, unknown>;
-  res?: Record<string, unknown>;
-  error?: unknown;
-  suppressedCount?: number;
-  metadata?: Record<string, unknown>;
-}
 
 export function logEntryId(entry: LogEntry): string {
   return `${entry.timestamp}:${entry.seq}`;

@@ -186,6 +186,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@cyrnel/sdk':
+        specifier: workspace:*
+        version: link:../../packages/libs/sdk
       '@fontsource-variable/inter':
         specifier: ^5.2.8
         version: 5.2.8
@@ -273,6 +276,10 @@ importers:
         version: 8.0.16(@types/node@25.9.3)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)
 
   packages/libs/sdk:
+    dependencies:
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
     devDependencies:
       '@types/node':
         specifier: ^25.9.3

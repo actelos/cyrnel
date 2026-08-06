@@ -25,6 +25,12 @@ function dayOf(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
+function writeFd(fd: number, data: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    fs.write(fd, data, null, "utf8", (err) => (err ? reject(err) : resolve()));
+  });
+}
+
 export class LogSink {
   readonly buffer: RingBuffer<LogEntry>;
   readonly bus: LogBus;
@@ -38,7 +44,8 @@ export class LogSink {
   private rotating = false;
   private reopening = false;
   private lastReopenAttemptAt = 0;
-  private draining = false;
+  private rotation: Promise<void> | null = null;
+  private flushPromise: Promise<void> | null = null;
   private queued: string[] = [];
   private closed = false;
   private lastFailureWarnAt = 0;
@@ -66,14 +73,9 @@ export class LogSink {
 
   write(line: string): boolean {
     if (this.closed) return true;
-    if (this.rotating) {
-      this.queued.push(line);
-      return true;
-    }
-
     try {
       this.processLine(line);
-      if (!this.draining) this.maybeRotate();
+      this.scheduleFlush();
     } catch (err) {
       this.reportFailure(err);
     }
@@ -93,27 +95,21 @@ export class LogSink {
 
     this.buffer.push(entry);
     this.bus.emit(entry);
-    this.appendEntry(entry);
+    if (this.options.filePath !== undefined) {
+      this.queued.push(`${JSON.stringify(entry)}\n`);
+    }
   }
 
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
-    while (this.rotating) {
-      await new Promise((resolve) => setTimeout(resolve, 5));
-    }
+    if (this.rotation !== null) await this.rotation;
     if (this.fd === null && this.options.filePath !== undefined) {
       try {
         this.fd = fs.openSync(this.options.filePath, "a");
       } catch {}
     }
-    for (const line of this.queued.splice(0)) {
-      try {
-        this.processLine(line);
-      } catch (err) {
-        this.reportFailure(err);
-      }
-    }
+    await this.flush();
     if (this.fd !== null) {
       try {
         fs.closeSync(this.fd);
@@ -122,24 +118,70 @@ export class LogSink {
     }
   }
 
-  private appendEntry(entry: LogEntry): void {
-    if (this.fd === null) return;
-    const line = `${JSON.stringify(entry)}\n`;
-    fs.writeSync(this.fd, line);
-    this.bytes += Buffer.byteLength(line);
+  private scheduleFlush(): void {
+    if (this.closed) return;
+    void this.flush();
   }
 
-  private maybeRotate(): void {
-    if (this.options.filePath === undefined) return;
+  private flush(): Promise<void> {
+    if (this.flushPromise === null) {
+      this.flushPromise = this.flushLoop().finally(() => {
+        this.flushPromise = null;
+      });
+    }
+    return this.flushPromise;
+  }
+
+  private async flushLoop(): Promise<void> {
+    while (this.queued.length > 0) {
+      if (this.rotation !== null) {
+        await this.rotation;
+        continue;
+      }
+      const rotation = this.maybeRotate();
+      if (rotation !== undefined) {
+        await rotation;
+        continue;
+      }
+      if (this.options.filePath === undefined) {
+        this.queued.length = 0;
+        break;
+      }
+      if (this.fd === null) {
+        this.reopen();
+        if (this.fd === null) {
+          this.queued.length = 0;
+          this.reportFailure(
+            new Error("log file unavailable; discarding file lines"),
+          );
+          continue;
+        }
+      }
+      const batch = this.queued.splice(0);
+      const data = batch.join("");
+      try {
+        await writeFd(this.fd, data);
+        this.bytes += Buffer.byteLength(data);
+      } catch (err) {
+        this.reportFailure(err);
+        this.fd = null;
+        continue;
+      }
+      void this.maybeRotate();
+    }
+  }
+
+  private maybeRotate(): Promise<void> | undefined {
+    if (this.options.filePath === undefined) return undefined;
     const day = dayOf(new Date());
     const overSize =
       this.options.rotationBytes > 0 &&
       this.bytes >= this.options.rotationBytes;
     if (day !== this.currentDay || overSize) {
-      void this.rotate();
-      return;
+      return this.rotate();
     }
     if (this.fd === null) this.reopen();
+    return undefined;
   }
 
   private reopen(): void {
@@ -159,11 +201,21 @@ export class LogSink {
     }
   }
 
-  private async rotate(): Promise<void> {
-    if (this.rotating || this.closed) return;
+  private rotate(): Promise<void> | undefined {
+    if (this.rotating) return this.rotation ?? undefined;
+    if (this.closed) return undefined;
     const filePath = this.options.filePath;
-    if (filePath === undefined) return;
+    if (filePath === undefined) return undefined;
     this.rotating = true;
+    const promise = this.doRotate(filePath).finally(() => {
+      this.rotating = false;
+      this.rotation = null;
+    });
+    this.rotation = promise;
+    return promise;
+  }
+
+  private async doRotate(filePath: string): Promise<void> {
     try {
       if (this.fd !== null) {
         fs.closeSync(this.fd);
@@ -183,28 +235,6 @@ export class LogSink {
         } catch {}
       }
       this.reportFailure(err);
-    } finally {
-      this.rotating = false;
-      this.drainQueue();
-    }
-  }
-
-  private drainQueue(): void {
-    if (this.queued.length === 0 || this.draining || this.closed) return;
-    const pending = this.queued;
-    this.queued = [];
-    this.draining = true;
-    try {
-      for (const line of pending) {
-        try {
-          this.processLine(line);
-        } catch (err) {
-          this.reportFailure(err);
-        }
-      }
-    } finally {
-      this.draining = false;
-      this.maybeRotate();
     }
   }
 

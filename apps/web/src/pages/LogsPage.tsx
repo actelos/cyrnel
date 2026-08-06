@@ -1,3 +1,9 @@
+import {
+  type LogEntry,
+  type LogLevel,
+  type LogType,
+  logEntrySchema,
+} from "@cyrnel/sdk";
 import { ChevronDown, Pause, Play } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
@@ -29,49 +35,10 @@ import {
 import { apiFetchJson, buildUrl, errorMessageFrom } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-const logLevelSchema = z.enum([
-  "trace",
-  "debug",
-  "info",
-  "warn",
-  "error",
-  "fatal",
-]);
-const logTypeSchema = z.enum(["app", "request"]);
-
-const logEntrySchema = z.object({
-  timestamp: z.number(),
-  seq: z.number(),
-  level: logLevelSchema,
-  type: logTypeSchema,
-  message: z.string(),
-  event: z.string().optional(),
-  requestId: z.string().optional(),
-  processId: z.union([z.number(), z.string()]).optional(),
-  adapterId: z.string().optional(),
-  serviceId: z.string().optional(),
-  moduleId: z.string().optional(),
-  environmentId: z.string().optional(),
-  pid: z.number(),
-  method: z.string().optional(),
-  path: z.string().optional(),
-  statusCode: z.number().optional(),
-  durationMs: z.number().optional(),
-  req: z.record(z.string(), z.unknown()).optional(),
-  res: z.record(z.string(), z.unknown()).optional(),
-  error: z.unknown().optional(),
-  suppressedCount: z.number().optional(),
-  metadata: z.record(z.string(), z.unknown()).optional(),
-});
-
 const logPageSchema = z.object({
   entries: z.array(logEntrySchema),
   nextCursor: z.string().nullable(),
 });
-
-type LogLevel = z.infer<typeof logLevelSchema>;
-type LogType = z.infer<typeof logTypeSchema>;
-type LogEntry = z.infer<typeof logEntrySchema>;
 
 interface LogFilters {
   query: string;
