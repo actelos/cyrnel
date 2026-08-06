@@ -5,7 +5,7 @@ import http from "node:http";
 import { z } from "zod";
 
 import { App } from "@/app";
-import { logger } from "@/logger";
+import { closeLogger, initLogger, logger } from "@/services/log.service";
 
 const { PORT, SHUTDOWN_TIMEOUT_MS } = z
   .object({
@@ -14,12 +14,16 @@ const { PORT, SHUTDOWN_TIMEOUT_MS } = z
   })
   .parse(process.env);
 
+initLogger();
+
 const app = new App();
 await app.setup();
 
 const server = http
   .createServer(app.express)
-  .listen(PORT, () => logger.info({ PORT }, "Server listening"));
+  .listen(PORT, () =>
+    logger.info({ event: "server-listening", PORT }, "Server listening"),
+  );
 
 if (process.env.CYRNEL_MAX_CONNECTIONS !== undefined) {
   server.maxConnections = Number(process.env.CYRNEL_MAX_CONNECTIONS);
@@ -35,7 +39,10 @@ server.headersTimeout =
 server.timeout = Number(process.env.CYRNEL_REQUEST_TIMEOUT_MS) || 0;
 
 server.on("error", (err) => {
-  logger.error({ err, PORT }, "Server failed to start");
+  logger.error(
+    { event: "server-start-failed", err, PORT },
+    "Server failed to start",
+  );
   process.exit(1);
 });
 
@@ -51,15 +58,17 @@ const shutdown = async (signal: string) => {
   shuttingDown = true;
 
   setTimeout(() => process.exit(1), SHUTDOWN_TIMEOUT_MS).unref();
-  logger.info({ signal }, "Shutting down");
+  logger.info({ event: "shutdown-started", signal }, "Shutting down");
 
   try {
     await closeServer();
     await app.shutdown();
-    logger.info("Shutdown complete");
+    logger.info({ event: "shutdown-complete" }, "Shutdown complete");
+    await closeLogger();
     process.exit(0);
   } catch (err) {
-    logger.error({ err }, "Shutdown failed");
+    logger.error({ event: "shutdown-failed", err }, "Shutdown failed");
+    await closeLogger();
     process.exit(1);
   }
 };

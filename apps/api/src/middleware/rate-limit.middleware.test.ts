@@ -2,14 +2,13 @@ import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import express from "express";
 import { afterEach, describe, expect, it, vi } from "vitest";
-
-import { logger } from "@/logger";
 import {
   createRateLimiter,
   globalRateLimiter,
 } from "@/middleware/rate-limit.middleware";
+import { logger } from "@/services/log.service";
 
-vi.mock("@/logger", () => ({
+vi.mock("@/services/log.service", () => ({
   logger: {
     warn: vi.fn(),
     info: vi.fn(),
@@ -151,7 +150,13 @@ describe("createRateLimiter", () => {
 
     expect(logger.warn).toHaveBeenCalledOnce();
     expect(logger.warn).toHaveBeenCalledWith(
-      { rateLimited: true, route: "test-route" },
+      {
+        event: "rate-limit-exceeded",
+        rateLimited: true,
+        route: "test-route",
+        req: { id: undefined, method: "GET", url: "/" },
+        res: { statusCode: 429 },
+      },
       "Rate limit exceeded",
     );
   });

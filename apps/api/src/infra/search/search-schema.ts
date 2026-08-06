@@ -1,12 +1,10 @@
 // Raw DDL for the hybrid search index (FTS5 + sqlite-vec). Virtual tables
 // cannot be modeled by drizzle-kit, so this module owns them. All statements
-// are idempotent and run at startup (see SearchService.init), keeping the
+// are idempotent and run at startup (see SearchEngine.init), keeping the
 // `tools` table the single source of truth:
 //   - FTS5 content is mirrored by triggers, so it can never drift from tools.
 //   - Embeddings are maintained by app-level hooks plus reconciliation
 //     (vector math cannot run inside SQLite triggers).
-
-export const SEARCH_DIMENSIONS = 384;
 
 export const TOOLS_FTS_TABLE = "tools_fts";
 export const TOOL_EMBEDDINGS_TABLE = "tool_embeddings";

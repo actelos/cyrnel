@@ -1,7 +1,7 @@
 import type { Request, Response } from "express";
 import rateLimit from "express-rate-limit";
 
-import { logger } from "@/logger";
+import { logger } from "@/services/log.service";
 
 export function createRateLimiter(
   max: number,
@@ -13,9 +13,22 @@ export function createRateLimiter(
     max,
     standardHeaders: true,
     legacyHeaders: false,
-    handler: (_req: Request, res: Response) => {
+    handler: (req: Request, res: Response) => {
       const retryAfter = Math.ceil(windowMs / 1000);
-      logger.warn({ rateLimited: true, route: label }, "Rate limit exceeded");
+      logger.warn(
+        {
+          event: "rate-limit-exceeded",
+          rateLimited: true,
+          route: label,
+          req: {
+            id: (req as Request & { id?: string }).id,
+            method: req.method,
+            url: req.originalUrl ?? req.url,
+          },
+          res: { statusCode: 429 },
+        },
+        "Rate limit exceeded",
+      );
       res.status(429).json({
         error: "rate_limit_exceeded",
         message: `Too many requests. Try again in ${retryAfter} seconds.`,

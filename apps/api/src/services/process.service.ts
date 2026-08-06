@@ -12,7 +12,6 @@ import {
   processData as processDataTable,
   processes as processesTable,
 } from "@/db/schema";
-import { logger } from "@/logger";
 import { HttpError } from "@/models/error.model";
 import type {
   CreateProcessInput,
@@ -21,6 +20,7 @@ import type {
   ProcessRecord,
   ProcessState,
 } from "@/models/process.model";
+import { logger } from "@/services/log.service";
 
 const DEFAULT_EXECUTION_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_ACTIVE_PROCESSES = 1_000;
@@ -42,7 +42,7 @@ function getMaxIdleProcesses(): number | null {
   if (!maxIdleWarningLogged) {
     maxIdleWarningLogged = true;
     logger.warn(
-      { value: raw },
+      { event: "max-idle-processes-invalid", raw },
       "CYRNEL_MAX_IDLE_PROCESSES must be a positive integer; treating as unlimited",
     );
   }
@@ -301,7 +301,10 @@ export class ProcessService {
     stored.state = "terminating";
 
     this.controller.kill(pid).catch((err) => {
-      logger.warn({ err, pid }, "Failed to send kill signal");
+      logger.warn(
+        { event: "kill-signal-failed", err, processId: id, pid },
+        "Failed to send kill signal",
+      );
     });
 
     return await this.get(id);
@@ -387,7 +390,10 @@ export class ProcessService {
       try {
         await db.delete(processesTable).where(eq(processesTable.id, id));
       } catch (err) {
-        logger.error({ err, id }, "Failed to delete process from database");
+        logger.error(
+          { event: "process-delete-failed", err, processId: id },
+          "Failed to delete process from database",
+        );
         throw new HttpError(500, "Failed to delete process.");
       }
 
@@ -411,7 +417,10 @@ export class ProcessService {
       await db.delete(processesTable).where(eq(processesTable.id, id));
     } catch (err) {
       this.restoreToMemory(pid, stored);
-      logger.error({ err, id }, "Failed to delete process from database");
+      logger.error(
+        { event: "process-delete-failed", err, processId: id },
+        "Failed to delete process from database",
+      );
       throw new HttpError(500, "Failed to delete process.");
     }
 
@@ -538,7 +547,12 @@ export class ProcessService {
       const timeoutHandle = setTimeout(() => {
         this.controller.kill(stored.pid).catch((err) => {
           logger.warn(
-            { err, pid: stored.pid },
+            {
+              event: "kill-on-timeout-failed",
+              err,
+              processId: stored.dbId,
+              pid: stored.pid,
+            },
             "Failed to kill process on timeout",
           );
         });
@@ -610,7 +624,10 @@ export class ProcessService {
       });
     } catch (err) {
       persisted = false;
-      logger.warn({ err, id: stored.dbId }, "Failed to persist process result");
+      logger.warn(
+        { event: "process-result-persist-failed", err, processId: stored.dbId },
+        "Failed to persist process result",
+      );
     }
 
     if (persisted) {

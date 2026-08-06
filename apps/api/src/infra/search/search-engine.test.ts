@@ -3,27 +3,19 @@ import path from "node:path";
 import { sql } from "drizzle-orm";
 import Database from "libsql";
 import { getLoadablePath } from "sqlite-vec";
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { db, resolveDatabaseUrl } from "@/db/client";
 import { services, tools } from "@/db/schema";
+import type { Embedder } from "@/infra/embedding/embedder";
 import {
   embeddingKey,
-  SearchService,
+  SearchEngine,
   tokenizeQuery,
-} from "@/services/search.service";
-import type { Embedder } from "@/utils/embedder.util";
+} from "@/infra/search/search-engine";
 
 const DIMENSIONS = 8;
-const MIGRATIONS_DIR = path.resolve(import.meta.dirname, "../../drizzle");
+const MIGRATIONS_DIR = path.resolve(import.meta.dirname, "../../../drizzle");
 
 async function applyMigrations(): Promise<void> {
   await db.run(sql.raw("PRAGMA journal_mode = WAL;"));
@@ -186,8 +178,8 @@ describe("tokenizeQuery", () => {
   });
 });
 
-describe("SearchService (FTS5 + vector hybrid)", () => {
-  let search: SearchService;
+describe("SearchEngine (FTS5 + vector hybrid)", () => {
+  let search: SearchEngine;
   let embedder: FakeEmbedder;
   let probe: Database.Database;
 
@@ -199,7 +191,7 @@ describe("SearchService (FTS5 + vector hybrid)", () => {
           VALUES ('test-adapter', 'test-adapter', 'adapter', '', 1, 0)`,
     );
     embedder = new FakeEmbedder();
-    search = new SearchService(embedder);
+    search = new SearchEngine(embedder);
     await search.init();
     probe = openProbe();
   });
@@ -217,7 +209,7 @@ describe("SearchService (FTS5 + vector hybrid)", () => {
   describe("FTS5 trigger sync", () => {
     it("backfills the FTS mirror for tools that predate init", async () => {
       await insertTool("svc", "sendEmail", "sendEmail", "sends email via SMTP");
-      const second = new SearchService(embedder);
+      const second = new SearchEngine(embedder);
       await second.init();
 
       const rows = await db.$client.execute({
@@ -534,9 +526,9 @@ describe("SearchService (FTS5 + vector hybrid)", () => {
 
   describe("reconciliation scheduling", () => {
     it("runs on the configured interval", async () => {
-      let intervalSearch: SearchService | null = null;
+      let intervalSearch: SearchEngine | null = null;
       try {
-        intervalSearch = new SearchService(embedder);
+        intervalSearch = new SearchEngine(embedder);
         await intervalSearch.init();
         intervalSearch.startReconciliation(50);
 
@@ -551,7 +543,7 @@ describe("SearchService (FTS5 + vector hybrid)", () => {
     });
 
     it("disables the interval when given zero", () => {
-      const intervalSearch = new SearchService(embedder);
+      const intervalSearch = new SearchEngine(embedder);
       intervalSearch.startReconciliation(0);
       expect(() => intervalSearch.close()).not.toThrow();
     });

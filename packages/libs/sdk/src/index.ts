@@ -313,3 +313,13 @@ export interface AdapterModule extends Module {
    */
   invoke(input: InvokeInput): Promise<unknown>;
 }
+
+export {
+  createLogEntrySchema,
+  LOG_LEVELS,
+  LOG_TYPES,
+  type LogEntry,
+  type LogLevel,
+  type LogType,
+  logEntrySchema,
+} from "./log-entry";

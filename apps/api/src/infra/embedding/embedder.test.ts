@@ -2,9 +2,8 @@ import * as fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
-import { SEARCH_DIMENSIONS } from "@/db/search-schema";
-import type { FeatureExtractor } from "@/utils/embedder.util";
+import type { FeatureExtractor } from "@/infra/embedding/embedder";
+import { SEARCH_DIMENSIONS } from "@/infra/embedding/embedder";
 
 const mocks = vi.hoisted(() => ({
   env: { cacheDir: "" },
@@ -19,7 +18,7 @@ vi.mock("@xenova/transformers", () => ({
 import {
   DEFAULT_EMBEDDING_MODEL,
   TransformersEmbedder,
-} from "@/utils/embedder.util";
+} from "@/infra/embedding/embedder";
 
 const EXTRACTOR: FeatureExtractor = vi.fn(async (text) => {
   const data = new Float32Array(SEARCH_DIMENSIONS).fill(text.length);

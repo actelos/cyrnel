@@ -1,4 +1,4 @@
-import { Blocks, Braces, Server } from "lucide-react";
+import { Blocks, Braces, ScrollText, Server } from "lucide-react";
 import { Navigate, NavLink, Route, Routes, useLocation } from "react-router";
 import { Toaster } from "sonner";
 import { ModeToggle } from "@/components/mode-toggle";
@@ -19,6 +19,7 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import LogsPage from "@/pages/LogsPage";
 import ModuleDetailPage from "@/pages/ModuleDetailPage";
 import ModulesPage from "@/pages/ModulesPage";
 import ProcessesPage from "@/pages/ProcessesPage";
@@ -29,6 +30,7 @@ const navItems = [
   { to: "/processes", icon: Braces, label: "Processes" },
   { to: "/services", icon: Server, label: "Services" },
   { to: "/modules", icon: Blocks, label: "Modules" },
+  { to: "/logs", icon: ScrollText, label: "Logs" },
 ] as const;
 
 function App() {
@@ -90,6 +92,7 @@ function App() {
               />
               <Route path="/modules" element={<ModulesPage />} />
               <Route path="/modules/:moduleId" element={<ModuleDetailPage />} />
+              <Route path="/logs" element={<LogsPage />} />
             </Routes>
           </div>
         </SidebarInset>

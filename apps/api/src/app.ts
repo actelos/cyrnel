@@ -2,22 +2,22 @@ import path from "node:path";
 import cors from "cors";
 import express from "express";
 import pinoHttp from "pino-http";
-
-import { logger } from "@/logger";
+import { TransformersEmbedder } from "@/infra/embedding/embedder";
+import { SearchEngine } from "@/infra/search/search-engine";
 import { apiKeyMiddleware } from "@/middleware/auth.middleware";
 import { errorMiddleware } from "@/middleware/error.middleware";
 import { ipAccessMiddleware } from "@/middleware/ip-access.middleware";
 import { globalRateLimiter } from "@/middleware/rate-limit.middleware";
 import { environmentRouter } from "@/routes/environment.route";
+import { logRouter } from "@/routes/log.route";
 import { moduleRouter } from "@/routes/module.route";
 import { processRouter } from "@/routes/process.route";
 import { serviceRouter } from "@/routes/service.route";
 import { toolRouter } from "@/routes/tool.route";
+import { logger } from "@/services/log.service";
 import { ModuleService } from "@/services/modules.service";
 import { ProcessService } from "@/services/process.service";
-import { SearchService } from "@/services/search.service";
 import { ServicesService } from "@/services/services.service";
-import { TransformersEmbedder } from "@/utils/embedder.util";
 
 const DEFAULT_RECONCILE_INTERVAL_MS = 1_800_000;
 const MAX_RECONCILE_INTERVAL_MS = 2_147_483_647;
@@ -28,7 +28,6 @@ export class App {
   readonly moduleService: ModuleService;
   readonly processService: ProcessService;
   readonly servicesService: ServicesService;
-  readonly searchService: SearchService;
 
   constructor() {
     this.moduleService = new ModuleService(
@@ -46,8 +45,6 @@ export class App {
       },
     );
 
-    this.searchService = new SearchService(new TransformersEmbedder());
-
     this.servicesService = new ServicesService(
       {
         generateDefinition: (input) =>
@@ -58,7 +55,7 @@ export class App {
           this.moduleService.dehydrateService(adapterId, serviceId),
         generateToolDocs: (input) => this.moduleService.generateToolDocs(input),
       },
-      this.searchService,
+      new SearchEngine(new TransformersEmbedder()),
     );
 
     this.processService = new ProcessService({
@@ -71,23 +68,26 @@ export class App {
 
   async setup(): Promise<void> {
     const dataDir = process.env.CYRNEL_DATA_DIR || ".";
-    await this.searchService.init();
+    await this.servicesService.initSearch();
     await this.moduleService.initialize(path.join(dataDir, "modules"));
 
     const interval = parseReconcileInterval(
       process.env.CYRNEL_RECONCILE_INTERVAL_MS,
     );
-    this.searchService.startReconciliation(interval);
-    void this.searchService.reconcileGuarded();
+    this.servicesService.startSearchReconciliation(interval);
+    void this.servicesService.reconcileSearchGuarded();
   }
 
   async shutdown(): Promise<void> {
-    this.searchService.close();
+    this.servicesService.closeSearch();
     await this.processService.shutdown();
     try {
       await this.moduleService.shutdown();
     } catch (err) {
-      logger.warn({ err }, "Module service shutdown failed");
+      logger.warn(
+        { event: "module-shutdown-failed", err },
+        "Module service shutdown failed",
+      );
     }
   }
 
@@ -102,13 +102,14 @@ export class App {
     app.use(
       pinoHttp({
         logger,
-        redact: {
-          paths: [
-            "req.headers.authorization",
-            "req.headers.cookie",
-            'req.headers["set-cookie"]',
-          ],
-          censor: "***REDACTED***",
+        genReqId: () => crypto.randomUUID(),
+        customLogLevel: (_req, res, err) => {
+          if (err || res.statusCode >= 500) return "error";
+          if (res.statusCode >= 400) return "warn";
+          return "info";
+        },
+        autoLogging: {
+          ignore: (req) => req.url?.startsWith("/health") ?? false,
         },
       }),
     );
@@ -128,6 +129,7 @@ export class App {
     app.use("/tools", toolRouter);
     app.use("/processes", processRouter);
     app.use("/environment", environmentRouter);
+    app.use("/logs", logRouter);
     app.use(errorMiddleware);
 
     return app;
@@ -138,16 +140,26 @@ function parseReconcileInterval(raw: string | undefined): number {
   if (raw === undefined) return DEFAULT_RECONCILE_INTERVAL_MS;
   const parsed = Number(raw);
   if (!Number.isInteger(parsed) || parsed < 0) {
-    logger.warn({ raw }, "Invalid CYRNEL_RECONCILE_INTERVAL_MS; using default");
+    logger.warn(
+      { event: "invalid-reconcile-interval", raw },
+      "Invalid CYRNEL_RECONCILE_INTERVAL_MS; using default",
+    );
     return DEFAULT_RECONCILE_INTERVAL_MS;
   }
   if (parsed === 0) {
-    logger.info("CYRNEL_RECONCILE_INTERVAL_MS is 0; reconciliation disabled");
+    logger.info(
+      { event: "reconcile-disabled" },
+      "CYRNEL_RECONCILE_INTERVAL_MS is 0; recurring reconciliation disabled (startup sweep still runs)",
+    );
     return 0;
   }
   if (parsed > MAX_RECONCILE_INTERVAL_MS) {
     logger.warn(
-      { raw, max: MAX_RECONCILE_INTERVAL_MS },
+      {
+        event: "invalid-reconcile-interval",
+        raw,
+        max: MAX_RECONCILE_INTERVAL_MS,
+      },
       "Invalid CYRNEL_RECONCILE_INTERVAL_MS; using default",
     );
     return DEFAULT_RECONCILE_INTERVAL_MS;

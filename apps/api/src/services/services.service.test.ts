@@ -2086,4 +2086,42 @@ describe("ServicesService", () => {
       await expect(svc.hydrateAdapter("test-adapter")).resolves.toBeUndefined();
     });
   });
+
+  describe("search index lifecycle passthroughs", () => {
+    const makeSearchMock = () => ({
+      init: vi.fn(async () => {}),
+      vectorAvailable: true,
+      searchTools: vi.fn(),
+      reindexService: vi.fn(),
+      deleteEmbeddings: vi.fn(),
+      reconcile: vi.fn(),
+      reconcileGuarded: vi.fn(async () => {}),
+      startReconciliation: vi.fn(),
+      close: vi.fn(),
+    });
+
+    it("forwards lifecycle calls to the search index", async () => {
+      const search = makeSearchMock();
+      const svc = new ServicesService(makeController(), search);
+
+      await svc.initSearch();
+      svc.startSearchReconciliation(2500);
+      await svc.reconcileSearchGuarded();
+      svc.closeSearch();
+
+      expect(search.init).toHaveBeenCalledTimes(1);
+      expect(search.startReconciliation).toHaveBeenCalledWith(2500);
+      expect(search.reconcileGuarded).toHaveBeenCalledTimes(1);
+      expect(search.close).toHaveBeenCalledTimes(1);
+    });
+
+    it("no-ops when no search index is configured", async () => {
+      const svc = new ServicesService(makeController());
+
+      await expect(svc.initSearch()).resolves.toBeUndefined();
+      svc.startSearchReconciliation(0);
+      await expect(svc.reconcileSearchGuarded()).resolves.toBeUndefined();
+      expect(() => svc.closeSearch()).not.toThrow();
+    });
+  });
 });

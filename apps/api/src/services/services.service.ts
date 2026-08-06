@@ -17,7 +17,7 @@ import {
   services,
   tools,
 } from "@/db/schema";
-import { logger } from "@/logger";
+import type { SearchIndex } from "@/infra/search/search-engine";
 import { HttpError } from "@/models/error.model";
 import type { GenerateDefinitionInput } from "@/models/modules.model";
 import type {
@@ -36,7 +36,7 @@ import type {
   SetServiceEnabledInput,
   SetToolEnablesInput,
 } from "@/models/services.model";
-import type { ToolSearchIndex } from "@/services/search.service";
+import { logger } from "@/services/log.service";
 import { downloadText } from "@/utils/download.util";
 import { computeContentHash } from "@/utils/hash.util";
 import type { IconColumns } from "@/utils/icon.util";
@@ -83,8 +83,24 @@ const encryptedSecretsSchema = z.object({
 export class ServicesService {
   constructor(
     private readonly controller: AdapterController,
-    private readonly search?: ToolSearchIndex,
+    private readonly search?: SearchIndex,
   ) {}
+
+  async initSearch(): Promise<void> {
+    await this.search?.init();
+  }
+
+  startSearchReconciliation(intervalMs: number): void {
+    this.search?.startReconciliation(intervalMs);
+  }
+
+  async reconcileSearchGuarded(): Promise<void> {
+    await this.search?.reconcileGuarded();
+  }
+
+  closeSearch(): void {
+    this.search?.close();
+  }
 
   async listServices(
     input?: ListServicesInput,
@@ -243,7 +259,12 @@ export class ServicesService {
         }));
       } catch (err) {
         logger.warn(
-          { err, serviceId: input.serviceId, query: normalizedQuery },
+          {
+            event: "search-index-fallback",
+            err,
+            serviceId: input.serviceId,
+            query: normalizedQuery,
+          },
           "Search index lookup failed; falling back to LIKE query",
         );
       }
@@ -587,7 +608,12 @@ export class ServicesService {
       await this.controller.dehydrateService(service.adapter, id);
     } catch (err) {
       logger.warn(
-        { err, adapterId: service.adapter, serviceId: id },
+        {
+          event: "dehydrate-failed-sync",
+          err,
+          adapterId: service.adapter,
+          serviceId: id,
+        },
         "Failed to dehydrate service on sync",
       );
     }
@@ -724,7 +750,12 @@ export class ServicesService {
       await this.controller.dehydrateService(service.adapter, id);
     } catch (err) {
       logger.warn(
-        { err, adapterId: service.adapter, serviceId: id },
+        {
+          event: "dehydrate-failed-update",
+          err,
+          adapterId: service.adapter,
+          serviceId: id,
+        },
         "Failed to dehydrate service on update",
       );
     }
@@ -829,7 +860,12 @@ export class ServicesService {
       await this.controller.dehydrateService(service.adapter, id);
     } catch (err) {
       logger.warn(
-        { err, adapterId: service.adapter, serviceId: id },
+        {
+          event: "dehydrate-failed-patch",
+          err,
+          adapterId: service.adapter,
+          serviceId: id,
+        },
         "Failed to dehydrate service on patch",
       );
     }
@@ -854,7 +890,12 @@ export class ServicesService {
       await this.controller.dehydrateService(deleted.adapter, id);
     } catch (err) {
       logger.warn(
-        { err, adapterId: deleted.adapter, serviceId: id },
+        {
+          event: "dehydrate-failed-delete",
+          err,
+          adapterId: deleted.adapter,
+          serviceId: id,
+        },
         "Failed to dehydrate service on delete",
       );
     }
@@ -956,7 +997,11 @@ export class ServicesService {
           .where(eq(services.id, input.id))
           .catch((rollbackErr) => {
             logger.error(
-              { err: rollbackErr, serviceId: input.id },
+              {
+                event: "rollback-enabled-flag-failed",
+                err: rollbackErr,
+                serviceId: input.id,
+              },
               "Failed to roll back enabled flag after hydrate failure",
             );
           });
@@ -972,7 +1017,12 @@ export class ServicesService {
         await this.controller.dehydrateService(updated.adapter, input.id);
       } catch (err) {
         logger.warn(
-          { err, adapterId: updated.adapter, serviceId: input.id },
+          {
+            event: "dehydrate-failed-disable",
+            err,
+            adapterId: updated.adapter,
+            serviceId: input.id,
+          },
           "Failed to dehydrate service on disable",
         );
       }
@@ -1248,7 +1298,7 @@ export class ServicesService {
       )
       .catch((err) => {
         logger.warn(
-          { err, adapterId },
+          { event: "adapter-load-services-failed", err, adapterId },
           "Failed to load services for adapter activation",
         );
         return [] as { id: string }[];
@@ -1261,7 +1311,12 @@ export class ServicesService {
           await this.controller.hydrateService(adapterId, state);
         } catch (err) {
           logger.warn(
-            { err, adapterId, serviceId: row.id },
+            {
+              event: "adapter-hydrate-service-failed",
+              err,
+              adapterId,
+              serviceId: row.id,
+            },
             "Failed to hydrate service on adapter activation",
           );
         }
@@ -1389,7 +1444,11 @@ export class ServicesService {
       await this.search.reindexService(serviceId);
     } catch (err) {
       logger.warn(
-        { err, serviceId },
+        {
+          event: "reindex-embeddings-failed",
+          err,
+          serviceId,
+        },
         "Failed to regenerate tool embeddings; reconciliation will retry",
       );
     }
@@ -1401,7 +1460,7 @@ export class ServicesService {
       await this.search.deleteEmbeddings(serviceId);
     } catch (err) {
       logger.warn(
-        { err, serviceId },
+        { event: "delete-embeddings-failed", err, serviceId },
         "Failed to delete tool embeddings; reconciliation will retry",
       );
     }

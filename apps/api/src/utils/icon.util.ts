@@ -1,5 +1,5 @@
-import { logger } from "@/logger";
 import { HttpError } from "@/models/error.model";
+import { logger } from "@/services/log.service";
 import { downloadBinary } from "@/utils/download.util";
 import { computeBinaryHash } from "@/utils/hash.util";
 
@@ -56,7 +56,7 @@ export async function fetchAndValidateIcon(
         : "download";
     logger.warn(
       {
-        event: "icon_fetch_failed",
+        event: "icon-fetch-failed",
         entityType,
         entityId,
         reason,
@@ -73,7 +73,7 @@ export async function fetchAndValidateIcon(
   if (computeBinaryHash(data) !== icon.hash) {
     logger.warn(
       {
-        event: "icon_fetch_failed",
+        event: "icon-fetch-failed",
         entityType,
         entityId,
         reason: "hash_mismatch",
@@ -86,7 +86,7 @@ export async function fetchAndValidateIcon(
   const mime = sniffImageMime(data);
   if (!mime) {
     logger.warn(
-      { event: "icon_fetch_failed", entityType, entityId, reason: "bad_magic" },
+      { event: "icon-fetch-failed", entityType, entityId, reason: "bad_magic" },
       "Icon is not a supported raster image",
     );
     return null;
