@@ -2,14 +2,14 @@ import fs from "node:fs";
 import path from "node:path";
 import type { Transform } from "node:stream";
 
-import { LogBus } from "@/logging/bus";
-import { type LogEntry, normalizeLogObject } from "@/logging/log-entry";
-import { RingBuffer } from "@/logging/ring-buffer";
-import { scrubLogObject } from "@/logging/scrub";
-import { LogThrottle } from "@/logging/throttle";
+import { LogBus } from "@/infra/logging/bus";
+import { type LogEntry, normalizeLogObject } from "@/infra/logging/log-entry";
+import { RingBuffer } from "@/infra/logging/ring-buffer";
+import { scrubLogObject } from "@/infra/logging/scrub";
+import { LogThrottle } from "@/infra/logging/throttle";
 
 export interface LogSinkOptions {
-  filePath: string;
+  filePath?: string;
   rotationBytes: number;
   maxFiles: number;
   ringCapacity: number;
@@ -27,10 +27,10 @@ function dayOf(date: Date): string {
 export class LogSink {
   readonly buffer: RingBuffer<LogEntry>;
   readonly bus: LogBus;
-  readonly filePath: string;
+  readonly filePath: string | null;
   readonly maxFiles: number;
 
-  private fd: number;
+  private fd: number | null = null;
   private bytes = 0;
   private currentDay: string;
   private seq = 0;
@@ -43,14 +43,16 @@ export class LogSink {
   private readonly throttle: LogThrottle;
 
   constructor(private readonly options: LogSinkOptions) {
-    fs.mkdirSync(path.dirname(options.filePath), { recursive: true });
-    this.fd = fs.openSync(options.filePath, "a");
-    this.filePath = options.filePath;
+    this.filePath = options.filePath ?? null;
     this.maxFiles = options.maxFiles;
     this.currentDay = dayOf(new Date());
     this.buffer = new RingBuffer(options.ringCapacity);
     this.bus = new LogBus();
     this.throttle = new LogThrottle(options.dedupeWindowMs);
+    if (options.filePath !== undefined) {
+      fs.mkdirSync(path.dirname(options.filePath), { recursive: true });
+      this.fd = fs.openSync(options.filePath, "a");
+    }
   }
 
   write(line: string): boolean {
@@ -61,19 +63,7 @@ export class LogSink {
     }
 
     try {
-      const raw = JSON.parse(line) as Record<string, unknown>;
-      const scrubbed = scrubLogObject(raw);
-
-      if (this.options.prettyStream) {
-        this.options.prettyStream.write(JSON.stringify(scrubbed));
-      }
-
-      const entry = normalizeLogObject(scrubbed, ++this.seq);
-      if (!this.throttle.shouldEmit(entry, Date.now())) return true;
-
-      this.buffer.push(entry);
-      this.bus.emit(entry);
-      this.appendEntry(entry);
+      this.processLine(line);
       if (!this.draining) this.maybeRotate();
     } catch (err) {
       this.reportFailure(err);
@@ -81,43 +71,88 @@ export class LogSink {
     return true;
   }
 
-  close(): void {
+  private processLine(line: string): void {
+    const raw = JSON.parse(line) as Record<string, unknown>;
+    const scrubbed = scrubLogObject(raw);
+
+    if (this.options.prettyStream) {
+      this.options.prettyStream.write(JSON.stringify(scrubbed));
+    }
+
+    const entry = normalizeLogObject(scrubbed, ++this.seq);
+    if (!this.throttle.shouldEmit(entry, Date.now())) return;
+
+    this.buffer.push(entry);
+    this.bus.emit(entry);
+    this.appendEntry(entry);
+  }
+
+  async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
-    try {
-      fs.closeSync(this.fd);
-    } catch {
-      // Best effort; the process is shutting down.
+    while (this.rotating) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    if (this.fd === null && this.options.filePath !== undefined) {
+      try {
+        this.fd = fs.openSync(this.options.filePath, "a");
+      } catch {}
+    }
+    for (const line of this.queued.splice(0)) {
+      try {
+        this.processLine(line);
+      } catch (err) {
+        this.reportFailure(err);
+      }
+    }
+    if (this.fd !== null) {
+      try {
+        fs.closeSync(this.fd);
+      } catch {}
+      this.fd = null;
     }
   }
 
   private appendEntry(entry: LogEntry): void {
+    if (this.fd === null) return;
     const line = `${JSON.stringify(entry)}\n`;
     fs.writeSync(this.fd, line);
     this.bytes += Buffer.byteLength(line);
   }
 
   private maybeRotate(): void {
+    if (this.options.filePath === undefined) return;
     const day = dayOf(new Date());
     const overSize =
       this.options.rotationBytes > 0 &&
       this.bytes >= this.options.rotationBytes;
-    if (day === this.currentDay && !overSize) return;
+    if (day === this.currentDay && !overSize && this.fd !== null) return;
     void this.rotate();
   }
 
   private async rotate(): Promise<void> {
     if (this.rotating || this.closed) return;
+    const filePath = this.options.filePath;
+    if (filePath === undefined) return;
     this.rotating = true;
     try {
-      fs.closeSync(this.fd);
-      await shiftRotatedFiles(this.options.filePath, this.options.maxFiles);
+      if (this.fd !== null) {
+        fs.closeSync(this.fd);
+        this.fd = null;
+      }
+      await shiftRotatedFiles(filePath, this.options.maxFiles);
       if (this.options.beforeReopen) await this.options.beforeReopen();
       if (this.closed) return;
-      this.fd = fs.openSync(this.options.filePath, "a");
+      this.fd = fs.openSync(filePath, "a");
       this.bytes = 0;
       this.currentDay = dayOf(new Date());
     } catch (err) {
+      if (this.fd === null && !this.closed) {
+        try {
+          this.fd = fs.openSync(filePath, "a");
+          this.bytes = 0;
+        } catch {}
+      }
       this.reportFailure(err);
     } finally {
       this.rotating = false;
@@ -126,12 +161,18 @@ export class LogSink {
   }
 
   private drainQueue(): void {
-    if (this.queued.length === 0 || this.draining) return;
+    if (this.queued.length === 0 || this.draining || this.closed) return;
     const pending = this.queued;
     this.queued = [];
     this.draining = true;
     try {
-      for (const line of pending) this.write(line);
+      for (const line of pending) {
+        try {
+          this.processLine(line);
+        } catch (err) {
+          this.reportFailure(err);
+        }
+      }
     } finally {
       this.draining = false;
       this.maybeRotate();

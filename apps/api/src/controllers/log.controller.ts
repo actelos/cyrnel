@@ -1,16 +1,23 @@
 import type { Request, Response } from "express";
 import { z } from "zod";
-
-import { getLogBuffer, getLogBus, getLogFileOptions } from "@/logger";
-import { tailScanLogFiles } from "@/logging/file-scan";
-import { LOG_LEVELS, type LogEntry, logEntryId } from "@/logging/log-entry";
+import { tailScanLogFiles } from "@/infra/logging/file-scan";
+import {
+  LOG_LEVELS,
+  type LogEntry,
+  logEntryId,
+} from "@/infra/logging/log-entry";
 import {
   type LogCursor,
   type LogSort,
   parseLogCursor,
   queryLogEntries,
-} from "@/logging/query";
+} from "@/infra/logging/query";
 import { HttpError } from "@/models/error.model";
+import {
+  getLogBuffer,
+  getLogBus,
+  getLogFileOptions,
+} from "@/services/log.service";
 import { parseOrHttpError } from "@/utils/validation.util";
 
 const STREAM_REPLAY_LIMIT = 100;
@@ -75,6 +82,15 @@ export async function listLogs(req: Request, res: Response): Promise<void> {
   }
 
   const sort = parseSort(query.sort);
+  if (
+    before !== undefined &&
+    (sort.field !== "timestamp" || sort.direction !== "desc")
+  ) {
+    throw new HttpError(
+      400,
+      "'before' cursor is only supported with sort=timestamp:desc.",
+    );
+  }
   const buffer = getLogBuffer();
   const { entries: bufferEntries, nextCursor: bufferNextCursor } =
     queryLogEntries(
@@ -105,7 +121,7 @@ export async function listLogs(req: Request, res: Response): Promise<void> {
   }
 
   const remaining = query.limit - bufferEntries.length;
-  const deep = tailScanLogFiles(
+  const deep = await tailScanLogFiles(
     fileOptions,
     toFilters(query),
     remaining,

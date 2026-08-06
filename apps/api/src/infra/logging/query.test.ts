@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import type { LogEntry } from "@/logging/log-entry";
+import type { LogEntry } from "@/infra/logging/log-entry";
 import {
   type LogQueryFilters,
   type LogSort,
   matchesLogFilters,
   parseLogCursor,
   queryLogEntries,
-} from "@/logging/query";
+} from "@/infra/logging/query";
 
 function makeEntry(overrides: Partial<LogEntry> = {}): LogEntry {
   return {

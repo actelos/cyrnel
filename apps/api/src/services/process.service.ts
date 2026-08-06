@@ -12,7 +12,6 @@ import {
   processData as processDataTable,
   processes as processesTable,
 } from "@/db/schema";
-import { logger } from "@/logger";
 import { HttpError } from "@/models/error.model";
 import type {
   CreateProcessInput,
@@ -21,6 +20,7 @@ import type {
   ProcessRecord,
   ProcessState,
 } from "@/models/process.model";
+import { logger } from "@/services/log.service";
 
 const DEFAULT_EXECUTION_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_ACTIVE_PROCESSES = 1_000;

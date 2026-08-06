@@ -139,6 +139,16 @@ CI (`publish.yml`) runs on any push to `main` — including direct pushes and re
 - Avoid `any` — prefer `unknown` + narrowing
 - API logs: `pino`/`pino-http` with stable keys (`requestId`, `userId`, `adapterId`). Never log secrets.
 
+## Infra conventions (`apps/api/src/infra/`)
+
+`infra/<subsystem>/` holds generic, stateful subsystems with their own lifecycle (e.g. `infra/logging/`, `infra/search/`, `infra/embedding/`). Examples: logging, search indexing, embedding models, job schedulers. Domain orchestration that ties an infra subsystem into the API lives in `src/services/` (e.g. `log.service.ts`, the search passthroughs on `services.service.ts`).
+
+- Keep the directory **flat**: one level of files per subsystem, no nested subdirectories and no `index.ts` barrels — import directly (`@/infra/logging/log-sink`)
+- One concern per file, co-located `*.test.ts`
+- Subsystems own their state and lifecycle (file descriptors, DB connections, model weights, timers) and expose `init()`/`close()` (plus internal lifecycle hooks like `rotate()`, `reconcile()`)
+- **Dependency rule**: `services → infra` only. Infra must never import from `services/`, `controllers/`, or `routes/`; cross-infra imports are allowed only in one direction (`infra/search → infra/embedding`), with one exception: any layer may import `infra/logging/logger` (logging is cross-cutting — `services/log.service.ts` is a facade over it for the app layer)
+- Infra subsystems are invisible past the service layer: services expose narrow methods (e.g. `initSearch()`, `closeSearch()`), never the raw engine instance
+
 ## Environment variables
 
 Full set of env vars (see `apps/api/.example.env` for defaults):

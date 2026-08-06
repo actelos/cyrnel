@@ -47,6 +47,8 @@ export interface LogEntry {
   path?: string;
   statusCode?: number;
   durationMs?: number;
+  req?: Record<string, unknown>;
+  res?: Record<string, unknown>;
   error?: unknown;
   suppressedCount?: number;
   metadata?: Record<string, unknown>;
@@ -144,6 +146,8 @@ export function normalizeLogObject(
     if (typeof res.statusCode === "number") entry.statusCode = res.statusCode;
     if (typeof raw.responseTime === "number")
       entry.durationMs = raw.responseTime;
+    entry.req = req;
+    entry.res = res;
   } else {
     if (typeof raw.method === "string") entry.method = raw.method;
     if (typeof raw.url === "string") entry.path = stripQuery(raw.url);

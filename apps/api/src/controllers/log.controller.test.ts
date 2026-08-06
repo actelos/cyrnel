@@ -6,9 +6,9 @@ import type { Request, Response } from "express";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { listLogs, streamLogs } from "@/controllers/log.controller";
-import { LogBus } from "@/logging/bus";
-import type { LogEntry } from "@/logging/log-entry";
-import { RingBuffer } from "@/logging/ring-buffer";
+import { LogBus } from "@/infra/logging/bus";
+import type { LogEntry } from "@/infra/logging/log-entry";
+import { RingBuffer } from "@/infra/logging/ring-buffer";
 
 const mocks = vi.hoisted(() => ({
   getLogBuffer: vi.fn(),
@@ -16,7 +16,7 @@ const mocks = vi.hoisted(() => ({
   getLogFileOptions: vi.fn(),
 }));
 
-vi.mock("@/logger", () => ({
+vi.mock("@/services/log.service", () => ({
   getLogBuffer: mocks.getLogBuffer,
   getLogBus: mocks.getLogBus,
   getLogFileOptions: mocks.getLogFileOptions,
@@ -311,6 +311,14 @@ describe("log.controller listLogs", () => {
 
     const body = res.json.mock.calls[0][0] as { entries: LogEntry[] };
     expect(body.entries).toEqual([]);
+  });
+
+  it("rejects before cursors with non-desc sorts", async () => {
+    getLogBufferMock.mockReturnValue(new RingBuffer<LogEntry>(10));
+    const res = makeRes();
+    await expect(
+      listLogs(makeReq({ sort: "timestamp:asc", before: "200:2" }), cast(res)),
+    ).rejects.toThrow(/only supported with sort=timestamp:desc/);
   });
 });
 

@@ -4,8 +4,8 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { tailScanLogFiles } from "@/logging/file-scan";
-import type { LogEntry } from "@/logging/log-entry";
+import { tailScanLogFiles } from "@/infra/logging/file-scan";
+import type { LogEntry } from "@/infra/logging/log-entry";
 
 let tmpDir: string;
 
@@ -35,7 +35,7 @@ afterEach(() => {
 });
 
 describe("tailScanLogFiles", () => {
-  it("returns newest entries from the active file in reverse order", () => {
+  it("returns newest entries from the active file in reverse order", async () => {
     const file = path.join(tmpDir, "app.log");
     writeLines(file, [
       makeEntry({ timestamp: 100, seq: 1, message: "first" }),
@@ -43,12 +43,16 @@ describe("tailScanLogFiles", () => {
       makeEntry({ timestamp: 300, seq: 3, message: "third" }),
     ]);
 
-    const result = tailScanLogFiles({ filePath: file, maxFiles: 5 }, {}, 10);
+    const result = await tailScanLogFiles(
+      { filePath: file, maxFiles: 5 },
+      {},
+      10,
+    );
 
     expect(result.map((e) => e.seq)).toEqual([3, 2, 1]);
   });
 
-  it("scans rotated files newest first", () => {
+  it("scans rotated files newest first", async () => {
     const active = path.join(tmpDir, "app.log");
     writeLines(active, [
       makeEntry({ timestamp: 300, seq: 3 }),
@@ -60,12 +64,16 @@ describe("tailScanLogFiles", () => {
       makeEntry({ timestamp: 200, seq: 2 }),
     ]);
 
-    const result = tailScanLogFiles({ filePath: active, maxFiles: 5 }, {}, 10);
+    const result = await tailScanLogFiles(
+      { filePath: active, maxFiles: 5 },
+      {},
+      10,
+    );
 
     expect(result.map((e) => e.seq)).toEqual([4, 3, 2, 1]);
   });
 
-  it("respects the before cursor", () => {
+  it("respects the before cursor", async () => {
     const file = path.join(tmpDir, "app.log");
     writeLines(file, [
       makeEntry({ timestamp: 100, seq: 1 }),
@@ -73,22 +81,27 @@ describe("tailScanLogFiles", () => {
       makeEntry({ timestamp: 300, seq: 3 }),
     ]);
 
-    const result = tailScanLogFiles({ filePath: file, maxFiles: 5 }, {}, 10, {
-      timestamp: 200,
-      seq: 2,
-    });
+    const result = await tailScanLogFiles(
+      { filePath: file, maxFiles: 5 },
+      {},
+      10,
+      {
+        timestamp: 200,
+        seq: 2,
+      },
+    );
 
     expect(result.map((e) => e.seq)).toEqual([1]);
   });
 
-  it("applies filters", () => {
+  it("applies filters", async () => {
     const file = path.join(tmpDir, "app.log");
     writeLines(file, [
       makeEntry({ timestamp: 100, seq: 1, level: "info", message: "ok" }),
       makeEntry({ timestamp: 200, seq: 2, level: "error", message: "boom" }),
     ]);
 
-    const result = tailScanLogFiles(
+    const result = await tailScanLogFiles(
       { filePath: file, maxFiles: 5 },
       { level: "error" },
       10,
@@ -97,7 +110,7 @@ describe("tailScanLogFiles", () => {
     expect(result.map((e) => e.message)).toEqual(["boom"]);
   });
 
-  it("stops early once the limit is reached", () => {
+  it("stops early once the limit is reached", async () => {
     const file = path.join(tmpDir, "app.log");
     writeLines(file, [
       makeEntry({ timestamp: 100, seq: 1 }),
@@ -105,23 +118,31 @@ describe("tailScanLogFiles", () => {
       makeEntry({ timestamp: 300, seq: 3 }),
     ]);
 
-    const result = tailScanLogFiles({ filePath: file, maxFiles: 5 }, {}, 2);
+    const result = await tailScanLogFiles(
+      { filePath: file, maxFiles: 5 },
+      {},
+      2,
+    );
 
     expect(result.map((e) => e.seq)).toEqual([3, 2]);
   });
 
-  it("skips malformed lines and missing files", () => {
+  it("skips malformed lines and missing files", async () => {
     const file = path.join(tmpDir, "app.log");
     fs.writeFileSync(
       file,
       `${JSON.stringify(makeEntry({ timestamp: 100, seq: 1 }))}\nnot-json\n{"timestamp":200}\n${JSON.stringify(makeEntry({ timestamp: 300, seq: 2 }))}\n`,
     );
 
-    const result = tailScanLogFiles({ filePath: file, maxFiles: 5 }, {}, 10);
+    const result = await tailScanLogFiles(
+      { filePath: file, maxFiles: 5 },
+      {},
+      10,
+    );
 
     expect(result.map((e) => e.seq)).toEqual([2, 1]);
 
-    const missing = tailScanLogFiles(
+    const missing = await tailScanLogFiles(
       { filePath: path.join(tmpDir, "nope.log"), maxFiles: 5 },
       {},
       10,
@@ -129,10 +150,14 @@ describe("tailScanLogFiles", () => {
     expect(missing).toEqual([]);
   });
 
-  it("returns nothing for a zero limit", () => {
+  it("returns nothing for a zero limit", async () => {
     const file = path.join(tmpDir, "app.log");
     writeLines(file, [makeEntry({ timestamp: 100, seq: 1 })]);
-    const result = tailScanLogFiles({ filePath: file, maxFiles: 5 }, {}, 0);
+    const result = await tailScanLogFiles(
+      { filePath: file, maxFiles: 5 },
+      {},
+      0,
+    );
     expect(result).toEqual([]);
   });
 });

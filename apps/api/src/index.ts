@@ -5,7 +5,7 @@ import http from "node:http";
 import { z } from "zod";
 
 import { App } from "@/app";
-import { flushLogSink, logger } from "@/logger";
+import { flushLogSink, logger } from "@/services/log.service";
 
 const { PORT, SHUTDOWN_TIMEOUT_MS } = z
   .object({
@@ -62,11 +62,11 @@ const shutdown = async (signal: string) => {
     await closeServer();
     await app.shutdown();
     logger.info({ event: "shutdown-complete" }, "Shutdown complete");
-    flushLogSink();
+    await flushLogSink();
     process.exit(0);
   } catch (err) {
     logger.error({ event: "shutdown-failed", err }, "Shutdown failed");
-    flushLogSink();
+    await flushLogSink();
     process.exit(1);
   }
 };

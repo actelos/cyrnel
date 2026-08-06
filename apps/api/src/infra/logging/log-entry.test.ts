@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { logEntryId, normalizeLogObject } from "@/logging/log-entry";
+import { logEntryId, normalizeLogObject } from "@/infra/logging/log-entry";
 
 function rawLog(overrides: Record<string, unknown>): Record<string, unknown> {
   return {
@@ -36,11 +36,19 @@ describe("normalizeLogObject", () => {
     expect(normalizeLogObject(rawLog({ level: 60 }), 1).level).toBe("fatal");
   });
 
-  it("classifies request logs and flattens req/res fields", () => {
+  it("classifies request logs and keeps the full req/res objects", () => {
     const entry = normalizeLogObject(
       rawLog({
-        req: { id: "abc123", method: "GET", url: "/processes?limit=10" },
-        res: { statusCode: 200 },
+        req: {
+          id: "abc123",
+          method: "GET",
+          url: "/processes?limit=10",
+          headers: { host: "example.com" },
+        },
+        res: {
+          statusCode: 200,
+          headers: { "content-type": "application/json" },
+        },
         responseTime: 12.5,
       }),
       1,
@@ -51,6 +59,16 @@ describe("normalizeLogObject", () => {
     expect(entry.path).toBe("/processes");
     expect(entry.statusCode).toBe(200);
     expect(entry.durationMs).toBe(12.5);
+    expect(entry.req).toEqual({
+      id: "abc123",
+      method: "GET",
+      url: "/processes?limit=10",
+      headers: { host: "example.com" },
+    });
+    expect(entry.res).toEqual({
+      statusCode: 200,
+      headers: { "content-type": "application/json" },
+    });
   });
 
   it("maps method/url/statusCode on app logs and strips query strings", () => {

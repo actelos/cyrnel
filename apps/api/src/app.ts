@@ -2,8 +2,8 @@ import path from "node:path";
 import cors from "cors";
 import express from "express";
 import pinoHttp from "pino-http";
-
-import { logger } from "@/logger";
+import { TransformersEmbedder } from "@/infra/embedding/embedder";
+import { SearchEngine } from "@/infra/search/search-engine";
 import { apiKeyMiddleware } from "@/middleware/auth.middleware";
 import { errorMiddleware } from "@/middleware/error.middleware";
 import { ipAccessMiddleware } from "@/middleware/ip-access.middleware";
@@ -14,11 +14,10 @@ import { moduleRouter } from "@/routes/module.route";
 import { processRouter } from "@/routes/process.route";
 import { serviceRouter } from "@/routes/service.route";
 import { toolRouter } from "@/routes/tool.route";
+import { logger } from "@/services/log.service";
 import { ModuleService } from "@/services/modules.service";
 import { ProcessService } from "@/services/process.service";
-import { SearchService } from "@/services/search.service";
 import { ServicesService } from "@/services/services.service";
-import { TransformersEmbedder } from "@/utils/embedder.util";
 
 const DEFAULT_RECONCILE_INTERVAL_MS = 1_800_000;
 const MAX_RECONCILE_INTERVAL_MS = 2_147_483_647;
@@ -29,7 +28,6 @@ export class App {
   readonly moduleService: ModuleService;
   readonly processService: ProcessService;
   readonly servicesService: ServicesService;
-  readonly searchService: SearchService;
 
   constructor() {
     this.moduleService = new ModuleService(
@@ -47,8 +45,6 @@ export class App {
       },
     );
 
-    this.searchService = new SearchService(new TransformersEmbedder());
-
     this.servicesService = new ServicesService(
       {
         generateDefinition: (input) =>
@@ -59,7 +55,7 @@ export class App {
           this.moduleService.dehydrateService(adapterId, serviceId),
         generateToolDocs: (input) => this.moduleService.generateToolDocs(input),
       },
-      this.searchService,
+      new SearchEngine(new TransformersEmbedder()),
     );
 
     this.processService = new ProcessService({
@@ -72,18 +68,18 @@ export class App {
 
   async setup(): Promise<void> {
     const dataDir = process.env.CYRNEL_DATA_DIR || ".";
-    await this.searchService.init();
+    await this.servicesService.initSearch();
     await this.moduleService.initialize(path.join(dataDir, "modules"));
 
     const interval = parseReconcileInterval(
       process.env.CYRNEL_RECONCILE_INTERVAL_MS,
     );
-    this.searchService.startReconciliation(interval);
-    void this.searchService.reconcileGuarded();
+    this.servicesService.startSearchReconciliation(interval);
+    void this.servicesService.reconcileSearchGuarded();
   }
 
   async shutdown(): Promise<void> {
-    this.searchService.close();
+    this.servicesService.closeSearch();
     await this.processService.shutdown();
     try {
       await this.moduleService.shutdown();
@@ -110,7 +106,7 @@ export class App {
         customLogLevel: (_req, res, err) => {
           if (err || res.statusCode >= 500) return "error";
           if (res.statusCode >= 400) return "warn";
-          return "debug";
+          return "info";
         },
         autoLogging: {
           ignore: (req) => req.url?.startsWith("/health") ?? false,

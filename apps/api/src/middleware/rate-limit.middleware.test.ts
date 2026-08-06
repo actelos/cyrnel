@@ -2,14 +2,13 @@ import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import express from "express";
 import { afterEach, describe, expect, it, vi } from "vitest";
-
-import { logger } from "@/logger";
 import {
   createRateLimiter,
   globalRateLimiter,
 } from "@/middleware/rate-limit.middleware";
+import { logger } from "@/services/log.service";
 
-vi.mock("@/logger", () => ({
+vi.mock("@/services/log.service", () => ({
   logger: {
     warn: vi.fn(),
     info: vi.fn(),

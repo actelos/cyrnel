@@ -1,12 +1,12 @@
 import fs from "node:fs";
 
-import type { LogEntry } from "@/logging/log-entry";
+import type { LogEntry } from "@/infra/logging/log-entry";
 import {
   entryIsAfterOrAtCursor,
   type LogCursor,
   type LogQueryFilters,
   matchesLogFilters,
-} from "@/logging/query";
+} from "@/infra/logging/query";
 
 export interface LogFileOptions {
   filePath: string;
@@ -27,19 +27,19 @@ function listLogFiles({ filePath, maxFiles }: LogFileOptions): string[] {
  * Entries are returned in descending timestamp order (file order) and the
  * scan stops early once `limit` entries are collected.
  */
-export function tailScanLogFiles(
+export async function tailScanLogFiles(
   options: LogFileOptions,
   filters: LogQueryFilters,
   limit: number,
   before?: LogCursor,
-): LogEntry[] {
+): Promise<LogEntry[]> {
   if (limit <= 0) return [];
   const out: LogEntry[] = [];
   for (const file of listLogFiles(options)) {
     if (out.length >= limit) break;
     let content: string;
     try {
-      content = fs.readFileSync(file, "utf8");
+      content = await fs.promises.readFile(file, "utf8");
     } catch {
       continue;
     }

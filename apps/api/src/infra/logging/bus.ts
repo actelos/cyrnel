@@ -1,4 +1,4 @@
-import type { LogEntry } from "@/logging/log-entry";
+import type { LogEntry } from "@/infra/logging/log-entry";
 
 export type LogListener = (entry: LogEntry) => void;
 
@@ -25,9 +25,7 @@ export class LogBus {
     for (const listener of this.listeners) {
       try {
         listener(entry);
-      } catch {
-        // Listener failures must never break the log write path.
-      }
+      } catch {}
     }
   }
 }

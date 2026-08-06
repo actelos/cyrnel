@@ -1,4 +1,4 @@
-import type { LogEntry } from "@/logging/log-entry";
+import type { LogEntry } from "@/infra/logging/log-entry";
 
 interface ThrottleRecord {
   first: number;
@@ -42,6 +42,11 @@ export class LogThrottle {
     if (this.records.size < MAX_TRACKED_KEYS) return;
     for (const [key, record] of this.records) {
       if (now - record.first >= this.windowMs) this.records.delete(key);
+    }
+    while (this.records.size >= MAX_TRACKED_KEYS) {
+      const oldest = this.records.keys().next();
+      if (oldest.done) break;
+      this.records.delete(oldest.value);
     }
   }
 }

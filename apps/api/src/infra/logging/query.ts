@@ -4,7 +4,7 @@ import {
   type LogLevel,
   type LogType,
   logEntryId,
-} from "@/logging/log-entry";
+} from "@/infra/logging/log-entry";
 
 export interface LogQueryFilters {
   from?: number;

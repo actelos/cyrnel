@@ -1,7 +1,7 @@
 import type { Request, Response } from "express";
 import rateLimit from "express-rate-limit";
 
-import { logger } from "@/logger";
+import { logger } from "@/services/log.service";
 
 export function createRateLimiter(
   max: number,

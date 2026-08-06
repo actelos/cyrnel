@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { RingBuffer } from "@/logging/ring-buffer";
+import { RingBuffer } from "@/infra/logging/ring-buffer";
 
 describe("RingBuffer", () => {
   it("holds up to its capacity and drops oldest first", () => {

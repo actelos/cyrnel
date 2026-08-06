@@ -1,11 +1,11 @@
 import path from "node:path";
 import pino from "pino";
 import pretty from "pino-pretty";
-import type { LogBus } from "@/logging/bus";
-import type { LogFileOptions } from "@/logging/file-scan";
-import type { LogEntry } from "@/logging/log-entry";
-import { LogSink, type LogSinkOptions } from "@/logging/log-sink";
-import type { RingBuffer } from "@/logging/ring-buffer";
+import type { LogBus } from "@/infra/logging/bus";
+import type { LogFileOptions } from "@/infra/logging/file-scan";
+import type { LogEntry } from "@/infra/logging/log-entry";
+import { LogSink, type LogSinkOptions } from "@/infra/logging/log-sink";
+import type { RingBuffer } from "@/infra/logging/ring-buffer";
 
 const { NODE_ENV, LOG_LEVEL } = process.env;
 
@@ -77,9 +77,15 @@ function resolveLogSinkOptions(): LogSinkOptions {
     ) *
     1024 *
     1024;
+  const logFile = process.env.CYRNEL_LOG_FILE;
+  const filePath =
+    logFile === undefined
+      ? path.join(dataDir, "logs", "app.log")
+      : logFile === "false"
+        ? undefined
+        : logFile;
   return {
-    filePath:
-      process.env.CYRNEL_LOG_FILE ?? path.join(dataDir, "logs", "app.log"),
+    filePath,
     rotationBytes,
     maxFiles: parsePositiveInt(
       process.env.CYRNEL_LOG_MAX_FILES,
@@ -127,8 +133,8 @@ function createLogger() {
   );
 }
 
-export function flushLogSink(): void {
-  sink?.close();
+export async function flushLogSink(): Promise<void> {
+  await sink?.close();
 }
 
 export function getLogBuffer(): RingBuffer<LogEntry> | null {
@@ -140,7 +146,8 @@ export function getLogBus(): LogBus | null {
 }
 
 export function getLogFileOptions(): LogFileOptions | null {
-  return sink ? { filePath: sink.filePath, maxFiles: sink.maxFiles } : null;
+  if (sink === null || sink.filePath === null) return null;
+  return { filePath: sink.filePath, maxFiles: sink.maxFiles };
 }
 
 export const logger = createLogger();

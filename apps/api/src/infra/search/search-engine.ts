@@ -4,6 +4,8 @@ import { getLoadablePath } from "sqlite-vec";
 
 import { db, resolveDatabaseUrl } from "@/db/client";
 import { tools } from "@/db/schema";
+import type { Embedder } from "@/infra/embedding/embedder";
+import { logger } from "@/infra/logging/logger";
 import {
   embeddingsStatement,
   FTS5_BACKFILL,
@@ -13,9 +15,7 @@ import {
   TOOL_EMBEDDINGS_METADATA_TABLE,
   TOOL_EMBEDDINGS_TABLE,
   TOOLS_FTS_TABLE,
-} from "@/db/search-schema";
-import { logger } from "@/logger";
-import type { Embedder } from "@/utils/embedder.util";
+} from "@/infra/search/search-schema";
 
 const RRF_K = 60;
 const CANDIDATE_CAP_FACTOR = 5;
@@ -51,7 +51,7 @@ export interface ReconcileResult {
   skipped: number;
 }
 
-export interface ToolSearchIndex {
+export interface SearchIndex {
   init(): Promise<void>;
   readonly vectorAvailable: boolean;
   searchTools(query: string, options: SearchOptions): Promise<HybridToolHit[]>;
@@ -132,7 +132,7 @@ type ToolSearchRow = {
 
 type EmbeddingRef = { service_id: string; tool_id: string };
 
-export class SearchService implements ToolSearchIndex {
+export class SearchEngine implements SearchIndex {
   private searchDb: Database.Database | null = null;
   private schemaReady = false;
   private reconcileTimer: NodeJS.Timeout | null = null;

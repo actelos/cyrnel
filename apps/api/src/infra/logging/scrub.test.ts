@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { scrubLogObject, scrubString } from "@/logging/scrub";
+import { scrubLogObject, scrubString } from "@/infra/logging/scrub";
 
 describe("scrubString", () => {
   it("redacts bearer tokens", () => {

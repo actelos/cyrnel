@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import type { LogEntry } from "@/logging/log-entry";
-import { LogThrottle } from "@/logging/throttle";
+import type { LogEntry } from "@/infra/logging/log-entry";
+import { LogThrottle } from "@/infra/logging/throttle";
 
 function makeEntry(
   level: LogEntry["level"],
@@ -80,5 +80,17 @@ describe("LogThrottle", () => {
     expect(throttle.shouldEmit(makeEntry("info"), NOW)).toBe(true);
     expect(throttle.shouldEmit(makeEntry("info"), NOW + 10)).toBe(true);
     expect(throttle.shouldEmit(makeEntry("debug"), NOW + 20)).toBe(true);
+  });
+
+  it("evicts the oldest keys when the tracked set exceeds the cap", () => {
+    const throttle = new LogThrottle(1000);
+    for (let i = 0; i < 1030; i++) {
+      expect(throttle.shouldEmit(makeEntry("error", `evt-${i}`), NOW)).toBe(
+        true,
+      );
+    }
+    expect(throttle.shouldEmit(makeEntry("error", "evt-0"), NOW + 1)).toBe(
+      true,
+    );
   });
 });

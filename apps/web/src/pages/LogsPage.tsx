@@ -57,6 +57,8 @@ const logEntrySchema = z.object({
   path: z.string().optional(),
   statusCode: z.number().optional(),
   durationMs: z.number().optional(),
+  req: z.record(z.string(), z.unknown()).optional(),
+  res: z.record(z.string(), z.unknown()).optional(),
   error: z.unknown().optional(),
   suppressedCount: z.number().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
@@ -243,15 +245,6 @@ export default function LogsPage() {
               </p>
             </div>
             <div className="flex items-center gap-2">
-              <Badge variant={isLive ? "default" : "secondary"}>
-                <span
-                  className={cn(
-                    "mr-1.5 inline-block h-1.5 w-1.5 rounded-full",
-                    isLive ? "bg-emerald-500" : "bg-muted-foreground",
-                  )}
-                />
-                {isLive ? "Live" : "Reconnecting"}
-              </Badge>
               <Button
                 type="button"
                 variant="outline"
