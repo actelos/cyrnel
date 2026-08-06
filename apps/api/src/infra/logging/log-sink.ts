@@ -19,6 +19,7 @@ export interface LogSinkOptions {
 }
 
 const FAILURE_WARN_INTERVAL_MS = 30_000;
+const REOPEN_RETRY_MS = 5_000;
 
 function dayOf(date: Date): string {
   return date.toISOString().slice(0, 10);
@@ -35,6 +36,8 @@ export class LogSink {
   private currentDay: string;
   private seq = 0;
   private rotating = false;
+  private reopening = false;
+  private lastReopenAttemptAt = 0;
   private draining = false;
   private queued: string[] = [];
   private closed = false;
@@ -50,8 +53,14 @@ export class LogSink {
     this.bus = new LogBus();
     this.throttle = new LogThrottle(options.dedupeWindowMs);
     if (options.filePath !== undefined) {
-      fs.mkdirSync(path.dirname(options.filePath), { recursive: true });
-      this.fd = fs.openSync(options.filePath, "a");
+      try {
+        fs.mkdirSync(path.dirname(options.filePath), { recursive: true });
+        this.fd = fs.openSync(options.filePath, "a");
+        this.bytes = fs.statSync(options.filePath).size;
+      } catch (err) {
+        this.fd = null;
+        this.reportFailure(err);
+      }
     }
   }
 
@@ -126,8 +135,28 @@ export class LogSink {
     const overSize =
       this.options.rotationBytes > 0 &&
       this.bytes >= this.options.rotationBytes;
-    if (day === this.currentDay && !overSize && this.fd !== null) return;
-    void this.rotate();
+    if (day !== this.currentDay || overSize) {
+      void this.rotate();
+      return;
+    }
+    if (this.fd === null) this.reopen();
+  }
+
+  private reopen(): void {
+    const filePath = this.options.filePath;
+    if (filePath === undefined || this.reopening || this.closed) return;
+    const now = Date.now();
+    if (now - this.lastReopenAttemptAt < REOPEN_RETRY_MS) return;
+    this.reopening = true;
+    this.lastReopenAttemptAt = now;
+    try {
+      this.fd = fs.openSync(filePath, "a");
+      this.bytes = fs.statSync(filePath).size;
+    } catch (err) {
+      this.reportFailure(err);
+    } finally {
+      this.reopening = false;
+    }
   }
 
   private async rotate(): Promise<void> {
@@ -150,7 +179,7 @@ export class LogSink {
       if (this.fd === null && !this.closed) {
         try {
           this.fd = fs.openSync(filePath, "a");
-          this.bytes = 0;
+          this.bytes = fs.statSync(filePath).size;
         } catch {}
       }
       this.reportFailure(err);

@@ -3,6 +3,7 @@ import https from "node:https";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import sirv from "sirv";
+import { API_PATHS } from "./api-paths.js";
 
 const PORT = Number(process.env.PORT) || 9372;
 const HOST = process.env.HOST || "0.0.0.0";
@@ -15,16 +16,6 @@ const CYRNEL_API_URL = process.env.CYRNEL_API_URL || "http://127.0.0.1:9371";
 const CYRNEL_API_KEY = process.env.CYRNEL_API_KEY ?? "";
 
 const apiUrl = new URL(CYRNEL_API_URL);
-
-const API_PATHS = [
-  "/health",
-  "/modules",
-  "/services",
-  "/tools",
-  "/processes",
-  "/environment",
-  "/logs",
-];
 
 function isApiPath(pathname: string): boolean {
   return API_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));

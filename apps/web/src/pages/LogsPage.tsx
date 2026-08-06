@@ -123,6 +123,7 @@ export default function LogsPage() {
   const [isLive, setIsLive] = useState(false);
   const [selected, setSelected] = useState<LogEntry | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const loadAbortRef = useRef<AbortController | null>(null);
 
   const filters = useMemo<LogFilters>(
     () => ({ query, level, type }),
@@ -144,6 +145,9 @@ export default function LogsPage() {
   );
 
   const loadFirstPage = useCallback(async () => {
+    loadAbortRef.current?.abort();
+    const controller = new AbortController();
+    loadAbortRef.current = controller;
     setHistory([]);
     setNextCursor(null);
     try {
@@ -153,17 +157,25 @@ export default function LogsPage() {
           limit: String(PAGE_LIMIT),
         }),
         logPageSchema,
+        { signal: controller.signal },
       );
       setHistory(data.entries);
       setNextCursor(data.nextCursor);
       setLoadError(null);
     } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
       setLoadError(errorMessageFrom(error, "Failed to load logs."));
     }
   }, [filters]);
 
   useEffect(() => {
-    void loadFirstPage();
+    const timeout = setTimeout(() => {
+      void loadFirstPage();
+    }, 300);
+    return () => {
+      clearTimeout(timeout);
+      loadAbortRef.current?.abort();
+    };
   }, [loadFirstPage]);
 
   useEffect(() => {
@@ -245,6 +257,21 @@ export default function LogsPage() {
               </p>
             </div>
             <div className="flex items-center gap-2">
+              <span
+                className={cn(
+                  "flex items-center gap-2 text-sm",
+                  isLive ? "text-emerald-500" : "text-muted-foreground",
+                )}
+                aria-live="polite"
+              >
+                <span
+                  className={cn(
+                    "size-2 rounded-full",
+                    isLive ? "bg-emerald-500" : "bg-muted",
+                  )}
+                />
+                {isLive ? "Live" : "Offline"}
+              </span>
               <Button
                 type="button"
                 variant="outline"
@@ -323,7 +350,15 @@ export default function LogsPage() {
                     <TableRow
                       key={entryId(entry)}
                       className="cursor-pointer"
+                      tabIndex={0}
+                      aria-label={`Open entry ${entryId(entry)}`}
                       onClick={() => setSelected(entry)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          setSelected(entry);
+                        }
+                      }}
                     >
                       <TableCell className="font-mono text-xs whitespace-nowrap">
                         <span className="text-muted-foreground">

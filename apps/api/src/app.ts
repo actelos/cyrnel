@@ -149,7 +149,7 @@ function parseReconcileInterval(raw: string | undefined): number {
   if (parsed === 0) {
     logger.info(
       { event: "reconcile-disabled" },
-      "CYRNEL_RECONCILE_INTERVAL_MS is 0; reconciliation disabled",
+      "CYRNEL_RECONCILE_INTERVAL_MS is 0; recurring reconciliation disabled (startup sweep still runs)",
     );
     return 0;
   }

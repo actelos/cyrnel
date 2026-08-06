@@ -50,7 +50,15 @@ export async function tailScanLogFiles(
       if (line.length === 0) continue;
       let entry: LogEntry;
       try {
-        entry = JSON.parse(line) as LogEntry;
+        const parsed: unknown = JSON.parse(line);
+        if (
+          parsed === null ||
+          typeof parsed !== "object" ||
+          Array.isArray(parsed)
+        ) {
+          continue;
+        }
+        entry = parsed as LogEntry;
       } catch {
         continue;
       }

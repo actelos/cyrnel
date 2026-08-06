@@ -137,13 +137,14 @@ describe("queryLogEntries", () => {
     const { entries: page, nextCursor } = queryLogEntries(entries, {}, sort, 2);
     expect(page.map((e) => e.message)).toEqual(["third", "second"]);
     expect(nextCursor).toBe("200:2");
+    if (nextCursor === null) throw new Error("expected nextCursor");
 
     const second = queryLogEntries(
       entries,
       {},
       sort,
       2,
-      parseLogCursor(nextCursor!),
+      parseLogCursor(nextCursor),
     );
     expect(second.entries.map((e) => e.message)).toEqual(["first"]);
     expect(second.nextCursor).toBeNull();

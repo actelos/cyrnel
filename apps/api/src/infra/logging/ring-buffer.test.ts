@@ -20,4 +20,12 @@ describe("RingBuffer", () => {
     buffer.push(2);
     expect(snapshot).toEqual([1]);
   });
+
+  it("retains nothing at zero capacity", () => {
+    const buffer = new RingBuffer<number>(0);
+    buffer.push(1);
+    buffer.push(2);
+    expect(buffer.size).toBe(0);
+    expect(buffer.toArray()).toEqual([]);
+  });
 });

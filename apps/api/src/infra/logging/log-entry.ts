@@ -29,6 +29,8 @@ export const LOG_LEVEL_SEVERITY: Record<LogLevel, number> = {
 
 export type LogType = "app" | "request";
 
+export const LOG_TYPES = ["app", "request"] as const;
+
 export interface LogEntry {
   timestamp: number;
   seq: number;
@@ -134,8 +136,8 @@ export function normalizeLogObject(
     if (value === undefined || value === null) continue;
     if (key === "processId") {
       entry.processId = typeof value === "number" ? value : String(value);
-    } else {
-      entry[key] = value as string;
+    } else if (typeof value === "string") {
+      entry[key] = value;
     }
   }
 

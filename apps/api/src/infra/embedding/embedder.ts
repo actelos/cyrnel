@@ -1,9 +1,10 @@
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { logger } from "@/infra/logging/logger";
-import { SEARCH_DIMENSIONS } from "@/infra/search/search-schema";
 
 export const DEFAULT_EMBEDDING_MODEL = "Xenova/bge-small-en-v1.5";
+
+export const SEARCH_DIMENSIONS = 384;
 
 export interface Embedder {
   readonly modelId: string;

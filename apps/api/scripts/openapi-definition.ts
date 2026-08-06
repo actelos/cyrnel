@@ -2094,6 +2094,172 @@ registry.registerPath({
   },
 });
 
+const logLevelSchema = z.enum([
+  "trace",
+  "debug",
+  "info",
+  "warn",
+  "error",
+  "fatal",
+]);
+const logTypeSchema = z.enum(["app", "request"]);
+
+const LogEntrySchema = registry.register(
+  "LogEntry",
+  z
+    .object({
+      timestamp: z
+        .number()
+        .int()
+        .describe("Unix millisecond timestamp of the entry."),
+      seq: z.number().int().describe("Per-sink sequence number."),
+      level: logLevelSchema.describe("Log severity level."),
+      type: logTypeSchema.describe("Entry category."),
+      message: z.string().describe("Human-readable log message."),
+      event: z
+        .string()
+        .optional()
+        .describe("Structured event key attached by the caller."),
+      requestId: z.string().optional(),
+      processId: z.union([z.number(), z.string()]).optional(),
+      adapterId: z.string().optional(),
+      serviceId: z.string().optional(),
+      moduleId: z.string().optional(),
+      environmentId: z.string().optional(),
+      pid: z.number().int().describe("Process id that emitted the entry."),
+      method: z.string().optional(),
+      path: z.string().optional(),
+      statusCode: z.number().int().optional(),
+      durationMs: z.number().optional(),
+      req: z
+        .record(z.string(), z.unknown())
+        .optional()
+        .describe("Normalized request object for request entries."),
+      res: z
+        .record(z.string(), z.unknown())
+        .optional()
+        .describe("Normalized response object for request entries."),
+      error: z.unknown().optional(),
+      suppressedCount: z.number().int().optional(),
+      metadata: z.record(z.string(), z.unknown()).optional(),
+    })
+    .describe("A normalized log entry."),
+);
+
+const LogListResponseSchema = registry.register(
+  "LogListResponse",
+  z
+    .object({
+      entries: z.array(LogEntrySchema),
+      nextCursor: z
+        .string()
+        .nullable()
+        .describe(
+          "Opaque cursor for the next page, null when the end is reached.",
+        ),
+    })
+    .describe("A page of log entries."),
+);
+
+const logListQuerySchema = z.object({
+  from: z.coerce.number().int().nonnegative().optional(),
+  to: z.coerce.number().int().nonnegative().optional(),
+  level: logLevelSchema.optional(),
+  levelMin: logLevelSchema.optional(),
+  type: logTypeSchema.optional(),
+  query: z
+    .string()
+    .max(500)
+    .optional()
+    .describe("Substring filter against the entry message."),
+  event: z.string().max(200).optional(),
+  requestId: z.string().max(200).optional(),
+  processId: z
+    .union([z.coerce.number().int().positive(), z.string()])
+    .optional(),
+  adapterId: z.string().max(200).optional(),
+  serviceId: z.string().max(200).optional(),
+  moduleId: z.string().max(200).optional(),
+  environmentId: z.string().max(200).optional(),
+  statusCode: z.coerce.number().int().positive().max(599).optional(),
+  durationMin: z.coerce.number().int().nonnegative().optional(),
+  durationMax: z.coerce.number().int().nonnegative().optional(),
+  sort: z
+    .enum(["timestamp:asc", "timestamp:desc", "duration:asc", "duration:desc"])
+    .optional()
+    .describe("Sort order; defaults to timestamp:desc."),
+  limit: z.coerce.number().int().min(1).max(500).default(100),
+  before: z
+    .string()
+    .optional()
+    .describe(
+      "Opaque cursor for pagination; only supported with sort=timestamp:desc.",
+    ),
+});
+
+registry.registerPath({
+  path: "/logs",
+  tags: ["Logs"],
+  summary: "List log entries",
+  description:
+    "Returns log entries from the in-memory ring buffer and, when the page is short, the rotated JSONL log files on disk. Query filters apply to both sources; request payloads are scrubbed of secrets before persistence.",
+  request: {
+    query: logListQuerySchema,
+  },
+  responses: {
+    200: {
+      description: "Matching log entries.",
+      content: jsonContent(LogListResponseSchema),
+    },
+    400: apiErrorResponse(
+      "One or more query parameters could not be parsed, or the 'before' cursor is invalid or used with a non-timestamp:desc sort.",
+    ),
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    ...rateLimitResponse(),
+    500: apiErrorResponse("The log entries could not be retrieved."),
+  },
+});
+
+registry.registerPath({
+  path: "/logs/stream",
+  tags: ["Logs"],
+  summary: "Stream log entries over SSE",
+  description:
+    "Server-sent event stream of log entries as they are emitted. Frames carry an id (<timestamp>:<seq>); clients can pass it back as the Last-Event-ID header on reconnect to receive only entries strictly newer than it.",
+  request: {
+    headers: z.object({
+      "last-event-id": z
+        .string()
+        .optional()
+        .describe(
+          "Resume cursor; only entries strictly newer than it are replayed.",
+        ),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Server-sent event stream of log entries.",
+      content: textContent(
+        z
+          .string()
+          .describe(
+            "SSE frame: `id: <timestamp>:<seq>` + `event: log` + `data: <LogEntry>`.",
+          ),
+        "text/event-stream",
+      ),
+    },
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    503: apiErrorResponse(
+      "Log stream unavailable (logging disabled) or too many log stream subscribers.",
+    ),
+    ...rateLimitResponse(),
+  },
+});
+
 export function generateOpenApiDoc(): OpenAPIObject {
   const generator = new OpenApiGeneratorV3(registry.definitions);
 

@@ -947,6 +947,144 @@
           "retryAfter"
         ],
         "description": "Error body returned when a request is rate-limited (HTTP 429)."
+      },
+      "LogEntry": {
+        "type": "object",
+        "properties": {
+          "timestamp": {
+            "type": "integer",
+            "description": "Unix millisecond timestamp of the entry."
+          },
+          "seq": {
+            "type": "integer",
+            "description": "Per-sink sequence number."
+          },
+          "level": {
+            "type": "string",
+            "enum": [
+              "trace",
+              "debug",
+              "info",
+              "warn",
+              "error",
+              "fatal"
+            ],
+            "description": "Log severity level."
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "app",
+              "request"
+            ],
+            "description": "Entry category."
+          },
+          "message": {
+            "type": "string",
+            "description": "Human-readable log message."
+          },
+          "event": {
+            "type": "string",
+            "description": "Structured event key attached by the caller."
+          },
+          "requestId": {
+            "type": "string"
+          },
+          "processId": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "adapterId": {
+            "type": "string"
+          },
+          "serviceId": {
+            "type": "string"
+          },
+          "moduleId": {
+            "type": "string"
+          },
+          "environmentId": {
+            "type": "string"
+          },
+          "pid": {
+            "type": "integer",
+            "description": "Process id that emitted the entry."
+          },
+          "method": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "statusCode": {
+            "type": "integer"
+          },
+          "durationMs": {
+            "type": "number"
+          },
+          "req": {
+            "type": "object",
+            "additionalProperties": {
+              "nullable": true
+            },
+            "description": "Normalized request object for request entries."
+          },
+          "res": {
+            "type": "object",
+            "additionalProperties": {
+              "nullable": true
+            },
+            "description": "Normalized response object for request entries."
+          },
+          "error": {
+            "nullable": true
+          },
+          "suppressedCount": {
+            "type": "integer"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": {
+              "nullable": true
+            }
+          }
+        },
+        "required": [
+          "timestamp",
+          "seq",
+          "level",
+          "type",
+          "message",
+          "pid"
+        ],
+        "description": "A normalized log entry."
+      },
+      "LogListResponse": {
+        "type": "object",
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LogEntry"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true,
+            "description": "Opaque cursor for the next page, null when the end is reached."
+          }
+        },
+        "required": [
+          "entries",
+          "nextCursor"
+        ],
+        "description": "A page of log entries."
       }
     },
     "parameters": {}
@@ -4468,10 +4606,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "Maximum number of matching tools to return, as a positive integer string."
+              "description": "Maximum number of matching tools to return, as a positive integer string. If omitted in the search path, the API applies the default search cap of 50 results."
             },
             "required": false,
-            "description": "Maximum number of matching tools to return, as a positive integer string.",
+            "description": "Maximum number of matching tools to return, as a positive integer string. If omitted in the search path, the API applies the default search cap of 50 results.",
             "name": "limit",
             "in": "query"
           },
@@ -6243,6 +6381,399 @@
           },
           "500": {
             "description": "The environment documentation could not be generated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/logs": {
+      "undefined": {
+        "tags": [
+          "Logs"
+        ],
+        "summary": "List log entries",
+        "description": "Returns log entries from the in-memory ring buffer and, when the page is short, the rotated JSONL log files on disk. Query filters apply to both sources; request payloads are scrubbed of secrets before persistence.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "integer",
+              "nullable": true,
+              "minimum": 0
+            },
+            "required": false,
+            "name": "from",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "nullable": true,
+              "minimum": 0
+            },
+            "required": false,
+            "name": "to",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "trace",
+                "debug",
+                "info",
+                "warn",
+                "error",
+                "fatal"
+              ]
+            },
+            "required": false,
+            "name": "level",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "trace",
+                "debug",
+                "info",
+                "warn",
+                "error",
+                "fatal"
+              ]
+            },
+            "required": false,
+            "name": "levelMin",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "app",
+                "request"
+              ]
+            },
+            "required": false,
+            "name": "type",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 500,
+              "description": "Substring filter against the entry message."
+            },
+            "required": false,
+            "description": "Substring filter against the entry message.",
+            "name": "query",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "required": false,
+            "name": "event",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "required": false,
+            "name": "requestId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0,
+                  "exclusiveMinimum": true
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "required": false,
+            "name": "processId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "required": false,
+            "name": "adapterId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "required": false,
+            "name": "serviceId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "required": false,
+            "name": "moduleId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "required": false,
+            "name": "environmentId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "maximum": 599
+            },
+            "required": false,
+            "name": "statusCode",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "nullable": true,
+              "minimum": 0
+            },
+            "required": false,
+            "name": "durationMin",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "nullable": true,
+              "minimum": 0
+            },
+            "required": false,
+            "name": "durationMax",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "timestamp:asc",
+                "timestamp:desc",
+                "duration:asc",
+                "duration:desc"
+              ],
+              "description": "Sort order; defaults to timestamp:desc."
+            },
+            "required": false,
+            "description": "Sort order; defaults to timestamp:desc.",
+            "name": "sort",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "default": 100
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Opaque cursor for pagination; only supported with sort=timestamp:desc."
+            },
+            "required": false,
+            "description": "Opaque cursor for pagination; only supported with sort=timestamp:desc.",
+            "name": "before",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Matching log entries.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "One or more query parameters could not be parsed, or the 'before' cursor is invalid or used with a non-timestamp:desc sort.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A bearer token was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded. The request was throttled. Check Retry-After header.",
+            "headers": {
+              "X-RateLimit-Limit": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Maximum requests allowed in the current window."
+              },
+              "X-RateLimit-Remaining": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Requests remaining in the current window."
+              },
+              "X-RateLimit-Reset": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Unix timestamp when the window resets."
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The log entries could not be retrieved.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/logs/stream": {
+      "undefined": {
+        "tags": [
+          "Logs"
+        ],
+        "summary": "Stream log entries over SSE",
+        "description": "Server-sent event stream of log entries as they are emitted. Frames carry an id (<timestamp>:<seq>); clients can pass it back as the Last-Event-ID header on reconnect to receive only entries strictly newer than it.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Resume cursor; only entries strictly newer than it are replayed."
+            },
+            "required": false,
+            "description": "Resume cursor; only entries strictly newer than it are replayed.",
+            "name": "last-event-id",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Server-sent event stream of log entries.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string",
+                  "description": "SSE frame: `id: <timestamp>:<seq>` + `event: log` + `data: <LogEntry>`."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A bearer token was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded. The request was throttled. Check Retry-After header.",
+            "headers": {
+              "X-RateLimit-Limit": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Maximum requests allowed in the current window."
+              },
+              "X-RateLimit-Remaining": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Requests remaining in the current window."
+              },
+              "X-RateLimit-Reset": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Unix timestamp when the window resets."
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Log stream unavailable (logging disabled) or too many log stream subscribers.",
             "content": {
               "application/json": {
                 "schema": {

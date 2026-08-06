@@ -1,41 +1,25 @@
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-
 import type { Request, Response } from "express";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { listLogs, streamLogs } from "@/controllers/log.controller";
-import { LogBus } from "@/infra/logging/bus";
 import type { LogEntry } from "@/infra/logging/log-entry";
-import { RingBuffer } from "@/infra/logging/ring-buffer";
+import { HttpError } from "@/models/error.model";
 
 const mocks = vi.hoisted(() => ({
-  getLogBuffer: vi.fn(),
-  getLogBus: vi.fn(),
-  getLogFileOptions: vi.fn(),
+  listLogs: vi.fn(),
+  recentLogs: vi.fn(),
+  subscribeLogs: vi.fn(),
 }));
 
 vi.mock("@/services/log.service", () => ({
-  getLogBuffer: mocks.getLogBuffer,
-  getLogBus: mocks.getLogBus,
-  getLogFileOptions: mocks.getLogFileOptions,
+  listLogs: mocks.listLogs,
+  recentLogs: mocks.recentLogs,
+  subscribeLogs: mocks.subscribeLogs,
 }));
 
-const getLogBufferMock = mocks.getLogBuffer;
-const getLogBusMock = mocks.getLogBus;
-const getLogFileOptionsMock = mocks.getLogFileOptions;
-
-let tmpDir: string;
-
-beforeEach(() => {
-  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "cyrnel-log-ctrl-"));
-  getLogFileOptionsMock.mockReturnValue(null);
-});
-
-afterEach(() => {
-  fs.rmSync(tmpDir, { recursive: true, force: true });
-});
+const listLogsMock = mocks.listLogs;
+const recentLogsMock = mocks.recentLogs;
+const subscribeLogsMock = mocks.subscribeLogs;
 
 interface MockResponse {
   status: ReturnType<typeof vi.fn>;
@@ -63,13 +47,15 @@ interface MockStreamOn {
 
 interface MockStreamRequest {
   query: Record<string, unknown>;
+  headers?: Record<string, string | undefined>;
   on: ReturnType<typeof vi.fn> & MockStreamOn;
 }
 
 const makeStreamReq = (
   query: Record<string, unknown> = {},
+  headers: Record<string, string | undefined> = {},
 ): MockStreamRequest => {
-  const req = { query } as MockStreamRequest;
+  const req = { query, headers } as MockStreamRequest;
   const on = vi.fn() as MockStreamRequest["on"];
   on.mockImplementation((event: string, handler: unknown) => {
     if (event === "close") on.closeHandler = handler as () => void;
@@ -96,244 +82,128 @@ function makeEntry(overrides: Partial<LogEntry> = {}): LogEntry {
   };
 }
 
+function makeUnsubscribe(): () => void {
+  return vi.fn();
+}
+
 describe("log.controller listLogs", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    listLogsMock.mockResolvedValue({ entries: [], nextCursor: null });
   });
 
-  it("returns entries and nextCursor from the ring buffer", async () => {
-    const buffer = new RingBuffer<LogEntry>(100);
-    buffer.push(makeEntry({ timestamp: 100, seq: 1, message: "first" }));
-    buffer.push(makeEntry({ timestamp: 200, seq: 2, message: "second" }));
-    getLogBufferMock.mockReturnValue(buffer);
+  it("returns the log service result", async () => {
+    const entries = [makeEntry({ timestamp: 200, seq: 2 }), makeEntry()];
+    listLogsMock.mockResolvedValue({ entries, nextCursor: null });
 
     const res = makeRes();
     await listLogs(makeReq(), cast(res));
 
     expect(res.status).toHaveBeenCalledWith(200);
-    const body = res.json.mock.calls[0][0] as {
-      entries: LogEntry[];
-      nextCursor: string | null;
-    };
-    expect(body.entries.map((e) => e.message)).toEqual(["second", "first"]);
-    expect(body.nextCursor).toBeNull();
+    expect(res.json).toHaveBeenCalledWith({ entries, nextCursor: null });
   });
 
-  it("returns empty results when no sink is configured", async () => {
-    getLogBufferMock.mockReturnValue(null);
-    const res = makeRes();
-    await listLogs(makeReq(), cast(res));
-    expect(res.json).toHaveBeenCalledWith({ entries: [], nextCursor: null });
-  });
-
-  it("filters by level, type and message query", async () => {
-    const buffer = new RingBuffer<LogEntry>(100);
-    buffer.push(makeEntry({ seq: 1, level: "info", message: "started" }));
-    buffer.push(makeEntry({ seq: 2, level: "error", message: "failed badly" }));
-    getLogBufferMock.mockReturnValue(buffer);
-
+  it("passes filters and limit to the log service", async () => {
     const res = makeRes();
     await listLogs(
-      makeReq({ level: "error", type: "app", query: "FAILED" }),
+      makeReq({
+        level: "error",
+        type: "app",
+        query: "FAILED",
+        limit: "50",
+        event: "kill-signal-failed",
+        requestId: "req-1",
+        statusCode: "500",
+      }),
       cast(res),
     );
 
-    const body = res.json.mock.calls[0][0] as { entries: LogEntry[] };
-    expect(body.entries.map((e) => e.message)).toEqual(["failed badly"]);
+    expect(listLogsMock).toHaveBeenCalledWith(
+      {
+        from: undefined,
+        to: undefined,
+        level: "error",
+        levelMin: undefined,
+        type: "app",
+        query: "FAILED",
+        event: "kill-signal-failed",
+        requestId: "req-1",
+        processId: undefined,
+        adapterId: undefined,
+        serviceId: undefined,
+        moduleId: undefined,
+        environmentId: undefined,
+        statusCode: 500,
+        durationMin: undefined,
+        durationMax: undefined,
+      },
+      { field: "timestamp", direction: "desc" },
+      50,
+      undefined,
+    );
   });
 
-  it("paginates with before cursor", async () => {
-    const buffer = new RingBuffer<LogEntry>(100);
-    buffer.push(makeEntry({ timestamp: 100, seq: 1, message: "first" }));
-    buffer.push(makeEntry({ timestamp: 200, seq: 2, message: "second" }));
-    buffer.push(makeEntry({ timestamp: 300, seq: 3, message: "third" }));
-    getLogBufferMock.mockReturnValue(buffer);
-
+  it("passes a parsed before cursor to the log service", async () => {
     const res = makeRes();
-    await listLogs(makeReq({ limit: 2 }), cast(res));
-    const firstPage = res.json.mock.calls[0][0] as {
-      entries: LogEntry[];
-      nextCursor: string | null;
-    };
-    expect(firstPage.entries.map((e) => e.message)).toEqual([
-      "third",
-      "second",
-    ]);
-    expect(firstPage.nextCursor).toBe("200:2");
+    await listLogs(makeReq({ before: "200:2" }), cast(res));
 
-    const res2 = makeRes();
-    await listLogs(makeReq({ before: "200:2" }), cast(res2));
-    const secondPage = res2.json.mock.calls[0][0] as {
-      entries: LogEntry[];
-      nextCursor: string | null;
-    };
-    expect(secondPage.entries.map((e) => e.message)).toEqual(["first"]);
+    expect(listLogsMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      100,
+      { timestamp: 200, seq: 2 },
+    );
   });
 
-  it("supports explicit sort directions", async () => {
-    const buffer = new RingBuffer<LogEntry>(100);
-    buffer.push(makeEntry({ timestamp: 100, seq: 1 }));
-    buffer.push(makeEntry({ timestamp: 200, seq: 2 }));
-    getLogBufferMock.mockReturnValue(buffer);
-
+  it("passes explicit sort directions to the log service", async () => {
     const res = makeRes();
-    await listLogs(makeReq({ sort: "timestamp:asc" }), cast(res));
-    const body = res.json.mock.calls[0][0] as { entries: LogEntry[] };
-    expect(body.entries.map((e) => e.seq)).toEqual([1, 2]);
+    await listLogs(makeReq({ sort: "duration:asc" }), cast(res));
+
+    expect(listLogsMock).toHaveBeenCalledWith(
+      expect.anything(),
+      { field: "duration", direction: "asc" },
+      100,
+      undefined,
+    );
   });
 
-  it("rejects malformed cursors with 400", async () => {
-    getLogBufferMock.mockReturnValue(new RingBuffer<LogEntry>(10));
+  it("rejects malformed cursors with 400 without calling the service", async () => {
     const res = makeRes();
     await expect(
       listLogs(makeReq({ before: "nope" }), cast(res)),
     ).rejects.toThrow(/Invalid 'before' cursor/);
+    expect(listLogsMock).not.toHaveBeenCalled();
   });
 
   it("rejects invalid query parameters with 400", async () => {
-    getLogBufferMock.mockReturnValue(new RingBuffer<LogEntry>(10));
     const res = makeRes();
     await expect(
       listLogs(makeReq({ level: "loud" }), cast(res)),
     ).rejects.toThrow(/Invalid option: expected one of/);
-  });
-
-  it("appends file history when the buffer page is short", async () => {
-    const buffer = new RingBuffer<LogEntry>(100);
-    buffer.push(makeEntry({ timestamp: 500, seq: 5, message: "buffer" }));
-    getLogBufferMock.mockReturnValue(buffer);
-
-    const filePath = path.join(tmpDir, "app.log");
-    fs.writeFileSync(
-      filePath,
-      [
-        JSON.stringify(makeEntry({ timestamp: 100, seq: 1, message: "old" })),
-        JSON.stringify(makeEntry({ timestamp: 200, seq: 2, message: "older" })),
-      ].join("\n") + "\n",
-    );
-    getLogFileOptionsMock.mockReturnValue({ filePath, maxFiles: 5 });
-
-    const res = makeRes();
-    await listLogs(makeReq({ limit: 5 }), cast(res));
-
-    const body = res.json.mock.calls[0][0] as {
-      entries: LogEntry[];
-      nextCursor: string | null;
-    };
-    expect(body.entries.map((e) => e.message)).toEqual([
-      "buffer",
-      "older",
-      "old",
-    ]);
-    expect(body.nextCursor).toBeNull();
-  });
-
-  it("sets nextCursor when the file scan fills the page", async () => {
-    getLogBufferMock.mockReturnValue(new RingBuffer<LogEntry>(10));
-
-    const filePath = path.join(tmpDir, "app.log");
-    fs.writeFileSync(
-      filePath,
-      [1, 2, 3]
-        .map((n) => JSON.stringify(makeEntry({ timestamp: n * 100, seq: n })))
-        .join("\n") + "\n",
-    );
-    getLogFileOptionsMock.mockReturnValue({ filePath, maxFiles: 5 });
-
-    const res = makeRes();
-    await listLogs(makeReq({ limit: 2 }), cast(res));
-
-    const body = res.json.mock.calls[0][0] as {
-      entries: LogEntry[];
-      nextCursor: string | null;
-    };
-    expect(body.entries.map((e) => e.seq)).toEqual([3, 2]);
-    expect(body.nextCursor).toBe("200:2");
-  });
-
-  it("applies filters to the file scan", async () => {
-    getLogBufferMock.mockReturnValue(new RingBuffer<LogEntry>(10));
-
-    const filePath = path.join(tmpDir, "app.log");
-    fs.writeFileSync(
-      filePath,
-      [
-        JSON.stringify(makeEntry({ timestamp: 100, seq: 1, level: "info" })),
-        JSON.stringify(makeEntry({ timestamp: 200, seq: 2, level: "error" })),
-      ].join("\n") + "\n",
-    );
-    getLogFileOptionsMock.mockReturnValue({ filePath, maxFiles: 5 });
-
-    const res = makeRes();
-    await listLogs(makeReq({ limit: 10, level: "error" }), cast(res));
-
-    const body = res.json.mock.calls[0][0] as { entries: LogEntry[] };
-    expect(body.entries.map((e) => e.seq)).toEqual([2]);
-  });
-
-  it("continues file scan from an explicit before cursor", async () => {
-    getLogBufferMock.mockReturnValue(new RingBuffer<LogEntry>(10));
-
-    const filePath = path.join(tmpDir, "app.log");
-    fs.writeFileSync(
-      filePath,
-      [
-        JSON.stringify(makeEntry({ timestamp: 100, seq: 1 })),
-        JSON.stringify(makeEntry({ timestamp: 200, seq: 2 })),
-        JSON.stringify(makeEntry({ timestamp: 300, seq: 3 })),
-      ].join("\n") + "\n",
-    );
-    getLogFileOptionsMock.mockReturnValue({ filePath, maxFiles: 5 });
-
-    const res = makeRes();
-    await listLogs(makeReq({ before: "300:3" }), cast(res));
-
-    const body = res.json.mock.calls[0][0] as {
-      entries: LogEntry[];
-      nextCursor: string | null;
-    };
-    expect(body.entries.map((e) => e.seq)).toEqual([2, 1]);
-    expect(body.nextCursor).toBeNull();
-  });
-
-  it("does not scan files for non-desc sorts", async () => {
-    getLogBufferMock.mockReturnValue(new RingBuffer<LogEntry>(10));
-
-    const filePath = path.join(tmpDir, "app.log");
-    fs.writeFileSync(
-      filePath,
-      JSON.stringify(makeEntry({ timestamp: 100, seq: 1 })) + "\n",
-    );
-    getLogFileOptionsMock.mockReturnValue({ filePath, maxFiles: 5 });
-
-    const res = makeRes();
-    await listLogs(makeReq({ sort: "timestamp:asc" }), cast(res));
-
-    const body = res.json.mock.calls[0][0] as { entries: LogEntry[] };
-    expect(body.entries).toEqual([]);
+    expect(listLogsMock).not.toHaveBeenCalled();
   });
 
   it("rejects before cursors with non-desc sorts", async () => {
-    getLogBufferMock.mockReturnValue(new RingBuffer<LogEntry>(10));
     const res = makeRes();
     await expect(
       listLogs(makeReq({ sort: "timestamp:asc", before: "200:2" }), cast(res)),
     ).rejects.toThrow(/only supported with sort=timestamp:desc/);
+    expect(listLogsMock).not.toHaveBeenCalled();
   });
 });
 
 describe("log.controller streamLogs", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    recentLogsMock.mockReturnValue([]);
+    subscribeLogsMock.mockReturnValue(makeUnsubscribe());
   });
 
-  it("sets SSE headers and replays recent buffer entries oldest first", () => {
-    const buffer = new RingBuffer<LogEntry>(100);
-    buffer.push(makeEntry({ timestamp: 100, seq: 1, message: "first" }));
-    buffer.push(makeEntry({ timestamp: 200, seq: 2, message: "second" }));
-    getLogBufferMock.mockReturnValue(buffer);
-    const bus = new LogBus();
-    getLogBusMock.mockReturnValue(bus);
+  it("sets SSE headers and replays recent entries in order", () => {
+    recentLogsMock.mockReturnValue([
+      makeEntry({ timestamp: 100, seq: 1, message: "first" }),
+      makeEntry({ timestamp: 200, seq: 2, message: "second" }),
+    ]);
 
     const res = makeRes();
     streamLogs(makeStreamReq() as unknown as Request, cast(res));
@@ -352,16 +222,54 @@ describe("log.controller streamLogs", () => {
     expect(writes[1]).toContain("second");
   });
 
+  it("replays only entries strictly newer than Last-Event-ID", () => {
+    recentLogsMock.mockReturnValue([
+      makeEntry({ timestamp: 100, seq: 1 }),
+      makeEntry({ timestamp: 200, seq: 2 }),
+      makeEntry({ timestamp: 300, seq: 3 }),
+    ]);
+
+    const res = makeRes();
+    streamLogs(
+      makeStreamReq({}, { "last-event-id": "200:2" }) as unknown as Request,
+      cast(res),
+    );
+
+    const writes = res.write.mock.calls.map(([chunk]) => String(chunk));
+    expect(writes).toHaveLength(1);
+    expect(writes[0]).toContain("id: 300:3");
+  });
+
+  it("replays the full window for an invalid Last-Event-ID", () => {
+    recentLogsMock.mockReturnValue([
+      makeEntry({ timestamp: 100, seq: 1 }),
+      makeEntry({ timestamp: 200, seq: 2 }),
+    ]);
+
+    const res = makeRes();
+    streamLogs(
+      makeStreamReq({}, { "last-event-id": "garbage" }) as unknown as Request,
+      cast(res),
+    );
+
+    const writes = res.write.mock.calls.map(([chunk]) => String(chunk));
+    expect(writes).toHaveLength(2);
+  });
+
   it("pushes live entries as SSE frames with id and event", () => {
-    getLogBufferMock.mockReturnValue(new RingBuffer<LogEntry>(10));
-    const bus = new LogBus();
-    getLogBusMock.mockReturnValue(bus);
+    let emit: ((entry: LogEntry) => void) | undefined;
+    subscribeLogsMock.mockImplementation(
+      (handler: (entry: LogEntry) => void) => {
+        emit = handler;
+        return makeUnsubscribe();
+      },
+    );
 
     const res = makeRes();
     streamLogs(makeStreamReq() as unknown as Request, cast(res));
     res.write.mockClear();
 
-    bus.emit(makeEntry({ timestamp: 300, seq: 3, message: "live" }));
+    emit?.(makeEntry({ timestamp: 300, seq: 3, message: "live" }));
 
     const frame = String(res.write.mock.calls[0][0]);
     expect(frame).toBe(
@@ -374,10 +282,6 @@ describe("log.controller streamLogs", () => {
   it("emits heartbeat comments and stops them after close", () => {
     vi.useFakeTimers();
     try {
-      getLogBufferMock.mockReturnValue(new RingBuffer<LogEntry>(10));
-      const bus = new LogBus();
-      getLogBusMock.mockReturnValue(bus);
-
       const res = makeRes();
       const req = makeStreamReq();
       streamLogs(req as unknown as Request, cast(res));
@@ -395,26 +299,28 @@ describe("log.controller streamLogs", () => {
     }
   });
 
-  it("unsubscribes from the bus and ends the response on client close", () => {
-    getLogBufferMock.mockReturnValue(new RingBuffer<LogEntry>(10));
-    const bus = new LogBus();
-    getLogBusMock.mockReturnValue(bus);
+  it("unsubscribes and ends the response on client close", () => {
+    const unsubscribe = makeUnsubscribe();
+    subscribeLogsMock.mockReturnValue(unsubscribe);
 
     const res = makeRes();
     const req = makeStreamReq();
     streamLogs(req as unknown as Request, cast(res));
-    expect(bus.subscriberCount).toBe(1);
 
     req.on.closeHandler();
 
-    expect(bus.subscriberCount).toBe(0);
+    expect(unsubscribe).toHaveBeenCalled();
     expect(res.end).toHaveBeenCalled();
   });
 
   it("no longer writes entries after close", () => {
-    getLogBufferMock.mockReturnValue(new RingBuffer<LogEntry>(10));
-    const bus = new LogBus();
-    getLogBusMock.mockReturnValue(bus);
+    let emit: ((entry: LogEntry) => void) | undefined;
+    subscribeLogsMock.mockImplementation(
+      (handler: (entry: LogEntry) => void) => {
+        emit = handler;
+        return makeUnsubscribe();
+      },
+    );
 
     const res = makeRes();
     const req = makeStreamReq();
@@ -422,18 +328,22 @@ describe("log.controller streamLogs", () => {
     res.write.mockClear();
     req.on.closeHandler();
 
-    bus.emit(makeEntry({ timestamp: 300, seq: 3, message: "late" }));
+    emit?.(makeEntry({ timestamp: 300, seq: 3, message: "late" }));
     expect(res.write).not.toHaveBeenCalled();
   });
 
   it("rejects with 503 when logging is disabled", () => {
-    getLogBusMock.mockReturnValue(null);
+    subscribeLogsMock.mockImplementation(() => {
+      throw new HttpError(503, "Log stream unavailable (logging disabled).");
+    });
     const res = makeRes();
     expect(() => streamLogs(makeReq(), cast(res))).toThrow(/logging disabled/);
   });
 
   it("rejects with 503 when the subscriber limit is reached", () => {
-    getLogBusMock.mockReturnValue(new LogBus(0));
+    subscribeLogsMock.mockImplementation(() => {
+      throw new HttpError(503, "Too many log stream subscribers.");
+    });
     const res = makeRes();
     expect(() => streamLogs(makeReq(), cast(res))).toThrow(
       /Too many log stream subscribers/,

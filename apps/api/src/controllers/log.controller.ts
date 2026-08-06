@@ -1,29 +1,26 @@
 import type { Request, Response } from "express";
 import { z } from "zod";
-import { tailScanLogFiles } from "@/infra/logging/file-scan";
 import {
   LOG_LEVELS,
+  LOG_TYPES,
   type LogEntry,
   logEntryId,
 } from "@/infra/logging/log-entry";
 import {
-  type LogCursor,
+  entryIsAfterCursor,
   type LogSort,
   parseLogCursor,
-  queryLogEntries,
 } from "@/infra/logging/query";
 import { HttpError } from "@/models/error.model";
 import {
-  getLogBuffer,
-  getLogBus,
-  getLogFileOptions,
+  listLogs as queryLogs,
+  recentLogs,
+  subscribeLogs,
 } from "@/services/log.service";
 import { parseOrHttpError } from "@/utils/validation.util";
 
 const STREAM_REPLAY_LIMIT = 100;
 const STREAM_HEARTBEAT_MS = 15_000;
-
-const LOG_TYPES = ["app", "request"] as const;
 
 const listLogsQuerySchema = z.object({
   from: z.coerce.number().int().nonnegative().optional(),
@@ -91,46 +88,13 @@ export async function listLogs(req: Request, res: Response): Promise<void> {
       "'before' cursor is only supported with sort=timestamp:desc.",
     );
   }
-  const buffer = getLogBuffer();
-  const { entries: bufferEntries, nextCursor: bufferNextCursor } =
-    queryLogEntries(
-      buffer ? buffer.toArray() : [],
-      toFilters(query),
-      sort,
-      query.limit,
-      before,
-    );
 
-  const fileOptions = getLogFileOptions();
-  const canScanFiles =
-    fileOptions !== null &&
-    sort.field === "timestamp" &&
-    sort.direction === "desc" &&
-    bufferEntries.length < query.limit;
-  if (!canScanFiles) {
-    res
-      .status(200)
-      .json({ entries: bufferEntries, nextCursor: bufferNextCursor });
-    return;
-  }
-
-  let deepBefore: LogCursor | undefined = before;
-  if (bufferEntries.length > 0) {
-    const oldest = bufferEntries[bufferEntries.length - 1];
-    deepBefore = { timestamp: oldest.timestamp, seq: oldest.seq };
-  }
-
-  const remaining = query.limit - bufferEntries.length;
-  const deep = await tailScanLogFiles(
-    fileOptions,
+  const { entries, nextCursor } = await queryLogs(
     toFilters(query),
-    remaining,
-    deepBefore,
+    sort,
+    query.limit,
+    before,
   );
-  const entries = [...bufferEntries, ...deep];
-  const nextCursor =
-    deep.length === remaining ? logEntryId(entries[entries.length - 1]) : null;
-
   res.status(200).json({ entries, nextCursor });
 }
 
@@ -156,16 +120,7 @@ function toFilters(query: ListLogsQuery) {
 }
 
 export function streamLogs(req: Request, res: Response): void {
-  const bus = getLogBus();
-  if (!bus)
-    throw new HttpError(503, "Log stream unavailable (logging disabled).");
-
-  let unsubscribe: (() => void) | undefined;
-  try {
-    unsubscribe = bus.subscribe(sendEntry);
-  } catch {
-    throw new HttpError(503, "Too many log stream subscribers.");
-  }
+  const unsubscribe = subscribeLogs(sendEntry);
 
   let closed = false;
 
@@ -208,7 +163,16 @@ export function streamLogs(req: Request, res: Response): void {
   });
   res.flushHeaders();
 
-  const buffer = getLogBuffer();
-  const recent = buffer ? buffer.toArray().slice(-STREAM_REPLAY_LIMIT) : [];
-  for (const entry of recent) sendEntry(entry);
+  const recent = recentLogs(STREAM_REPLAY_LIMIT);
+  let replay = recent;
+  const lastEventId = req.headers["last-event-id"];
+  if (typeof lastEventId === "string" && lastEventId.length > 0) {
+    try {
+      const cursor = parseLogCursor(lastEventId);
+      replay = recent.filter((entry) => entryIsAfterCursor(entry, cursor));
+    } catch {
+      // Invalid cursor: fall back to the full replay window.
+    }
+  }
+  for (const entry of replay) sendEntry(entry);
 }

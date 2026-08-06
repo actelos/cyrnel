@@ -131,7 +131,7 @@ describe("tailScanLogFiles", () => {
     const file = path.join(tmpDir, "app.log");
     fs.writeFileSync(
       file,
-      `${JSON.stringify(makeEntry({ timestamp: 100, seq: 1 }))}\nnot-json\n{"timestamp":200}\n${JSON.stringify(makeEntry({ timestamp: 300, seq: 2 }))}\n`,
+      `${JSON.stringify(makeEntry({ timestamp: 100, seq: 1 }))}\nnot-json\nnull\n[1,2,3]\n{"timestamp":200}\n${JSON.stringify(makeEntry({ timestamp: 300, seq: 2 }))}\n`,
     );
 
     const result = await tailScanLogFiles(

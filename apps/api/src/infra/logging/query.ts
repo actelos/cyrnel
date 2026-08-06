@@ -122,6 +122,16 @@ export function compareEntries(
   return sort.direction === "asc" ? value : -value;
 }
 
+export function entryIsAfterCursor(
+  entry: LogEntry,
+  cursor: LogCursor,
+): boolean {
+  return (
+    entry.timestamp > cursor.timestamp ||
+    (entry.timestamp === cursor.timestamp && entry.seq > cursor.seq)
+  );
+}
+
 export function entryIsAfterOrAtCursor(
   entry: LogEntry,
   cursor: LogCursor,

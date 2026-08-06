@@ -13,10 +13,20 @@ export function createRateLimiter(
     max,
     standardHeaders: true,
     legacyHeaders: false,
-    handler: (_req: Request, res: Response) => {
+    handler: (req: Request, res: Response) => {
       const retryAfter = Math.ceil(windowMs / 1000);
       logger.warn(
-        { event: "rate-limit-exceeded", rateLimited: true, route: label },
+        {
+          event: "rate-limit-exceeded",
+          rateLimited: true,
+          route: label,
+          req: {
+            id: (req as Request & { id?: string }).id,
+            method: req.method,
+            url: req.originalUrl ?? req.url,
+          },
+          res: { statusCode: 429 },
+        },
         "Rate limit exceeded",
       );
       res.status(429).json({

@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FeatureExtractor } from "@/infra/embedding/embedder";
-import { SEARCH_DIMENSIONS } from "@/infra/search/search-schema";
+import { SEARCH_DIMENSIONS } from "@/infra/embedding/embedder";
 
 const mocks = vi.hoisted(() => ({
   env: { cacheDir: "" },

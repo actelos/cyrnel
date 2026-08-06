@@ -302,7 +302,7 @@ export class ProcessService {
 
     this.controller.kill(pid).catch((err) => {
       logger.warn(
-        { event: "kill-signal-failed", err, processId: pid },
+        { event: "kill-signal-failed", err, processId: id, pid },
         "Failed to send kill signal",
       );
     });
@@ -417,7 +417,10 @@ export class ProcessService {
       await db.delete(processesTable).where(eq(processesTable.id, id));
     } catch (err) {
       this.restoreToMemory(pid, stored);
-      logger.error({ err, id }, "Failed to delete process from database");
+      logger.error(
+        { event: "process-delete-failed", err, processId: id },
+        "Failed to delete process from database",
+      );
       throw new HttpError(500, "Failed to delete process.");
     }
 
@@ -544,7 +547,12 @@ export class ProcessService {
       const timeoutHandle = setTimeout(() => {
         this.controller.kill(stored.pid).catch((err) => {
           logger.warn(
-            { event: "kill-on-timeout-failed", err, processId: stored.pid },
+            {
+              event: "kill-on-timeout-failed",
+              err,
+              processId: stored.dbId,
+              pid: stored.pid,
+            },
             "Failed to kill process on timeout",
           );
         });

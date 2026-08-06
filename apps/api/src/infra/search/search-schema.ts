@@ -6,8 +6,6 @@
 //   - Embeddings are maintained by app-level hooks plus reconciliation
 //     (vector math cannot run inside SQLite triggers).
 
-export const SEARCH_DIMENSIONS = 384;
-
 export const TOOLS_FTS_TABLE = "tools_fts";
 export const TOOL_EMBEDDINGS_TABLE = "tool_embeddings";
 export const TOOL_EMBEDDINGS_METADATA_TABLE = "tool_embeddings_metadata";
