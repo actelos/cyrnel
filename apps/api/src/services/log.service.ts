@@ -13,8 +13,6 @@ import {
 } from "@/infra/logging/query";
 import { HttpError } from "@/models/error.model";
 
-export { closeLogger, initLogger, logger } from "@/infra/logging/logger";
-
 export interface LogListResult {
   entries: LogEntry[];
   nextCursor: string | null;

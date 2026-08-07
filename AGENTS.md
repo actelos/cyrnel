@@ -146,7 +146,7 @@ CI (`publish.yml`) runs on any push to `main` — including direct pushes and re
 - Keep the directory **flat**: one level of files per subsystem, no nested subdirectories and no `index.ts` barrels — import directly (`@/infra/logging/log-sink`)
 - One concern per file, co-located `*.test.ts`
 - Subsystems own their state and lifecycle (file descriptors, DB connections, model weights, timers) and expose `init()`/`close()` (plus internal lifecycle hooks like `rotate()`, `reconcile()`)
-- **Dependency rule**: `services → infra` only. Infra must never import from `services/`, `controllers/`, or `routes/`; cross-infra imports are allowed only in one direction (`infra/search → infra/embedding`), with one exception: any layer may import `infra/logging/logger` (logging is cross-cutting — `services/log.service.ts` is a facade over it for the app layer)
+- **Dependency rule**: `services → infra` only. Infra must never import from `services/`, `controllers/`, or `routes/`; cross-infra imports are allowed only in one direction (`infra/search → infra/embedding`), with one exception: any layer may import `infra/logging/logger` (logging is cross-cutting). `services/log.service.ts` is the app-layer facade for log queries/streaming only — the logger is imported directly from `infra/logging/logger` everywhere, never through another service.
 - Infra subsystems are invisible past the service layer: services expose narrow methods (e.g. `initSearch()`, `closeSearch()`), never the raw engine instance
 
 ## Environment variables

@@ -1,5 +1,5 @@
+import { logger } from "@/infra/logging/logger";
 import { HttpError } from "@/models/error.model";
-import { logger } from "@/services/log.service";
 import { downloadBinary } from "@/utils/download.util";
 import { computeBinaryHash } from "@/utils/hash.util";
 
