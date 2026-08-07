@@ -5,7 +5,7 @@ import { getLoadablePath } from "sqlite-vec";
 import { db, resolveDatabaseUrl } from "@/db/client";
 import { tools } from "@/db/schema";
 import type { Embedder } from "@/infra/embedding/embedder";
-import { logger } from "@/infra/logging/logger";
+import { logger } from "@/infra/logging";
 import {
   embeddingsStatement,
   FTS5_BACKFILL,

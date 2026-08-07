@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
+import { logger } from "@/infra/logging";
 import { HttpError } from "@/models/error.model";
 import type { EncryptedSecretsPayload } from "@/models/secrets.model";
-import { logger } from "@/services/log.service";
 
 export type { EncryptedSecretsPayload } from "@/models/secrets.model";
 

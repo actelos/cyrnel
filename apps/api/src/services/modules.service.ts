@@ -36,6 +36,7 @@ import {
   services as servicesTable,
   tools as toolsTable,
 } from "@/db/schema";
+import { logger } from "@/infra/logging";
 import { HttpError } from "@/models/error.model";
 import {
   type FilterModuleManifestInput,
@@ -52,7 +53,6 @@ import {
   type PatchModuleSecretsInput,
   type SetModuleEnabledInput,
 } from "@/models/modules.model";
-import { logger } from "@/services/log.service";
 import { downloadBinary } from "@/utils/download.util";
 import { computeBinaryHash } from "@/utils/hash.util";
 import type { IconColumns } from "@/utils/icon.util";
