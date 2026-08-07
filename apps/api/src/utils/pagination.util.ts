@@ -30,6 +30,19 @@ export type PaginationQuery = z.infer<typeof paginationQuerySchema>;
 
 export const CURSOR_VERSION = 1;
 
+/**
+ * Standard 400 for cursors whose shape or content does not line up with the
+ * endpoint that received them (wrong key types, wrong arity, etc.). Callers
+ * throw this after `decodeCursor` once they know the expected key layout.
+ */
+export function invalidCursorError(): HttpError {
+  return new HttpError(
+    400,
+    "Cursor is malformed or expired; restart pagination from the first page.",
+    "invalid_cursor",
+  );
+}
+
 export interface CursorPayload {
   v: typeof CURSOR_VERSION;
   sortKey: Array<string | number>;
@@ -54,27 +67,23 @@ function isCursorPayload(value: unknown): value is CursorPayload {
 }
 
 /**
- * Decodes an opaque cursor token. Malformed tokens and unsupported versions
- * are hard errors (`400 invalid_cursor` / `400 cursor_expired`) rather than
- * a silent reset to the first page.
+ * Decodes an opaque cursor token. Malformed tokens, unsupported versions,
+ * and — when `expectedArity` is given — payloads whose sort-key length
+ * does not match are hard errors (`400 invalid_cursor` / `400
+ * cursor_expired`) rather than a silent reset to the first page.
  */
-export function decodeCursor(raw: string): CursorPayload {
+export function decodeCursor(
+  raw: string,
+  expectedArity?: number,
+): CursorPayload {
   let parsed: unknown;
   try {
     parsed = JSON.parse(Buffer.from(raw, "base64url").toString("utf8"));
   } catch {
-    throw new HttpError(
-      400,
-      "Cursor is malformed or expired; restart pagination from the first page.",
-      "invalid_cursor",
-    );
+    throw invalidCursorError();
   }
   if (!isCursorPayload(parsed)) {
-    throw new HttpError(
-      400,
-      "Cursor is malformed or expired; restart pagination from the first page.",
-      "invalid_cursor",
-    );
+    throw invalidCursorError();
   }
   if (parsed.v !== CURSOR_VERSION) {
     throw new HttpError(
@@ -82,6 +91,9 @@ export function decodeCursor(raw: string): CursorPayload {
       "Cursor is from an unsupported pagination version; restart pagination from the first page.",
       "cursor_expired",
     );
+  }
+  if (expectedArity !== undefined && parsed.sortKey.length !== expectedArity) {
+    throw invalidCursorError();
   }
   return parsed;
 }
@@ -112,6 +124,14 @@ export function paginatePage<T>(
         : null,
     hasMore,
   };
+}
+
+/**
+ * Escapes LIKE metacharacters (`%`, `_`, and the escape character itself)
+ * so a user query matches literally. Paired with `ESCAPE '\'` in the SQL.
+ */
+export function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, (char) => `\\${char}`);
 }
 
 /**

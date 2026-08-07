@@ -191,8 +191,9 @@ The API persists log entries to a JSONL file (default
 `<CYRNEL_DATA_DIR>/logs/app.log`, `CYRNEL_LOG_FILE`, `false` disables)
 and keeps an in-memory ring buffer (`CYRNEL_LOG_RING_BUFFER`, default
 10000 entries) served by `GET /logs` (paginated envelope `{ items,
-nextCursor, hasMore }`, same cursor rules as the other list endpoints) and
-streamed via `GET /logs/stream`.
+nextCursor, hasMore }`, same cursor rules as the other list endpoints —
+cursors require `sort=timestamp:desc`, any other `sort` returns `400
+invalid_cursor`) and streamed via `GET /logs/stream`.
 
 - **Full request/response bodies are persisted**, not just request lines,
   making this the observability source for debugging service calls.

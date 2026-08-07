@@ -11,6 +11,11 @@ import {
   PROCESS_EXIT_STATES,
   PROCESS_STATES,
 } from "../src/models/process.model";
+import {
+  PAGINATION_CURSOR_MAX_LENGTH,
+  PAGINATION_DEFAULT_LIMIT,
+  PAGINATION_MAX_LIMIT,
+} from "../src/utils/pagination.util";
 
 extendZodWithOpenApi(z);
 
@@ -63,6 +68,7 @@ const booleanQuerySchema = z
 const paginationQuerySchema = z.object({
   cursor: z
     .string()
+    .max(PAGINATION_CURSOR_MAX_LENGTH)
     .optional()
     .describe(
       "Opaque pagination token returned as nextCursor by the previous response. Pass it back unchanged to fetch the next page; null/omitted fetches the first page. Cursors encode position, not filters, so change filters only between pages when starting over.",
@@ -71,8 +77,8 @@ const paginationQuerySchema = z.object({
     .number()
     .int()
     .min(1)
-    .max(100)
-    .default(20)
+    .max(PAGINATION_MAX_LIMIT)
+    .default(PAGINATION_DEFAULT_LIMIT)
     .describe(
       "Maximum number of items per page. Clamped to a maximum of 100; defaults to 20.",
     ),
@@ -369,6 +375,12 @@ const ServiceListItemSchema = registry.register(
         .describe(
           "Whether the service is actually usable considering its own enabled state, its parent module's state, and whether the module is missing.",
         ),
+      hasIcon: z
+        .boolean()
+        .describe("Whether the service has a registry-declared icon."),
+      createdAt: z
+        .string()
+        .describe("ISO-8601 timestamp of when the service was installed."),
     })
     .describe(
       "Compact service summary returned by service list and detail endpoints.",
@@ -759,6 +771,12 @@ const ModuleSchema = registry.register(
         .describe(
           "Whether the module is installed but has no matching factory loaded.",
         ),
+      hasIcon: z
+        .boolean()
+        .describe("Whether the module has a registry-declared icon."),
+      createdAt: z
+        .string()
+        .describe("ISO-8601 timestamp of when the module was installed."),
     })
     .describe("Module manifest record returned by the modules endpoints."),
 );

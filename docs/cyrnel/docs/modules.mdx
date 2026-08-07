@@ -230,7 +230,7 @@ for non-sensitive values only; put credentials and tokens in secrets.
 
 | Method | Path | Mode | Notes |
 | --- | --- | --- | --- |
-| `GET` | `/modules` | -- | Filterable by `query`, `type`, `isBuiltin`, `enabled` (paginated) |
+| `GET` | `/modules` | -- | Filterable by `query`, `type`, `isBuiltin`, `enabled`, `limit`, `cursor` (paginated) |
 | `GET` | `/modules/:moduleId` | -- | Single module |
 | `POST` | `/modules` | Direct | Install from a `.tar.zst` URL, stores `source = ""` |
 | `POST` | `/modules/install` | Registry | Resolve registry metadata URL, stores `source` |
@@ -247,6 +247,8 @@ for non-sensitive values only; put credentials and tokens in secrets.
 
 Enabling a missing module returns `409`. Direct-installed items (`source = ""`)
 cannot use `POST /modules/:moduleId/update` -- they return `409`.
+
+`GET /modules` returns the paginated envelope `{ items, nextCursor, hasMore }`; see [Pagination](/docs/pagination) for the cursor rules, `limit` semantics, and error codes.
 
 A module record:
 

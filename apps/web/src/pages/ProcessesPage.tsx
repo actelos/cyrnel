@@ -226,6 +226,7 @@ export default function ProcessesPage() {
     data: processList,
     isLoading: isLoadingProcesses,
     error: processError,
+    isValidating: isProcessListValidating,
   } = useSWR(processesUrl, (url) => apiFetchJson(url, processListSchema), {
     refreshInterval: 2000,
   });
@@ -241,6 +242,16 @@ export default function ProcessesPage() {
     setNextCursor(null);
     setLoadMoreError(null);
   }, [processesUrl]);
+
+  useEffect(() => {
+    if (
+      extraProcesses.length === 0 &&
+      processList !== undefined &&
+      !isProcessListValidating
+    ) {
+      setNextCursor(processList.nextCursor);
+    }
+  }, [processList, extraProcesses.length, isProcessListValidating]);
 
   const processes = useMemo(() => {
     const seen = new Set<number>();
@@ -731,7 +742,7 @@ export default function ProcessesPage() {
               <div className="w-max px-2 bg-muted border-1 border-border">
                 {isLoadingProcesses
                   ? "Loading..."
-                  : processList?.hasMore
+                  : nextCursor !== null
                     ? `${processes.length}+ total`
                     : `${processes.length} total`}
               </div>

@@ -53,7 +53,8 @@ Query parameters (all optional):
 - `limit`: Positive integer, 1–100 (default 20, clamped above 100)
 
 The list response is the paginated envelope `{ items, nextCursor, hasMore }`
-and includes a derived `effectivelyEnabled` flag (`tool.enabled && service.enabled`) as well as hybrid search relevance metadata if a `query` was provided.
+(see [Pagination](/docs/pagination) for cursor rules and error codes) and
+includes a derived `effectivelyEnabled` flag (`tool.enabled && service.enabled`) as well as hybrid search relevance metadata if a `query` was provided.
 
 #### Search Relevance Metadata
 

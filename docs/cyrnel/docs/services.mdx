@@ -228,9 +228,8 @@ The list response strips `configSchema`, `secretsSchema`, `tools`, and
 `adapterDomain`, fetch a single service for those.
 
 All list endpoints return the paginated envelope `{ items, nextCursor,
-hasMore }`. Pass `nextCursor` back as `cursor` for the next page; `limit` is
-1–100 (default 20, clamped above 100). A malformed or expired cursor returns
-`400 invalid_cursor` / `400 cursor_expired`.
+hasMore }`. Pass `nextCursor` back as `cursor` for the next page; see
+[Pagination](/docs/pagination) for `limit` semantics and error codes.
 
 ## Configuration
 

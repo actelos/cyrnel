@@ -340,14 +340,32 @@ describe("SearchEngine (FTS5 + vector hybrid)", () => {
         afterKey: [last.score, last.serviceId, last.toolId],
       });
       expect(second).toHaveLength(4);
-      expect(second.every((hit) => hit.score < last.score)).toBe(true);
+      expect(
+        second.every(
+          (hit) =>
+            hit.score < last.score ||
+            (hit.score === last.score &&
+              (hit.serviceId > last.serviceId ||
+                (hit.serviceId === last.serviceId &&
+                  hit.toolId > last.toolId))),
+        ),
+      ).toBe(true);
 
       const lastSecond = second[second.length - 1];
       const third = await search.searchTools("email message", {
         limit: 4,
         afterKey: [lastSecond.score, lastSecond.serviceId, lastSecond.toolId],
       });
-      expect(third.every((hit) => hit.score < lastSecond.score)).toBe(true);
+      expect(
+        third.every(
+          (hit) =>
+            hit.score < lastSecond.score ||
+            (hit.score === lastSecond.score &&
+              (hit.serviceId > lastSecond.serviceId ||
+                (hit.serviceId === lastSecond.serviceId &&
+                  hit.toolId > lastSecond.toolId))),
+        ),
+      ).toBe(true);
 
       const ids = new Set([
         ...first.map((h) => h.toolId),

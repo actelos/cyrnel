@@ -10,7 +10,6 @@ import {
   desc,
   eq,
   getTableColumns,
-  like,
   or,
   type SQL,
   sql,
@@ -53,6 +52,8 @@ import type { IconColumns } from "@/utils/icon.util";
 import { fetchAndValidateIcon, resolveIconUpdate } from "@/utils/icon.util";
 import {
   decodeCursor,
+  escapeLike,
+  invalidCursorError,
   keysetConditions,
   PAGINATION_DEFAULT_LIMIT,
   type PaginatedResult,
@@ -148,23 +149,27 @@ export class ServicesService {
         conditions.push(eq(services.stale, input.stale));
       }
       if (normalizedQuery) {
-        const pattern = `%${normalizedQuery}%`;
+        const pattern = `%${escapeLike(normalizedQuery)}%`;
         conditions.push(
           or(
-            like(services.id, pattern),
-            like(services.name, pattern),
-            like(services.summary, pattern),
-            like(services.description, pattern),
+            sql`${services.id} LIKE ${pattern} ESCAPE ${"\\"}`,
+            sql`${services.name} LIKE ${pattern} ESCAPE ${"\\"}`,
+            sql`${services.summary} LIKE ${pattern} ESCAPE ${"\\"}`,
+            sql`${services.description} LIKE ${pattern} ESCAPE ${"\\"}`,
           ),
         );
       }
       if (input?.cursor !== undefined) {
-        const cursor = decodeCursor(input.cursor);
+        const cursor = decodeCursor(input.cursor, 2);
+        const [createdAt, id] = cursor.sortKey;
+        if (typeof createdAt !== "string" || typeof id !== "string") {
+          throw invalidCursorError();
+        }
         conditions.push(
           keysetConditions(
             [
-              [services.createdAt, cursor.sortKey[0] as string],
-              [services.id, cursor.sortKey[1] as string],
+              [services.createdAt, createdAt],
+              [services.id, id],
             ],
             "before",
           ),
@@ -269,10 +274,14 @@ export class ServicesService {
     }
 
     const limit = input.limit ?? PAGINATION_DEFAULT_LIMIT;
-    const cursor =
-      input.cursor !== undefined ? decodeCursor(input.cursor) : null;
-    const cursorKey = cursor !== null ? cursor.sortKey : null;
     const normalizedQuery = input.query?.trim();
+    const isSearchRequest =
+      Boolean(normalizedQuery) && this.search !== undefined;
+    const cursor =
+      input.cursor !== undefined
+        ? decodeCursor(input.cursor, isSearchRequest ? 3 : 2)
+        : null;
+    const cursorKey = cursor !== null ? cursor.sortKey : null;
 
     const toResult = (hit: HybridToolHit): ListToolsResult => ({
       serviceId: hit.serviceId,
@@ -289,19 +298,24 @@ export class ServicesService {
     });
 
     if (normalizedQuery && this.search) {
+      let afterKey: [number, string, string] | undefined;
+      if (cursorKey !== null) {
+        const [score, serviceId, toolId] = cursorKey;
+        if (
+          typeof score !== "number" ||
+          typeof serviceId !== "string" ||
+          typeof toolId !== "string"
+        ) {
+          throw invalidCursorError();
+        }
+        afterKey = [score, serviceId, toolId];
+      }
       try {
         const hits = await this.search.searchTools(normalizedQuery, {
           serviceId: input.serviceId,
           enabled: input.enabled,
           limit: limit + 1,
-          afterKey:
-            cursorKey !== null && cursorKey.length >= 3
-              ? [
-                  cursorKey[0] as number,
-                  cursorKey[1] as string,
-                  cursorKey[2] as string,
-                ]
-              : undefined,
+          afterKey,
         });
         return paginatePage(hits.map(toResult), limit, (item) => [
           item.score ?? 0,
@@ -309,6 +323,13 @@ export class ServicesService {
           item.id,
         ]);
       } catch (err) {
+        if (cursorKey !== null) {
+          throw new HttpError(
+            503,
+            "Search index is unavailable; restart pagination from the first page.",
+            "search_unavailable",
+          );
+        }
         logger.warn(
           {
             event: "search-index-fallback",
@@ -319,6 +340,21 @@ export class ServicesService {
           "Search index lookup failed; falling back to LIKE query",
         );
       }
+    }
+
+    let cursorPredicate: SQL | undefined;
+    if (cursorKey !== null) {
+      const [serviceIdKey, toolIdKey] = cursorKey;
+      if (typeof serviceIdKey !== "string" || typeof toolIdKey !== "string") {
+        throw invalidCursorError();
+      }
+      cursorPredicate = keysetConditions(
+        [
+          [tools.serviceId, serviceIdKey],
+          [tools.id, toolIdKey],
+        ],
+        "after",
+      );
     }
 
     const rows = await db
@@ -339,20 +375,12 @@ export class ServicesService {
             : undefined,
           normalizedQuery
             ? or(
-                like(tools.name, `%${normalizedQuery}%`),
-                like(tools.summary, `%${normalizedQuery}%`),
-                like(tools.description, `%${normalizedQuery}%`),
+                sql`${tools.name} LIKE ${`%${escapeLike(normalizedQuery)}%`} ESCAPE ${"\\"}`,
+                sql`${tools.summary} LIKE ${`%${escapeLike(normalizedQuery)}%`} ESCAPE ${"\\"}`,
+                sql`${tools.description} LIKE ${`%${escapeLike(normalizedQuery)}%`} ESCAPE ${"\\"}`,
               )
             : undefined,
-          cursorKey !== null
-            ? keysetConditions(
-                [
-                  [tools.serviceId, cursorKey[0] as string],
-                  [tools.id, cursorKey[1] as string],
-                ],
-                "after",
-              )
-            : undefined,
+          cursorPredicate,
         ),
       )
       .orderBy(asc(tools.serviceId), asc(tools.id))

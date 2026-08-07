@@ -218,6 +218,7 @@ export default function ServiceDetailPage() {
     data: toolList,
     error: toolsError,
     isLoading: isLoadingTools,
+    isValidating: isToolListValidating,
   } = useSWR(toolsUrl, (url) => apiFetchJson(url, toolListSchema), {
     refreshInterval: 8000,
   });
@@ -235,6 +236,16 @@ export default function ServiceDetailPage() {
     setNextToolCursor(null);
     setLoadMoreToolsError(null);
   }, [toolsUrl]);
+
+  useEffect(() => {
+    if (
+      extraTools.length === 0 &&
+      toolList !== undefined &&
+      !isToolListValidating
+    ) {
+      setNextToolCursor(toolList.nextCursor);
+    }
+  }, [toolList, extraTools.length, isToolListValidating]);
 
   const tools = useMemo(() => {
     const seen = new Set<string>();
@@ -786,7 +797,7 @@ export default function ServiceDetailPage() {
                   <p className="py-1 px-2 text-muted-foreground text-xs bg-muted border-1">
                     {isLoadingTools
                       ? "Loading..."
-                      : toolList?.hasMore
+                      : nextToolCursor !== null
                         ? `${tools.length}+ total`
                         : `${tools.length} total`}
                   </p>

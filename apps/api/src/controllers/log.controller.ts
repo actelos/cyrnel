@@ -76,7 +76,7 @@ export async function listLogs(req: Request, res: Response): Promise<void> {
 
   let before: LogCursor | undefined;
   if (query.cursor !== undefined) {
-    const cursor = decodeCursor(query.cursor);
+    const cursor = decodeCursor(query.cursor, 2);
     const [timestamp, seq] = cursor.sortKey;
     if (
       typeof timestamp !== "number" ||
@@ -101,6 +101,7 @@ export async function listLogs(req: Request, res: Response): Promise<void> {
     throw new HttpError(
       400,
       "Cursor is only supported with sort=timestamp:desc.",
+      "invalid_cursor",
     );
   }
 

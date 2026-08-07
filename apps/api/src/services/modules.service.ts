@@ -21,12 +21,10 @@ import type {
 import tsivm from "@cyrnel/typescript-ivm";
 import {
   and,
-  asc,
   desc,
   eq,
   getTableColumns,
   inArray,
-  like,
   notInArray,
   or,
   sql,
@@ -70,6 +68,8 @@ import type { IconColumns } from "@/utils/icon.util";
 import { fetchAndValidateIcon, resolveIconUpdate } from "@/utils/icon.util";
 import {
   decodeCursor,
+  escapeLike,
+  invalidCursorError,
   keysetConditions,
   PAGINATION_DEFAULT_LIMIT,
   type PaginatedResult,
@@ -348,24 +348,28 @@ export class ModuleService {
     }
     const query = filters.query?.trim().toLowerCase();
     if (query) {
-      const pattern = `%${query}%`;
+      const pattern = `%${escapeLike(query)}%`;
       conditions.push(
         or(
-          like(modulesTable.id, pattern),
-          like(modulesTable.name, pattern),
-          like(modulesTable.summary, pattern),
-          like(modulesTable.description, pattern),
+          sql`${modulesTable.id} LIKE ${pattern} ESCAPE ${"\\"}`,
+          sql`${modulesTable.name} LIKE ${pattern} ESCAPE ${"\\"}`,
+          sql`${modulesTable.summary} LIKE ${pattern} ESCAPE ${"\\"}`,
+          sql`${modulesTable.description} LIKE ${pattern} ESCAPE ${"\\"}`,
         ),
       );
     }
 
     const cursor =
-      filters.cursor !== undefined ? decodeCursor(filters.cursor) : null;
+      filters.cursor !== undefined ? decodeCursor(filters.cursor, 2) : null;
     if (cursor !== null) {
+      const [createdAt, id] = cursor.sortKey;
+      if (typeof createdAt !== "string" || typeof id !== "string") {
+        throw invalidCursorError();
+      }
       const predicate = keysetConditions(
         [
-          [modulesTable.createdAt, cursor.sortKey[0] as string],
-          [modulesTable.id, cursor.sortKey[1] as string],
+          [modulesTable.createdAt, createdAt],
+          [modulesTable.id, id],
         ],
         "before",
       );
@@ -375,6 +379,7 @@ export class ModuleService {
     const { iconData, iconMime, ...moduleColumns } =
       getTableColumns(modulesTable);
 
+    const limit = filters.limit ?? PAGINATION_DEFAULT_LIMIT;
     const rows = await db
       .select({
         ...moduleColumns,
@@ -383,11 +388,11 @@ export class ModuleService {
       .from(modulesTable)
       .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(desc(modulesTable.createdAt), desc(modulesTable.id))
-      .limit((filters.limit ?? PAGINATION_DEFAULT_LIMIT) + 1);
+      .limit(limit + 1);
 
     return paginatePage(
       rows.map((row) => this.toListRecord(row)),
-      filters.limit ?? PAGINATION_DEFAULT_LIMIT,
+      limit,
       (item) => [item.createdAt, item.id],
     );
   }

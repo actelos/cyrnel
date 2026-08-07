@@ -100,6 +100,7 @@ export default function ModulesPage() {
     data: moduleList,
     error: modulesError,
     isLoading: isLoadingModules,
+    isValidating: isModuleListValidating,
   } = useSWR(modulesUrl, (url) => apiFetchJson(url, moduleListSchema), {
     refreshInterval: 8000,
   });
@@ -115,6 +116,16 @@ export default function ModulesPage() {
     setNextCursor(null);
     setLoadMoreError(null);
   }, [modulesUrl]);
+
+  useEffect(() => {
+    if (
+      extraModules.length === 0 &&
+      moduleList !== undefined &&
+      !isModuleListValidating
+    ) {
+      setNextCursor(moduleList.nextCursor);
+    }
+  }, [moduleList, extraModules.length, isModuleListValidating]);
 
   const modules = useMemo(() => {
     const seen = new Set<string>();

@@ -41,7 +41,7 @@ export const services = sqliteTable(
     iconMime: text("icon_mime"),
     iconHash: text("icon_hash"),
   },
-  (table) => [index("services_created_at_idx").on(table.createdAt)],
+  (table) => [index("services_created_at_idx").on(table.createdAt, table.id)],
 );
 
 export const serviceConfigurations = sqliteTable("service_configurations", {
@@ -112,7 +112,7 @@ export const modules = sqliteTable(
   },
   (table) => [
     index("modules_type_idx").on(table.type),
-    index("modules_created_at_idx").on(table.createdAt),
+    index("modules_created_at_idx").on(table.createdAt, table.id),
   ],
 );
 

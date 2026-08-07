@@ -23,6 +23,8 @@ import type {
 } from "@/models/process.model";
 import {
   decodeCursor,
+  invalidCursorError,
+  keysetConditions,
   PAGINATION_DEFAULT_LIMIT,
   type PaginatedResult,
   paginatePage,
@@ -103,9 +105,29 @@ export class ProcessService {
   ): Promise<PaginatedResult<GetProcessResult>> {
     const limit = filters.limit ?? PAGINATION_DEFAULT_LIMIT;
     const cursor =
-      filters.cursor !== undefined ? decodeCursor(filters.cursor) : undefined;
+      filters.cursor !== undefined
+        ? decodeCursor(filters.cursor, 2)
+        : undefined;
 
     const conditions: SQL[] = [];
+    let cursorCreatedAt: string | undefined;
+    let cursorId: number | undefined;
+    if (cursor !== undefined) {
+      const [createdAt, id] = cursor.sortKey;
+      if (typeof createdAt !== "string" || typeof id !== "number") {
+        throw invalidCursorError();
+      }
+      cursorCreatedAt = createdAt;
+      cursorId = id;
+      const predicate = keysetConditions(
+        [
+          [processesTable.createdAt, createdAt],
+          [processesTable.id, id],
+        ],
+        "before",
+      );
+      if (predicate) conditions.push(predicate);
+    }
     if (filters.ref !== undefined) {
       conditions.push(eq(processesTable.ref, filters.ref));
     }
@@ -142,6 +164,7 @@ export class ProcessService {
       )
       .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(desc(processesTable.createdAt), desc(processesTable.id))
+      .limit(limit + 1 + this.processes.size)
       .all();
 
     const inMemory = Array.from(this.processes.values())
@@ -179,13 +202,12 @@ export class ProcessService {
     );
 
     const filtered =
-      cursor === undefined
+      cursorCreatedAt === undefined || cursorId === undefined
         ? merged
         : merged.filter(
             (row) =>
-              row.createdAt < cursor.sortKey[0] ||
-              (row.createdAt === cursor.sortKey[0] &&
-                row.id < (cursor.sortKey[1] as number)),
+              row.createdAt < cursorCreatedAt ||
+              (row.createdAt === cursorCreatedAt && row.id < cursorId),
           );
 
     return paginatePage(filtered.slice(0, limit + 1), limit, (row) => [

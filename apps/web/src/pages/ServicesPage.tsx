@@ -88,6 +88,12 @@ const registryServiceSchema = z.object({
     .optional(),
 });
 
+const adapterListBaseParams: Record<string, string | undefined> = {
+  type: "adapter",
+  enabled: "true",
+  limit: "100",
+};
+
 export default function ServicesPage() {
   const { mutate } = useSWRConfig();
   const [queryFilter, setQueryFilter] = useState("");
@@ -142,8 +148,7 @@ export default function ServicesPage() {
   }, [normalizedQuery, enabledParam, staleParam, adapterFilter]);
 
   const adaptersUrl = useMemo(
-    () =>
-      buildUrl("/modules", { type: "adapter", enabled: "true", limit: "100" }),
+    () => buildUrl("/modules", adapterListBaseParams),
     [],
   );
 
@@ -151,17 +156,34 @@ export default function ServicesPage() {
     data: serviceList,
     error: servicesError,
     isLoading: isLoadingServices,
+    isValidating: isServiceListValidating,
   } = useSWR(servicesUrl, (url) => apiFetchJson(url, serviceListSchema), {
     refreshInterval: 8000,
   });
 
   const { data: adapterList } = useSWR(
     adaptersUrl,
-    (url) => apiFetchJson(url, moduleListSchema),
+    async (): Promise<Array<z.infer<typeof moduleSchema>>> => {
+      const adapters: Array<z.infer<typeof moduleSchema>> = [];
+      let cursor: string | null = null;
+      for (let pageIndex = 0; pageIndex < 100; pageIndex += 1) {
+        const page: z.infer<typeof moduleListSchema> = await apiFetchJson(
+          buildUrl("/modules", {
+            ...adapterListBaseParams,
+            ...(cursor !== null ? { cursor } : {}),
+          }),
+          moduleListSchema,
+        );
+        adapters.push(...page.items);
+        if (page.nextCursor === null || page.items.length === 0) break;
+        cursor = page.nextCursor;
+      }
+      return adapters;
+    },
     { refreshInterval: 30000 },
   );
 
-  const adapters = adapterList?.items ?? [];
+  const adapters = useMemo(() => adapterList ?? [], [adapterList]);
 
   const [extraServices, setExtraServices] = useState<Service[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -174,6 +196,16 @@ export default function ServicesPage() {
     setNextCursor(null);
     setLoadMoreError(null);
   }, [servicesUrl]);
+
+  useEffect(() => {
+    if (
+      extraServices.length === 0 &&
+      serviceList !== undefined &&
+      !isServiceListValidating
+    ) {
+      setNextCursor(serviceList.nextCursor);
+    }
+  }, [serviceList, extraServices.length, isServiceListValidating]);
 
   const services = useMemo(() => {
     const seen = new Set<string>();

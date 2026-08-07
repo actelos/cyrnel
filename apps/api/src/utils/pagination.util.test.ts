@@ -82,6 +82,37 @@ describe("encodeCursor / decodeCursor", () => {
       expect(http.code).toBe("cursor_expired");
     }
   });
+
+  it("accepts payloads whose sortKey length matches the expected arity", () => {
+    const token = encodeCursor(["a", "b"]);
+    expect(decodeCursor(token, 2).sortKey).toEqual(["a", "b"]);
+  });
+
+  it("rejects payloads with too few sortKey entries as invalid_cursor", () => {
+    const token = encodeCursor(["a"]);
+    try {
+      decodeCursor(token, 2);
+      expect.unreachable("expected invalid_cursor error");
+    } catch (err) {
+      expect(err).toBeInstanceOf(HttpError);
+      const http = err as HttpError;
+      expect(http.statusCode).toBe(400);
+      expect(http.code).toBe("invalid_cursor");
+    }
+  });
+
+  it("rejects payloads with too many sortKey entries as invalid_cursor", () => {
+    const token = encodeCursor(["a", "b", "c"]);
+    try {
+      decodeCursor(token, 2);
+      expect.unreachable("expected invalid_cursor error");
+    } catch (err) {
+      expect(err).toBeInstanceOf(HttpError);
+      const http = err as HttpError;
+      expect(http.statusCode).toBe(400);
+      expect(http.code).toBe("invalid_cursor");
+    }
+  });
 });
 
 describe("paginatePage", () => {
