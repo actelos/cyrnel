@@ -265,7 +265,7 @@ describe("ProcessService", () => {
         expect(Object.hasOwn(record, key)).toBe(false);
       }
 
-      const [listed] = await service.list({});
+      const [listed] = (await service.list({})).items;
       expect(listed).toBeDefined();
       for (const key of stripped) {
         expect(Object.hasOwn(listed as object, key)).toBe(false);
@@ -428,16 +428,16 @@ describe("ProcessService", () => {
       const a = await service.create({ ...BASE_CREATE_INPUT, ref: "a" });
       const b = await service.create({ ...BASE_CREATE_INPUT, ref: "b" });
 
-      expect(await service.list({})).toHaveLength(2);
-      expect((await service.list({ ref: "b" })).map((r) => r.id)).toEqual([
-        b.id,
-      ]);
+      expect((await service.list({})).items).toHaveLength(2);
+      expect((await service.list({ ref: "b" })).items.map((r) => r.id)).toEqual(
+        [b.id],
+      );
 
       gate.resolve("success");
       await tick(5);
 
       expect(
-        (await service.list({ state: "idle" })).map((r) => r.id).sort(),
+        (await service.list({ state: "idle" })).items.map((r) => r.id).sort(),
       ).toEqual([a.id, b.id].sort());
     });
 
@@ -466,13 +466,13 @@ describe("ProcessService", () => {
         .mockReturnValueOnce(idleChain);
 
       expect(
-        (await service.list({ state: "running" })).map((r) => r.id),
+        (await service.list({ state: "running" })).items.map((r) => r.id),
       ).toEqual([active.id]);
-      expect(await service.list({ state: "queued" })).toEqual([]);
-      expect(await service.list({ state: "terminating" })).toEqual([]);
-      expect((await service.list({ state: "idle" })).map((r) => r.id)).toEqual([
-        2,
-      ]);
+      expect((await service.list({ state: "queued" })).items).toEqual([]);
+      expect((await service.list({ state: "terminating" })).items).toEqual([]);
+      expect(
+        (await service.list({ state: "idle" })).items.map((r) => r.id),
+      ).toEqual([2]);
 
       for (const chain of [runningChain, queuedChain, terminatingChain]) {
         const predicate = chain.where.mock.calls[0][0];
@@ -1307,7 +1307,7 @@ describe("ProcessService", () => {
       service.recordStdout(pid, Buffer.from([0xe2, 0x82]));
       service.recordStdout(pid, Buffer.from([0xac]));
 
-      const stored = await service.list({});
+      const stored = (await service.list({})).items;
       expect(stored[0]).toBeDefined();
     });
 

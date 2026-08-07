@@ -165,7 +165,7 @@ unlimited when the variable is unset.
 
 | Method | Path | Returns |
 | --- | --- | --- |
-| `GET` | `/processes` | `{ processes: ProcessRecord[] }` (filterable) |
+| `GET` | `/processes` | `{ items, nextCursor, hasMore }` (filterable, paginated) |
 | `GET` | `/processes/:id` | the process record |
 | `GET` | `/processes/:id/code` | submitted source as `text/plain` |
 | `GET` | `/processes/:id/output` | structured output as JSON |
@@ -184,7 +184,13 @@ Query parameters:
 - `ref`: Exact match (trimmed, non-empty)
 
 Results include both active in-memory processes and historical processes
-from the database.
+from the database, ordered newest-first by creation time.
+
+### Pagination
+
+`GET /processes` returns the paginated envelope `{ items, nextCursor,
+hasMore }`; see [Pagination](/docs/pagination) for the cursor rules,
+`limit` semantics, and error codes.
 
 ## Delete a Process
 

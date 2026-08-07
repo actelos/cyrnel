@@ -22,6 +22,7 @@ export interface ServiceDefinitionRecord extends ServiceDefinition {
 export interface ListServicesInput {
   query?: string;
   limit?: number;
+  cursor?: string;
   enabled?: boolean;
   adapter?: string;
   stale?: boolean;
@@ -36,12 +37,13 @@ export type ListServiceDefinitionResult = Omit<
   | "secretsSchema"
   | "adapterDomain"
   | "definitionContent"
-> & { effectivelyEnabled: boolean; hasIcon: boolean };
+> & { createdAt: string; effectivelyEnabled: boolean; hasIcon: boolean };
 
 export interface ListToolsInput {
   serviceId?: string;
   query?: string;
   limit?: number;
+  cursor?: string;
   enabled?: boolean;
 }
 

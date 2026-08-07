@@ -6,7 +6,7 @@ import {
   RotateCcw,
   Trash2,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { useNavigate, useParams } from "react-router";
 import remarkGfm from "remark-gfm";
@@ -98,10 +98,13 @@ const toolSchema = z.object({
 });
 
 const toolListSchema = z.object({
-  tools: z.array(toolSchema),
+  items: z.array(toolSchema),
+  nextCursor: z.string().nullable(),
+  hasMore: z.boolean(),
 });
 
 type Service = z.infer<typeof serviceSchema>;
+type Tool = z.infer<typeof toolSchema>;
 
 function buildFormSkeleton(
   schema: Record<string, unknown>,
@@ -163,7 +166,9 @@ export default function ServiceDetailPage() {
     ? buildUrl(`/services/${serviceId}`)
     : null;
 
-  const toolsUrl = serviceId ? buildUrl("/tools", { serviceId }) : null;
+  const toolsUrl = serviceId
+    ? buildUrl("/tools", { serviceId, limit: "100" })
+    : null;
 
   const configUrl = serviceId
     ? buildUrl(`/services/${serviceId}/config`)
@@ -213,11 +218,91 @@ export default function ServiceDetailPage() {
     data: toolList,
     error: toolsError,
     isLoading: isLoadingTools,
+    isValidating: isToolListValidating,
   } = useSWR(toolsUrl, (url) => apiFetchJson(url, toolListSchema), {
     refreshInterval: 8000,
   });
 
-  const tools = toolList?.tools ?? [];
+  const [extraTools, setExtraTools] = useState<Tool[]>([]);
+  const [nextToolCursor, setNextToolCursor] = useState<string | null>(null);
+  const [isLoadingMoreTools, setIsLoadingMoreTools] = useState(false);
+  const [loadMoreToolsError, setLoadMoreToolsError] = useState<string | null>(
+    null,
+  );
+  const paginationVersionRef = useRef(0);
+
+  useEffect(() => {
+    if (toolsUrl === null) return;
+    paginationVersionRef.current += 1;
+    setExtraTools([]);
+    setNextToolCursor(null);
+    setLoadMoreToolsError(null);
+  }, [toolsUrl]);
+
+  useEffect(() => {
+    if (
+      extraTools.length === 0 &&
+      toolList !== undefined &&
+      !isToolListValidating
+    ) {
+      setNextToolCursor(toolList.nextCursor);
+    }
+  }, [toolList, extraTools.length, isToolListValidating]);
+
+  const tools = useMemo(() => {
+    const seen = new Set<string>();
+    const merged: Tool[] = [];
+    for (const tool of [...(toolList?.items ?? []), ...extraTools]) {
+      if (seen.has(tool.id)) continue;
+      seen.add(tool.id);
+      merged.push(tool);
+    }
+    return merged;
+  }, [toolList, extraTools]);
+
+  const refreshTools = async () => {
+    paginationVersionRef.current += 1;
+    setExtraTools([]);
+    setNextToolCursor(null);
+    setLoadMoreToolsError(null);
+    if (toolsUrl) await mutate(toolsUrl);
+  };
+
+  const refreshServiceLists = async () => {
+    await mutate(
+      (key) =>
+        typeof key === "string" && key.startsWith(`${buildUrl("/services")}?`),
+    );
+  };
+
+  const loadMoreTools = async () => {
+    if (toolsUrl === null || nextToolCursor === null || isLoadingMoreTools) {
+      return;
+    }
+    const startedVersion = paginationVersionRef.current;
+    setIsLoadingMoreTools(true);
+    setLoadMoreToolsError(null);
+    try {
+      const data = await apiFetchJson(
+        buildUrl("/tools", {
+          serviceId,
+          limit: "100",
+          cursor: nextToolCursor,
+        }),
+        toolListSchema,
+      );
+      if (paginationVersionRef.current !== startedVersion) return;
+      setExtraTools((previous) => [...previous, ...data.items]);
+      setNextToolCursor(data.nextCursor);
+    } catch (error) {
+      if (paginationVersionRef.current !== startedVersion) return;
+      setLoadMoreToolsError(
+        errorMessageFrom(error, "Failed to load more tools."),
+      );
+    } finally {
+      setIsLoadingMoreTools(false);
+    }
+  };
 
   const { data: serviceConfig } = useSWR(
     configUrl,
@@ -263,8 +348,8 @@ export default function ServiceDetailPage() {
     if (secretsSchemaUrl) await mutate(secretsSchemaUrl);
     if (configSchemaUrl) await mutate(configSchemaUrl);
     if (serviceDetailsUrl) await mutate(serviceDetailsUrl);
-    if (toolsUrl) await mutate(toolsUrl);
-    await mutate(buildUrl("/services"));
+    await refreshServiceLists();
+    await refreshTools();
   };
 
   const handleCheckForUpdate = async () => {
@@ -311,13 +396,11 @@ export default function ServiceDetailPage() {
         body: JSON.stringify({}),
       });
 
-      await mutate(buildUrl("/services"));
+      await refreshServiceLists();
       if (serviceDetailsUrl) {
         await mutate(serviceDetailsUrl);
       }
-      if (toolsUrl) {
-        await mutate(toolsUrl);
-      }
+      await refreshTools();
       addNotification({
         type: "success",
         title: "Success",
@@ -354,13 +437,11 @@ export default function ServiceDetailPage() {
 
       setManualUpdateUrl("");
       setIsManualUpdateOpen(false);
-      await mutate(buildUrl("/services"));
+      await refreshServiceLists();
       if (serviceDetailsUrl) {
         await mutate(serviceDetailsUrl);
       }
-      if (toolsUrl) {
-        await mutate(toolsUrl);
-      }
+      await refreshTools();
       addNotification({
         type: "success",
         title: "Success",
@@ -384,13 +465,11 @@ export default function ServiceDetailPage() {
         method: "POST",
       });
 
-      await mutate(buildUrl("/services"));
+      await refreshServiceLists();
       if (serviceDetailsUrl) {
         await mutate(serviceDetailsUrl);
       }
-      if (toolsUrl) {
-        await mutate(toolsUrl);
-      }
+      await refreshTools();
       addNotification({
         type: "success",
         title: "Success",
@@ -415,13 +494,11 @@ export default function ServiceDetailPage() {
         body: JSON.stringify({ enabled }),
       });
 
-      await mutate(buildUrl("/services"));
+      await refreshServiceLists();
       if (serviceDetailsUrl) {
         await mutate(serviceDetailsUrl);
       }
-      if (toolsUrl) {
-        await mutate(toolsUrl);
-      }
+      await refreshTools();
       addNotification({
         type: "success",
         title: "Success",
@@ -472,13 +549,11 @@ export default function ServiceDetailPage() {
         method: "DELETE",
       });
 
-      await mutate(buildUrl("/services"));
+      await refreshServiceLists();
       if (serviceDetailsUrl) {
         await mutate(serviceDetailsUrl);
       }
-      if (toolsUrl) {
-        await mutate(toolsUrl);
-      }
+      await refreshTools();
 
       addNotification({
         type: "success",
@@ -726,7 +801,11 @@ export default function ServiceDetailPage() {
                 <CardHeader className="flex flex-wrap items-center justify-between gap-2">
                   <h3 className="text-sm font-semibold">Tools</h3>
                   <p className="py-1 px-2 text-muted-foreground text-xs bg-muted border-1">
-                    {isLoadingTools ? "Loading..." : `${tools.length} total`}
+                    {isLoadingTools
+                      ? "Loading..."
+                      : nextToolCursor !== null
+                        ? `${tools.length}+ total`
+                        : `${tools.length} total`}
                   </p>
                 </CardHeader>
                 <CardContent className="flex-1 overflow-hidden">
@@ -808,6 +887,25 @@ export default function ServiceDetailPage() {
                           </div>
                         ))}
                       </div>
+                      {nextToolCursor !== null ? (
+                        <div className="flex justify-center p-4">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="gap-2"
+                            disabled={isLoadingMoreTools}
+                            onClick={() => void loadMoreTools()}
+                          >
+                            <ChevronDown />
+                            {isLoadingMoreTools ? "Loading more…" : "Load more"}
+                          </Button>
+                        </div>
+                      ) : null}
+                      {loadMoreToolsError !== null ? (
+                        <p className="p-4 text-sm text-destructive">
+                          {loadMoreToolsError}
+                        </p>
+                      ) : null}
                     </div>
                   </ScrollArea>
                 </CardContent>

@@ -318,6 +318,63 @@ describe("SearchEngine (FTS5 + vector hybrid)", () => {
       expect([...scores].sort((a, b) => b - a)).toEqual(scores);
     });
 
+    it("resumes ranked results after an afterKey composite cursor", async () => {
+      for (let i = 0; i < 10; i++) {
+        await insertTool(
+          "svc",
+          `tool${i}`,
+          `tool${i}`,
+          `send email message number ${i}`,
+        );
+      }
+      await search.reindexService("svc");
+
+      const first = await search.searchTools("email message", {
+        limit: 4,
+      });
+      expect(first).toHaveLength(4);
+
+      const last = first[first.length - 1];
+      const second = await search.searchTools("email message", {
+        limit: 4,
+        afterKey: [last.score, last.serviceId, last.toolId],
+      });
+      expect(second).toHaveLength(4);
+      expect(
+        second.every(
+          (hit) =>
+            hit.score < last.score ||
+            (hit.score === last.score &&
+              (hit.serviceId > last.serviceId ||
+                (hit.serviceId === last.serviceId &&
+                  hit.toolId > last.toolId))),
+        ),
+      ).toBe(true);
+
+      const lastSecond = second[second.length - 1];
+      const third = await search.searchTools("email message", {
+        limit: 4,
+        afterKey: [lastSecond.score, lastSecond.serviceId, lastSecond.toolId],
+      });
+      expect(
+        third.every(
+          (hit) =>
+            hit.score < lastSecond.score ||
+            (hit.score === lastSecond.score &&
+              (hit.serviceId > lastSecond.serviceId ||
+                (hit.serviceId === lastSecond.serviceId &&
+                  hit.toolId > lastSecond.toolId))),
+        ),
+      ).toBe(true);
+
+      const ids = new Set([
+        ...first.map((h) => h.toolId),
+        ...second.map((h) => h.toolId),
+        ...third.map((h) => h.toolId),
+      ]);
+      expect(ids.size).toBe(10);
+    });
+
     it("returns fts-only hits when the vector index has no rows", async () => {
       await insertTool("svc", "sendEmail", "sendEmail", "sends email via SMTP");
 

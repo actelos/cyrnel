@@ -36,8 +36,9 @@ import { apiFetchJson, buildUrl, errorMessageFrom } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 const logPageSchema = z.object({
-  entries: z.array(logEntrySchema),
+  items: z.array(logEntrySchema),
   nextCursor: z.string().nullable(),
+  hasMore: z.boolean(),
 });
 
 interface LogFilters {
@@ -91,6 +92,7 @@ export default function LogsPage() {
   const [selected, setSelected] = useState<LogEntry | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const loadAbortRef = useRef<AbortController | null>(null);
+  const paginationVersionRef = useRef(0);
 
   const filters = useMemo<LogFilters>(
     () => ({ query, level, type }),
@@ -113,6 +115,7 @@ export default function LogsPage() {
 
   const loadFirstPage = useCallback(async () => {
     loadAbortRef.current?.abort();
+    paginationVersionRef.current += 1;
     const controller = new AbortController();
     loadAbortRef.current = controller;
     setHistory([]);
@@ -126,7 +129,7 @@ export default function LogsPage() {
         logPageSchema,
         { signal: controller.signal },
       );
-      setHistory(data.entries);
+      setHistory(data.items);
       setNextCursor(data.nextCursor);
       setLoadError(null);
     } catch (error) {
@@ -190,22 +193,24 @@ export default function LogsPage() {
   }, [live, follow]);
 
   const loadOlder = async () => {
-    const oldest = entries[entries.length - 1];
-    if (oldest === undefined || isLoadingMore) return;
+    if (nextCursor === null || isLoadingMore) return;
+    const startedVersion = paginationVersionRef.current;
     setIsLoadingMore(true);
     try {
       const data = await apiFetchJson(
         buildUrl("/logs", {
           ...filterParams(filters),
-          before: entryId(oldest),
+          cursor: nextCursor,
           limit: String(PAGE_LIMIT),
         }),
         logPageSchema,
       );
-      setHistory((previous) => [...previous, ...data.entries]);
+      if (paginationVersionRef.current !== startedVersion) return;
+      setHistory((previous) => [...previous, ...data.items]);
       setNextCursor(data.nextCursor);
       setLoadError(null);
     } catch (error) {
+      if (paginationVersionRef.current !== startedVersion) return;
       setLoadError(errorMessageFrom(error, "Failed to load older logs."));
     } finally {
       setIsLoadingMore(false);

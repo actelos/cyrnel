@@ -221,11 +221,15 @@ Deletes the row (cascading to tools, configuration, secrets) and calls
 
 | Method | Path | Notes |
 | --- | --- | --- |
-| `GET` | `/services` | Filterable by `query`, `limit`, `enabled`, `stale` |
+| `GET` | `/services` | Filterable by `query`, `limit`, `cursor`, `enabled`, `stale` |
 | `GET` | `/services/:serviceId` | Full record (minus `adapterDomain`) |
 
 The list response strips `configSchema`, `secretsSchema`, `tools`, and
 `adapterDomain`, fetch a single service for those.
+
+All list endpoints return the paginated envelope `{ items, nextCursor,
+hasMore }`. Pass `nextCursor` back as `cursor` for the next page; see
+[Pagination](/docs/pagination) for `limit` semantics and error codes.
 
 ## Configuration
 

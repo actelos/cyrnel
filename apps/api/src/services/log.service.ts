@@ -12,6 +12,7 @@ import { HttpError } from "@/models/error.model";
 export interface LogListResult {
   entries: LogEntry[];
   nextCursor: string | null;
+  hasMore: boolean;
 }
 
 export async function listLogs(
@@ -37,7 +38,11 @@ export async function listLogs(
     sort.direction === "desc" &&
     bufferEntries.length < limit;
   if (!canScanFiles) {
-    return { entries: bufferEntries, nextCursor: bufferNextCursor };
+    return {
+      entries: bufferEntries,
+      nextCursor: bufferNextCursor,
+      hasMore: bufferNextCursor !== null,
+    };
   }
 
   let deepBefore: LogCursor | undefined = before;
@@ -56,7 +61,7 @@ export async function listLogs(
   const entries = [...bufferEntries, ...deep];
   const nextCursor =
     deep.length === remaining ? logEntryId(entries[entries.length - 1]) : null;
-  return { entries, nextCursor };
+  return { entries, nextCursor, hasMore: nextCursor !== null };
 }
 
 export function recentLogs(limit: number): LogEntry[] {

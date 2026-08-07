@@ -20,6 +20,7 @@ import {
 const RRF_K = 60;
 const CANDIDATE_CAP_FACTOR = 5;
 const CANDIDATE_CAP_MIN = 100;
+const CANDIDATE_CAP_MAX = 10_000;
 const RECONCILE_BATCH_SIZE = 50;
 const IN_CHUNK_SIZE = 250;
 const SEARCH_DB_TIMEOUT_MS = 5_000;
@@ -43,6 +44,14 @@ export interface SearchOptions {
   serviceId?: string;
   enabled?: boolean;
   limit: number;
+  /**
+   * Opaque-cursor continuation key `[score, serviceId, toolId]`: resume the
+   * ranked result list strictly after this hit. Search results are sorted by
+   * RRF score descending, so the cursor must carry the score boundary of the
+   * last served hit — a bare `(serviceId, toolId)` key cannot slice a
+   * score-ordered list (equal-score ties are broken by composite key).
+   */
+  afterKey?: [score: number, serviceId: string, toolId: string];
 }
 
 export interface ReconcileResult {
@@ -249,20 +258,52 @@ export class SearchEngine implements SearchIndex {
     query: string,
     options: SearchOptions,
   ): Promise<HybridToolHit[]> {
-    const cap = Math.max(
-      options.limit * CANDIDATE_CAP_FACTOR,
-      CANDIDATE_CAP_MIN,
-    );
     const match = tokenizeQuery(query);
+    const afterKey = options.afterKey;
+    let cap = Math.max(options.limit * CANDIDATE_CAP_FACTOR, CANDIDATE_CAP_MIN);
 
-    const [ftsKeys, vecKeys] = await Promise.all([
-      this.queryFts(match, cap, options.serviceId),
-      this.queryVector(query, cap, options.serviceId),
-    ]);
+    // Continuation pages must filter out already-served hits before the
+    // limit is filled, so a fixed candidate cap can starve deep pages.
+    // Widen the candidate pool until the filtered page fills the limit or
+    // both candidate sources are exhausted.
+    for (;;) {
+      const [ftsKeys, vecKeys] = await Promise.all([
+        this.queryFts(match, cap, options.serviceId),
+        this.queryVector(query, cap, options.serviceId),
+      ]);
 
-    const keys = [...new Set([...ftsKeys, ...vecKeys])];
-    const toolsByKey = await this.resolveTools(keys, options);
+      const keys = [...new Set([...ftsKeys, ...vecKeys])];
+      const toolsByKey = await this.resolveTools(keys, options);
+      const results = this.rankHits(ftsKeys, vecKeys, toolsByKey);
 
+      const page =
+        afterKey !== undefined
+          ? results.filter((hit) => {
+              const [afterScore, afterServiceId, afterToolId] = afterKey;
+              return (
+                hit.score < afterScore ||
+                (hit.score === afterScore &&
+                  (hit.serviceId > afterServiceId ||
+                    (hit.serviceId === afterServiceId &&
+                      hit.toolId > afterToolId)))
+              );
+            })
+          : results;
+
+      if (page.length >= options.limit) {
+        return page.slice(0, options.limit);
+      }
+      const exhausted = ftsKeys.length < cap && vecKeys.length < cap;
+      if (exhausted || cap >= CANDIDATE_CAP_MAX) return page;
+      cap = Math.min(cap * 2, CANDIDATE_CAP_MAX);
+    }
+  }
+
+  private rankHits(
+    ftsKeys: string[],
+    vecKeys: string[],
+    toolsByKey: Map<string, ToolSearchRow>,
+  ): HybridToolHit[] {
     const hits = new Map<
       string,
       {
@@ -311,8 +352,13 @@ export class SearchEngine implements SearchIndex {
       };
     });
 
-    results.sort((a, b) => b.score - a.score);
-    return results.slice(0, options.limit);
+    results.sort(
+      (a, b) =>
+        b.score - a.score ||
+        a.serviceId.localeCompare(b.serviceId) ||
+        a.toolId.localeCompare(b.toolId),
+    );
+    return results;
   }
 
   /**
@@ -490,7 +536,7 @@ export class SearchEngine implements SearchIndex {
       args.push(serviceId);
     }
     sqlText += `
-            ORDER BY bm25(${TOOLS_FTS_TABLE})
+            ORDER BY bm25(${TOOLS_FTS_TABLE}), service_id, tool_id
             LIMIT ?`;
     args.push(cap);
     const rows = await this.appDb.$client.execute({ sql: sqlText, args });
@@ -508,7 +554,7 @@ export class SearchEngine implements SearchIndex {
     try {
       const vector = await this.embedder.embed(query);
       const args: Array<string | number> = [jsonVector(vector)];
-      let sqlText = `SELECT service_id, tool_id FROM ${TOOL_EMBEDDINGS_TABLE}
+      let sqlText = `SELECT service_id, tool_id, distance FROM ${TOOL_EMBEDDINGS_TABLE}
            WHERE embedding MATCH ?`;
       if (serviceId !== undefined) {
         sqlText += " AND service_id = ?";
@@ -518,11 +564,18 @@ export class SearchEngine implements SearchIndex {
            ORDER BY distance
            LIMIT ?`;
       args.push(cap);
-      const rows = this.searchDb.prepare(sqlText).all(...args);
-      return rows.map((row) => {
-        const r = row as EmbeddingRef;
-        return toolKey(String(r.service_id), String(r.tool_id));
-      });
+      const rows = this.searchDb.prepare(sqlText).all(...args) as Array<{
+        service_id: string;
+        tool_id: string;
+        distance: number;
+      }>;
+      rows.sort(
+        (a, b) =>
+          a.distance - b.distance ||
+          a.service_id.localeCompare(b.service_id) ||
+          a.tool_id.localeCompare(b.tool_id),
+      );
+      return rows.map((row) => toolKey(row.service_id, row.tool_id));
     } catch (err) {
       // Model is up but this single request failed to embed: degrade to
       // FTS5-only for this request, not for the process lifetime.

@@ -30,6 +30,8 @@ export interface FilterModuleManifestInput {
   isBuiltin?: boolean;
   enabled?: boolean;
   missing?: boolean;
+  limit?: number;
+  cursor?: string;
 }
 
 export interface GenerateDefinitionInput {
@@ -40,7 +42,7 @@ export interface GenerateDefinitionInput {
 export type ListModuleManifestResult = Omit<
   ModuleManifestRecord,
   "configSchema" | "secretsSchema" | "hash" | "source"
->;
+> & { createdAt: string };
 
 export type GetModuleManifestResult = ModuleManifestRecord;
 

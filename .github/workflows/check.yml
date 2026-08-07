@@ -55,3 +55,8 @@ jobs:
         env:
           TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
           TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+
+      - name: OpenAPI spec is up to date
+        run: |
+          pnpm -C apps/api openapi:generate
+          git diff --exit-code -- apps/api/openapi.json docs/cyrnel/openapi.json

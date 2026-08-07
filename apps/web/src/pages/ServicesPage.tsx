@@ -1,5 +1,5 @@
-import { Plus, RotateCcw } from "lucide-react";
-import { useMemo, useState } from "react";
+import { ChevronDown, Plus, RotateCcw } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import { Link } from "react-router";
 import remarkGfm from "remark-gfm";
@@ -42,8 +42,12 @@ const serviceSchema = z.object({
 });
 
 const serviceListSchema = z.object({
-  services: z.array(serviceSchema),
+  items: z.array(serviceSchema),
+  nextCursor: z.string().nullable(),
+  hasMore: z.boolean(),
 });
+
+type Service = z.infer<typeof serviceSchema>;
 
 const moduleSchema = z.object({
   id: z.string(),
@@ -56,7 +60,9 @@ const moduleSchema = z.object({
 });
 
 const moduleListSchema = z.object({
-  modules: z.array(moduleSchema),
+  items: z.array(moduleSchema),
+  nextCursor: z.string().nullable(),
+  hasMore: z.boolean(),
 });
 
 const manualServiceSchema = z.object({
@@ -81,6 +87,12 @@ const registryServiceSchema = z.object({
     })
     .optional(),
 });
+
+const adapterListBaseParams: Record<string, string | undefined> = {
+  type: "adapter",
+  enabled: "true",
+  limit: "100",
+};
 
 export default function ServicesPage() {
   const { mutate } = useSWRConfig();
@@ -131,11 +143,12 @@ export default function ServicesPage() {
       enabled: enabledParam,
       stale: staleParam,
       adapter: adapterFilter !== "all" ? adapterFilter : undefined,
+      limit: "100",
     });
   }, [normalizedQuery, enabledParam, staleParam, adapterFilter]);
 
   const adaptersUrl = useMemo(
-    () => buildUrl("/modules", { type: "adapter", enabled: "true" }),
+    () => buildUrl("/modules", adapterListBaseParams),
     [],
   );
 
@@ -143,19 +156,107 @@ export default function ServicesPage() {
     data: serviceList,
     error: servicesError,
     isLoading: isLoadingServices,
+    isValidating: isServiceListValidating,
   } = useSWR(servicesUrl, (url) => apiFetchJson(url, serviceListSchema), {
     refreshInterval: 8000,
   });
 
   const { data: adapterList } = useSWR(
     adaptersUrl,
-    (url) => apiFetchJson(url, moduleListSchema),
+    async (): Promise<Array<z.infer<typeof moduleSchema>>> => {
+      const adapters: Array<z.infer<typeof moduleSchema>> = [];
+      let cursor: string | null = null;
+      for (let pageIndex = 0; pageIndex < 100; pageIndex += 1) {
+        const page: z.infer<typeof moduleListSchema> = await apiFetchJson(
+          buildUrl("/modules", {
+            ...adapterListBaseParams,
+            ...(cursor !== null ? { cursor } : {}),
+          }),
+          moduleListSchema,
+        );
+        adapters.push(...page.items);
+        if (page.nextCursor === null || page.items.length === 0) break;
+        cursor = page.nextCursor;
+      }
+      return adapters;
+    },
     { refreshInterval: 30000 },
   );
 
-  const adapters = adapterList?.modules ?? [];
-  const apiServices = serviceList?.services ?? [];
-  const services = useMemo(() => apiServices, [apiServices]);
+  const adapters = useMemo(() => adapterList ?? [], [adapterList]);
+
+  const [extraServices, setExtraServices] = useState<Service[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
+  const paginationVersionRef = useRef(0);
+
+  useEffect(() => {
+    if (servicesUrl === "") return;
+    paginationVersionRef.current += 1;
+    setExtraServices([]);
+    setNextCursor(null);
+    setLoadMoreError(null);
+  }, [servicesUrl]);
+
+  useEffect(() => {
+    if (
+      extraServices.length === 0 &&
+      serviceList !== undefined &&
+      !isServiceListValidating
+    ) {
+      setNextCursor(serviceList.nextCursor);
+    }
+  }, [serviceList, extraServices.length, isServiceListValidating]);
+
+  const services = useMemo(() => {
+    const seen = new Set<string>();
+    const merged: Service[] = [];
+    for (const service of [...(serviceList?.items ?? []), ...extraServices]) {
+      if (seen.has(service.id)) continue;
+      seen.add(service.id);
+      merged.push(service);
+    }
+    return merged;
+  }, [serviceList, extraServices]);
+
+  const refreshServices = async () => {
+    paginationVersionRef.current += 1;
+    setExtraServices([]);
+    setNextCursor(null);
+    setLoadMoreError(null);
+    await mutate(servicesUrl);
+  };
+
+  const loadMoreServices = async () => {
+    if (nextCursor === null || isLoadingMore) return;
+    const startedVersion = paginationVersionRef.current;
+    setIsLoadingMore(true);
+    setLoadMoreError(null);
+    try {
+      const data = await apiFetchJson(
+        buildUrl("/services", {
+          query: normalizedQuery.length > 0 ? normalizedQuery : undefined,
+          enabled: enabledParam,
+          stale: staleParam,
+          adapter: adapterFilter !== "all" ? adapterFilter : undefined,
+          limit: "100",
+          cursor: nextCursor,
+        }),
+        serviceListSchema,
+      );
+      if (paginationVersionRef.current !== startedVersion) return;
+      setExtraServices((previous) => [...previous, ...data.items]);
+      setNextCursor(data.nextCursor);
+    } catch (error) {
+      if (paginationVersionRef.current !== startedVersion) return;
+      setLoadMoreError(
+        errorMessageFrom(error, "Failed to load more services."),
+      );
+    } finally {
+      setIsLoadingMore(false);
+    }
+  };
 
   const handleManualInstall = async () => {
     setManualErrors({});
@@ -188,7 +289,7 @@ export default function ServicesPage() {
       setManualUrl("");
       setManualAdapter("");
       setIsInstallOpen(false);
-      await mutate(servicesUrl);
+      await refreshServices();
       addNotification({
         type: "success",
         title: "Success",
@@ -237,7 +338,7 @@ export default function ServicesPage() {
       setRegistryAdapter("");
       setRegistryId("");
       setIsInstallOpen(false);
-      await mutate(servicesUrl);
+      await refreshServices();
       addNotification({
         type: "success",
         title: "Success",
@@ -259,7 +360,7 @@ export default function ServicesPage() {
       await apiFetch(buildUrl(`/services/${serviceId}/sync`), {
         method: "POST",
       });
-      await mutate(servicesUrl);
+      await refreshServices();
       addNotification({
         type: "success",
         title: "Success",
@@ -281,7 +382,7 @@ export default function ServicesPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ enabled: !enabled }),
       });
-      await mutate(servicesUrl);
+      await refreshServices();
       addNotification({
         type: "success",
         title: "Success",
@@ -617,7 +718,7 @@ export default function ServicesPage() {
               variant="outline"
               className="gap-2"
               onClick={() => {
-                mutate(servicesUrl)
+                refreshServices()
                   .then(() => {
                     addNotification({
                       type: "success",
@@ -752,6 +853,23 @@ export default function ServicesPage() {
                 <p className="p-4 text-sm text-muted-foreground">
                   No services installed yet.
                 </p>
+              ) : null}
+              {nextCursor !== null ? (
+                <div className="flex justify-center p-4">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="gap-2"
+                    disabled={isLoadingMore}
+                    onClick={() => void loadMoreServices()}
+                  >
+                    <ChevronDown />
+                    {isLoadingMore ? "Loading more…" : "Load more"}
+                  </Button>
+                </div>
+              ) : null}
+              {loadMoreError !== null ? (
+                <p className="p-4 text-sm text-destructive">{loadMoreError}</p>
               ) : null}
             </ScrollArea>
           </CardContent>

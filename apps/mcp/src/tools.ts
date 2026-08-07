@@ -59,8 +59,14 @@ const tools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
         .optional()
         .describe("Optional maximum number of results to return. Example: 10."),
       enabled: z.boolean().optional().describe("Optional enabled filter."),
+      cursor: z
+        .string()
+        .optional()
+        .describe(
+          "Opaque pagination token returned as nextCursor by a previous response. Pass it back unchanged to fetch the next page; omit to fetch the first page.",
+        ),
     }),
-    execute: async ({ service_id, query, limit, enabled }) =>
+    execute: async ({ service_id, query, limit, enabled, cursor }) =>
       JSON.stringify(
         await api
           .get("tools", {
@@ -69,6 +75,7 @@ const tools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
               query,
               limit,
               enabled,
+              cursor,
             }),
           })
           .json(),

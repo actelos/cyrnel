@@ -82,7 +82,11 @@ describe("process.controller", () => {
   describe("listProcesses", () => {
     it("forwards an empty filter when no query params are supplied", async () => {
       const res = makeRes();
-      processService.list.mockResolvedValue([]);
+      processService.list.mockResolvedValue({
+        items: [],
+        nextCursor: null,
+        hasMore: false,
+      });
 
       await listProcesses(makeReq(), cast(res));
 
@@ -90,14 +94,23 @@ describe("process.controller", () => {
         ref: undefined,
         state: undefined,
         exitState: undefined,
+        limit: 20,
       });
       expect(res.status).toHaveBeenCalledWith(200);
-      expect(res.json).toHaveBeenCalledWith({ processes: [] });
+      expect(res.json).toHaveBeenCalledWith({
+        items: [],
+        nextCursor: null,
+        hasMore: false,
+      });
     });
 
     it("parses state, status, and ref query params", async () => {
       const res = makeRes();
-      processService.list.mockResolvedValue([{ id: 1 }]);
+      processService.list.mockResolvedValue({
+        items: [{ id: 1 }],
+        nextCursor: null,
+        hasMore: false,
+      });
 
       await listProcesses(
         makeReq({
@@ -110,8 +123,13 @@ describe("process.controller", () => {
         ref: "hello",
         state: "queued",
         exitState: "success",
+        limit: 20,
       });
-      expect(res.json).toHaveBeenCalledWith({ processes: [{ id: 1 }] });
+      expect(res.json).toHaveBeenCalledWith({
+        items: [{ id: 1 }],
+        nextCursor: null,
+        hasMore: false,
+      });
     });
 
     it("maps status='null' to exitState=null", async () => {
@@ -124,6 +142,7 @@ describe("process.controller", () => {
         ref: undefined,
         state: undefined,
         exitState: null,
+        limit: 20,
       });
     });
 

@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { listLogs, streamLogs } from "@/controllers/log.controller";
 import type { LogEntry } from "@/infra/logging/log-entry";
 import { HttpError } from "@/models/error.model";
+import { encodeCursor } from "@/utils/pagination.util";
 
 const mocks = vi.hoisted(() => ({
   listLogs: vi.fn(),
@@ -89,18 +90,30 @@ function makeUnsubscribe(): () => void {
 describe("log.controller listLogs", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    listLogsMock.mockResolvedValue({ entries: [], nextCursor: null });
+    listLogsMock.mockResolvedValue({
+      entries: [],
+      nextCursor: null,
+      hasMore: false,
+    });
   });
 
   it("returns the log service result", async () => {
     const entries = [makeEntry({ timestamp: 200, seq: 2 }), makeEntry()];
-    listLogsMock.mockResolvedValue({ entries, nextCursor: null });
+    listLogsMock.mockResolvedValue({
+      entries,
+      nextCursor: null,
+      hasMore: false,
+    });
 
     const res = makeRes();
     await listLogs(makeReq(), cast(res));
 
     expect(res.status).toHaveBeenCalledWith(200);
-    expect(res.json).toHaveBeenCalledWith({ entries, nextCursor: null });
+    expect(res.json).toHaveBeenCalledWith({
+      items: entries,
+      nextCursor: null,
+      hasMore: false,
+    });
   });
 
   it("passes filters and limit to the log service", async () => {
@@ -143,16 +156,33 @@ describe("log.controller listLogs", () => {
     );
   });
 
-  it("passes a parsed before cursor to the log service", async () => {
+  it("passes a parsed cursor to the log service", async () => {
     const res = makeRes();
-    await listLogs(makeReq({ before: "200:2" }), cast(res));
+    await listLogs(makeReq({ cursor: encodeCursor([200, 2]) }), cast(res));
 
     expect(listLogsMock).toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
-      100,
+      20,
       { timestamp: 200, seq: 2 },
     );
+  });
+
+  it("re-encodes the service's raw log-entry cursor for the wire", async () => {
+    listLogsMock.mockResolvedValue({
+      entries: [makeEntry({ timestamp: 200, seq: 2 })],
+      nextCursor: "200:2",
+      hasMore: true,
+    });
+
+    const res = makeRes();
+    await listLogs(makeReq(), cast(res));
+
+    expect(res.json).toHaveBeenCalledWith({
+      items: [makeEntry({ timestamp: 200, seq: 2 })],
+      nextCursor: encodeCursor([200, 2]),
+      hasMore: true,
+    });
   });
 
   it("passes explicit sort directions to the log service", async () => {
@@ -162,7 +192,7 @@ describe("log.controller listLogs", () => {
     expect(listLogsMock).toHaveBeenCalledWith(
       expect.anything(),
       { field: "duration", direction: "asc" },
-      100,
+      20,
       undefined,
     );
   });
@@ -170,8 +200,8 @@ describe("log.controller listLogs", () => {
   it("rejects malformed cursors with 400 without calling the service", async () => {
     const res = makeRes();
     await expect(
-      listLogs(makeReq({ before: "nope" }), cast(res)),
-    ).rejects.toThrow(/Invalid 'before' cursor/);
+      listLogs(makeReq({ cursor: "nope" }), cast(res)),
+    ).rejects.toThrow(HttpError);
     expect(listLogsMock).not.toHaveBeenCalled();
   });
 
@@ -183,10 +213,13 @@ describe("log.controller listLogs", () => {
     expect(listLogsMock).not.toHaveBeenCalled();
   });
 
-  it("rejects before cursors with non-desc sorts", async () => {
+  it("rejects cursors with non-desc sorts", async () => {
     const res = makeRes();
     await expect(
-      listLogs(makeReq({ sort: "timestamp:asc", before: "200:2" }), cast(res)),
+      listLogs(
+        makeReq({ sort: "timestamp:asc", cursor: encodeCursor([200, 2]) }),
+        cast(res),
+      ),
     ).rejects.toThrow(/only supported with sort=timestamp:desc/);
     expect(listLogsMock).not.toHaveBeenCalled();
   });

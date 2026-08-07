@@ -440,7 +440,7 @@ describe("ModuleService", () => {
         const service = new ModuleService(makeBindings(), makeLifecycle());
         await service.initialize(dir);
 
-        const records = await service.list();
+        const records = (await service.list()).items;
         const map = new Map(records.map((r) => [r.id, r]));
         expect(map.get("customMod")).toMatchObject({
           isBuiltin: false,
@@ -901,7 +901,7 @@ describe("ModuleService", () => {
       const service = new ModuleService(makeBindings(), makeLifecycle());
       await service.initialize(MISSING_PATH);
 
-      const rows = await service.list();
+      const rows = (await service.list()).items;
       expect(rows.map((r) => r.id).sort()).toEqual([
         "openapi",
         "typescript-ivm",
@@ -920,24 +920,30 @@ describe("ModuleService", () => {
       await service.initialize(MISSING_PATH);
 
       expect(
-        (await service.list({ type: "adapter" })).map((r) => r.id),
+        (await service.list({ type: "adapter" })).items.map((r) => r.id),
       ).toEqual(["openapi"]);
       expect(
-        (await service.list({ type: "environment" })).map((r) => r.id),
+        (await service.list({ type: "environment" })).items.map((r) => r.id),
       ).toEqual(["typescript-ivm"]);
       expect(
-        (await service.list({ query: "openapi" })).map((r) => r.id),
+        (await service.list({ query: "openapi" })).items.map((r) => r.id),
       ).toEqual(["openapi"]);
       expect(
-        (await service.list({ query: "openapi adapter" })).map((r) => r.id),
+        (await service.list({ query: "openapi adapter" })).items.map(
+          (r) => r.id,
+        ),
       ).toEqual(["openapi"]);
       expect(
-        (await service.list({ query: "import http apis" })).map((r) => r.id),
+        (await service.list({ query: "import http apis" })).items.map(
+          (r) => r.id,
+        ),
       ).toEqual(["openapi"]);
       expect(
-        (await service.list({ query: "self-contained" })).map((r) => r.id),
+        (await service.list({ query: "self-contained" })).items.map(
+          (r) => r.id,
+        ),
       ).toEqual(["typescript-ivm"]);
-      expect(await service.list({ isBuiltin: false })).toHaveLength(0);
+      expect((await service.list({ isBuiltin: false })).items).toHaveLength(0);
     });
 
     it("get() returns undefined for unknown ids", async () => {
@@ -965,10 +971,34 @@ describe("ModuleService", () => {
       const service = new ModuleService(makeBindings(), makeLifecycle());
       await service.initialize(MISSING_PATH);
 
-      for (const row of await service.list()) {
+      for (const row of (await service.list()).items) {
         expect(row).not.toHaveProperty("configSchema");
         expect(row).not.toHaveProperty("secretsSchema");
       }
+    });
+
+    it("list() pages with keyset cursors across both sort-key columns", async () => {
+      const service = new ModuleService(makeBindings(), makeLifecycle());
+      await service.initialize(MISSING_PATH);
+
+      const first = await service.list({ limit: 1 });
+      expect(first.items).toHaveLength(1);
+      expect(first.hasMore).toBe(true);
+      expect(first.nextCursor).not.toBeNull();
+
+      const second = await service.list({
+        limit: 1,
+        cursor: first.nextCursor ?? undefined,
+      });
+      expect(second.items).toHaveLength(1);
+      expect(second.hasMore).toBe(false);
+      expect(second.nextCursor).toBeNull();
+
+      const seen = new Set([
+        ...first.items.map((r) => r.id),
+        ...second.items.map((r) => r.id),
+      ]);
+      expect(seen).toEqual(new Set(["openapi", "typescript-ivm"]));
     });
   });
 
@@ -1090,7 +1120,7 @@ describe("ModuleService", () => {
       try {
         const service = new ModuleService(makeBindings(), makeLifecycle());
         await service.initialize(dir);
-        let rows = await service.list();
+        let rows = (await service.list()).items;
         expect(rows.map((r) => r.id).sort()).toEqual([
           "openapi",
           "typescript-ivm",
@@ -1129,7 +1159,7 @@ describe("ModuleService", () => {
 
         await service.reload();
 
-        rows = await service.list();
+        rows = (await service.list()).items;
         expect(rows.map((r) => r.id).sort()).toEqual(
           ["freshMod", "openapi", "typescript-ivm"].sort(),
         );

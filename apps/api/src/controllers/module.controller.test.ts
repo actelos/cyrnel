@@ -94,9 +94,13 @@ describe("module.controller", () => {
   });
 
   describe("listModules", () => {
-    it("returns modules wrapped under { modules } with empty filters by default", async () => {
+    it("returns the paginated envelope with empty filters by default", async () => {
       const res = makeRes();
-      moduleService.list.mockResolvedValue([]);
+      moduleService.list.mockResolvedValue({
+        items: [],
+        nextCursor: null,
+        hasMore: false,
+      });
 
       await listModules(makeReq(), cast(res));
 
@@ -105,14 +109,25 @@ describe("module.controller", () => {
         type: undefined,
         isBuiltin: undefined,
         enabled: undefined,
+        missing: undefined,
+        limit: 20,
+        cursor: undefined,
       });
       expect(res.status).toHaveBeenCalledWith(200);
-      expect(res.json).toHaveBeenCalledWith({ modules: [] });
+      expect(res.json).toHaveBeenCalledWith({
+        items: [],
+        nextCursor: null,
+        hasMore: false,
+      });
     });
 
     it("forwards all filters at once", async () => {
       const res = makeRes();
-      moduleService.list.mockResolvedValue([{ id: "m1" }]);
+      moduleService.list.mockResolvedValue({
+        items: [{ id: "m1" }],
+        nextCursor: "cursor-1",
+        hasMore: true,
+      });
 
       await listModules(
         makeReq({
@@ -121,6 +136,7 @@ describe("module.controller", () => {
             type: "adapter",
             isBuiltin: "true",
             enabled: "false",
+            limit: "5",
           },
         }),
         cast(res),
@@ -131,12 +147,42 @@ describe("module.controller", () => {
         type: "adapter",
         isBuiltin: true,
         enabled: false,
+        missing: undefined,
+        limit: 5,
+        cursor: undefined,
       });
+      expect(res.json).toHaveBeenCalledWith({
+        items: [{ id: "m1" }],
+        nextCursor: "cursor-1",
+        hasMore: true,
+      });
+    });
+
+    it("forwards a cursor and clamps an oversized limit", async () => {
+      const res = makeRes();
+      moduleService.list.mockResolvedValue({
+        items: [],
+        nextCursor: null,
+        hasMore: false,
+      });
+
+      await listModules(
+        makeReq({ query: { cursor: "token", limit: "1000" } }),
+        cast(res),
+      );
+
+      expect(moduleService.list).toHaveBeenCalledWith(
+        expect.objectContaining({ cursor: "token", limit: 100 }),
+      );
     });
 
     it("trims query and drops it when empty", async () => {
       const res = makeRes();
-      moduleService.list.mockResolvedValue([]);
+      moduleService.list.mockResolvedValue({
+        items: [],
+        nextCursor: null,
+        hasMore: false,
+      });
 
       await listModules(makeReq({ query: { query: "   " } }), cast(res));
 
@@ -145,6 +191,9 @@ describe("module.controller", () => {
         type: undefined,
         isBuiltin: undefined,
         enabled: undefined,
+        missing: undefined,
+        limit: 20,
+        cursor: undefined,
       });
     });
 
@@ -153,7 +202,11 @@ describe("module.controller", () => {
       ["environment", "environment"],
     ])("accepts type=%s", async (raw, expected) => {
       const res = makeRes();
-      moduleService.list.mockResolvedValue([]);
+      moduleService.list.mockResolvedValue({
+        items: [],
+        nextCursor: null,
+        hasMore: false,
+      });
 
       await listModules(makeReq({ query: { type: raw } }), cast(res));
 
@@ -176,7 +229,11 @@ describe("module.controller", () => {
       ["FALSE", false],
     ])("coerces isBuiltin=%s -> %s", async (raw, expected) => {
       const res = makeRes();
-      moduleService.list.mockResolvedValue([]);
+      moduleService.list.mockResolvedValue({
+        items: [],
+        nextCursor: null,
+        hasMore: false,
+      });
 
       await listModules(makeReq({ query: { isBuiltin: raw } }), cast(res));
 
@@ -197,7 +254,11 @@ describe("module.controller", () => {
       ["false", false],
     ])("coerces enabled=%s -> %s", async (raw, expected) => {
       const res = makeRes();
-      moduleService.list.mockResolvedValue([]);
+      moduleService.list.mockResolvedValue({
+        items: [],
+        nextCursor: null,
+        hasMore: false,
+      });
 
       await listModules(makeReq({ query: { enabled: raw } }), cast(res));
 

@@ -8,6 +8,7 @@ import {
 } from "@/infra/logging/log-entry";
 import {
   entryIsAfterCursor,
+  type LogCursor,
   type LogSort,
   parseLogCursor,
 } from "@/infra/logging/query";
@@ -17,6 +18,11 @@ import {
   recentLogs,
   subscribeLogs,
 } from "@/services/log.service";
+import {
+  decodeCursor,
+  encodeCursor,
+  paginationQuerySchema,
+} from "@/utils/pagination.util";
 import { parseOrHttpError } from "@/utils/validation.util";
 
 const STREAM_REPLAY_LIMIT = 100;
@@ -47,8 +53,7 @@ const listLogsQuerySchema = z.object({
   sort: z
     .enum(["timestamp:asc", "timestamp:desc", "duration:asc", "duration:desc"])
     .optional(),
-  limit: z.coerce.number().int().min(1).max(500).default(100),
-  before: z.string().optional(),
+  ...paginationQuerySchema.shape,
 });
 
 type ListLogsQuery = z.infer<typeof listLogsQuerySchema>;
@@ -69,13 +74,23 @@ export async function listLogs(req: Request, res: Response): Promise<void> {
     "Invalid query parameters.",
   );
 
-  let before: ReturnType<typeof parseLogCursor> | undefined;
-  if (query.before !== undefined) {
-    try {
-      before = parseLogCursor(query.before);
-    } catch {
-      throw new HttpError(400, "Invalid 'before' cursor.");
+  let before: LogCursor | undefined;
+  if (query.cursor !== undefined) {
+    const cursor = decodeCursor(query.cursor, 2);
+    const [timestamp, seq] = cursor.sortKey;
+    if (
+      typeof timestamp !== "number" ||
+      typeof seq !== "number" ||
+      !Number.isInteger(timestamp) ||
+      !Number.isInteger(seq)
+    ) {
+      throw new HttpError(
+        400,
+        "Cursor is malformed or expired; restart pagination from the first page.",
+        "invalid_cursor",
+      );
     }
+    before = { timestamp, seq };
   }
 
   const sort = parseSort(query.sort);
@@ -85,17 +100,32 @@ export async function listLogs(req: Request, res: Response): Promise<void> {
   ) {
     throw new HttpError(
       400,
-      "'before' cursor is only supported with sort=timestamp:desc.",
+      "Cursor is only supported with sort=timestamp:desc.",
+      "invalid_cursor",
     );
   }
 
-  const { entries, nextCursor } = await queryLogs(
+  const { entries, nextCursor, hasMore } = await queryLogs(
     toFilters(query),
     sort,
     query.limit,
     before,
   );
-  res.status(200).json({ entries, nextCursor });
+  res.status(200).json({
+    items: entries,
+    nextCursor: nextCursor !== null ? encodeLogCursor(nextCursor) : null,
+    hasMore,
+  });
+}
+
+/**
+ * The log service produces cursors as raw `timestamp:seq` log-entry ids;
+ * the wire format is the opaque base64url envelope shared by every other
+ * paginated endpoint, so re-encode before responding.
+ */
+function encodeLogCursor(entryId: string): string {
+  const [timestamp, seq] = entryId.split(":").map(Number);
+  return encodeCursor([timestamp, seq]);
 }
 
 function toFilters(query: ListLogsQuery) {

@@ -4,7 +4,16 @@ import type {
   ServiceState,
   ToolDocsInput,
 } from "@cyrnel/sdk";
-import { and, asc, eq, getTableColumns, like, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  getTableColumns,
+  or,
+  type SQL,
+  sql,
+} from "drizzle-orm";
 import jsonpatch from "fast-json-patch";
 
 import { z } from "zod";
@@ -18,7 +27,7 @@ import {
   tools,
 } from "@/db/schema";
 import { logger } from "@/infra/logging";
-import type { SearchIndex } from "@/infra/search/search-engine";
+import type { HybridToolHit, SearchIndex } from "@/infra/search/search-engine";
 import { HttpError } from "@/models/error.model";
 import type { GenerateDefinitionInput } from "@/models/modules.model";
 import type {
@@ -42,6 +51,15 @@ import { computeContentHash } from "@/utils/hash.util";
 import type { IconColumns } from "@/utils/icon.util";
 import { fetchAndValidateIcon, resolveIconUpdate } from "@/utils/icon.util";
 import {
+  decodeCursor,
+  escapeLike,
+  invalidCursorError,
+  keysetConditions,
+  PAGINATION_DEFAULT_LIMIT,
+  type PaginatedResult,
+  paginatePage,
+} from "@/utils/pagination.util";
+import {
   collectOutdatedPaths,
   filterPayloadToSchema,
   isNullOnlySchema,
@@ -61,7 +79,6 @@ import {
 
 const DEFINITION_DOWNLOAD_MAX_BYTES = 30 * 1024 * 1024;
 const IDENTIFIER_SCHEMA = z.string().regex(/^[A-Za-z_$][A-Za-z0-9_$]*$/);
-const SEARCH_DEFAULT_LIMIT = 50;
 
 export interface AdapterController {
   generateDefinition(
@@ -104,8 +121,9 @@ export class ServicesService {
 
   async listServices(
     input?: ListServicesInput,
-  ): Promise<ListServiceDefinitionResult[]> {
+  ): Promise<PaginatedResult<ListServiceDefinitionResult>> {
     const normalizedQuery = input?.query?.trim();
+    const limit = input?.limit ?? PAGINATION_DEFAULT_LIMIT;
 
     try {
       const {
@@ -120,7 +138,45 @@ export class ServicesService {
         ...serviceColumns
       } = getTableColumns(services);
 
-      const query = db
+      const conditions: Array<SQL | undefined> = [];
+      if (input?.enabled !== undefined) {
+        conditions.push(eq(services.enabled, input.enabled));
+      }
+      if (input?.adapter !== undefined) {
+        conditions.push(eq(services.adapter, input.adapter));
+      }
+      if (input?.stale !== undefined) {
+        conditions.push(eq(services.stale, input.stale));
+      }
+      if (normalizedQuery) {
+        const pattern = `%${escapeLike(normalizedQuery)}%`;
+        conditions.push(
+          or(
+            sql`${services.id} LIKE ${pattern} ESCAPE ${"\\"}`,
+            sql`${services.name} LIKE ${pattern} ESCAPE ${"\\"}`,
+            sql`${services.summary} LIKE ${pattern} ESCAPE ${"\\"}`,
+            sql`${services.description} LIKE ${pattern} ESCAPE ${"\\"}`,
+          ),
+        );
+      }
+      if (input?.cursor !== undefined) {
+        const cursor = decodeCursor(input.cursor, 2);
+        const [createdAt, id] = cursor.sortKey;
+        if (typeof createdAt !== "string" || typeof id !== "string") {
+          throw invalidCursorError();
+        }
+        conditions.push(
+          keysetConditions(
+            [
+              [services.createdAt, createdAt],
+              [services.id, id],
+            ],
+            "before",
+          ),
+        );
+      }
+
+      const rows = await db
         .select({
           ...serviceColumns,
           iconHash: services.iconHash,
@@ -128,38 +184,20 @@ export class ServicesService {
         })
         .from(services)
         .leftJoin(modulesTable, eq(services.adapter, modulesTable.id))
-        .where(
-          and(
-            input?.enabled !== undefined
-              ? eq(services.enabled, input.enabled)
-              : undefined,
-            input?.adapter !== undefined
-              ? eq(services.adapter, input.adapter)
-              : undefined,
-            input?.stale !== undefined
-              ? eq(services.stale, input.stale)
-              : undefined,
-            normalizedQuery
-              ? or(
-                  like(services.id, `%${normalizedQuery}%`),
-                  like(services.name, `%${normalizedQuery}%`),
-                  like(services.summary, `%${normalizedQuery}%`),
-                  like(services.description, `%${normalizedQuery}%`),
-                )
-              : undefined,
-          ),
-        )
-        .orderBy(asc(services.id));
+        .where(and(...conditions))
+        .orderBy(desc(services.createdAt), desc(services.id))
+        .limit(limit + 1);
 
-      const rows = await (input?.limit !== undefined
-        ? query.limit(Number(input.limit))
-        : query);
-
-      return rows.map(({ iconHash, ...row }) => ({
-        ...row,
-        hasIcon: iconHash !== null,
-      }));
-    } catch {
+      return paginatePage(
+        rows.map(({ iconHash, ...row }) => ({
+          ...row,
+          hasIcon: iconHash !== null,
+        })),
+        limit,
+        (item) => [item.createdAt, item.id],
+      );
+    } catch (error) {
+      if (error instanceof HttpError) throw error;
       throw new HttpError(500, "Failed to list services.");
     }
   }
@@ -212,7 +250,9 @@ export class ServicesService {
     return { data: row.iconData, mime: row.iconMime, hash: row.iconHash };
   }
 
-  async listTools(input: ListToolsInput): Promise<ListToolsResult[]> {
+  async listTools(
+    input: ListToolsInput,
+  ): Promise<PaginatedResult<ListToolsResult>> {
     let serviceEnabled: boolean | undefined;
 
     if (input.serviceId) {
@@ -233,31 +273,63 @@ export class ServicesService {
       serviceEnabled = service.enabled;
     }
 
+    const limit = input.limit ?? PAGINATION_DEFAULT_LIMIT;
     const normalizedQuery = input.query?.trim();
+    const isSearchRequest =
+      Boolean(normalizedQuery) && this.search !== undefined;
+    const cursor =
+      input.cursor !== undefined
+        ? decodeCursor(input.cursor, isSearchRequest ? 3 : 2)
+        : null;
+    const cursorKey = cursor !== null ? cursor.sortKey : null;
+
+    const toResult = (hit: HybridToolHit): ListToolsResult => ({
+      serviceId: hit.serviceId,
+      id: hit.toolId,
+      name: hit.name,
+      summary: hit.summary,
+      description: hit.description,
+      enabled: hit.enabled,
+      ...(hit.score !== undefined ? { score: hit.score } : {}),
+      ...(hit.matchType !== undefined ? { matchType: hit.matchType } : {}),
+      ...(hit.ftsRank !== undefined ? { ftsRank: hit.ftsRank } : {}),
+      ...(hit.vectorRank !== undefined ? { vectorRank: hit.vectorRank } : {}),
+      effectivelyEnabled: (serviceEnabled ?? true) && hit.enabled,
+    });
 
     if (normalizedQuery && this.search) {
+      let afterKey: [number, string, string] | undefined;
+      if (cursorKey !== null) {
+        const [score, serviceId, toolId] = cursorKey;
+        if (
+          typeof score !== "number" ||
+          typeof serviceId !== "string" ||
+          typeof toolId !== "string"
+        ) {
+          throw invalidCursorError();
+        }
+        afterKey = [score, serviceId, toolId];
+      }
       try {
         const hits = await this.search.searchTools(normalizedQuery, {
           serviceId: input.serviceId,
           enabled: input.enabled,
-          limit: input.limit ?? SEARCH_DEFAULT_LIMIT,
+          limit: limit + 1,
+          afterKey,
         });
-        return hits.map((hit) => ({
-          serviceId: hit.serviceId,
-          id: hit.toolId,
-          name: hit.name,
-          summary: hit.summary,
-          description: hit.description,
-          enabled: hit.enabled,
-          score: hit.score,
-          matchType: hit.matchType,
-          ...(hit.ftsRank !== undefined ? { ftsRank: hit.ftsRank } : {}),
-          ...(hit.vectorRank !== undefined
-            ? { vectorRank: hit.vectorRank }
-            : {}),
-          effectivelyEnabled: (serviceEnabled ?? true) && hit.enabled,
-        }));
+        return paginatePage(hits.map(toResult), limit, (item) => [
+          item.score ?? 0,
+          item.serviceId,
+          item.id,
+        ]);
       } catch (err) {
+        if (cursorKey !== null) {
+          throw new HttpError(
+            503,
+            "Search index is unavailable; restart pagination from the first page.",
+            "search_unavailable",
+          );
+        }
         logger.warn(
           {
             event: "search-index-fallback",
@@ -270,7 +342,22 @@ export class ServicesService {
       }
     }
 
-    const query = db
+    let cursorPredicate: SQL | undefined;
+    if (cursorKey !== null) {
+      const [serviceIdKey, toolIdKey] = cursorKey;
+      if (typeof serviceIdKey !== "string" || typeof toolIdKey !== "string") {
+        throw invalidCursorError();
+      }
+      cursorPredicate = keysetConditions(
+        [
+          [tools.serviceId, serviceIdKey],
+          [tools.id, toolIdKey],
+        ],
+        "after",
+      );
+    }
+
+    const rows = await db
       .select({
         serviceId: tools.serviceId,
         id: tools.id,
@@ -288,26 +375,28 @@ export class ServicesService {
             : undefined,
           normalizedQuery
             ? or(
-                like(tools.name, `%${normalizedQuery}%`),
-                like(tools.summary, `%${normalizedQuery}%`),
-                like(tools.description, `%${normalizedQuery}%`),
+                sql`${tools.name} LIKE ${`%${escapeLike(normalizedQuery)}%`} ESCAPE ${"\\"}`,
+                sql`${tools.summary} LIKE ${`%${escapeLike(normalizedQuery)}%`} ESCAPE ${"\\"}`,
+                sql`${tools.description} LIKE ${`%${escapeLike(normalizedQuery)}%`} ESCAPE ${"\\"}`,
               )
             : undefined,
+          cursorPredicate,
         ),
       )
-      .orderBy(asc(tools.name));
+      .orderBy(asc(tools.serviceId), asc(tools.id))
+      .limit(limit + 1)
+      .catch(() => {
+        throw new HttpError(500, `Failed to load tools.`);
+      });
 
-    const rows = await (input.limit !== undefined
-      ? query.limit(input.limit)
-      : query
-    ).catch(() => {
-      throw new HttpError(500, `Failed to load tools.`);
-    });
-
-    return rows.map((row) => ({
-      ...row,
-      effectivelyEnabled: (serviceEnabled ?? true) && row.enabled,
-    }));
+    return paginatePage(
+      rows.map((row) => ({
+        ...row,
+        effectivelyEnabled: (serviceEnabled ?? true) && row.enabled,
+      })),
+      limit,
+      (item) => [item.serviceId, item.id],
+    );
   }
 
   async getTool(input: GetToolInput): Promise<GetToolsResult> {
@@ -410,6 +499,7 @@ export class ServicesService {
           ...generatedDefinition,
           summary: normalizeSummary(generatedDefinition.summary),
           id: input.id,
+          createdAt: new Date().toISOString(),
           hash,
           version: "0.0.0",
           source: "",
@@ -501,6 +591,7 @@ export class ServicesService {
           ...generatedDefinition,
           summary: normalizeSummary(generatedDefinition.summary),
           id: effectiveId,
+          createdAt: new Date().toISOString(),
           hash: contentHash,
           version: registry.version,
           source: input.source,

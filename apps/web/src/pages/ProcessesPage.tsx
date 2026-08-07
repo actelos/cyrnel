@@ -1,5 +1,6 @@
 import {
   Archive,
+  ChevronDown,
   Copy,
   Maximize2,
   Play,
@@ -8,7 +9,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { z } from "zod";
 import {
@@ -100,7 +101,9 @@ const processSchema = z.object({
 });
 
 const processListSchema = z.object({
-  processes: z.array(processSchema),
+  items: z.array(processSchema),
+  nextCursor: z.string().nullable(),
+  hasMore: z.boolean(),
 });
 
 const refInputSchema = z.preprocess((value) => {
@@ -215,6 +218,7 @@ export default function ProcessesPage() {
       ref: parsedFilters.ref,
       state: parsedFilters.state,
       status: parsedFilters.status,
+      limit: "100",
     });
   }, [parsedFilters]);
 
@@ -222,11 +226,82 @@ export default function ProcessesPage() {
     data: processList,
     isLoading: isLoadingProcesses,
     error: processError,
+    isValidating: isProcessListValidating,
   } = useSWR(processesUrl, (url) => apiFetchJson(url, processListSchema), {
     refreshInterval: 2000,
   });
 
-  const processes = processList?.processes ?? [];
+  const [extraProcesses, setExtraProcesses] = useState<Process[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
+  const paginationVersionRef = useRef(0);
+
+  useEffect(() => {
+    if (processesUrl === "") return;
+    paginationVersionRef.current += 1;
+    setExtraProcesses([]);
+    setNextCursor(null);
+    setLoadMoreError(null);
+  }, [processesUrl]);
+
+  useEffect(() => {
+    if (
+      extraProcesses.length === 0 &&
+      processList !== undefined &&
+      !isProcessListValidating
+    ) {
+      setNextCursor(processList.nextCursor);
+    }
+  }, [processList, extraProcesses.length, isProcessListValidating]);
+
+  const processes = useMemo(() => {
+    const seen = new Set<number>();
+    const merged: Process[] = [];
+    for (const process of [...(processList?.items ?? []), ...extraProcesses]) {
+      if (seen.has(process.id)) continue;
+      seen.add(process.id);
+      merged.push(process);
+    }
+    return merged;
+  }, [processList, extraProcesses]);
+
+  const refreshProcesses = async () => {
+    paginationVersionRef.current += 1;
+    setExtraProcesses([]);
+    setNextCursor(null);
+    setLoadMoreError(null);
+    await mutate(processesUrl);
+  };
+
+  const loadMoreProcesses = async () => {
+    if (nextCursor === null || isLoadingMore) return;
+    const startedVersion = paginationVersionRef.current;
+    setIsLoadingMore(true);
+    setLoadMoreError(null);
+    try {
+      const data = await apiFetchJson(
+        buildUrl("/processes", {
+          ref: parsedFilters.ref,
+          state: parsedFilters.state,
+          status: parsedFilters.status,
+          limit: "100",
+          cursor: nextCursor,
+        }),
+        processListSchema,
+      );
+      if (paginationVersionRef.current !== startedVersion) return;
+      setExtraProcesses((previous) => [...previous, ...data.items]);
+      setNextCursor(data.nextCursor);
+    } catch (error) {
+      if (paginationVersionRef.current !== startedVersion) return;
+      setLoadMoreError(
+        errorMessageFrom(error, "Failed to load more processes."),
+      );
+    } finally {
+      setIsLoadingMore(false);
+    }
+  };
 
   useEffect(() => {
     if (processes.length === 0) {
@@ -362,7 +437,7 @@ export default function ProcessesPage() {
       setCreateTimeout("");
       setCreateAutorun(true);
       setIsCreateOpen(false);
-      await mutate(processesUrl);
+      await refreshProcesses();
       addNotification({
         type: "success",
         title: "Success",
@@ -386,7 +461,7 @@ export default function ProcessesPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ force }),
       });
-      await mutate(processesUrl);
+      await refreshProcesses();
       addNotification({
         type: "success",
         title: "Success",
@@ -408,7 +483,7 @@ export default function ProcessesPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
       });
-      await mutate(processesUrl);
+      await refreshProcesses();
       addNotification({
         type: "success",
         title: "Success",
@@ -428,7 +503,7 @@ export default function ProcessesPage() {
       await apiFetch(buildUrl(`/processes/${process.id}`), {
         method: "DELETE",
       });
-      await mutate(processesUrl);
+      await refreshProcesses();
       addNotification({
         type: "success",
         title: "Success",
@@ -450,7 +525,7 @@ export default function ProcessesPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
       });
-      await mutate(processesUrl);
+      await refreshProcesses();
       addNotification({
         type: "success",
         title: "Success",
@@ -640,7 +715,7 @@ export default function ProcessesPage() {
                 variant="outline"
                 className="gap-2"
                 onClick={() => {
-                  mutate(processesUrl)
+                  refreshProcesses()
                     .then(() => {
                       addNotification({
                         type: "success",
@@ -673,7 +748,9 @@ export default function ProcessesPage() {
               <div className="w-max px-2 bg-muted border-1 border-border">
                 {isLoadingProcesses
                   ? "Loading..."
-                  : `${processes.length} total`}
+                  : nextCursor !== null
+                    ? `${processes.length}+ total`
+                    : `${processes.length} total`}
               </div>
             </CardHeader>
             <CardContent className="min-h-0 flex-1">
@@ -809,6 +886,25 @@ export default function ProcessesPage() {
                 {processError ? (
                   <p className="p-4 text-sm text-destructive">
                     Failed to load processes.
+                  </p>
+                ) : null}
+                {nextCursor !== null ? (
+                  <div className="flex justify-center p-4">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="gap-2"
+                      disabled={isLoadingMore}
+                      onClick={() => void loadMoreProcesses()}
+                    >
+                      <ChevronDown />
+                      {isLoadingMore ? "Loading more…" : "Load more"}
+                    </Button>
+                  </div>
+                ) : null}
+                {loadMoreError !== null ? (
+                  <p className="p-4 text-sm text-destructive">
+                    {loadMoreError}
                   </p>
                 ) : null}
               </ScrollArea>
