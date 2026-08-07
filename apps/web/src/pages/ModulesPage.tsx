@@ -1,5 +1,5 @@
 import { ChevronDown, Plus, RefreshCw, RotateCcw } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import { Link } from "react-router";
 import remarkGfm from "remark-gfm";
@@ -109,9 +109,11 @@ export default function ModulesPage() {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
+  const paginationVersionRef = useRef(0);
 
   useEffect(() => {
     if (modulesUrl === "") return;
+    paginationVersionRef.current += 1;
     setExtraModules([]);
     setNextCursor(null);
     setLoadMoreError(null);
@@ -139,6 +141,7 @@ export default function ModulesPage() {
   }, [moduleList, extraModules]);
 
   const refreshModules = async () => {
+    paginationVersionRef.current += 1;
     setExtraModules([]);
     setNextCursor(null);
     setLoadMoreError(null);
@@ -147,6 +150,7 @@ export default function ModulesPage() {
 
   const loadMoreModules = async () => {
     if (nextCursor === null || isLoadingMore) return;
+    const startedVersion = paginationVersionRef.current;
     setIsLoadingMore(true);
     setLoadMoreError(null);
     try {
@@ -171,9 +175,11 @@ export default function ModulesPage() {
         }),
         moduleListSchema,
       );
+      if (paginationVersionRef.current !== startedVersion) return;
       setExtraModules((previous) => [...previous, ...data.items]);
       setNextCursor(data.nextCursor);
     } catch (error) {
+      if (paginationVersionRef.current !== startedVersion) return;
       setLoadMoreError(errorMessageFrom(error, "Failed to load more modules."));
     } finally {
       setIsLoadingMore(false);

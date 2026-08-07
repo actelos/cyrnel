@@ -9,7 +9,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { z } from "zod";
 import {
@@ -235,9 +235,11 @@ export default function ProcessesPage() {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
+  const paginationVersionRef = useRef(0);
 
   useEffect(() => {
     if (processesUrl === "") return;
+    paginationVersionRef.current += 1;
     setExtraProcesses([]);
     setNextCursor(null);
     setLoadMoreError(null);
@@ -265,6 +267,7 @@ export default function ProcessesPage() {
   }, [processList, extraProcesses]);
 
   const refreshProcesses = async () => {
+    paginationVersionRef.current += 1;
     setExtraProcesses([]);
     setNextCursor(null);
     setLoadMoreError(null);
@@ -273,6 +276,7 @@ export default function ProcessesPage() {
 
   const loadMoreProcesses = async () => {
     if (nextCursor === null || isLoadingMore) return;
+    const startedVersion = paginationVersionRef.current;
     setIsLoadingMore(true);
     setLoadMoreError(null);
     try {
@@ -286,9 +290,11 @@ export default function ProcessesPage() {
         }),
         processListSchema,
       );
+      if (paginationVersionRef.current !== startedVersion) return;
       setExtraProcesses((previous) => [...previous, ...data.items]);
       setNextCursor(data.nextCursor);
     } catch (error) {
+      if (paginationVersionRef.current !== startedVersion) return;
       setLoadMoreError(
         errorMessageFrom(error, "Failed to load more processes."),
       );

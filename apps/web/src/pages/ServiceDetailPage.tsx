@@ -6,7 +6,7 @@ import {
   RotateCcw,
   Trash2,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { useNavigate, useParams } from "react-router";
 import remarkGfm from "remark-gfm";
@@ -229,9 +229,11 @@ export default function ServiceDetailPage() {
   const [loadMoreToolsError, setLoadMoreToolsError] = useState<string | null>(
     null,
   );
+  const paginationVersionRef = useRef(0);
 
   useEffect(() => {
     if (toolsUrl === null) return;
+    paginationVersionRef.current += 1;
     setExtraTools([]);
     setNextToolCursor(null);
     setLoadMoreToolsError(null);
@@ -259,6 +261,7 @@ export default function ServiceDetailPage() {
   }, [toolList, extraTools]);
 
   const refreshTools = async () => {
+    paginationVersionRef.current += 1;
     setExtraTools([]);
     setNextToolCursor(null);
     setLoadMoreToolsError(null);
@@ -276,6 +279,7 @@ export default function ServiceDetailPage() {
     if (toolsUrl === null || nextToolCursor === null || isLoadingMoreTools) {
       return;
     }
+    const startedVersion = paginationVersionRef.current;
     setIsLoadingMoreTools(true);
     setLoadMoreToolsError(null);
     try {
@@ -287,9 +291,11 @@ export default function ServiceDetailPage() {
         }),
         toolListSchema,
       );
+      if (paginationVersionRef.current !== startedVersion) return;
       setExtraTools((previous) => [...previous, ...data.items]);
       setNextToolCursor(data.nextCursor);
     } catch (error) {
+      if (paginationVersionRef.current !== startedVersion) return;
       setLoadMoreToolsError(
         errorMessageFrom(error, "Failed to load more tools."),
       );

@@ -92,6 +92,7 @@ export default function LogsPage() {
   const [selected, setSelected] = useState<LogEntry | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const loadAbortRef = useRef<AbortController | null>(null);
+  const paginationVersionRef = useRef(0);
 
   const filters = useMemo<LogFilters>(
     () => ({ query, level, type }),
@@ -114,6 +115,7 @@ export default function LogsPage() {
 
   const loadFirstPage = useCallback(async () => {
     loadAbortRef.current?.abort();
+    paginationVersionRef.current += 1;
     const controller = new AbortController();
     loadAbortRef.current = controller;
     setHistory([]);
@@ -192,6 +194,7 @@ export default function LogsPage() {
 
   const loadOlder = async () => {
     if (nextCursor === null || isLoadingMore) return;
+    const startedVersion = paginationVersionRef.current;
     setIsLoadingMore(true);
     try {
       const data = await apiFetchJson(
@@ -202,10 +205,12 @@ export default function LogsPage() {
         }),
         logPageSchema,
       );
+      if (paginationVersionRef.current !== startedVersion) return;
       setHistory((previous) => [...previous, ...data.items]);
       setNextCursor(data.nextCursor);
       setLoadError(null);
     } catch (error) {
+      if (paginationVersionRef.current !== startedVersion) return;
       setLoadError(errorMessageFrom(error, "Failed to load older logs."));
     } finally {
       setIsLoadingMore(false);

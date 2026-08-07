@@ -1,5 +1,5 @@
 import { ChevronDown, Plus, RotateCcw } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import { Link } from "react-router";
 import remarkGfm from "remark-gfm";
@@ -189,9 +189,11 @@ export default function ServicesPage() {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
+  const paginationVersionRef = useRef(0);
 
   useEffect(() => {
     if (servicesUrl === "") return;
+    paginationVersionRef.current += 1;
     setExtraServices([]);
     setNextCursor(null);
     setLoadMoreError(null);
@@ -219,6 +221,7 @@ export default function ServicesPage() {
   }, [serviceList, extraServices]);
 
   const refreshServices = async () => {
+    paginationVersionRef.current += 1;
     setExtraServices([]);
     setNextCursor(null);
     setLoadMoreError(null);
@@ -227,6 +230,7 @@ export default function ServicesPage() {
 
   const loadMoreServices = async () => {
     if (nextCursor === null || isLoadingMore) return;
+    const startedVersion = paginationVersionRef.current;
     setIsLoadingMore(true);
     setLoadMoreError(null);
     try {
@@ -241,9 +245,11 @@ export default function ServicesPage() {
         }),
         serviceListSchema,
       );
+      if (paginationVersionRef.current !== startedVersion) return;
       setExtraServices((previous) => [...previous, ...data.items]);
       setNextCursor(data.nextCursor);
     } catch (error) {
+      if (paginationVersionRef.current !== startedVersion) return;
       setLoadMoreError(
         errorMessageFrom(error, "Failed to load more services."),
       );
