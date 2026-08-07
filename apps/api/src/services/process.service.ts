@@ -12,7 +12,7 @@ import {
   processData as processDataTable,
   processes as processesTable,
 } from "@/db/schema";
-import { logger } from "@/infra/logging/logger";
+import { logger } from "@/infra/logging";
 import { HttpError } from "@/models/error.model";
 import type {
   CreateProcessInput,

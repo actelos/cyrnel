@@ -5,7 +5,7 @@ import http from "node:http";
 import { z } from "zod";
 
 import { App } from "@/app";
-import { closeLogger, initLogger, logger } from "@/infra/logging/logger";
+import { closeLogger, initLogger, logger } from "@/infra/logging";
 
 const { PORT, SHUTDOWN_TIMEOUT_MS } = z
   .object({

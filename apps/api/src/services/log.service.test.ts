@@ -15,7 +15,7 @@ const mocks = vi.hoisted(() => ({
   getLogFileOptions: vi.fn(),
 }));
 
-vi.mock("@/infra/logging/logger", () => mocks);
+vi.mock("@/infra/logging", () => mocks);
 
 const getLogBufferMock = mocks.getLogBuffer;
 const getLogBusMock = mocks.getLogBus;

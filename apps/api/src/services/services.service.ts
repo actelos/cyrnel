@@ -17,7 +17,7 @@ import {
   services,
   tools,
 } from "@/db/schema";
-import { logger } from "@/infra/logging/logger";
+import { logger } from "@/infra/logging";
 import type { SearchIndex } from "@/infra/search/search-engine";
 import { HttpError } from "@/models/error.model";
 import type { GenerateDefinitionInput } from "@/models/modules.model";

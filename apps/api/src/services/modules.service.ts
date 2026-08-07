@@ -36,7 +36,7 @@ import {
   services as servicesTable,
   tools as toolsTable,
 } from "@/db/schema";
-import { logger } from "@/infra/logging/logger";
+import { logger } from "@/infra/logging";
 import { HttpError } from "@/models/error.model";
 import {
   type FilterModuleManifestInput,

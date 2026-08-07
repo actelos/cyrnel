@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
-import { logger } from "@/infra/logging/logger";
+import { logger } from "@/infra/logging";
 import { HttpError } from "@/models/error.model";
 
 export function errorMiddleware(

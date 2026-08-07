@@ -1,10 +1,6 @@
+import { getLogBuffer, getLogBus, getLogFileOptions } from "@/infra/logging";
 import { tailScanLogFiles } from "@/infra/logging/file-scan";
 import { type LogEntry, logEntryId } from "@/infra/logging/log-entry";
-import {
-  getLogBuffer,
-  getLogBus,
-  getLogFileOptions,
-} from "@/infra/logging/logger";
 import {
   type LogCursor,
   type LogQueryFilters,

@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
 import path from "node:path";
-import { logger } from "@/infra/logging/logger";
+import { logger } from "@/infra/logging";
 
 export const DEFAULT_EMBEDDING_MODEL = "Xenova/bge-small-en-v1.5";
 

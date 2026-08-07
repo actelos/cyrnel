@@ -1,7 +1,7 @@
 import type { Request, Response } from "express";
 import rateLimit from "express-rate-limit";
 
-import { logger } from "@/infra/logging/logger";
+import { logger } from "@/infra/logging";
 
 export function createRateLimiter(
   max: number,

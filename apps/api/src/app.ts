@@ -3,7 +3,7 @@ import cors from "cors";
 import express from "express";
 import pinoHttp from "pino-http";
 import { TransformersEmbedder } from "@/infra/embedding/embedder";
-import { logger } from "@/infra/logging/logger";
+import { logger } from "@/infra/logging";
 import { SearchEngine } from "@/infra/search/search-engine";
 import { apiKeyMiddleware } from "@/middleware/auth.middleware";
 import { errorMiddleware } from "@/middleware/error.middleware";
