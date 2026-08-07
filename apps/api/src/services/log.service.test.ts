@@ -80,7 +80,7 @@ describe("log.service listLogs", () => {
 
     const result = await listLogs({}, DESC, 100);
 
-    expect(result).toEqual({ entries: [], nextCursor: null });
+    expect(result).toEqual({ entries: [], nextCursor: null, hasMore: false });
   });
 
   it("filters by level, type and message query", async () => {

@@ -11,33 +11,38 @@ import {
 import type { ModuleType } from "@/models/modules.model";
 import type { EncryptedSecretsPayload } from "@/models/secrets.model";
 
-export const services = sqliteTable("services", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  summary: text("summary").notNull().default(""),
-  description: text("description").notNull().default(""),
-  hash: text("hash").notNull(),
-  version: text("version").notNull().default("0.0.0"),
-  source: text("source").notNull().default(""),
-  adapter: text("adapter")
-    .notNull()
-    .references(() => modules.id, { onDelete: "cascade" }),
-  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
-  configSchema: text("config_schema", { mode: "json" })
-    .$type<JSONSchema>()
-    .notNull(),
-  secretsSchema: text("secrets_schema", { mode: "json" })
-    .$type<JSONSchema>()
-    .notNull(),
-  adapterDomain: text("adapter_domain", { mode: "json" })
-    .$type<Record<string, unknown>>()
-    .notNull(),
-  definitionContent: text("definition_content").notNull().default(""),
-  stale: integer("stale", { mode: "boolean" }).notNull().default(false),
-  iconData: blob("icon_data", { mode: "buffer" }),
-  iconMime: text("icon_mime"),
-  iconHash: text("icon_hash"),
-});
+export const services = sqliteTable(
+  "services",
+  {
+    id: text("id").primaryKey(),
+    createdAt: text("created_at").notNull().default("1970-01-01T00:00:00.000Z"),
+    name: text("name").notNull(),
+    summary: text("summary").notNull().default(""),
+    description: text("description").notNull().default(""),
+    hash: text("hash").notNull(),
+    version: text("version").notNull().default("0.0.0"),
+    source: text("source").notNull().default(""),
+    adapter: text("adapter")
+      .notNull()
+      .references(() => modules.id, { onDelete: "cascade" }),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    configSchema: text("config_schema", { mode: "json" })
+      .$type<JSONSchema>()
+      .notNull(),
+    secretsSchema: text("secrets_schema", { mode: "json" })
+      .$type<JSONSchema>()
+      .notNull(),
+    adapterDomain: text("adapter_domain", { mode: "json" })
+      .$type<Record<string, unknown>>()
+      .notNull(),
+    definitionContent: text("definition_content").notNull().default(""),
+    stale: integer("stale", { mode: "boolean" }).notNull().default(false),
+    iconData: blob("icon_data", { mode: "buffer" }),
+    iconMime: text("icon_mime"),
+    iconHash: text("icon_hash"),
+  },
+  (table) => [index("services_created_at_idx").on(table.createdAt)],
+);
 
 export const serviceConfigurations = sqliteTable("service_configurations", {
   serviceId: text("service_id")
@@ -91,6 +96,7 @@ export const modules = sqliteTable(
   "modules",
   {
     id: text("id").primaryKey(),
+    createdAt: text("created_at").notNull().default("1970-01-01T00:00:00.000Z"),
     name: text("name").notNull(),
     type: text("type").$type<ModuleType>().notNull(),
     summary: text("summary").notNull().default(""),
@@ -104,7 +110,10 @@ export const modules = sqliteTable(
     iconMime: text("icon_mime"),
     iconHash: text("icon_hash"),
   },
-  (table) => [index("modules_type_idx").on(table.type)],
+  (table) => [
+    index("modules_type_idx").on(table.type),
+    index("modules_created_at_idx").on(table.createdAt),
+  ],
 );
 
 export const moduleConfigurations = sqliteTable("module_configurations", {

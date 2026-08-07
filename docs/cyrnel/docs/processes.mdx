@@ -165,7 +165,7 @@ unlimited when the variable is unset.
 
 | Method | Path | Returns |
 | --- | --- | --- |
-| `GET` | `/processes` | `{ processes: ProcessRecord[] }` (filterable) |
+| `GET` | `/processes` | `{ items, nextCursor, hasMore }` (filterable, paginated) |
 | `GET` | `/processes/:id` | the process record |
 | `GET` | `/processes/:id/code` | submitted source as `text/plain` |
 | `GET` | `/processes/:id/output` | structured output as JSON |
@@ -184,7 +184,17 @@ Query parameters:
 - `ref`: Exact match (trimmed, non-empty)
 
 Results include both active in-memory processes and historical processes
-from the database.
+from the database, ordered newest-first by creation time.
+
+### Pagination
+
+All list endpoints return the paginated envelope
+`{ items, nextCursor, hasMore }`. Pass the previous response's `nextCursor`
+back as the `cursor` query parameter to fetch the next page; `nextCursor` is
+`null` when there are no more items. `limit` is 1–100 (default 20, values
+above 100 are clamped). A malformed or expired cursor returns `400` with a
+stable error code (`invalid_cursor` or `cursor_expired`). Cursors encode
+position only — always restart from the first page when the filters change.
 
 ## Delete a Process
 

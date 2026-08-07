@@ -301,7 +301,7 @@ describe("ServicesService", () => {
       await seedService("beta");
       const svc = new ServicesService(makeController());
 
-      const rows = await svc.listServices();
+      const rows = (await svc.listServices()).items;
       expect(rows.map((r) => r.id).sort()).toEqual(["alpha", "beta"]);
     });
 
@@ -311,10 +311,10 @@ describe("ServicesService", () => {
       const svc = new ServicesService(makeController());
 
       expect(
-        (await svc.listServices({ enabled: true })).map((r) => r.id),
+        (await svc.listServices({ enabled: true })).items.map((r) => r.id),
       ).toEqual(["on"]);
       expect(
-        (await svc.listServices({ enabled: false })).map((r) => r.id),
+        (await svc.listServices({ enabled: false })).items.map((r) => r.id),
       ).toEqual(["off"]);
     });
 
@@ -324,13 +324,13 @@ describe("ServicesService", () => {
       const svc = new ServicesService(makeController());
 
       expect(
-        (await svc.listServices({ query: "alpha" })).map((r) => r.id),
+        (await svc.listServices({ query: "alpha" })).items.map((r) => r.id),
       ).toEqual(["alpha"]);
       expect(
-        (await svc.listServices({ query: "demo" })).map((r) => r.id),
+        (await svc.listServices({ query: "demo" })).items.map((r) => r.id),
       ).toEqual(["alpha"]);
       expect(
-        (await svc.listServices({ query: "weather" })).map((r) => r.id),
+        (await svc.listServices({ query: "weather" })).items.map((r) => r.id),
       ).toEqual(["beta"]);
     });
 
@@ -343,10 +343,10 @@ describe("ServicesService", () => {
       const svc = new ServicesService(makeController());
 
       expect(
-        (await svc.listServices({ query: "creates" })).map((r) => r.id),
+        (await svc.listServices({ query: "creates" })).items.map((r) => r.id),
       ).toEqual(["alpha"]);
       expect(
-        (await svc.listServices({ query: "weather" })).map((r) => r.id),
+        (await svc.listServices({ query: "weather" })).items.map((r) => r.id),
       ).toEqual(["beta"]);
     });
 
@@ -355,10 +355,10 @@ describe("ServicesService", () => {
       const svc = new ServicesService(makeController());
 
       expect(
-        (await svc.listServices({ query: "DEMO" })).map((r) => r.id),
+        (await svc.listServices({ query: "DEMO" })).items.map((r) => r.id),
       ).toEqual(["alpha"]);
       expect(
-        (await svc.listServices({ query: "first" })).map((r) => r.id),
+        (await svc.listServices({ query: "first" })).items.map((r) => r.id),
       ).toEqual(["alpha"]);
     });
 
@@ -366,7 +366,7 @@ describe("ServicesService", () => {
       for (const id of ["a", "b", "c", "d"]) await seedService(id);
       const svc = new ServicesService(makeController());
 
-      const rows = await svc.listServices({ limit: 2 });
+      const rows = (await svc.listServices({ limit: 2 })).items;
       expect(rows).toHaveLength(2);
     });
 
@@ -374,7 +374,7 @@ describe("ServicesService", () => {
       await seedService("alpha");
       const svc = new ServicesService(makeController());
 
-      const [row] = await svc.listServices();
+      const [row] = (await svc.listServices()).items;
       expect(row).toBeDefined();
       expect("configSchema" in (row as object)).toBe(false);
       expect("secretsSchema" in (row as object)).toBe(false);
@@ -416,7 +416,7 @@ describe("ServicesService", () => {
       await seedService("beta", { tools: [{ id: "y", name: "y" }] });
       const svc = new ServicesService(makeController());
 
-      const rows = await svc.listTools({});
+      const rows = (await svc.listTools({})).items;
       expect(rows.map((r) => r.name).sort()).toEqual(["x", "y"]);
       for (const r of rows) {
         expect("inputSchema" in r).toBe(false);
@@ -439,12 +439,12 @@ describe("ServicesService", () => {
       });
       const svc = new ServicesService(makeController());
 
-      const alphaRows = await svc.listTools({ serviceId: "alpha" });
+      const alphaRows = (await svc.listTools({ serviceId: "alpha" })).items;
       const map = new Map(alphaRows.map((r) => [r.name, r.effectivelyEnabled]));
       expect(map.get("on")).toBe(true);
       expect(map.get("off")).toBe(false);
 
-      const betaRows = await svc.listTools({ serviceId: "beta" });
+      const betaRows = (await svc.listTools({ serviceId: "beta" })).items;
       expect(betaRows[0]?.effectivelyEnabled).toBe(false);
     });
 
@@ -459,9 +459,9 @@ describe("ServicesService", () => {
       const svc = new ServicesService(makeController());
 
       expect(
-        (await svc.listTools({ enabled: false })).map((r) => r.name),
+        (await svc.listTools({ enabled: false })).items.map((r) => r.name),
       ).toEqual(["two"]);
-      expect(await svc.listTools({ limit: 1 })).toHaveLength(1);
+      expect((await svc.listTools({ limit: 1 })).items).toHaveLength(1);
     });
 
     it("query filter for tools (fails on libsql because drizzle `ilike` emits unsupported SQL)", async () => {
@@ -474,8 +474,186 @@ describe("ServicesService", () => {
       const svc = new ServicesService(makeController());
 
       expect(
-        (await svc.listTools({ query: "thr" })).map((r) => r.name),
+        (await svc.listTools({ query: "thr" })).items.map((r) => r.name),
       ).toEqual(["three"]);
+    });
+
+    it("pages past the 100-item limit with keyset cursors", {
+      timeout: 15000,
+    }, async () => {
+      await seedService("alpha", {
+        tools: Array.from({ length: 150 }, (_, i) => ({
+          id: `tool-${String(i).padStart(3, "0")}`,
+          name: `tool-${String(i).padStart(3, "0")}`,
+        })),
+      });
+      const svc = new ServicesService(makeController());
+
+      const first = await svc.listTools({ serviceId: "alpha", limit: 100 });
+      expect(first.items).toHaveLength(100);
+      expect(first.hasMore).toBe(true);
+      expect(first.nextCursor).not.toBeNull();
+
+      const second = await svc.listTools({
+        serviceId: "alpha",
+        limit: 100,
+        cursor: first.nextCursor ?? undefined,
+      });
+      expect(second.items).toHaveLength(50);
+      expect(second.hasMore).toBe(false);
+      expect(second.nextCursor).toBeNull();
+
+      const seen = new Set([
+        ...first.items.map((r) => r.id),
+        ...second.items.map((r) => r.id),
+      ]);
+      expect(seen.size).toBe(150);
+      const allIds = [...first.items, ...second.items].map((r) => r.id);
+      expect([...allIds].sort()).toEqual(allIds);
+    });
+
+    it("resumes across services without a serviceId filter", async () => {
+      await seedService("alpha", {
+        tools: Array.from({ length: 5 }, (_, i) => ({
+          id: `a-${i}`,
+          name: `a-${i}`,
+        })),
+      });
+      await seedService("beta", {
+        tools: Array.from({ length: 5 }, (_, i) => ({
+          id: `b-${i}`,
+          name: `b-${i}`,
+        })),
+      });
+      const svc = new ServicesService(makeController());
+
+      const first = await svc.listTools({ limit: 3 });
+      expect(first.items.map((r) => r.id)).toEqual(["a-0", "a-1", "a-2"]);
+      expect(first.hasMore).toBe(true);
+
+      const second = await svc.listTools({
+        limit: 3,
+        cursor: first.nextCursor ?? undefined,
+      });
+      expect(second.items.map((r) => r.id)).toEqual(["a-3", "a-4", "b-0"]);
+      expect(second.hasMore).toBe(true);
+
+      const third = await svc.listTools({
+        limit: 3,
+        cursor: second.nextCursor ?? undefined,
+      });
+      expect(third.items.map((r) => r.id)).toEqual(["b-1", "b-2", "b-3"]);
+      expect(third.hasMore).toBe(true);
+
+      const fourth = await svc.listTools({
+        limit: 3,
+        cursor: third.nextCursor ?? undefined,
+      });
+      expect(fourth.items.map((r) => r.id)).toEqual(["b-4"]);
+      expect(fourth.hasMore).toBe(false);
+      expect(fourth.nextCursor).toBeNull();
+    });
+
+    it("forwards a score-keyed cursor to the search index and returns score-bound cursors", async () => {
+      await seedService("alpha", { tools: [] });
+      const allHits = [
+        {
+          serviceId: "alpha",
+          toolId: "one",
+          name: "one",
+          summary: "",
+          description: "",
+          enabled: true,
+          score: 0.02,
+          matchType: "both" as const,
+          ftsRank: 1,
+          vectorRank: 1,
+        },
+        {
+          serviceId: "alpha",
+          toolId: "two",
+          name: "two",
+          summary: "",
+          description: "",
+          enabled: true,
+          score: 0.019,
+          matchType: "fts" as const,
+          ftsRank: 2,
+        },
+        {
+          serviceId: "alpha",
+          toolId: "three",
+          name: "three",
+          summary: "",
+          description: "",
+          enabled: true,
+          score: 0.018,
+          matchType: "vector" as const,
+          vectorRank: 2,
+        },
+      ];
+      const searchTools = vi
+        .fn()
+        .mockImplementation(
+          (
+            _query: string,
+            options: { limit: number; afterKey?: [number, string, string] },
+          ) => {
+            let hits = allHits;
+            if (options.afterKey !== undefined) {
+              const [afterScore, afterServiceId, afterToolId] =
+                options.afterKey;
+              hits = hits.filter(
+                (hit) =>
+                  hit.score < afterScore ||
+                  (hit.score === afterScore &&
+                    (hit.serviceId > afterServiceId ||
+                      (hit.serviceId === afterServiceId &&
+                        hit.toolId > afterToolId))),
+              );
+            }
+            return hits.slice(0, options.limit);
+          },
+        );
+      const svc = new ServicesService(makeController(), {
+        vectorAvailable: true,
+        searchTools,
+      } as never);
+
+      const first = await svc.listTools({ query: "mail", limit: 1 });
+      expect(first.items.map((r) => r.id)).toEqual(["one"]);
+      expect(first.hasMore).toBe(true);
+      expect(searchTools).toHaveBeenCalledWith(
+        "mail",
+        expect.objectContaining({ limit: 2, afterKey: undefined }),
+      );
+
+      const second = await svc.listTools({
+        query: "mail",
+        limit: 1,
+        cursor: first.nextCursor ?? undefined,
+      });
+      expect(second.items.map((r) => r.id)).toEqual(["two"]);
+      expect(second.hasMore).toBe(true);
+      const [, secondOptions] = searchTools.mock.calls[1] as [
+        string,
+        { afterKey: [number, string, string] | undefined },
+      ];
+      expect(secondOptions.afterKey).toEqual([0.02, "alpha", "one"]);
+
+      const third = await svc.listTools({
+        query: "mail",
+        limit: 1,
+        cursor: second.nextCursor ?? undefined,
+      });
+      expect(third.items.map((r) => r.id)).toEqual(["three"]);
+      expect(third.hasMore).toBe(false);
+      expect(third.nextCursor).toBeNull();
+      const [, thirdOptions] = searchTools.mock.calls[2] as [
+        string,
+        { afterKey: [number, string, string] | undefined },
+      ];
+      expect(thirdOptions.afterKey).toEqual([0.019, "alpha", "two"]);
     });
   });
 
@@ -612,7 +790,7 @@ describe("ServicesService", () => {
         adapter: "test-adapter",
       });
 
-      const tools = await svc.listTools({ serviceId: "alpha" });
+      const tools = (await svc.listTools({ serviceId: "alpha" })).items;
       expect(tools.map((t) => t.name)).toEqual(["doStuff"]);
       expect(tools[0]?.enabled).toBe(true);
     });
@@ -648,7 +826,7 @@ describe("ServicesService", () => {
       const row = await svc.getService("alpha");
       expect(row.summary).toBe("Pet store API");
 
-      const tools = await svc.listTools({ serviceId: "alpha" });
+      const tools = (await svc.listTools({ serviceId: "alpha" })).items;
       expect(tools[0]?.summary).toBe("Does the stuff");
     });
 
@@ -665,7 +843,7 @@ describe("ServicesService", () => {
       const row = await svc.getService("alpha");
       expect(row.summary).toBe("");
 
-      const tools = await svc.listTools({ serviceId: "alpha" });
+      const tools = (await svc.listTools({ serviceId: "alpha" })).items;
       expect(tools[0]?.summary).toBe("");
     });
 
@@ -892,7 +1070,7 @@ describe("ServicesService", () => {
       const svc = new ServicesService(controller);
       await svc.updateService("alpha");
 
-      const tools = await svc.listTools({ serviceId: "alpha" });
+      const tools = (await svc.listTools({ serviceId: "alpha" })).items;
       const map = new Map(tools.map((t) => [t.name, t.enabled]));
       expect(map.get("keep")).toBe(true);
       expect(map.get("fresh")).toBe(false);
@@ -1237,7 +1415,7 @@ describe("ServicesService", () => {
         enabled: false,
       });
 
-      const tools = await svc.listTools({ serviceId: "alpha" });
+      const tools = (await svc.listTools({ serviceId: "alpha" })).items;
       expect(tools[0]?.enabled).toBe(false);
     });
 
@@ -1256,7 +1434,7 @@ describe("ServicesService", () => {
         enabled: false,
       });
 
-      const rows = await svc.listTools({ serviceId: "alpha" });
+      const rows = (await svc.listTools({ serviceId: "alpha" })).items;
       const byId = Object.fromEntries(rows.map((r) => [r.id, r.enabled]));
       expect(byId).toEqual({ do_stuff: false, other: true });
 

@@ -5,7 +5,7 @@ import type {
   ExecutionInput,
   ExecutionState,
 } from "@cyrnel/sdk";
-import { and, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, isNotNull, isNull, type SQL, sql } from "drizzle-orm";
 
 import { db } from "@/db/client";
 import {
@@ -21,6 +21,12 @@ import type {
   ProcessRecord,
   ProcessState,
 } from "@/models/process.model";
+import {
+  decodeCursor,
+  PAGINATION_DEFAULT_LIMIT,
+  type PaginatedResult,
+  paginatePage,
+} from "@/utils/pagination.util";
 
 const DEFAULT_EXECUTION_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_ACTIVE_PROCESSES = 1_000;
@@ -92,18 +98,14 @@ export class ProcessService {
 
   constructor(private readonly controller: EnvironmentController) {}
 
-  async list(filters: FilterProcessInput): Promise<GetProcessResult[]> {
-    const inMemory = Array.from(this.processes.values())
-      .filter(
-        (process) =>
-          (!filters.state || process.state === filters.state) &&
-          (filters.exitState === undefined ||
-            process.exitState === filters.exitState) &&
-          (filters.ref === undefined || process.ref === filters.ref),
-      )
-      .map((p) => this.project(p));
+  async list(
+    filters: FilterProcessInput,
+  ): Promise<PaginatedResult<GetProcessResult>> {
+    const limit = filters.limit ?? PAGINATION_DEFAULT_LIMIT;
+    const cursor =
+      filters.cursor !== undefined ? decodeCursor(filters.cursor) : undefined;
 
-    const conditions = [];
+    const conditions: SQL[] = [];
     if (filters.ref !== undefined) {
       conditions.push(eq(processesTable.ref, filters.ref));
     }
@@ -139,14 +141,24 @@ export class ProcessService {
         eq(processDataTable.processId, processesTable.id),
       )
       .where(conditions.length > 0 ? and(...conditions) : undefined)
-      .orderBy(desc(processesTable.id))
+      .orderBy(desc(processesTable.createdAt), desc(processesTable.id))
       .all();
 
+    const inMemory = Array.from(this.processes.values())
+      .filter(
+        (process) =>
+          (!filters.state || process.state === filters.state) &&
+          (filters.exitState === undefined ||
+            process.exitState === filters.exitState) &&
+          (filters.ref === undefined || process.ref === filters.ref),
+      )
+      .map((p) => this.project(p));
+
     const inMemoryIds = new Set(this.pidIndex.keys());
-    const dbOnly: GetProcessResult[] = [];
+    const merged: GetProcessResult[] = [...inMemory];
     for (const row of dbRows) {
       if (inMemoryIds.has(row.id)) continue;
-      dbOnly.push({
+      merged.push({
         id: row.id,
         pid: null,
         ref: row.ref ?? undefined,
@@ -158,7 +170,28 @@ export class ProcessService {
       });
     }
 
-    return [...inMemory, ...dbOnly];
+    merged.sort((a, b) =>
+      a.createdAt === b.createdAt
+        ? b.id - a.id
+        : a.createdAt < b.createdAt
+          ? 1
+          : -1,
+    );
+
+    const filtered =
+      cursor === undefined
+        ? merged
+        : merged.filter(
+            (row) =>
+              row.createdAt < cursor.sortKey[0] ||
+              (row.createdAt === cursor.sortKey[0] &&
+                row.id < (cursor.sortKey[1] as number)),
+          );
+
+    return paginatePage(filtered.slice(0, limit + 1), limit, (row) => [
+      row.createdAt,
+      row.id,
+    ]);
   }
 
   async create(input: CreateProcessInput): Promise<{ id: number }> {
@@ -211,6 +244,7 @@ export class ProcessService {
       stdout: Buffer.alloc(0),
       stderr: Buffer.alloc(0),
       lastExecutedAt: Date.now(),
+      createdAt,
     });
 
     if (autorun) {
@@ -682,6 +716,7 @@ export class ProcessService {
       stdout: Buffer.alloc(0),
       stderr: Buffer.alloc(0),
       lastExecutedAt: Date.now(),
+      createdAt: row.createdAt,
     });
 
     this.startExecution(id);
@@ -788,7 +823,7 @@ export class ProcessService {
       state: record.state,
       exitState: record.exitState,
       error: record.error,
-      createdAt: "",
+      createdAt: record.createdAt,
       completedAt: null,
     };
   }

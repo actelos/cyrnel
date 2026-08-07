@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { sendIconResponse } from "@/controllers/icon-response.util";
 import type { ServicesService } from "@/services/services.service";
+import { paginationQuerySchema } from "@/utils/pagination.util";
 import { parseOrHttpError } from "@/utils/validation.util";
 
 const nonEmptyTrimmedString = (fieldName: string) =>
@@ -116,14 +117,21 @@ export async function listServices(req: Request, res: Response): Promise<void> {
   const enabled = parseEnabledQueryParam(req.query?.enabled);
   const adapter = parseAdapterQueryParam(req.query?.adapter);
   const stale = parseStaleQueryParam(req.query?.stale);
-  const services = await servicesService.listServices({
+  const pagination = parseOrHttpError(
+    paginationQuerySchema,
+    req.query,
+    "Invalid query parameters.",
+  );
+  const result = await servicesService.listServices({
     query,
     enabled,
     adapter,
     stale,
+    limit: pagination.limit,
+    cursor: pagination.cursor,
   });
 
-  res.status(200).json({ services });
+  res.status(200).json(result);
 }
 
 export async function getService(req: Request, res: Response): Promise<void> {

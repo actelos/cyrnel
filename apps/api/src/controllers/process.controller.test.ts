@@ -90,9 +90,10 @@ describe("process.controller", () => {
         ref: undefined,
         state: undefined,
         exitState: undefined,
+        limit: 20,
       });
       expect(res.status).toHaveBeenCalledWith(200);
-      expect(res.json).toHaveBeenCalledWith({ processes: [] });
+      expect(res.json).toHaveBeenCalledWith([]);
     });
 
     it("parses state, status, and ref query params", async () => {
@@ -110,8 +111,9 @@ describe("process.controller", () => {
         ref: "hello",
         state: "queued",
         exitState: "success",
+        limit: 20,
       });
-      expect(res.json).toHaveBeenCalledWith({ processes: [{ id: 1 }] });
+      expect(res.json).toHaveBeenCalledWith([{ id: 1 }]);
     });
 
     it("maps status='null' to exitState=null", async () => {
@@ -124,6 +126,7 @@ describe("process.controller", () => {
         ref: undefined,
         state: undefined,
         exitState: null,
+        limit: 20,
       });
     });
 

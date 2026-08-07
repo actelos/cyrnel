@@ -11,9 +11,9 @@ export function errorMiddleware(
   (req as Request & { err?: unknown }).err = error;
 
   const isHttpError = error instanceof HttpError;
-  const { statusCode, message } = isHttpError
+  const { statusCode, message, code } = isHttpError
     ? error
-    : { statusCode: 500, message: "Internal server error." };
+    : { statusCode: 500, message: "Internal server error.", code: undefined };
 
   if (isHttpError) {
     logger.debug(
@@ -38,5 +38,7 @@ export function errorMiddleware(
     );
   }
 
-  res.status(statusCode).json({ error: message });
+  res
+    .status(statusCode)
+    .json(code !== undefined ? { error: message, code } : { error: message });
 }

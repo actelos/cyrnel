@@ -1,5 +1,5 @@
-import { Plus, RefreshCw, RotateCcw } from "lucide-react";
-import { useMemo, useState } from "react";
+import { ChevronDown, Plus, RefreshCw, RotateCcw } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import Markdown from "react-markdown";
 import { Link } from "react-router";
 import remarkGfm from "remark-gfm";
@@ -45,10 +45,13 @@ const moduleSchema = z.object({
 });
 
 const moduleListSchema = z.object({
-  modules: z.array(moduleSchema),
+  items: z.array(moduleSchema),
+  nextCursor: z.string().nullable(),
+  hasMore: z.boolean(),
 });
 
 type ModuleType = z.infer<typeof moduleTypeSchema>;
+type Module = z.infer<typeof moduleSchema>;
 
 export default function ModulesPage() {
   const { mutate } = useSWRConfig();
@@ -89,6 +92,7 @@ export default function ModulesPage() {
           : builtinFilter === "builtin"
             ? "true"
             : "false",
+      limit: "100",
     });
   }, [normalizedQuery, typeFilter, enabledFilter, builtinFilter]);
 
@@ -100,7 +104,70 @@ export default function ModulesPage() {
     refreshInterval: 8000,
   });
 
-  const modules = moduleList?.modules ?? [];
+  const [extraModules, setExtraModules] = useState<Module[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (modulesUrl === "") return;
+    setExtraModules([]);
+    setNextCursor(null);
+    setLoadMoreError(null);
+  }, [modulesUrl]);
+
+  const modules = useMemo(() => {
+    const seen = new Set<string>();
+    const merged: Module[] = [];
+    for (const module of [...(moduleList?.items ?? []), ...extraModules]) {
+      if (seen.has(module.id)) continue;
+      seen.add(module.id);
+      merged.push(module);
+    }
+    return merged;
+  }, [moduleList, extraModules]);
+
+  const refreshModules = async () => {
+    setExtraModules([]);
+    setNextCursor(null);
+    setLoadMoreError(null);
+    await mutate(modulesUrl);
+  };
+
+  const loadMoreModules = async () => {
+    if (nextCursor === null || isLoadingMore) return;
+    setIsLoadingMore(true);
+    setLoadMoreError(null);
+    try {
+      const data = await apiFetchJson(
+        buildUrl("/modules", {
+          query: normalizedQuery.length > 0 ? normalizedQuery : undefined,
+          type: typeFilter === "all" ? undefined : typeFilter,
+          enabled:
+            enabledFilter === "all"
+              ? undefined
+              : enabledFilter === "enabled"
+                ? "true"
+                : "false",
+          isBuiltin:
+            builtinFilter === "all"
+              ? undefined
+              : builtinFilter === "builtin"
+                ? "true"
+                : "false",
+          limit: "100",
+          cursor: nextCursor,
+        }),
+        moduleListSchema,
+      );
+      setExtraModules((previous) => [...previous, ...data.items]);
+      setNextCursor(data.nextCursor);
+    } catch (error) {
+      setLoadMoreError(errorMessageFrom(error, "Failed to load more modules."));
+    } finally {
+      setIsLoadingMore(false);
+    }
+  };
 
   const handleReloadModules = async () => {
     setIsReloading(true);
@@ -110,7 +177,7 @@ export default function ModulesPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
       });
-      await mutate(modulesUrl);
+      await refreshModules();
       addNotification({
         type: "success",
         title: "Success",
@@ -146,7 +213,7 @@ export default function ModulesPage() {
       });
       setManualUrl("");
       setIsInstallOpen(false);
-      await mutate(modulesUrl);
+      await refreshModules();
       addNotification({
         type: "success",
         title: "Success",
@@ -186,7 +253,7 @@ export default function ModulesPage() {
       });
       setRegistrySource("");
       setIsInstallOpen(false);
-      await mutate(modulesUrl);
+      await refreshModules();
       addNotification({
         type: "success",
         title: "Success",
@@ -210,7 +277,7 @@ export default function ModulesPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ enabled: !enabled }),
       });
-      await mutate(modulesUrl);
+      await refreshModules();
       addNotification({
         type: "success",
         title: "Success",
@@ -420,7 +487,7 @@ export default function ModulesPage() {
               variant="outline"
               className="gap-2"
               onClick={() => {
-                mutate(modulesUrl)
+                refreshModules()
                   .then(() => {
                     addNotification({
                       type: "success",
@@ -556,6 +623,23 @@ export default function ModulesPage() {
                 <p className="p-4 text-sm text-muted-foreground">
                   No modules match the current filters.
                 </p>
+              ) : null}
+              {nextCursor !== null ? (
+                <div className="flex justify-center p-4">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="gap-2"
+                    disabled={isLoadingMore}
+                    onClick={() => void loadMoreModules()}
+                  >
+                    <ChevronDown />
+                    {isLoadingMore ? "Loading more…" : "Load more"}
+                  </Button>
+                </div>
+              ) : null}
+              {loadMoreError !== null ? (
+                <p className="p-4 text-sm text-destructive">{loadMoreError}</p>
               ) : null}
             </ScrollArea>
           </CardContent>

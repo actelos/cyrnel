@@ -209,13 +209,20 @@ export default function ModuleDetailPage() {
     [moduleSecretsSchemaPayload, presentSet],
   );
 
+  const refreshModuleLists = async () => {
+    await mutate(
+      (key) =>
+        typeof key === "string" && key.startsWith(`${buildUrl("/modules")}?`),
+    );
+  };
+
   const handleRefetchAll = async () => {
     if (configUrl) await mutate(configUrl);
     if (secretsUrl) await mutate(secretsUrl);
     if (secretsSchemaUrl) await mutate(secretsSchemaUrl);
     if (configSchemaUrl) await mutate(configSchemaUrl);
     if (moduleDetailUrl) await mutate(moduleDetailUrl);
-    await mutate(buildUrl("/modules"));
+    await refreshModuleLists();
   };
 
   const handleSetEnabled = async (id: string, enabled: boolean) => {
@@ -227,7 +234,7 @@ export default function ModuleDetailPage() {
         body: JSON.stringify({ enabled }),
       });
 
-      await mutate(buildUrl("/modules"));
+      await refreshModuleLists();
       if (moduleDetailUrl) {
         await mutate(moduleDetailUrl);
       }
@@ -296,7 +303,7 @@ export default function ModuleDetailPage() {
       if (moduleDetailUrl) {
         await mutate(moduleDetailUrl);
       }
-      await mutate(buildUrl("/modules"));
+      await refreshModuleLists();
       addNotification({
         type: "success",
         title: "Success",
@@ -335,7 +342,7 @@ export default function ModuleDetailPage() {
       if (moduleDetailUrl) {
         await mutate(moduleDetailUrl);
       }
-      await mutate(buildUrl("/modules"));
+      await refreshModuleLists();
       addNotification({
         type: "success",
         title: "Success",
@@ -358,7 +365,7 @@ export default function ModuleDetailPage() {
       await apiFetch(buildUrl(`/modules/${id}`), {
         method: "DELETE",
       });
-      await mutate(buildUrl("/modules"));
+      await refreshModuleLists();
       addNotification({
         type: "success",
         title: "Success",

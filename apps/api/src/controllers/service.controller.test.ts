@@ -92,7 +92,8 @@ describe("service.controller", () => {
   describe("listServices", () => {
     it("calls listServices with undefined filters by default", async () => {
       const res = makeRes();
-      servicesService.listServices.mockResolvedValue([]);
+      const envelope = { items: [], nextCursor: null, hasMore: false };
+      servicesService.listServices.mockResolvedValue(envelope);
 
       await listServices(makeReq(), cast(res));
 
@@ -100,9 +101,10 @@ describe("service.controller", () => {
         query: undefined,
         enabled: undefined,
         stale: undefined,
+        limit: 20,
       });
       expect(res.status).toHaveBeenCalledWith(200);
-      expect(res.json).toHaveBeenCalledWith({ services: [] });
+      expect(res.json).toHaveBeenCalledWith(envelope);
     });
 
     it("trims the query param", async () => {
@@ -115,6 +117,7 @@ describe("service.controller", () => {
         query: "svc",
         enabled: undefined,
         stale: undefined,
+        limit: 20,
       });
     });
 
@@ -128,6 +131,7 @@ describe("service.controller", () => {
         query: undefined,
         enabled: undefined,
         stale: undefined,
+        limit: 20,
       });
     });
 
@@ -146,6 +150,7 @@ describe("service.controller", () => {
         query: undefined,
         enabled: expected,
         stale: undefined,
+        limit: 20,
       });
     });
 

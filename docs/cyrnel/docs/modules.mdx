@@ -230,7 +230,7 @@ for non-sensitive values only; put credentials and tokens in secrets.
 
 | Method | Path | Mode | Notes |
 | --- | --- | --- | --- |
-| `GET` | `/modules` | -- | Filterable by `query`, `type`, `isBuiltin`, `enabled` |
+| `GET` | `/modules` | -- | Filterable by `query`, `type`, `isBuiltin`, `enabled` (paginated) |
 | `GET` | `/modules/:moduleId` | -- | Single module |
 | `POST` | `/modules` | Direct | Install from a `.tar.zst` URL, stores `source = ""` |
 | `POST` | `/modules/install` | Registry | Resolve registry metadata URL, stores `source` |

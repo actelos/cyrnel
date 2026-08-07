@@ -36,6 +36,13 @@
       "when": 1785812805888,
       "tag": "0004_perpetual_shadowcat",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1786117050459,
+      "tag": "0005_modern_jetstream",
+      "breakpoints": true
     }
   ]
 }

@@ -36,8 +36,9 @@ import { apiFetchJson, buildUrl, errorMessageFrom } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 const logPageSchema = z.object({
-  entries: z.array(logEntrySchema),
+  items: z.array(logEntrySchema),
   nextCursor: z.string().nullable(),
+  hasMore: z.boolean(),
 });
 
 interface LogFilters {
@@ -126,7 +127,7 @@ export default function LogsPage() {
         logPageSchema,
         { signal: controller.signal },
       );
-      setHistory(data.entries);
+      setHistory(data.items);
       setNextCursor(data.nextCursor);
       setLoadError(null);
     } catch (error) {
@@ -190,19 +191,18 @@ export default function LogsPage() {
   }, [live, follow]);
 
   const loadOlder = async () => {
-    const oldest = entries[entries.length - 1];
-    if (oldest === undefined || isLoadingMore) return;
+    if (nextCursor === null || isLoadingMore) return;
     setIsLoadingMore(true);
     try {
       const data = await apiFetchJson(
         buildUrl("/logs", {
           ...filterParams(filters),
-          before: entryId(oldest),
+          cursor: nextCursor,
           limit: String(PAGE_LIMIT),
         }),
         logPageSchema,
       );
-      setHistory((previous) => [...previous, ...data.entries]);
+      setHistory((previous) => [...previous, ...data.items]);
       setNextCursor(data.nextCursor);
       setLoadError(null);
     } catch (error) {

@@ -18,6 +18,10 @@
           "error": {
             "type": "string",
             "description": "Human-readable error message returned by the API."
+          },
+          "code": {
+            "type": "string",
+            "description": "Stable machine-readable error code (e.g. invalid_cursor, cursor_expired)."
           }
         },
         "required": [
@@ -97,18 +101,29 @@
       "ProcessListResponse": {
         "type": "object",
         "properties": {
-          "processes": {
+          "items": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/Process"
             },
             "description": "Processes that match the provided query filters."
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true,
+            "description": "Opaque cursor for the next page; null when there are no more items. Echo it back as the cursor query parameter to continue paginating."
+          },
+          "hasMore": {
+            "type": "boolean",
+            "description": "Whether additional pages exist. When true, nextCursor is a valid cursor; when false, pagination has reached the end."
           }
         },
         "required": [
-          "processes"
+          "items",
+          "nextCursor",
+          "hasMore"
         ],
-        "description": "Collection wrapper for process listings."
+        "description": "Paginated collection envelope."
       },
       "ProcessCreateRequest": {
         "type": "object",
@@ -286,18 +301,29 @@
       "ServiceListResponse": {
         "type": "object",
         "properties": {
-          "services": {
+          "items": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ServiceListItem"
             },
-            "description": "Services that match the current query filters."
+            "description": "Services that match the supplied filters."
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true,
+            "description": "Opaque cursor for the next page; null when there are no more items. Echo it back as the cursor query parameter to continue paginating."
+          },
+          "hasMore": {
+            "type": "boolean",
+            "description": "Whether additional pages exist. When true, nextCursor is a valid cursor; when false, pagination has reached the end."
           }
         },
         "required": [
-          "services"
+          "items",
+          "nextCursor",
+          "hasMore"
         ],
-        "description": "Collection wrapper for service listings."
+        "description": "Paginated collection envelope."
       },
       "ServiceInstallRequest": {
         "type": "object",
@@ -680,18 +706,29 @@
       "ToolListResponse": {
         "type": "object",
         "properties": {
-          "tools": {
+          "items": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ToolListItem"
             },
             "description": "Tools that match the supplied filters."
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true,
+            "description": "Opaque cursor for the next page; null when there are no more items. Echo it back as the cursor query parameter to continue paginating."
+          },
+          "hasMore": {
+            "type": "boolean",
+            "description": "Whether additional pages exist. When true, nextCursor is a valid cursor; when false, pagination has reached the end."
           }
         },
         "required": [
-          "tools"
+          "items",
+          "nextCursor",
+          "hasMore"
         ],
-        "description": "Collection wrapper for tool listings."
+        "description": "Paginated collection envelope."
       },
       "ToolEnabledRequest": {
         "type": "object",
@@ -790,18 +827,29 @@
       "ModuleListResponse": {
         "type": "object",
         "properties": {
-          "modules": {
+          "items": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/Module"
             },
             "description": "Modules that match the supplied query filters."
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true,
+            "description": "Opaque cursor for the next page; null when there are no more items. Echo it back as the cursor query parameter to continue paginating."
+          },
+          "hasMore": {
+            "type": "boolean",
+            "description": "Whether additional pages exist. When true, nextCursor is a valid cursor; when false, pagination has reached the end."
           }
         },
         "required": [
-          "modules"
+          "items",
+          "nextCursor",
+          "hasMore"
         ],
-        "description": "Collection wrapper for module listings."
+        "description": "Paginated collection envelope."
       },
       "ModuleDetails": {
         "allOf": [
@@ -1068,23 +1116,29 @@
       "LogListResponse": {
         "type": "object",
         "properties": {
-          "entries": {
+          "items": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/LogEntry"
-            }
+            },
+            "description": "Log entries that match the supplied filters, ordered by the requested sort."
           },
           "nextCursor": {
             "type": "string",
             "nullable": true,
-            "description": "Opaque cursor for the next page, null when the end is reached."
+            "description": "Opaque cursor for the next page; null when there are no more items. Echo it back as the cursor query parameter to continue paginating."
+          },
+          "hasMore": {
+            "type": "boolean",
+            "description": "Whether additional pages exist. When true, nextCursor is a valid cursor; when false, pagination has reached the end."
           }
         },
         "required": [
-          "entries",
-          "nextCursor"
+          "items",
+          "nextCursor",
+          "hasMore"
         ],
-        "description": "A page of log entries."
+        "description": "Paginated collection envelope."
       }
     },
     "parameters": {}
@@ -1139,6 +1193,29 @@
             "required": false,
             "description": "Filter processes by terminal exit state. Use 'null' to match processes that have not finished.",
             "name": "status",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Opaque pagination token returned as nextCursor by the previous response. Pass it back unchanged to fetch the next page; null/omitted fetches the first page. Cursors encode position, not filters, so change filters only between pages when starting over."
+            },
+            "required": false,
+            "description": "Opaque pagination token returned as nextCursor by the previous response. Pass it back unchanged to fetch the next page; null/omitted fetches the first page. Cursors encode position, not filters, so change filters only between pages when starting over.",
+            "name": "cursor",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "description": "Maximum number of items per page. Clamped to a maximum of 100; defaults to 20."
+            },
+            "required": false,
+            "description": "Maximum number of items per page. Clamped to a maximum of 100; defaults to 20.",
+            "name": "limit",
             "in": "query"
           }
         ],
@@ -2419,6 +2496,29 @@
             "required": false,
             "description": "Stale-state filter. true = stale only, false = fresh only. Omit to return all services.",
             "name": "stale",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Opaque pagination token returned as nextCursor by the previous response. Pass it back unchanged to fetch the next page; null/omitted fetches the first page. Cursors encode position, not filters, so change filters only between pages when starting over."
+            },
+            "required": false,
+            "description": "Opaque pagination token returned as nextCursor by the previous response. Pass it back unchanged to fetch the next page; null/omitted fetches the first page. Cursors encode position, not filters, so change filters only between pages when starting over.",
+            "name": "cursor",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "description": "Maximum number of items per page. Clamped to a maximum of 100; defaults to 20."
+            },
+            "required": false,
+            "description": "Maximum number of items per page. Clamped to a maximum of 100; defaults to 20.",
+            "name": "limit",
             "in": "query"
           }
         ],
@@ -4581,7 +4681,7 @@
           "Tools"
         ],
         "summary": "List tools",
-        "description": "Returns tools that match the supplied filters. The serviceId, query, limit, and enabled query parameters are all optional. The enabled filter accepts 'true' or 'false'.",
+        "description": "Returns tools that match the supplied filters. The serviceId, query, cursor, limit, and enabled query parameters are all optional. The enabled filter accepts 'true' or 'false'.",
         "parameters": [
           {
             "schema": {
@@ -4606,16 +4706,6 @@
           {
             "schema": {
               "type": "string",
-              "description": "Maximum number of matching tools to return, as a positive integer string. If omitted in the search path, the API applies the default search cap of 50 results."
-            },
-            "required": false,
-            "description": "Maximum number of matching tools to return, as a positive integer string. If omitted in the search path, the API applies the default search cap of 50 results.",
-            "name": "limit",
-            "in": "query"
-          },
-          {
-            "schema": {
-              "type": "string",
               "enum": [
                 "true",
                 "false"
@@ -4625,6 +4715,29 @@
             "required": false,
             "description": "Enabled-state filter. Omit to return all tools.",
             "name": "enabled",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Opaque pagination token returned as nextCursor by the previous response. Pass it back unchanged to fetch the next page; null/omitted fetches the first page. Cursors encode position, not filters, so change filters only between pages when starting over."
+            },
+            "required": false,
+            "description": "Opaque pagination token returned as nextCursor by the previous response. Pass it back unchanged to fetch the next page; null/omitted fetches the first page. Cursors encode position, not filters, so change filters only between pages when starting over.",
+            "name": "cursor",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "description": "Maximum number of items per page. Clamped to a maximum of 100; defaults to 20."
+            },
+            "required": false,
+            "description": "Maximum number of items per page. Clamped to a maximum of 100; defaults to 20.",
+            "name": "limit",
             "in": "query"
           }
         ],
@@ -5153,6 +5266,29 @@
             "required": false,
             "description": "Filter by whether the module is missing its factory.",
             "name": "missing",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Opaque pagination token returned as nextCursor by the previous response. Pass it back unchanged to fetch the next page; null/omitted fetches the first page. Cursors encode position, not filters, so change filters only between pages when starting over."
+            },
+            "required": false,
+            "description": "Opaque pagination token returned as nextCursor by the previous response. Pass it back unchanged to fetch the next page; null/omitted fetches the first page. Cursors encode position, not filters, so change filters only between pages when starting over.",
+            "name": "cursor",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "description": "Maximum number of items per page. Clamped to a maximum of 100; defaults to 20."
+            },
+            "required": false,
+            "description": "Maximum number of items per page. Clamped to a maximum of 100; defaults to 20.",
+            "name": "limit",
             "in": "query"
           }
         ],
@@ -6595,23 +6731,25 @@
           },
           {
             "schema": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 500,
-              "default": 100
+              "type": "string",
+              "description": "Opaque pagination token returned as nextCursor by the previous response. Pass it back unchanged to fetch the next page; null/omitted fetches the first page. Cursors encode position, not filters, so change filters only between pages when starting over."
             },
             "required": false,
-            "name": "limit",
+            "description": "Opaque pagination token returned as nextCursor by the previous response. Pass it back unchanged to fetch the next page; null/omitted fetches the first page. Cursors encode position, not filters, so change filters only between pages when starting over.",
+            "name": "cursor",
             "in": "query"
           },
           {
             "schema": {
-              "type": "string",
-              "description": "Opaque cursor for pagination; only supported with sort=timestamp:desc."
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "description": "Maximum number of items per page. Clamped to a maximum of 100; defaults to 20."
             },
             "required": false,
-            "description": "Opaque cursor for pagination; only supported with sort=timestamp:desc.",
-            "name": "before",
+            "description": "Maximum number of items per page. Clamped to a maximum of 100; defaults to 20.",
+            "name": "limit",
             "in": "query"
           }
         ],
@@ -6627,7 +6765,7 @@
             }
           },
           "400": {
-            "description": "One or more query parameters could not be parsed, or the 'before' cursor is invalid or used with a non-timestamp:desc sort.",
+            "description": "One or more query parameters could not be parsed, or the cursor is invalid or used with a non-timestamp:desc sort.",
             "content": {
               "application/json": {
                 "schema": {

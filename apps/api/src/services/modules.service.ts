@@ -19,7 +19,18 @@ import type {
   ToolDocsInput,
 } from "@cyrnel/sdk";
 import tsivm from "@cyrnel/typescript-ivm";
-import { and, asc, eq, getTableColumns, inArray, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  getTableColumns,
+  inArray,
+  like,
+  notInArray,
+  or,
+  sql,
+} from "drizzle-orm";
 import jsonpatch from "fast-json-patch";
 import { decompress as zstdDecompress } from "fzstd";
 import { satisfies } from "semver";
@@ -57,6 +68,13 @@ import { downloadBinary } from "@/utils/download.util";
 import { computeBinaryHash } from "@/utils/hash.util";
 import type { IconColumns } from "@/utils/icon.util";
 import { fetchAndValidateIcon, resolveIconUpdate } from "@/utils/icon.util";
+import {
+  decodeCursor,
+  keysetConditions,
+  PAGINATION_DEFAULT_LIMIT,
+  type PaginatedResult,
+  paginatePage,
+} from "@/utils/pagination.util";
 import {
   collectOutdatedPaths,
   filterPayloadToSchema,
@@ -307,7 +325,7 @@ export class ModuleService {
 
   async list(
     filters: FilterModuleManifestInput = {},
-  ): Promise<ListModuleManifestResult[]> {
+  ): Promise<PaginatedResult<ListModuleManifestResult>> {
     const conditions = [];
     if (filters.type !== undefined) {
       conditions.push(eq(modulesTable.type, filters.type));
@@ -317,6 +335,41 @@ export class ModuleService {
     }
     if (filters.missing !== undefined) {
       conditions.push(eq(modulesTable.missing, filters.missing));
+    }
+    if (filters.isBuiltin !== undefined) {
+      const builtinIds = [...this.manifests.values()]
+        .filter((manifest) => manifest.isBuiltin)
+        .map((manifest) => manifest.id);
+      conditions.push(
+        filters.isBuiltin
+          ? inArray(modulesTable.id, builtinIds)
+          : notInArray(modulesTable.id, builtinIds),
+      );
+    }
+    const query = filters.query?.trim().toLowerCase();
+    if (query) {
+      const pattern = `%${query}%`;
+      conditions.push(
+        or(
+          like(modulesTable.id, pattern),
+          like(modulesTable.name, pattern),
+          like(modulesTable.summary, pattern),
+          like(modulesTable.description, pattern),
+        ),
+      );
+    }
+
+    const cursor =
+      filters.cursor !== undefined ? decodeCursor(filters.cursor) : null;
+    if (cursor !== null) {
+      const predicate = keysetConditions(
+        [
+          [modulesTable.createdAt, cursor.sortKey[0] as string],
+          [modulesTable.id, cursor.sortKey[1] as string],
+        ],
+        "before",
+      );
+      if (predicate) conditions.push(predicate);
     }
 
     const { iconData, iconMime, ...moduleColumns } =
@@ -329,23 +382,14 @@ export class ModuleService {
       })
       .from(modulesTable)
       .where(conditions.length > 0 ? and(...conditions) : undefined)
-      .orderBy(asc(modulesTable.id));
+      .orderBy(desc(modulesTable.createdAt), desc(modulesTable.id))
+      .limit((filters.limit ?? PAGINATION_DEFAULT_LIMIT) + 1);
 
-    const query = filters.query?.trim().toLowerCase();
-    return rows
-      .filter((row) =>
-        filters.isBuiltin === undefined
-          ? true
-          : this.isBuiltin(row.id) === filters.isBuiltin,
-      )
-      .filter((row) =>
-        query
-          ? `${row.id}\n${row.name}\n${row.summary}\n${row.description}`
-              .toLowerCase()
-              .includes(query)
-          : true,
-      )
-      .map((row) => this.toListRecord(row));
+    return paginatePage(
+      rows.map((row) => this.toListRecord(row)),
+      filters.limit ?? PAGINATION_DEFAULT_LIMIT,
+      (item) => [item.createdAt, item.id],
+    );
   }
 
   async get(id: string): Promise<GetModuleManifestResult | undefined> {
@@ -775,6 +819,7 @@ export class ModuleService {
     try {
       await db.insert(modulesTable).values({
         id: manifest.id,
+        createdAt: new Date().toISOString(),
         name: manifest.name,
         summary: normalizeSummary(manifest.summary),
         description: manifest.description,
@@ -931,6 +976,7 @@ export class ModuleService {
     try {
       await db.insert(modulesTable).values({
         id: manifest.id,
+        createdAt: new Date().toISOString(),
         name: manifest.name,
         summary: normalizeSummary(manifest.summary),
         description: manifest.description,
@@ -1470,6 +1516,7 @@ export class ModuleService {
           if (!manifest) throw new Error(`Manifest '${id}' is not registered.`);
           return {
             id,
+            createdAt: new Date().toISOString(),
             name: manifest.name,
             summary: normalizeSummary(manifest.summary),
             description: manifest.description,
@@ -2194,6 +2241,7 @@ export class ModuleService {
   ): ListModuleManifestResult {
     return {
       id: row.id,
+      createdAt: row.createdAt,
       name: row.name,
       type: row.type,
       summary: row.summary,

@@ -60,6 +60,67 @@ const booleanQuerySchema = z
   .enum(["true", "false"])
   .describe("String boolean query parameter that accepts 'true' or 'false'.");
 
+const paginationQuerySchema = z.object({
+  cursor: z
+    .string()
+    .optional()
+    .describe(
+      "Opaque pagination token returned as nextCursor by the previous response. Pass it back unchanged to fetch the next page; null/omitted fetches the first page. Cursors encode position, not filters, so change filters only between pages when starting over.",
+    ),
+  limit: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(100)
+    .default(20)
+    .describe(
+      "Maximum number of items per page. Clamped to a maximum of 100; defaults to 20.",
+    ),
+});
+
+function paginatedResponseSchema(
+  name: string,
+  itemSchema: z.ZodTypeAny,
+  itemsDescription: string,
+) {
+  return registry.register(
+    name,
+    z
+      .object({
+        items: z.array(itemSchema).describe(itemsDescription),
+        nextCursor: z
+          .string()
+          .nullable()
+          .describe(
+            "Opaque cursor for the next page; null when there are no more items. Echo it back as the cursor query parameter to continue paginating.",
+          ),
+        hasMore: z
+          .boolean()
+          .describe(
+            "Whether additional pages exist. When true, nextCursor is a valid cursor; when false, pagination has reached the end.",
+          ),
+      })
+      .describe("Paginated collection envelope."),
+  );
+}
+
+const ApiErrorResponseSchema = registry.register(
+  "ApiErrorResponse",
+  z
+    .object({
+      error: z
+        .string()
+        .describe("Human-readable error message returned by the API."),
+      code: z
+        .string()
+        .optional()
+        .describe(
+          "Stable machine-readable error code (e.g. invalid_cursor, cursor_expired).",
+        ),
+    })
+    .describe("Standard error envelope returned by the HTTP error middleware."),
+);
+
 const processStateSchema = z
   .enum(PROCESS_STATES)
   .describe("Current lifecycle state of a process.");
@@ -118,17 +179,6 @@ const serviceToolParams = z.object({
     .describe("Tool identifier exposed by the service manifest."),
 });
 
-const ApiErrorResponseSchema = registry.register(
-  "ApiErrorResponse",
-  z
-    .object({
-      error: z
-        .string()
-        .describe("Human-readable error message returned by the API."),
-    })
-    .describe("Standard error envelope returned by the HTTP error middleware."),
-);
-
 const ProcessSchema = registry.register(
   "Process",
   z
@@ -180,15 +230,10 @@ const ProcessSchema = registry.register(
     .describe("Process snapshot returned by the process management endpoints."),
 );
 
-const ProcessListResponseSchema = registry.register(
+const ProcessListResponseSchema = paginatedResponseSchema(
   "ProcessListResponse",
-  z
-    .object({
-      processes: z
-        .array(ProcessSchema)
-        .describe("Processes that match the provided query filters."),
-    })
-    .describe("Collection wrapper for process listings."),
+  ProcessSchema,
+  "Processes that match the provided query filters.",
 );
 
 const ProcessCreateRequestSchema = registry.register(
@@ -342,15 +387,10 @@ const ServiceDetailsSchema = registry.register(
   }).describe("Service metadata including configuration and secrets schemas."),
 );
 
-const ServiceListResponseSchema = registry.register(
+const ServiceListResponseSchema = paginatedResponseSchema(
   "ServiceListResponse",
-  z
-    .object({
-      services: z
-        .array(ServiceListItemSchema)
-        .describe("Services that match the current query filters."),
-    })
-    .describe("Collection wrapper for service listings."),
+  ServiceListItemSchema,
+  "Services that match the supplied filters.",
 );
 
 const ServiceInstallRequestSchema = registry.register(
@@ -661,15 +701,10 @@ const ToolDetailsSchema = registry.register(
     .describe("Detailed tool metadata returned by the tool detail endpoint."),
 );
 
-const ToolListResponseSchema = registry.register(
+const ToolListResponseSchema = paginatedResponseSchema(
   "ToolListResponse",
-  z
-    .object({
-      tools: z
-        .array(ToolListItemSchema)
-        .describe("Tools that match the supplied filters."),
-    })
-    .describe("Collection wrapper for tool listings."),
+  ToolListItemSchema,
+  "Tools that match the supplied filters.",
 );
 
 const ToolEnabledRequestSchema = registry.register(
@@ -728,15 +763,10 @@ const ModuleSchema = registry.register(
     .describe("Module manifest record returned by the modules endpoints."),
 );
 
-const ModuleListResponseSchema = registry.register(
+const ModuleListResponseSchema = paginatedResponseSchema(
   "ModuleListResponse",
-  z
-    .object({
-      modules: z
-        .array(ModuleSchema)
-        .describe("Modules that match the supplied query filters."),
-    })
-    .describe("Collection wrapper for module listings."),
+  ModuleSchema,
+  "Modules that match the supplied query filters.",
 );
 
 const ModuleDetailsSchema = registry.register(
@@ -908,6 +938,7 @@ registry.registerPath({
         .describe("Optional reference string used to filter processes."),
       state: processStateSchema.optional(),
       status: processStatusQuerySchema.optional(),
+      ...paginationQuerySchema.shape,
     }),
   },
   responses: {
@@ -1205,6 +1236,7 @@ registry.registerPath({
         .describe(
           "Stale-state filter. true = stale only, false = fresh only. Omit to return all services.",
         ),
+      ...paginationQuerySchema.shape,
     }),
   },
   responses: {
@@ -1651,7 +1683,7 @@ registry.registerPath({
   tags: ["Tools"],
   summary: "List tools",
   description:
-    "Returns tools that match the supplied filters. The serviceId, query, limit, and enabled query parameters are all optional. The enabled filter accepts 'true' or 'false'.",
+    "Returns tools that match the supplied filters. The serviceId, query, cursor, limit, and enabled query parameters are all optional. The enabled filter accepts 'true' or 'false'.",
   request: {
     query: z.object({
       serviceId: z
@@ -1664,15 +1696,10 @@ registry.registerPath({
         .describe(
           "Free-text query matched against tool names, summaries, and descriptions via a hybrid FTS5 and vector index. Phrase naturally: word order, stopwords, and plural forms do not matter, and results are ranked by relevance when supplied.",
         ),
-      limit: z
-        .string()
-        .optional()
-        .describe(
-          "Maximum number of matching tools to return, as a positive integer string. If omitted in the search path, the API applies the default search cap of 50 results.",
-        ),
       enabled: booleanQuerySchema
         .optional()
         .describe("Enabled-state filter. Omit to return all tools."),
+      ...paginationQuerySchema.shape,
     }),
   },
   responses: {
@@ -1793,6 +1820,7 @@ registry.registerPath({
       missing: booleanQuerySchema
         .optional()
         .describe("Filter by whether the module is missing its factory."),
+      ...paginationQuerySchema.shape,
     }),
   },
   responses: {
@@ -2096,19 +2124,10 @@ registry.registerPath({
 
 const LogEntrySchema = registry.register("LogEntry", createLogEntrySchema());
 
-const LogListResponseSchema = registry.register(
+const LogListResponseSchema = paginatedResponseSchema(
   "LogListResponse",
-  z
-    .object({
-      entries: z.array(LogEntrySchema),
-      nextCursor: z
-        .string()
-        .nullable()
-        .describe(
-          "Opaque cursor for the next page, null when the end is reached.",
-        ),
-    })
-    .describe("A page of log entries."),
+  LogEntrySchema,
+  "Log entries that match the supplied filters, ordered by the requested sort.",
 );
 
 const logListQuerySchema = z.object({
@@ -2138,13 +2157,7 @@ const logListQuerySchema = z.object({
     .enum(["timestamp:asc", "timestamp:desc", "duration:asc", "duration:desc"])
     .optional()
     .describe("Sort order; defaults to timestamp:desc."),
-  limit: z.coerce.number().int().min(1).max(500).default(100),
-  before: z
-    .string()
-    .optional()
-    .describe(
-      "Opaque cursor for pagination; only supported with sort=timestamp:desc.",
-    ),
+  ...paginationQuerySchema.shape,
 });
 
 registry.registerPath({
@@ -2162,7 +2175,7 @@ registry.registerPath({
       content: jsonContent(LogListResponseSchema),
     },
     400: apiErrorResponse(
-      "One or more query parameters could not be parsed, or the 'before' cursor is invalid or used with a non-timestamp:desc sort.",
+      "One or more query parameters could not be parsed, or the cursor is invalid or used with a non-timestamp:desc sort.",
     ),
     401: apiErrorResponse(
       "A bearer token was required but missing or invalid.",

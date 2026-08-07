@@ -29,7 +29,11 @@ conventions depend on which environment module is active. Never assume syntax.
    It returns the runtime language, available globals, I/O conventions, and a
    worked example. This is your source of truth for code syntax.
 2. **`list_tools`** — Search for tools relevant to your task. Always pass a
-   targeted `query` and a low `limit` (5–10). Do not list all tools.
+   targeted `query` and a low `limit` (5–10). Do not list all tools. Results
+   are paginated: if a response contains a `nextCursor` and you need more
+   results, re-call `list_tools` with `cursor: <nextCursor>` and keep paging
+   (`do { ... } while (cursor)`) until `nextCursor` is `null` — do not stop
+   early based on the item count of one page.
 3. **`get_tool_docs`** — Call this only for the specific tools you intend to
    invoke. It returns parameter schemas, return shapes, and a copy-pasteable
    invocation snippet in the active environment's syntax.

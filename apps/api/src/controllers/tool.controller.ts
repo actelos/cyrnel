@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import { z } from "zod";
 
 import type { ServicesService } from "@/services/services.service";
+import { paginationQuerySchema } from "@/utils/pagination.util";
 import { parseOrHttpError } from "@/utils/validation.util";
 
 const serviceIdSchema = z.string({
@@ -16,38 +17,26 @@ const enabledBodySchema = z.object({
   enabled: z.boolean({ error: "Field 'enabled' must be a boolean." }),
 });
 
-const listToolsQuerySchema = z.object({
-  serviceId: z
-    .string({ error: "Query param 'serviceId' must be a string." })
-    .transform((value) => value.trim())
-    .transform((value) => (value.length > 0 ? value : undefined))
-    .optional(),
-  query: z
-    .string({ error: "Query param 'query' must be a string." })
-    .transform((value) => value.trim())
-    .transform((value) => (value.length > 0 ? value : undefined))
-    .optional(),
-  limit: z
-    .string({ error: "Query param 'limit' must be a positive integer." })
-    .transform((value, ctx) => {
-      const parsed = Number(value);
-      if (!Number.isInteger(parsed) || parsed <= 0) {
-        ctx.addIssue({
-          code: "custom",
-          message: "Query param 'limit' must be a positive integer.",
-        });
-        return z.NEVER;
-      }
-      return parsed;
-    })
-    .optional(),
-  enabled: z
-    .enum(["true", "false"], {
-      error: "Query param 'enabled' must be 'true' or 'false'.",
-    })
-    .transform((value) => value === "true")
-    .optional(),
-});
+const listToolsQuerySchema = paginationQuerySchema.merge(
+  z.object({
+    serviceId: z
+      .string({ error: "Query param 'serviceId' must be a string." })
+      .transform((value) => value.trim())
+      .transform((value) => (value.length > 0 ? value : undefined))
+      .optional(),
+    query: z
+      .string({ error: "Query param 'query' must be a string." })
+      .transform((value) => value.trim())
+      .transform((value) => (value.length > 0 ? value : undefined))
+      .optional(),
+    enabled: z
+      .enum(["true", "false"], {
+        error: "Query param 'enabled' must be 'true' or 'false'.",
+      })
+      .transform((value) => value === "true")
+      .optional(),
+  }),
+);
 
 export async function listTools(req: Request, res: Response): Promise<void> {
   const servicesService = getServicesService(req);
@@ -57,8 +46,8 @@ export async function listTools(req: Request, res: Response): Promise<void> {
     "Query parameters must be an object.",
   );
 
-  const tools = await servicesService.listTools(params);
-  res.status(200).json({ tools });
+  const result = await servicesService.listTools(params);
+  res.status(200).json(result);
 }
 
 export async function getTool(req: Request, res: Response): Promise<void> {

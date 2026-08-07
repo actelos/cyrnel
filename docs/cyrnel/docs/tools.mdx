@@ -49,9 +49,11 @@ Query parameters (all optional):
 - `serviceId`: Restrict to one service
 - `query`: Free-text query. Triggers a hybrid FTS5 + vector similarity search (if vector search is available). It uses Reciprocal Rank Fusion (RRF) to combine results from both sqlite-vec vector search and FTS5 full-text match.
 - `enabled`: `true` / `false`
-- `limit`: Positive integer
+- `cursor`: Opaque pagination token from the previous page's `nextCursor`
+- `limit`: Positive integer, 1–100 (default 20, clamped above 100)
 
-The list response includes a derived `effectivelyEnabled` flag (`tool.enabled && service.enabled`) as well as hybrid search relevance metadata if a `query` was provided.
+The list response is the paginated envelope `{ items, nextCursor, hasMore }`
+and includes a derived `effectivelyEnabled` flag (`tool.enabled && service.enabled`) as well as hybrid search relevance metadata if a `query` was provided.
 
 #### Search Relevance Metadata
 
