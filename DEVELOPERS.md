@@ -290,6 +290,14 @@ When your PR includes a user-visible change to a publishable package
 pnpm changeset
 ```
 
+> **`CYRNEL_CORE_VERSION` must mirror the SDK version.** The API's
+> `apps/api/src/constants.ts` advertises the engine version that custom
+> modules are validated against (`engines.cyrnel` in `module.json`), and it
+> represents the `@cyrnel/sdk` version the engine bundles. Bump it in the
+> same commit that releases a new SDK version (e.g. `3.0.0` → `3.1.0`).
+> `apps/api/src/constants.test.ts` enforces the match and fails CI if they
+> drift.
+
 ## Create a pull request
 
 After making your changes, open a pull request against the `develop` branch of
