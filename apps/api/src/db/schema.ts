@@ -162,6 +162,17 @@ export type NewModuleConfigurationRecord =
 export type ModuleSecretsRecord = typeof moduleSecrets.$inferSelect;
 export type NewModuleSecretsRecord = typeof moduleSecrets.$inferInsert;
 
+export const registries = sqliteTable("registries", {
+  id: text("id").primaryKey(),
+  baseUrl: text("base_url").notNull().unique(),
+  lastSyncedAt: text("last_synced_at"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export type RegistryRecord = typeof registries.$inferSelect;
+export type NewRegistryRecord = typeof registries.$inferInsert;
+
 export const processes = sqliteTable("processes", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   ref: text("ref").unique(),

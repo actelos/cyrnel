@@ -883,6 +883,65 @@ const ModuleEnabledRequestSchema = registry.register(
     .describe("Request body used to toggle a module enabled state."),
 );
 
+const RegistrySchema = registry.register(
+  "Registry",
+  z
+    .object({
+      id: z
+        .string()
+        .min(1)
+        .describe(
+          "Registry slug matching /^[A-Za-z0-9_-]+$/ used as the primary key.",
+        ),
+      baseUrl: z
+        .string()
+        .describe("Normalized absolute http(s) URL of the registry."),
+      lastSyncedAt: z
+        .string()
+        .nullable()
+        .describe(
+          "ISO-8601 timestamp of the last successful sync with the registry, or null when it has never been synced.",
+        ),
+      createdAt: z
+        .string()
+        .describe("ISO-8601 timestamp of when the registry was registered."),
+      updatedAt: z
+        .string()
+        .describe("ISO-8601 timestamp of the last mutation to the record."),
+    })
+    .describe("Record of a registered registry."),
+);
+
+const RegistryListResponseSchema = paginatedResponseSchema(
+  "RegistryListResponse",
+  RegistrySchema,
+  "Registered registries ordered by creation time, newest first.",
+);
+
+const RegistryCreateRequestSchema = registry.register(
+  "RegistryCreateRequest",
+  z
+    .object({
+      id: z
+        .string()
+        .min(1)
+        .describe(
+          "Registry slug matching /^[A-Za-z0-9_-]+$/ used to identify the registry.",
+        ),
+      baseUrl: z
+        .string()
+        .min(1)
+        .describe(
+          "Absolute http(s) URL of the registry. Normalized before storage.",
+        ),
+    })
+    .describe("Request body used to register a new registry."),
+);
+
+const registryIdParam = z.object({
+  id: z.string().min(1).describe("Registry slug identifying the registry."),
+});
+
 const jsonContent = <T extends z.ZodTypeAny>(schema: T) => ({
   "application/json": { schema },
 });
@@ -2112,6 +2171,74 @@ registry.registerPath({
     404: apiErrorResponse("The module could not be found."),
     409: apiErrorResponse("The module is missing and cannot be enabled."),
     500: apiErrorResponse("The module enabled state could not be updated."),
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/registries",
+  tags: ["Registries"],
+  summary: "List registries",
+  description:
+    "Returns registered registries in pages ordered by creation time, newest first. Page through results with the cursor query parameter returned by the previous response.",
+  request: {
+    query: z.object({
+      ...paginationQuerySchema.shape,
+    }),
+  },
+  responses: {
+    200: {
+      description: "Matching registries.",
+      content: jsonContent(RegistryListResponseSchema),
+    },
+    400: apiErrorResponse("One or more query parameters could not be parsed."),
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    500: apiErrorResponse("The registry list could not be loaded."),
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/registries",
+  tags: ["Registries"],
+  summary: "Register a registry",
+  description:
+    "Creates a record for a registry from the supplied slug id and base URL. The base URL is validated as a syntactically valid absolute http(s) URL and normalized before storage. No network contact is made with the registry.",
+  request: { body: { content: jsonContent(RegistryCreateRequestSchema) } },
+  responses: {
+    201: {
+      description: "The registry record was created.",
+      content: jsonContent(RegistrySchema),
+    },
+    400: apiErrorResponse("The request body was invalid."),
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    409: apiErrorResponse(
+      "A registry already exists with the requested id or base URL.",
+    ),
+    500: apiErrorResponse("The registry could not be created."),
+  },
+});
+
+registry.registerPath({
+  method: "delete",
+  path: "/registries/{id}",
+  tags: ["Registries"],
+  summary: "Delete a registry",
+  description:
+    "Hard-deletes the registry record. Nothing references registries yet, so there are no cascade effects.",
+  request: { params: registryIdParam },
+  responses: {
+    204: { description: "The registry was deleted successfully." },
+    400: apiErrorResponse("The id path parameter was invalid."),
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    404: apiErrorResponse("The registry could not be found."),
+    500: apiErrorResponse("The registry could not be deleted."),
   },
 });
 

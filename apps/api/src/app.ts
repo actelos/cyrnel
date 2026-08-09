@@ -13,10 +13,12 @@ import { environmentRouter } from "@/routes/environment.route";
 import { logRouter } from "@/routes/log.route";
 import { moduleRouter } from "@/routes/module.route";
 import { processRouter } from "@/routes/process.route";
+import { registryRouter } from "@/routes/registry.route";
 import { serviceRouter } from "@/routes/service.route";
 import { toolRouter } from "@/routes/tool.route";
 import { ModuleService } from "@/services/modules.service";
 import { ProcessService } from "@/services/process.service";
+import { RegistriesService } from "@/services/registries.service";
 import { ServicesService } from "@/services/services.service";
 
 const DEFAULT_RECONCILE_INTERVAL_MS = 1_800_000;
@@ -27,6 +29,7 @@ export class App {
 
   readonly moduleService: ModuleService;
   readonly processService: ProcessService;
+  readonly registriesService: RegistriesService;
   readonly servicesService: ServicesService;
 
   constructor() {
@@ -63,6 +66,8 @@ export class App {
       kill: (eid) => this.moduleService.kill(eid),
     });
 
+    this.registriesService = new RegistriesService();
+
     this.express = this.createExpressApp();
   }
 
@@ -96,6 +101,7 @@ export class App {
 
     app.locals.moduleService = this.moduleService;
     app.locals.processService = this.processService;
+    app.locals.registriesService = this.registriesService;
     app.locals.servicesService = this.servicesService;
 
     app.set("etag", false);
@@ -130,6 +136,7 @@ export class App {
     app.use("/processes", processRouter);
     app.use("/environment", environmentRouter);
     app.use("/logs", logRouter);
+    app.use("/registries", registryRouter);
     app.use(errorMiddleware);
 
     return app;

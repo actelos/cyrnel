@@ -50,6 +50,20 @@
       "when": 1786128689829,
       "tag": "0006_youthful_matthew_murdock",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1786232788147,
+      "tag": "0007_next_rattler",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1786256127124,
+      "tag": "0008_rapid_warhawk",
+      "breakpoints": true
     }
   ]
 }
