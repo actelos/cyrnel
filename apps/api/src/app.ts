@@ -57,6 +57,9 @@ export class App {
         dehydrateService: (adapterId, serviceId) =>
           this.moduleService.dehydrateService(adapterId, serviceId),
         generateToolDocs: (input) => this.moduleService.generateToolDocs(input),
+        rankAdapters: (kind) => this.moduleService.rankAdapters(kind),
+        resolveDefaultAdapter: (kind) =>
+          this.moduleService.resolveDefaultAdapter(kind),
       },
       new SearchEngine(new TransformersEmbedder()),
     );
@@ -75,6 +78,7 @@ export class App {
     const dataDir = process.env.CYRNEL_DATA_DIR || ".";
     await this.servicesService.initSearch();
     await this.moduleService.initialize(path.join(dataDir, "modules"));
+    await this.registriesService.seedDefault();
 
     const interval = parseReconcileInterval(
       process.env.CYRNEL_RECONCILE_INTERVAL_MS,

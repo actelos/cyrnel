@@ -11,6 +11,7 @@ import {
   getServiceSecrets,
   getServiceSecretsSchema,
   installServiceRegistry,
+  listInstallAdapters,
   listServices,
   patchService,
   patchServiceConfiguration,
@@ -32,6 +33,7 @@ const servicesService = {
   patchServiceSecrets: vi.fn(),
   createServiceDirect: vi.fn(),
   createServiceFromRegistry: vi.fn(),
+  listInstallAdapters: vi.fn(),
   patchService: vi.fn(),
   updateService: vi.fn(),
   setServiceEnabled: vi.fn(),
@@ -503,6 +505,69 @@ describe("service.controller", () => {
         installServiceRegistry(makeReq({ body: { source: "" } }), cast(res)),
       ).rejects.toBeInstanceOf(HttpError);
       expect(servicesService.createServiceFromRegistry).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("listInstallAdapters", () => {
+    it("returns the ranked adapter list for the requested kind", async () => {
+      const res = makeRes();
+      const ranked = {
+        default: "openapi",
+        adapters: [
+          {
+            id: "openapi",
+            name: "OpenAPI Adapter",
+            compatible: true,
+            active: true,
+            isBuiltin: true,
+          },
+          {
+            id: "amqp",
+            name: "AMQP",
+            compatible: false,
+            active: true,
+            isBuiltin: false,
+          },
+        ],
+      };
+      servicesService.listInstallAdapters.mockResolvedValue(ranked);
+
+      await listInstallAdapters(
+        makeReq({ query: { kind: "openapi@3.0" } }),
+        cast(res),
+      );
+
+      expect(servicesService.listInstallAdapters).toHaveBeenCalledWith(
+        "openapi@3.0",
+      );
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith(ranked);
+    });
+
+    it("omits kind when the query parameter is absent", async () => {
+      const res = makeRes();
+      servicesService.listInstallAdapters.mockResolvedValue({
+        default: null,
+        adapters: [],
+      });
+
+      await listInstallAdapters(makeReq(), cast(res));
+
+      expect(servicesService.listInstallAdapters).toHaveBeenCalledWith(
+        undefined,
+      );
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    it("rejects a malformed kind", async () => {
+      const res = makeRes();
+      await expect(
+        listInstallAdapters(
+          makeReq({ query: { kind: "not-a-kind" } }),
+          cast(res),
+        ),
+      ).rejects.toBeInstanceOf(HttpError);
+      expect(servicesService.listInstallAdapters).not.toHaveBeenCalled();
     });
   });
 

@@ -1,13 +1,26 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { eq, sql } from "drizzle-orm";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import { db } from "@/db/client";
 import { registries } from "@/db/schema";
 import { HttpError } from "@/models/error.model";
 import { RegistriesService } from "@/services/registries.service";
 import { encodeCursor } from "@/utils/pagination.util";
+
+vi.mock("@/utils/download.util", () => ({
+  assertRegistryAddressAllowed: vi.fn(async () => undefined),
+}));
 
 const MIGRATIONS_DIR = path.resolve(import.meta.dirname, "../../drizzle");
 
@@ -284,6 +297,352 @@ describe("RegistriesService", () => {
       await expect(svc.deleteRegistry("missing")).rejects.toMatchObject({
         statusCode: 404,
       });
+    });
+  });
+});
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+const INDEX = {
+  id: "cyrnel-dev",
+  "definitions.v1": "/definitions/v1",
+  "modules.v1": "/modules/v1",
+};
+
+const DEFINITIONS_PAGE = {
+  definitions: [
+    {
+      id: "github",
+      name: "GitHub",
+      source: "/definitions/github",
+      kind: "openapi@3.0",
+    },
+  ],
+  nextCursor: null,
+};
+
+const MODULES_PAGE = {
+  modules: [
+    {
+      id: "hello-env",
+      name: "Hello Env",
+      source: "/modules/hello-env",
+      type: "adapter",
+    },
+  ],
+  nextCursor: null,
+};
+
+function stubRegistryServer(options?: {
+  index?: unknown;
+  definitionsPage?: unknown;
+  modulesPage?: unknown;
+}): ReturnType<typeof vi.fn> {
+  const fetchMock = vi.fn(async (input: string) => {
+    const url = new URL(String(input));
+    if (url.pathname === "/.well-known/registry.json") {
+      return jsonResponse(options?.index ?? INDEX);
+    }
+    if (url.pathname === "/definitions/v1") {
+      return jsonResponse(options?.definitionsPage ?? DEFINITIONS_PAGE);
+    }
+    if (url.pathname === "/modules/v1") {
+      return jsonResponse(options?.modulesPage ?? MODULES_PAGE);
+    }
+    return jsonResponse({ error: "not found" }, 404);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+describe("addRegistry()", () => {
+  beforeEach(async () => {
+    await resetDb();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("discovers capabilities and persists using the advertised id", async () => {
+    stubRegistryServer();
+
+    const record = await svc.addRegistry("https://registry.example.com");
+
+    expect(record).toMatchObject({
+      id: "cyrnel-dev",
+      baseUrl: "https://registry.example.com/",
+      lastSyncedAt: null,
+    });
+  });
+
+  it("succeeds for a definitions-only registry", async () => {
+    stubRegistryServer({
+      index: { id: "defs-only", "definitions.v1": "/definitions/v1" },
+    });
+
+    const record = await svc.addRegistry("https://registry.example.com");
+    expect(record.id).toBe("defs-only");
+  });
+
+  it("succeeds for a modules-only registry", async () => {
+    stubRegistryServer({
+      index: { id: "mods-only", "modules.v1": "/modules/v1" },
+    });
+
+    const record = await svc.addRegistry("https://registry.example.com");
+    expect(record.id).toBe("mods-only");
+  });
+
+  it("uses an explicit id override even when it differs from the advertised id", async () => {
+    stubRegistryServer();
+
+    const record = await svc.addRegistry(
+      "https://registry.example.com",
+      "local-alias",
+    );
+    expect(record.id).toBe("local-alias");
+  });
+
+  it("rejects a registry advertising no supported capability with 400", async () => {
+    stubRegistryServer({ index: { id: "bare" } });
+
+    await expect(
+      svc.addRegistry("https://registry.example.com"),
+    ).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it("propagates 409 conflicts from createRegistry unchanged", async () => {
+    stubRegistryServer();
+    await svc.createRegistry({
+      id: "cyrnel-dev",
+      baseUrl: "https://other.example.com",
+    });
+
+    await expect(
+      svc.addRegistry("https://registry.example.com"),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      message: "Registry 'cyrnel-dev' already exists.",
+    });
+  });
+});
+
+describe("refreshRegistry()", () => {
+  beforeEach(async () => {
+    await resetDb();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("stamps lastSyncedAt and updatedAt", async () => {
+    stubRegistryServer();
+    await svc.createRegistry({
+      id: "cyrnel-dev",
+      baseUrl: "https://registry.example.com",
+    });
+
+    const record = await svc.refreshRegistry("cyrnel-dev");
+
+    expect(record.lastSyncedAt).toBeTypeOf("string");
+    expect(record.updatedAt > record.createdAt).toBe(true);
+    expect(record.id).toBe("cyrnel-dev");
+  });
+
+  it("does not change the id when the advertised id differs", async () => {
+    stubRegistryServer({
+      index: { id: "renamed-id", "definitions.v1": "/definitions/v1" },
+    });
+    await svc.createRegistry({
+      id: "local-id",
+      baseUrl: "https://registry.example.com",
+    });
+
+    const record = await svc.refreshRegistry("local-id");
+
+    expect(record.id).toBe("local-id");
+  });
+
+  it("throws 502 when the registry loses all supported capabilities", async () => {
+    stubRegistryServer({ index: { id: "bare" } });
+    await svc.createRegistry({
+      id: "cyrnel-dev",
+      baseUrl: "https://registry.example.com",
+    });
+
+    await expect(svc.refreshRegistry("cyrnel-dev")).rejects.toMatchObject({
+      statusCode: 502,
+    });
+  });
+
+  it("throws 404 for a missing registry", async () => {
+    stubRegistryServer();
+
+    await expect(svc.refreshRegistry("missing")).rejects.toMatchObject({
+      statusCode: 404,
+    });
+  });
+});
+
+describe("browseDefinitions() / browseModules()", () => {
+  beforeEach(async () => {
+    await resetDb();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("passes definitions params through to the capability endpoint", async () => {
+    const fetchMock = stubRegistryServer();
+    await svc.createRegistry({
+      id: "cyrnel-dev",
+      baseUrl: "https://registry.example.com",
+    });
+
+    const page = await svc.browseDefinitions("cyrnel-dev", {
+      query: "git",
+      kind: "github",
+      limit: 25,
+    });
+
+    expect(page.entries).toHaveLength(1);
+    const definitionsCall = fetchMock.mock.calls.find(([url]) =>
+      String(url).includes("/definitions/v1"),
+    );
+    const sent = new URL(String(definitionsCall?.[0]));
+    expect(sent.searchParams.get("query")).toBe("git");
+    expect(sent.searchParams.get("kind")).toBe("github");
+    expect(sent.searchParams.get("limit")).toBe("25");
+  });
+
+  it("passes modules params through to the capability endpoint", async () => {
+    const fetchMock = stubRegistryServer();
+    await svc.createRegistry({
+      id: "cyrnel-dev",
+      baseUrl: "https://registry.example.com",
+    });
+
+    await svc.browseModules("cyrnel-dev", { type: "adapter" });
+
+    const modulesCall = fetchMock.mock.calls.find(([url]) =>
+      String(url).includes("/modules/v1"),
+    );
+    const sent = new URL(String(modulesCall?.[0]));
+    expect(sent.searchParams.get("type")).toBe("adapter");
+  });
+
+  it("throws 404 when the registry does not support definitions", async () => {
+    stubRegistryServer({
+      index: { id: "mods-only", "modules.v1": "/modules/v1" },
+    });
+    await svc.createRegistry({
+      id: "mods-only",
+      baseUrl: "https://registry.example.com",
+    });
+
+    await expect(svc.browseDefinitions("mods-only", {})).rejects.toMatchObject({
+      statusCode: 404,
+    });
+  });
+
+  it("throws 404 when the registry does not support modules", async () => {
+    stubRegistryServer({
+      index: { id: "defs-only", "definitions.v1": "/definitions/v1" },
+    });
+    await svc.createRegistry({
+      id: "defs-only",
+      baseUrl: "https://registry.example.com",
+    });
+
+    await expect(svc.browseModules("defs-only", {})).rejects.toMatchObject({
+      statusCode: 404,
+    });
+  });
+
+  it("throws 404 when the registry itself is missing", async () => {
+    stubRegistryServer();
+
+    await expect(svc.browseDefinitions("missing", {})).rejects.toMatchObject({
+      statusCode: 404,
+    });
+  });
+});
+
+describe("seedDefault()", () => {
+  const ORIGINAL_DEFAULT = process.env.CYRNEL_DEFAULT_REGISTRY_URL;
+
+  beforeEach(async () => {
+    await resetDb();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    if (ORIGINAL_DEFAULT === undefined) {
+      delete process.env.CYRNEL_DEFAULT_REGISTRY_URL;
+    } else {
+      process.env.CYRNEL_DEFAULT_REGISTRY_URL = ORIGINAL_DEFAULT;
+    }
+  });
+
+  it("skips silently when the env var is unset", async () => {
+    delete process.env.CYRNEL_DEFAULT_REGISTRY_URL;
+
+    await svc.seedDefault();
+
+    expect(await svc.listRegistries()).toEqual({
+      items: [],
+      nextCursor: null,
+      hasMore: false,
+    });
+  });
+
+  it("seeds when the table is empty", async () => {
+    process.env.CYRNEL_DEFAULT_REGISTRY_URL = "https://registry.example.com";
+    stubRegistryServer();
+
+    await svc.seedDefault();
+
+    const { items } = await svc.listRegistries();
+    expect(items).toHaveLength(1);
+    expect(items[0].id).toBe("cyrnel-dev");
+  });
+
+  it("does nothing when the table already has registries", async () => {
+    process.env.CYRNEL_DEFAULT_REGISTRY_URL = "https://registry.example.com";
+    stubRegistryServer();
+    await svc.createRegistry({
+      id: "existing",
+      baseUrl: "https://other.example.com",
+    });
+
+    await svc.seedDefault();
+
+    const { items } = await svc.listRegistries();
+    expect(items.map((r) => r.id)).toEqual(["existing"]);
+  });
+
+  it("swallows a failing fetch", async () => {
+    process.env.CYRNEL_DEFAULT_REGISTRY_URL = "https://registry.example.com";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("Network failure");
+      }),
+    );
+
+    await expect(svc.seedDefault()).resolves.toBeUndefined();
+    expect(await svc.listRegistries()).toEqual({
+      items: [],
+      nextCursor: null,
+      hasMore: false,
     });
   });
 });

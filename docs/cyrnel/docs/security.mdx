@@ -204,6 +204,11 @@ invalid_cursor`) and streamed via `GET /logs/stream`.
   base64 or `sk-…` tokens, and 48+ character strings that look like keys.
   Scrubbing happens at write time, so the ring buffer already holds
   redacted entries and a leak of the log file never exposes those values.
+- **Modules add their own reduction on top.** A module may declare its own
+  `redact()` patterns (e.g. a `redactionPatterns` field in its `configSchema`)
+  that apply additively to the host baseline above, so a module can scrub
+  values specific to its own upstream responses without the operator editing
+  server config. A module can never disable the host baseline.
 - **The live SSE stream carries the same redacted entries.**
 - Logs do not include the operator's own `CYRNEL_API_KEY` or
   `CYRNEL_SECRETS_KEY`.

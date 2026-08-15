@@ -2,6 +2,7 @@ import { and, desc, eq, type SQL } from "drizzle-orm";
 
 import { db } from "@/db/client";
 import { type RegistryRecord, registries } from "@/db/schema";
+import { logger } from "@/infra/logging";
 import { HttpError } from "@/models/error.model";
 import {
   getUniqueConstraintColumn,
@@ -15,6 +16,11 @@ import {
   type PaginatedResult,
   paginatePage,
 } from "@/utils/pagination.util";
+import {
+  fetchRegistryCapabilityPage,
+  fetchRegistryIndex,
+  type RegistryPage,
+} from "@/utils/registry.util";
 
 const REGISTRY_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 
@@ -134,6 +140,105 @@ export class RegistriesService {
       });
 
     if (!deleted) throw new HttpError(404, `Registry '${id}' not found.`);
+  }
+
+  async addRegistry(baseUrl: string, id?: string): Promise<RegistryRecord> {
+    const index = await fetchRegistryIndex(baseUrl);
+
+    if (!index.definitions && !index.modules) {
+      throw new HttpError(
+        400,
+        `Registry at '${baseUrl}' does not advertise a supported 'definitions' or 'modules' capability.`,
+      );
+    }
+
+    const resolvedId = id?.trim() || index.id;
+
+    return this.createRegistry({ id: resolvedId, baseUrl });
+  }
+
+  async refreshRegistry(id: string): Promise<RegistryRecord> {
+    const existing = await this.getRegistry(id);
+
+    const index = await fetchRegistryIndex(existing.baseUrl);
+
+    if (!index.definitions && !index.modules) {
+      throw new HttpError(
+        502,
+        `Registry '${id}' no longer advertises a supported capability.`,
+      );
+    }
+
+    const now = new Date().toISOString();
+    const [row] = await db
+      .update(registries)
+      .set({ lastSyncedAt: now, updatedAt: now })
+      .where(eq(registries.id, id))
+      .returning()
+      .catch(() => {
+        throw new HttpError(500, `Failed to refresh registry '${id}'.`);
+      });
+
+    return row;
+  }
+
+  async browseDefinitions(
+    id: string,
+    params: {
+      query?: string;
+      kind?: string;
+      cursor?: string;
+      limit?: number;
+    },
+  ): Promise<RegistryPage> {
+    const registry = await this.getRegistry(id);
+    const index = await fetchRegistryIndex(registry.baseUrl);
+
+    if (!index.definitions) {
+      throw new HttpError(
+        404,
+        `Registry '${id}' does not support definitions.`,
+      );
+    }
+
+    return fetchRegistryCapabilityPage(
+      index.definitions.url,
+      "definitions",
+      params,
+    );
+  }
+
+  async browseModules(
+    id: string,
+    params: {
+      query?: string;
+      type?: "adapter" | "environment";
+      cursor?: string;
+      limit?: number;
+    },
+  ): Promise<RegistryPage> {
+    const registry = await this.getRegistry(id);
+    const index = await fetchRegistryIndex(registry.baseUrl);
+
+    if (!index.modules) {
+      throw new HttpError(404, `Registry '${id}' does not support modules.`);
+    }
+
+    return fetchRegistryCapabilityPage(index.modules.url, "modules", params);
+  }
+
+  async seedDefault(): Promise<void> {
+    const seedUrl = process.env.CYRNEL_DEFAULT_REGISTRY_URL?.trim();
+    if (!seedUrl) return;
+
+    try {
+      const existing = await this.listRegistries();
+      if (existing.items.length > 0) return;
+
+      await this.addRegistry(seedUrl);
+    } catch (err) {
+      logger.warn({ err, seedUrl }, "Failed to seed default registry");
+    }
   }
 }
 

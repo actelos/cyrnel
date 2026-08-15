@@ -346,7 +346,7 @@
           "adapter": {
             "type": "string",
             "minLength": 1,
-            "description": "Optional adapter module identifier. Overrides registry default."
+            "description": "Optional adapter module identifier. Overrides the resolver-selected adapter."
           },
           "id": {
             "type": "string",
@@ -364,6 +364,59 @@
           "source"
         ],
         "description": "Request body used to install a service from a registry."
+      },
+      "AdapterRankListItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Adapter module identifier."
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable adapter module name."
+          },
+          "compatible": {
+            "type": "boolean",
+            "description": "Whether the adapter accepts the requested definition kind."
+          },
+          "active": {
+            "type": "boolean",
+            "description": "Whether the adapter module is currently installed and active."
+          },
+          "isBuiltin": {
+            "type": "boolean",
+            "description": "Whether the adapter is a built-in (canonical) module, preferred on ranking ties."
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "compatible",
+          "active",
+          "isBuiltin"
+        ]
+      },
+      "InstallAdaptersResponse": {
+        "type": "object",
+        "properties": {
+          "default": {
+            "type": "string",
+            "nullable": true,
+            "description": "Default adapter id (compatible and active). Null when no compatible adapter is available."
+          },
+          "adapters": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdapterRankListItem"
+            },
+            "description": "All installed adapter modules, ranked so compatible adapters come first."
+          }
+        },
+        "required": [
+          "default",
+          "adapters"
+        ]
       },
       "ServiceDirectInstallRequest": {
         "type": "object",
@@ -988,6 +1041,170 @@
         ],
         "description": "Request body used to toggle a module enabled state."
       },
+      "Registry": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Registry slug matching /^[A-Za-z0-9_-]+$/ used as the primary key."
+          },
+          "baseUrl": {
+            "type": "string",
+            "description": "Normalized absolute http(s) URL of the registry."
+          },
+          "lastSyncedAt": {
+            "type": "string",
+            "nullable": true,
+            "description": "ISO-8601 timestamp of the last successful sync with the registry, or null when it has never been synced."
+          },
+          "createdAt": {
+            "type": "string",
+            "description": "ISO-8601 timestamp of when the registry was registered."
+          },
+          "updatedAt": {
+            "type": "string",
+            "description": "ISO-8601 timestamp of the last mutation to the record."
+          }
+        },
+        "required": [
+          "id",
+          "baseUrl",
+          "lastSyncedAt",
+          "createdAt",
+          "updatedAt"
+        ],
+        "description": "Record of a registered registry."
+      },
+      "RegistryListResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Registry"
+            },
+            "description": "Registered registries ordered by creation time, newest first."
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true,
+            "description": "Opaque cursor for the next page; null when there are no more items. Echo it back as the cursor query parameter to continue paginating."
+          },
+          "hasMore": {
+            "type": "boolean",
+            "description": "Whether additional pages exist. When true, nextCursor is a valid cursor; when false, pagination has reached the end."
+          }
+        },
+        "required": [
+          "items",
+          "nextCursor",
+          "hasMore"
+        ],
+        "description": "Paginated collection envelope."
+      },
+      "AddRegistryRequest": {
+        "type": "object",
+        "properties": {
+          "baseUrl": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Absolute http(s) URL of the registry. A well-known discovery document is fetched from it; the URL is normalized before storage."
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Optional local id override. When omitted, the id advertised by the registry's well-known document is used."
+          }
+        },
+        "required": [
+          "baseUrl"
+        ],
+        "description": "Request body used to register a registry via discovery."
+      },
+      "RegistryEntry": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Entry slug matching /^[A-Za-z0-9_-]+$/."
+          },
+          "name": {
+            "type": "string",
+            "description": "Display name of the entry, if provided."
+          },
+          "description": {
+            "type": "string",
+            "description": "Human-readable description, if provided."
+          },
+          "source": {
+            "type": "string",
+            "description": "Normalized absolute URL of the entry's descriptor, on the registry's origin."
+          },
+          "adapter": {
+            "type": "string",
+            "description": "Adapter hint. Definitions only."
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "adapter",
+              "environment"
+            ],
+            "description": "Module type. Modules only."
+          }
+        },
+        "required": [
+          "id",
+          "source"
+        ],
+        "description": "One advertised service definition or module."
+      },
+      "RegistryDefinitionsPage": {
+        "type": "object",
+        "properties": {
+          "definitions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RegistryEntry"
+            },
+            "description": "Service definitions on this page, as served by the registry."
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true,
+            "description": "Opaque cursor for the next page, echoed back to the registry; null when the page is the last one."
+          }
+        },
+        "required": [
+          "definitions",
+          "nextCursor"
+        ],
+        "description": "One page of advertised service definitions."
+      },
+      "RegistryModulesPage": {
+        "type": "object",
+        "properties": {
+          "modules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RegistryEntry"
+            },
+            "description": "Modules on this page, as served by the registry."
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true,
+            "description": "Opaque cursor for the next page, echoed back to the registry; null when the page is the last one."
+          }
+        },
+        "required": [
+          "modules",
+          "nextCursor"
+        ],
+        "description": "One page of advertised modules."
+      },
       "RateLimitErrorResponse": {
         "type": "object",
         "properties": {
@@ -1043,9 +1260,10 @@
             "type": "string",
             "enum": [
               "app",
-              "request"
+              "request",
+              "module"
             ],
-            "description": "Entry category."
+            "description": "Entry category: 'app' for API logs, 'request' for HTTP request logs, 'module' for module-emitted logs."
           },
           "message": {
             "type": "string",
@@ -1077,12 +1295,31 @@
           "moduleId": {
             "type": "string"
           },
+          "moduleType": {
+            "type": "string",
+            "enum": [
+              "adapter",
+              "environment"
+            ]
+          },
           "environmentId": {
+            "type": "string"
+          },
+          "executionId": {
+            "type": "integer"
+          },
+          "dispatchId": {
+            "type": "string"
+          },
+          "toolId": {
             "type": "string"
           },
           "pid": {
             "type": "integer",
             "description": "Process id that emitted the entry."
+          },
+          "phase": {
+            "type": "string"
           },
           "method": {
             "type": "string"
@@ -3214,7 +3451,7 @@
           "Services"
         ],
         "summary": "Install a service from a registry",
-        "description": "Resolves the registry source URL, downloads the definition from the returned downloadUrl, validates the manifest, and stores it. Optional adapter and id override the registry defaults. The registry source URL is stored for future updates.",
+        "description": "Resolves the registry source URL, downloads the definition from the returned downloadUrl, validates the manifest, and stores it. Optional adapter and id override the resolver/​registry defaults; when adapter is omitted the best compatible and active adapter for the definition kind is used. The registry source URL is stored for future updates.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -3323,6 +3560,105 @@
           },
           "502": {
             "description": "The registry or definition file could not be downloaded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/services/install/adapters": {
+      "get": {
+        "tags": [
+          "Services"
+        ],
+        "summary": "List adapters ranked for a definition kind",
+        "description": "Returns all installed adapter modules ranked so that adapters whose compatibility list accepts the requested kind come first, followed by incompatible adapters. The `default` field is the top-ranked compatible and active adapter, or null when none is available. Omit `kind` to receive all adapters unranked.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Definition kind to rank against, e.g. 'openapi@3.0'. Omit to list all adapters."
+            },
+            "required": false,
+            "description": "Definition kind to rank against, e.g. 'openapi@3.0'. Omit to list all adapters.",
+            "name": "kind",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ranked adapter list.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstallAdaptersResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The 'kind' query parameter was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A bearer token was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded. The request was throttled. Check Retry-After header.",
+            "headers": {
+              "X-RateLimit-Limit": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Maximum requests allowed in the current window."
+              },
+              "X-RateLimit-Remaining": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Requests remaining in the current window."
+              },
+              "X-RateLimit-Reset": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Unix timestamp when the window resets."
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The adapter list could not be loaded.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6474,6 +6810,719 @@
         }
       }
     },
+    "/registries": {
+      "get": {
+        "tags": [
+          "Registries"
+        ],
+        "summary": "List registries",
+        "description": "Returns registered registries in pages ordered by creation time, newest first. Page through results with the cursor query parameter returned by the previous response.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 2048,
+              "description": "Opaque pagination token returned as nextCursor by the previous response. Pass it back unchanged to fetch the next page; null/omitted fetches the first page. Cursors encode position, not filters, so change filters only between pages when starting over."
+            },
+            "required": false,
+            "description": "Opaque pagination token returned as nextCursor by the previous response. Pass it back unchanged to fetch the next page; null/omitted fetches the first page. Cursors encode position, not filters, so change filters only between pages when starting over.",
+            "name": "cursor",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "description": "Maximum number of items per page. Clamped to a maximum of 100; defaults to 20."
+            },
+            "required": false,
+            "description": "Maximum number of items per page. Clamped to a maximum of 100; defaults to 20.",
+            "name": "limit",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Matching registries.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistryListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "One or more query parameters could not be parsed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A bearer token was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The registry list could not be loaded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Registries"
+        ],
+        "summary": "Register a registry",
+        "description": "Discovers a registry from its base URL: fetches its well-known document, negotiates the highest supported definitions/modules capability, and stores a record. The advertised id is used unless an explicit id override is supplied. The base URL is validated and normalized before storage.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddRegistryRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The registry record was created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Registry"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body was invalid, or the registry's well-known document is malformed or advertises no supported capability.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A bearer token was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A registry already exists with the requested id or base URL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded. The request was throttled. Check Retry-After header.",
+            "headers": {
+              "X-RateLimit-Limit": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Maximum requests allowed in the current window."
+              },
+              "X-RateLimit-Remaining": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Requests remaining in the current window."
+              },
+              "X-RateLimit-Reset": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Unix timestamp when the window resets."
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The registry could not be created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The registry could not be reached or returned a non-2xx response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/registries/{id}/refresh": {
+      "post": {
+        "tags": [
+          "Registries"
+        ],
+        "summary": "Refresh a registry",
+        "description": "Re-fetches the registry's well-known document to confirm it is reachable and still advertises a supported capability, then stamps lastSyncedAt. The stored id is never changed, even if the registry now advertises a different one.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Registry slug identifying the registry."
+            },
+            "required": true,
+            "description": "Registry slug identifying the registry.",
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The updated registry record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Registry"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The id path parameter was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A bearer token was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The registry could not be found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded. The request was throttled. Check Retry-After header.",
+            "headers": {
+              "X-RateLimit-Limit": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Maximum requests allowed in the current window."
+              },
+              "X-RateLimit-Remaining": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Requests remaining in the current window."
+              },
+              "X-RateLimit-Reset": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Unix timestamp when the window resets."
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The registry could not be refreshed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The registry could not be reached, responded with a non-2xx status, or no longer advertises a supported capability.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/registries/{id}/definitions": {
+      "get": {
+        "tags": [
+          "Registries"
+        ],
+        "summary": "Browse registry definitions",
+        "description": "Returns one page of service definitions advertised by the registry, as served by its definitions capability endpoint. Filtering is advisory: query, adapter and cursor are forwarded unchanged and entries are not filtered server-side.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Registry slug identifying the registry."
+            },
+            "required": true,
+            "description": "Registry slug identifying the registry.",
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Free-text search forwarded to the registry; matching semantics are registry-defined."
+            },
+            "required": false,
+            "description": "Free-text search forwarded to the registry; matching semantics are registry-defined.",
+            "name": "query",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Opaque cursor returned as nextCursor by the previous page. Passed through to the registry unchanged."
+            },
+            "required": false,
+            "description": "Opaque cursor returned as nextCursor by the previous page. Passed through to the registry unchanged.",
+            "name": "cursor",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "maximum": 200,
+              "description": "Maximum entries per page; the registry may ignore it (default 50)."
+            },
+            "required": false,
+            "description": "Maximum entries per page; the registry may ignore it (default 50).",
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Adapter hint filter forwarded to the registry."
+            },
+            "required": false,
+            "description": "Adapter hint filter forwarded to the registry.",
+            "name": "adapter",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Matching definitions.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistryDefinitionsPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "One or more query parameters could not be parsed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A bearer token was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The registry could not be found, or it does not support definitions.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded. The request was throttled. Check Retry-After header.",
+            "headers": {
+              "X-RateLimit-Limit": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Maximum requests allowed in the current window."
+              },
+              "X-RateLimit-Remaining": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Requests remaining in the current window."
+              },
+              "X-RateLimit-Reset": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Unix timestamp when the window resets."
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The definitions could not be browsed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The registry could not be reached or its capability endpoint returned a non-2xx response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/registries/{id}/modules": {
+      "get": {
+        "tags": [
+          "Registries"
+        ],
+        "summary": "Browse registry modules",
+        "description": "Returns one page of modules advertised by the registry, as served by its modules capability endpoint. Filtering is advisory: query, type and cursor are forwarded unchanged and entries are not filtered server-side.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Registry slug identifying the registry."
+            },
+            "required": true,
+            "description": "Registry slug identifying the registry.",
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Free-text search forwarded to the registry; matching semantics are registry-defined."
+            },
+            "required": false,
+            "description": "Free-text search forwarded to the registry; matching semantics are registry-defined.",
+            "name": "query",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Opaque cursor returned as nextCursor by the previous page. Passed through to the registry unchanged."
+            },
+            "required": false,
+            "description": "Opaque cursor returned as nextCursor by the previous page. Passed through to the registry unchanged.",
+            "name": "cursor",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "maximum": 200,
+              "description": "Maximum entries per page; the registry may ignore it (default 50)."
+            },
+            "required": false,
+            "description": "Maximum entries per page; the registry may ignore it (default 50).",
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "adapter",
+                "environment"
+              ],
+              "description": "Module type filter forwarded to the registry."
+            },
+            "required": false,
+            "description": "Module type filter forwarded to the registry.",
+            "name": "type",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Matching modules.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistryModulesPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "One or more query parameters could not be parsed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A bearer token was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The registry could not be found, or it does not support modules.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded. The request was throttled. Check Retry-After header.",
+            "headers": {
+              "X-RateLimit-Limit": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Maximum requests allowed in the current window."
+              },
+              "X-RateLimit-Remaining": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Requests remaining in the current window."
+              },
+              "X-RateLimit-Reset": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Unix timestamp when the window resets."
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The modules could not be browsed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The registry could not be reached or its capability endpoint returned a non-2xx response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/registries/{id}": {
+      "delete": {
+        "tags": [
+          "Registries"
+        ],
+        "summary": "Delete a registry",
+        "description": "Hard-deletes the registry record. Nothing references registries yet, so there are no cascade effects.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Registry slug identifying the registry."
+            },
+            "required": true,
+            "description": "Registry slug identifying the registry.",
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The registry was deleted successfully."
+          },
+          "400": {
+            "description": "The id path parameter was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A bearer token was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The registry could not be found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The registry could not be deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/environment/docs": {
       "get": {
         "tags": [
@@ -6617,11 +7666,24 @@
               "type": "string",
               "enum": [
                 "app",
-                "request"
+                "request",
+                "module"
               ]
             },
             "required": false,
             "name": "type",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "adapter",
+                "environment"
+              ]
+            },
+            "required": false,
+            "name": "moduleType",
             "in": "query"
           },
           {
@@ -6704,6 +7766,43 @@
             },
             "required": false,
             "name": "environmentId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "exclusiveMinimum": true
+            },
+            "required": false,
+            "name": "executionId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "required": false,
+            "name": "dispatchId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "required": false,
+            "name": "toolId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "required": false,
+            "name": "phase",
             "in": "query"
           },
           {

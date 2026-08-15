@@ -10,6 +10,7 @@ import {
   getServiceSecrets,
   getServiceSecretsSchema,
   installServiceRegistry,
+  listInstallAdapters,
   listServices,
   patchService,
   patchServiceConfiguration,
@@ -34,6 +35,11 @@ serviceRouter.post(
   "/install",
   createRateLimiter(10, 60_000, "POST /services/install"),
   installServiceRegistry,
+);
+serviceRouter.get(
+  "/install/adapters",
+  createRateLimiter(20, 60_000, "GET /services/install/adapters"),
+  listInstallAdapters,
 );
 serviceRouter.post(
   "/:serviceId/update",

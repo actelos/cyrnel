@@ -3,9 +3,13 @@ import {
   OpenAPIRegistry,
   OpenApiGeneratorV3,
 } from "@asteasolutions/zod-to-openapi";
-import { createLogEntrySchema, LOG_LEVELS, LOG_TYPES } from "@cyrnel/sdk";
 import type { OpenAPIObject } from "openapi3-ts/oas30";
 import { z } from "zod";
+import {
+  createLogEntrySchema,
+  LOG_LEVELS,
+  LOG_TYPES,
+} from "../src/infra/logging/log-entry";
 import { MODULE_TYPES } from "../src/models/modules.model";
 import {
   PROCESS_EXIT_STATES,
@@ -420,7 +424,7 @@ const ServiceInstallRequestSchema = registry.register(
         .min(1)
         .optional()
         .describe(
-          "Optional adapter module identifier. Overrides registry default.",
+          "Optional adapter module identifier. Overrides the resolver-selected adapter.",
         ),
       id: z
         .string()
@@ -437,6 +441,44 @@ const ServiceInstallRequestSchema = registry.register(
         ),
     })
     .describe("Request body used to install a service from a registry."),
+);
+
+const AdapterRankListItemSchema = registry.register(
+  "AdapterRankListItem",
+  z.object({
+    id: z.string().describe("Adapter module identifier."),
+    name: z.string().describe("Human-readable adapter module name."),
+    compatible: z
+      .boolean()
+      .describe("Whether the adapter accepts the requested definition kind."),
+    active: z
+      .boolean()
+      .describe(
+        "Whether the adapter module is currently installed and active.",
+      ),
+    isBuiltin: z
+      .boolean()
+      .describe(
+        "Whether the adapter is a built-in (canonical) module, preferred on ranking ties.",
+      ),
+  }),
+);
+
+const InstallAdaptersResponseSchema = registry.register(
+  "InstallAdaptersResponse",
+  z.object({
+    default: z
+      .string()
+      .nullable()
+      .describe(
+        "Default adapter id (compatible and active). Null when no compatible adapter is available.",
+      ),
+    adapters: z
+      .array(AdapterRankListItemSchema)
+      .describe(
+        "All installed adapter modules, ranked so compatible adapters come first.",
+      ),
+  }),
 );
 
 const ServiceDirectInstallRequestSchema = registry.register(
@@ -918,25 +960,133 @@ const RegistryListResponseSchema = paginatedResponseSchema(
   "Registered registries ordered by creation time, newest first.",
 );
 
-const RegistryCreateRequestSchema = registry.register(
-  "RegistryCreateRequest",
+const AddRegistryRequestSchema = registry.register(
+  "AddRegistryRequest",
   z
     .object({
-      id: z
-        .string()
-        .min(1)
-        .describe(
-          "Registry slug matching /^[A-Za-z0-9_-]+$/ used to identify the registry.",
-        ),
       baseUrl: z
         .string()
         .min(1)
         .describe(
-          "Absolute http(s) URL of the registry. Normalized before storage.",
+          "Absolute http(s) URL of the registry. A well-known discovery document is fetched from it; the URL is normalized before storage.",
+        ),
+      id: z
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+          "Optional local id override. When omitted, the id advertised by the registry's well-known document is used.",
         ),
     })
-    .describe("Request body used to register a new registry."),
+    .describe("Request body used to register a registry via discovery."),
 );
+
+const RegistryEntrySchema = registry.register(
+  "RegistryEntry",
+  z
+    .object({
+      id: z.string().min(1).describe("Entry slug matching /^[A-Za-z0-9_-]+$/."),
+      name: z
+        .string()
+        .optional()
+        .describe("Display name of the entry, if provided."),
+      description: z
+        .string()
+        .optional()
+        .describe("Human-readable description, if provided."),
+      source: z
+        .string()
+        .describe(
+          "Normalized absolute URL of the entry's descriptor, on the registry's origin.",
+        ),
+      adapter: z
+        .string()
+        .optional()
+        .describe("Adapter hint. Definitions only."),
+      type: z
+        .enum(MODULE_TYPES)
+        .optional()
+        .describe("Module type. Modules only."),
+    })
+    .describe("One advertised service definition or module."),
+);
+
+const RegistryDefinitionsPageSchema = registry.register(
+  "RegistryDefinitionsPage",
+  z
+    .object({
+      definitions: z
+        .array(RegistryEntrySchema)
+        .describe(
+          "Service definitions on this page, as served by the registry.",
+        ),
+      nextCursor: z
+        .string()
+        .nullable()
+        .describe(
+          "Opaque cursor for the next page, echoed back to the registry; null when the page is the last one.",
+        ),
+    })
+    .describe("One page of advertised service definitions."),
+);
+
+const RegistryModulesPageSchema = registry.register(
+  "RegistryModulesPage",
+  z
+    .object({
+      modules: z
+        .array(RegistryEntrySchema)
+        .describe("Modules on this page, as served by the registry."),
+      nextCursor: z
+        .string()
+        .nullable()
+        .describe(
+          "Opaque cursor for the next page, echoed back to the registry; null when the page is the last one.",
+        ),
+    })
+    .describe("One page of advertised modules."),
+);
+
+const RegistryBrowseQuerySchema = z.object({
+  query: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "Free-text search forwarded to the registry; matching semantics are registry-defined.",
+    ),
+  cursor: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "Opaque cursor returned as nextCursor by the previous page. Passed through to the registry unchanged.",
+    ),
+  limit: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(200)
+    .optional()
+    .describe(
+      "Maximum entries per page; the registry may ignore it (default 50).",
+    ),
+});
+
+const RegistryDefinitionsQuerySchema = RegistryBrowseQuerySchema.extend({
+  adapter: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("Adapter hint filter forwarded to the registry."),
+});
+
+const RegistryModulesQuerySchema = RegistryBrowseQuerySchema.extend({
+  type: z
+    .enum(MODULE_TYPES)
+    .optional()
+    .describe("Module type filter forwarded to the registry."),
+});
 
 const registryIdParam = z.object({
   id: z.string().min(1).describe("Registry slug identifying the registry."),
@@ -1439,7 +1589,7 @@ registry.registerPath({
   tags: ["Services"],
   summary: "Install a service from a registry",
   description:
-    "Resolves the registry source URL, downloads the definition from the returned downloadUrl, validates the manifest, and stores it. Optional adapter and id override the registry defaults. The registry source URL is stored for future updates.",
+    "Resolves the registry source URL, downloads the definition from the returned downloadUrl, validates the manifest, and stores it. Optional adapter and id override the resolver/​registry defaults; when adapter is omitted the best compatible and active adapter for the definition kind is used. The registry source URL is stored for future updates.",
   request: { body: { content: jsonContent(ServiceInstallRequestSchema) } },
   responses: {
     201: {
@@ -1461,6 +1611,37 @@ registry.registerPath({
       "The registry or definition file could not be downloaded.",
     ),
     500: apiErrorResponse("The service could not be installed."),
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/services/install/adapters",
+  tags: ["Services"],
+  summary: "List adapters ranked for a definition kind",
+  description:
+    "Returns all installed adapter modules ranked so that adapters whose compatibility list accepts the requested kind come first, followed by incompatible adapters. The `default` field is the top-ranked compatible and active adapter, or null when none is available. Omit `kind` to receive all adapters unranked.",
+  request: {
+    query: z.object({
+      kind: z
+        .string()
+        .optional()
+        .describe(
+          "Definition kind to rank against, e.g. 'openapi@3.0'. Omit to list all adapters.",
+        ),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Ranked adapter list.",
+      content: jsonContent(InstallAdaptersResponseSchema),
+    },
+    400: apiErrorResponse("The 'kind' query parameter was invalid."),
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    ...rateLimitResponse(),
+    500: apiErrorResponse("The adapter list could not be loaded."),
   },
 });
 
@@ -2205,21 +2386,115 @@ registry.registerPath({
   tags: ["Registries"],
   summary: "Register a registry",
   description:
-    "Creates a record for a registry from the supplied slug id and base URL. The base URL is validated as a syntactically valid absolute http(s) URL and normalized before storage. No network contact is made with the registry.",
-  request: { body: { content: jsonContent(RegistryCreateRequestSchema) } },
+    "Discovers a registry from its base URL: fetches its well-known document, negotiates the highest supported definitions/modules capability, and stores a record. The advertised id is used unless an explicit id override is supplied. The base URL is validated and normalized before storage.",
+  request: { body: { content: jsonContent(AddRegistryRequestSchema) } },
   responses: {
     201: {
       description: "The registry record was created.",
       content: jsonContent(RegistrySchema),
     },
-    400: apiErrorResponse("The request body was invalid."),
+    400: apiErrorResponse(
+      "The request body was invalid, or the registry's well-known document is malformed or advertises no supported capability.",
+    ),
     401: apiErrorResponse(
       "A bearer token was required but missing or invalid.",
     ),
+    ...rateLimitResponse(),
     409: apiErrorResponse(
       "A registry already exists with the requested id or base URL.",
     ),
+    502: apiErrorResponse(
+      "The registry could not be reached or returned a non-2xx response.",
+    ),
     500: apiErrorResponse("The registry could not be created."),
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/registries/{id}/refresh",
+  tags: ["Registries"],
+  summary: "Refresh a registry",
+  description:
+    "Re-fetches the registry's well-known document to confirm it is reachable and still advertises a supported capability, then stamps lastSyncedAt. The stored id is never changed, even if the registry now advertises a different one.",
+  request: { params: registryIdParam },
+  responses: {
+    200: {
+      description: "The updated registry record.",
+      content: jsonContent(RegistrySchema),
+    },
+    400: apiErrorResponse("The id path parameter was invalid."),
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    ...rateLimitResponse(),
+    404: apiErrorResponse("The registry could not be found."),
+    502: apiErrorResponse(
+      "The registry could not be reached, responded with a non-2xx status, or no longer advertises a supported capability.",
+    ),
+    500: apiErrorResponse("The registry could not be refreshed."),
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/registries/{id}/definitions",
+  tags: ["Registries"],
+  summary: "Browse registry definitions",
+  description:
+    "Returns one page of service definitions advertised by the registry, as served by its definitions capability endpoint. Filtering is advisory: query, adapter and cursor are forwarded unchanged and entries are not filtered server-side.",
+  request: {
+    params: registryIdParam,
+    query: RegistryDefinitionsQuerySchema,
+  },
+  responses: {
+    200: {
+      description: "Matching definitions.",
+      content: jsonContent(RegistryDefinitionsPageSchema),
+    },
+    400: apiErrorResponse("One or more query parameters could not be parsed."),
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    ...rateLimitResponse(),
+    404: apiErrorResponse(
+      "The registry could not be found, or it does not support definitions.",
+    ),
+    502: apiErrorResponse(
+      "The registry could not be reached or its capability endpoint returned a non-2xx response.",
+    ),
+    500: apiErrorResponse("The definitions could not be browsed."),
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/registries/{id}/modules",
+  tags: ["Registries"],
+  summary: "Browse registry modules",
+  description:
+    "Returns one page of modules advertised by the registry, as served by its modules capability endpoint. Filtering is advisory: query, type and cursor are forwarded unchanged and entries are not filtered server-side.",
+  request: {
+    params: registryIdParam,
+    query: RegistryModulesQuerySchema,
+  },
+  responses: {
+    200: {
+      description: "Matching modules.",
+      content: jsonContent(RegistryModulesPageSchema),
+    },
+    400: apiErrorResponse("One or more query parameters could not be parsed."),
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    ...rateLimitResponse(),
+    404: apiErrorResponse(
+      "The registry could not be found, or it does not support modules.",
+    ),
+    502: apiErrorResponse(
+      "The registry could not be reached or its capability endpoint returned a non-2xx response.",
+    ),
+    500: apiErrorResponse("The modules could not be browsed."),
   },
 });
 
@@ -2281,6 +2556,7 @@ const logListQuerySchema = z.object({
   level: z.enum(LOG_LEVELS).optional(),
   levelMin: z.enum(LOG_LEVELS).optional(),
   type: z.enum(LOG_TYPES).optional(),
+  moduleType: z.enum(["adapter", "environment"]).optional(),
   query: z
     .string()
     .max(500)
@@ -2295,6 +2571,10 @@ const logListQuerySchema = z.object({
   serviceId: z.string().max(200).optional(),
   moduleId: z.string().max(200).optional(),
   environmentId: z.string().max(200).optional(),
+  executionId: z.coerce.number().int().positive().optional(),
+  dispatchId: z.string().max(200).optional(),
+  toolId: z.string().max(200).optional(),
+  phase: z.string().max(200).optional(),
   statusCode: z.coerce.number().int().positive().max(599).optional(),
   durationMin: z.coerce.number().int().nonnegative().optional(),
   durationMax: z.coerce.number().int().nonnegative().optional(),

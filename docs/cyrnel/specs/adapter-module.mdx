@@ -112,8 +112,14 @@ import type { AdapterModule, InvokeInput, ModuleSetupContext, ServiceDefinition,
 
 class MyAdapter implements AdapterModule {
   private state = new Map<string, ServiceState>();
+  private logger: ModuleSetupContext["logger"] | null = null;
 
-  async setup(_context: ModuleSetupContext) {}
+  async setup(context: ModuleSetupContext) {
+    // Configure reduction for yourself from your own config field, then scope
+    // a base phase. The host manages the rest of the correlation metadata.
+    const patterns = (context.config.redactionPatterns as string[] | undefined) ?? [];
+    this.logger = context.logger.redact(patterns).child({ phase: "setup" });
+  }
   async teardown() { this.state.clear(); }
 
   async generateDefinition(input: string): Promise<ServiceDefinition> {

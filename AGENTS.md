@@ -88,6 +88,7 @@ Iterating during dev? Use scoped forms (`pnpm -C <pkg> ...`), run full gauntlet 
 - **`.npmrc`**: `auto-install-peers=false`
 - **Environment** — copy `apps/api/.example.env` → `apps/api/.env`. `CYRNEL_SECRETS_KEY` is AES-256-GCM, 32 bytes base64: `openssl rand -base64 32`. Unset `CYRNEL_API_KEY` = unauthenticated access.
 - **Search & Vector Engine** — uses `@xenova/transformers` (local ONNX model, default `Xenova/bge-small-en-v1.5`) and `sqlite-vec` native extension alongside SQLite FTS5 for hybrid tool search.
+- **Registry protocol** — `GET <baseUrl>/.well-known/registry.json` advertises capabilities as a keyed map (`definitions.v1`, `modules.v1`); Cyrnel negotiates the highest supported version, resolves relative URLs against the post-redirect discovery URL, and enforces same-origin for capability URLs and entry sources. Unknown well-known keys are ignored for forward compatibility. Registry definitions entries carry a `kind` string (`<identifier>@<version>`, e.g. `openapi@3.0`) instead of an `adapter` field; the browse `kind` query param is advisory. Adapter modules declare a `compatibility` list (`[{ identifier, version: <semver range> }]`) so the server can rank them for install (`GET /services/install/adapters?kind=…`) and auto-select the best compatible active adapter when `POST /services/install` omits `adapter`. `apps/api/scripts/dev-registry.ts` (`pnpm -C apps/api registry:dev`, port 9372) is the local fixture registry.
 - **Migrations don't auto-run** — run `pnpm -C apps/api db:migrate` explicitly before `pnpm -C apps/api dev` if schema changed
 - **`@cyrnel/sdk` has no tests** (no vitest dep, no test script)
 
@@ -170,6 +171,7 @@ Full set of env vars (see `apps/api/.example.env` for defaults):
 | `CYRNEL_REGISTRY_ALLOWED_IPS` | Registry egress allowlist |
 | `CYRNEL_REGISTRY_BLOCKED_IPS` | Registry egress blocklist |
 | `CYRNEL_BLOCK_ALL_REGISTRIES` | Deny all registry downloads (1/true) |
+| `CYRNEL_DEFAULT_REGISTRY_URL` | Registry seeded at startup when the registries table is empty (unset = no seeding) |
 | `CYRNEL_EMBEDDING_MODEL` | Local ONNX embedding model (default `Xenova/bge-small-en-v1.5`) |
 | `CYRNEL_RECONCILE_INTERVAL_MS` | Background search vector reconciliation sweep interval in ms (default `1800000`; `0` disables only the recurring sweep — the startup reconciliation still runs) |
 | `CYRNEL_LOG_FILE` | Persistent JSONL log file (default `<CYRNEL_DATA_DIR>/logs/app.log`; `false` disables) |

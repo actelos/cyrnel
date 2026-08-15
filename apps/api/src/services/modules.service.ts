@@ -13,7 +13,6 @@ import type {
   JSONSchema,
   Module,
   ModuleExport,
-  ModuleSetupContext,
   ServiceDefinition,
   ServiceState,
   ToolDocsInput,
@@ -45,7 +44,7 @@ import {
   services as servicesTable,
   tools as toolsTable,
 } from "@/db/schema";
-import { logger } from "@/infra/logging";
+import { createModuleLogger, logger } from "@/infra/logging";
 import { HttpError } from "@/models/error.model";
 import {
   type FilterModuleManifestInput,
@@ -60,8 +59,15 @@ import {
   moduleManifestSchema,
   type PatchModuleConfigInput,
   type PatchModuleSecretsInput,
+  type RankedAdapter,
   type SetModuleEnabledInput,
 } from "@/models/modules.model";
+import {
+  isKindCompatible,
+  parseKind,
+  rankAdapters,
+  resolveDefaultAdapterId,
+} from "@/utils/compatibility.util";
 import { downloadBinary } from "@/utils/download.util";
 import { computeBinaryHash } from "@/utils/hash.util";
 import type { IconColumns } from "@/utils/icon.util";
@@ -117,6 +123,7 @@ interface RegisteredModule {
   type: ModuleType;
   version: string;
   isBuiltin: boolean;
+  compatibility?: { identifier: string; version: string }[];
   configSchema: JSONSchema;
   secretsSchema: JSONSchema;
 }
@@ -124,6 +131,10 @@ interface RegisteredModule {
 interface ValidatedSetupValues {
   config: Record<string, unknown>;
   secrets: Record<string, unknown>;
+}
+
+interface SetupValues extends ValidatedSetupValues {
+  logger: ReturnType<typeof createModuleLogger>;
 }
 
 type JsonObject = Record<string, unknown>;
@@ -196,7 +207,7 @@ export class ModuleService {
       draining.flatMap((instance) =>
         Array.from(instance.executions).map((eid) =>
           instance.module.kill(eid).catch((err) => {
-            logger.warn(
+            this.moduleLogger(instance.id).warn(
               {
                 event: "execution-kill-failed",
                 err,
@@ -213,7 +224,7 @@ export class ModuleService {
     await Promise.all(
       Array.from(this.adapters.entries()).map(([id, a]) =>
         a.teardown().catch((err) => {
-          logger.warn(
+          this.moduleLogger(id).warn(
             { event: "adapter-teardown-failed", err, adapterId: id },
             "Adapter teardown failed",
           );
@@ -259,6 +270,46 @@ export class ModuleService {
   ): Promise<ServiceDefinition> {
     return this.requireAdapter(input.adapter).generateDefinition(
       input.definition,
+    );
+  }
+
+  async rankAdapters(kind?: string): Promise<RankedAdapter[]> {
+    const parsedKind = parseKind(kind);
+    return rankAdapters(
+      parsedKind,
+      this.registeredAdapters().map((manifest) => ({
+        id: manifest.id,
+        name: manifest.name,
+        active: this.adapters.has(manifest.id),
+        isBuiltin: manifest.isBuiltin,
+        compatibility: manifest.compatibility,
+      })),
+    ).map((adapter) => ({
+      id: adapter.id,
+      name: adapter.name,
+      compatible: isKindCompatible(parsedKind, adapter.compatibility),
+      active: adapter.active ?? false,
+      isBuiltin: adapter.isBuiltin ?? false,
+    }));
+  }
+
+  async resolveDefaultAdapter(kind?: string): Promise<string | undefined> {
+    const parsedKind = parseKind(kind);
+    return resolveDefaultAdapterId(
+      parsedKind,
+      this.registeredAdapters().map((manifest) => ({
+        id: manifest.id,
+        name: manifest.name,
+        active: this.adapters.has(manifest.id),
+        isBuiltin: manifest.isBuiltin,
+        compatibility: manifest.compatibility,
+      })),
+    );
+  }
+
+  private registeredAdapters(): RegisteredModule[] {
+    return [...this.manifests.values()].filter(
+      (manifest) => manifest.type === "adapter",
     );
   }
 
@@ -808,6 +859,7 @@ export class ModuleService {
         type: manifest.type,
         version: manifest.version,
         isBuiltin: false,
+        compatibility: manifest.compatibility,
         configSchema,
         secretsSchema,
       });
@@ -858,6 +910,7 @@ export class ModuleService {
       enabled: false,
       missing: false,
       hasIcon: false,
+      compatibility: manifest.compatibility,
       configSchema,
       secretsSchema,
     };
@@ -961,6 +1014,7 @@ export class ModuleService {
         type: manifest.type,
         version: manifest.version,
         isBuiltin: false,
+        compatibility: manifest.compatibility,
         configSchema,
         secretsSchema,
       });
@@ -1018,6 +1072,7 @@ export class ModuleService {
       enabled: false,
       missing: false,
       hasIcon: icon !== null,
+      compatibility: manifest.compatibility,
       configSchema,
       secretsSchema,
     };
@@ -1187,6 +1242,7 @@ export class ModuleService {
         type: manifest.type,
         version: manifest.version,
         isBuiltin: false,
+        compatibility: manifest.compatibility,
         configSchema: def.configSchema,
         secretsSchema: def.secretsSchema,
       });
@@ -1231,7 +1287,7 @@ export class ModuleService {
     try {
       const { updated, failed } = await this.regenerateAdapterServices(id);
       if (failed > 0) {
-        logger.warn(
+        this.moduleLogger(id).warn(
           {
             event: "services-regeneration-partial",
             moduleId: id,
@@ -1242,7 +1298,7 @@ export class ModuleService {
         );
       }
     } catch (err) {
-      logger.warn(
+      this.moduleLogger(id).warn(
         { event: "services-regeneration-failed", err, moduleId: id },
         "Failed to regenerate services after module update",
       );
@@ -1253,7 +1309,7 @@ export class ModuleService {
     try {
       await this.reloadIfActive(id);
     } catch (err) {
-      logger.warn(
+      this.moduleLogger(id).warn(
         { event: "module-reload-failed", err, moduleId: id },
         "Failed to reload active module after update",
       );
@@ -1367,6 +1423,7 @@ export class ModuleService {
         type: manifest.type,
         version: manifest.version,
         isBuiltin: false,
+        compatibility: manifest.compatibility,
         configSchema: def.configSchema,
         secretsSchema: def.secretsSchema,
       });
@@ -1414,7 +1471,7 @@ export class ModuleService {
     try {
       const { updated, failed } = await this.regenerateAdapterServices(id);
       if (failed > 0) {
-        logger.warn(
+        this.moduleLogger(id).warn(
           {
             event: "services-regeneration-partial",
             moduleId: id,
@@ -1425,7 +1482,7 @@ export class ModuleService {
         );
       }
     } catch (err) {
-      logger.warn(
+      this.moduleLogger(id).warn(
         { event: "services-regeneration-failed", err, moduleId: id },
         "Failed to regenerate services after module patch",
       );
@@ -1436,7 +1493,7 @@ export class ModuleService {
     try {
       await this.reloadIfActive(id);
     } catch (err) {
-      logger.warn(
+      this.moduleLogger(id).warn(
         { event: "module-reload-failed", err, moduleId: id },
         "Failed to reload active module after patch",
       );
@@ -1584,7 +1641,7 @@ export class ModuleService {
     try {
       await instance.teardown();
     } catch (err) {
-      logger.warn(
+      this.moduleLogger(id).warn(
         { event: "adapter-teardown-failed", err, adapterId: id },
         "Adapter teardown failed",
       );
@@ -1706,7 +1763,7 @@ export class ModuleService {
             .set({ stale: true })
             .where(eq(servicesTable.id, service.id))
             .catch(() => {});
-          logger.warn(
+          this.moduleLogger(id).warn(
             {
               event: "service-regeneration-failed",
               err,
@@ -1721,7 +1778,7 @@ export class ModuleService {
       await adapter.teardown().catch(() => {});
     }
 
-    logger.info(
+    this.moduleLogger(id).info(
       {
         event: "service-regeneration-complete",
         moduleId: id,
@@ -1752,7 +1809,7 @@ export class ModuleService {
         try {
           await next.teardown();
         } catch (teardownErr) {
-          logger.warn(
+          this.moduleLogger(id).warn(
             {
               event: "adapter-teardown-failed",
               err: teardownErr,
@@ -1766,7 +1823,7 @@ export class ModuleService {
       try {
         await previous.teardown();
       } catch (err) {
-        logger.warn(
+        this.moduleLogger(id).warn(
           { event: "adapter-teardown-failed", err, adapterId: id },
           "Adapter teardown failed",
         );
@@ -1793,9 +1850,20 @@ export class ModuleService {
     if (previous) this.markDraining(previous);
   }
 
-  private async buildSetupContext(id: string): Promise<ModuleSetupContext> {
+  private async buildSetupContext(id: string): Promise<SetupValues> {
     const { config, secrets } = await this.assertConfigAndSecretsValid(id);
-    return { config, secrets };
+    const manifest = this.requireRegistered(id);
+    const moduleLogger = createModuleLogger(logger, {
+      category: "module",
+      moduleId: id,
+      moduleType: manifest.type,
+      moduleName: manifest.name,
+      moduleVersion: manifest.version,
+      ...(manifest.type === "adapter"
+        ? { adapterId: id }
+        : { environmentId: id }),
+    });
+    return { config, secrets, logger: moduleLogger };
   }
 
   private async loadSecrets(id: string): Promise<Record<string, unknown>> {
@@ -1871,6 +1939,20 @@ export class ModuleService {
     return manifest;
   }
 
+  private moduleLogger(id: string) {
+    const manifest = this.requireRegistered(id);
+    return createModuleLogger(logger, {
+      category: "module",
+      moduleId: id,
+      moduleType: manifest.type,
+      moduleName: manifest.name,
+      moduleVersion: manifest.version,
+      ...(manifest.type === "adapter"
+        ? { adapterId: id }
+        : { environmentId: id }),
+    });
+  }
+
   private deactivateEnvironment(id: string): void {
     if (this.activeEnvironment?.id !== id) return;
     const current = this.activeEnvironment;
@@ -1901,7 +1983,7 @@ export class ModuleService {
     try {
       await instance.module.teardown();
     } catch (err) {
-      logger.warn(
+      this.moduleLogger(instance.id).warn(
         {
           event: "environment-teardown-failed",
           err,
@@ -2054,6 +2136,7 @@ export class ModuleService {
       description: string;
       type: ModuleType;
       version: string;
+      compatibility?: { identifier: string; version: string }[];
       configSchema: JSONSchema;
       secretsSchema: JSONSchema;
       instantiate: () => Module;
@@ -2065,6 +2148,7 @@ export class ModuleService {
         description: "Adapter for interacting with OpenAPI services",
         type: "adapter",
         version: "1.0.0",
+        compatibility: [{ identifier: "openapi", version: ">=3.0 <4.0" }],
         ...oapi,
       },
       {
@@ -2085,6 +2169,7 @@ export class ModuleService {
       description,
       type,
       version,
+      compatibility,
       configSchema,
       secretsSchema,
       instantiate,
@@ -2103,6 +2188,7 @@ export class ModuleService {
         type,
         version,
         isBuiltin: true,
+        compatibility,
         configSchema,
         secretsSchema,
       });
@@ -2149,8 +2235,17 @@ export class ModuleService {
         );
       }
 
-      const { id, name, summary, description, type, version, main, engines } =
-        parsed.data;
+      const {
+        id,
+        name,
+        summary,
+        description,
+        type,
+        version,
+        main,
+        engines,
+        compatibility,
+      } = parsed.data;
       this.assertEngineCompatibility(engines, `Module '${id}'`);
 
       if (this.factories.has(id)) {
@@ -2192,6 +2287,7 @@ export class ModuleService {
         type,
         version,
         isBuiltin: false,
+        compatibility,
         configSchema,
         secretsSchema,
       });
@@ -2256,6 +2352,7 @@ export class ModuleService {
       enabled: row.enabled,
       missing: row.missing,
       hasIcon: row.iconHash !== null,
+      compatibility: this.manifests.get(row.id)?.compatibility,
     };
   }
 

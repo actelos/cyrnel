@@ -16,7 +16,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   Dialog,
-  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -98,19 +97,32 @@ export default function RegistriesPage() {
     await mutate(registriesUrl);
   };
 
-  const addIdValid = REGISTRY_ID_PATTERN.test(addId.trim());
-  const addBaseUrlValid = isValidHttpUrl(addBaseUrl.trim());
-  const canAdd = addIdValid && addBaseUrlValid && !isAdding;
-
-  const handleAddRegistry = async () => {
-    if (!addIdValid) {
+  const handleSyncRegistry = async (id: string) => {
+    try {
+      await apiFetch(buildUrl(`/registries/${id}/refresh`), {
+        method: "POST",
+      });
+      await refreshRegistries();
+      addNotification({
+        type: "success",
+        title: "Success",
+        message: `Registry '${id}' refreshed.`,
+      });
+    } catch (error) {
       addNotification({
         type: "error",
         title: "Error",
-        message: "Registry id must be a slug matching /^[A-Za-z0-9_-]+$/.",
+        message: errorMessageFrom(error, "Unable to refresh registry."),
       });
-      return;
     }
+  };
+
+  const addIdValid = REGISTRY_ID_PATTERN.test(addId.trim());
+  const addBaseUrlValid = isValidHttpUrl(addBaseUrl.trim());
+  const canAdd =
+    addBaseUrlValid && (addId.trim().length === 0 || addIdValid) && !isAdding;
+
+  const handleAddRegistry = async () => {
     if (!addBaseUrlValid) {
       addNotification({
         type: "error",
@@ -119,16 +131,23 @@ export default function RegistriesPage() {
       });
       return;
     }
+    if (addId.trim().length > 0 && !addIdValid) {
+      addNotification({
+        type: "error",
+        title: "Error",
+        message: "Registry id must be a slug matching /^[A-Za-z0-9_-]+$/.",
+      });
+      return;
+    }
     const trimmedId = addId.trim();
     setIsAdding(true);
     try {
+      const body: Record<string, string> = { baseUrl: addBaseUrl.trim() };
+      if (trimmedId) body.id = trimmedId;
       await apiFetch(buildUrl("/registries"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: trimmedId,
-          baseUrl: addBaseUrl.trim(),
-        }),
+        body: JSON.stringify(body),
       });
       setAddId("");
       setAddBaseUrl("");
@@ -196,8 +215,9 @@ export default function RegistriesPage() {
               <DialogHeader>
                 <DialogTitle>Add registry</DialogTitle>
                 <DialogDescription>
-                  Register a registry by its base URL. The URL is validated
-                  syntactically; no network contact is made yet.
+                  Register a registry by its base URL. Its well-known discovery
+                  document is fetched to resolve the registry id and
+                  capabilities.
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-4 my-2">
@@ -210,8 +230,8 @@ export default function RegistriesPage() {
                     value={addId}
                   />
                   <p className="text-muted-foreground text-xs">
-                    Slug used as the registry identifier: letters, numbers, -
-                    and _.
+                    Optional — when omitted, the id advertised by the registry's
+                    discovery document is used. Slug: letters, numbers, - and _.
                   </p>
                 </div>
                 <div className="space-y-2">
@@ -309,6 +329,16 @@ export default function RegistriesPage() {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-8"
+                        aria-label={`Refresh registry ${registry.id}`}
+                        onClick={() => void handleSyncRegistry(registry.id)}
+                      >
+                        <RotateCcw />
+                      </Button>
                       <Button
                         type="button"
                         variant="ghost"

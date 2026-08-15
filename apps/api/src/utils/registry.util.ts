@@ -1,24 +1,25 @@
 import { maxSatisfying, valid } from "semver";
 
 import { HttpError } from "@/models/error.model";
+import { assertKind } from "@/utils/compatibility.util";
 import { assertRegistryAddressAllowed } from "@/utils/download.util";
 
 const REGISTRY_FETCH_TIMEOUT_MS = 10_000;
 
-export interface RegistryIcon {
-  url: string;
-  hash: string;
-}
-
-interface RegistryVersionEntry {
+export interface RegistryVersionEntry {
   downloadUrl: string;
   hash?: string;
   id?: string;
-  adapter?: string;
+  kind?: string;
   icon?: RegistryIcon;
   engines?: {
     cyrnel?: string;
   };
+}
+
+export interface RegistryIcon {
+  url: string;
+  hash: string;
 }
 
 interface VersionedRegistryDescriptor {
@@ -41,7 +42,7 @@ export interface ServiceRegistryResponse {
   downloadUrl: string;
   hash?: string;
   id?: string;
-  adapter?: string;
+  kind?: string;
   icon?: RegistryIcon;
 }
 
@@ -165,6 +166,17 @@ function validateVersionEntry(
     );
   }
 
+  const kind = normalizeOptionalString(
+    entry.kind,
+    `${label} registry version '${version}' 'kind' must be a non-empty string if provided.`,
+  );
+  if (kind !== undefined) {
+    assertKind(
+      kind,
+      `${label} registry version '${version}' 'kind' must match <identifier>@<version>, e.g. 'openapi@3.0'.`,
+    );
+  }
+
   return {
     downloadUrl: entry.downloadUrl.trim(),
     hash: normalizeOptionalString(
@@ -175,10 +187,7 @@ function validateVersionEntry(
       entry.id,
       `${label} registry version '${version}' 'id' must be a non-empty string if provided.`,
     ),
-    adapter: normalizeOptionalString(
-      entry.adapter,
-      `${label} registry version '${version}' 'adapter' must be a non-empty string if provided.`,
-    ),
+    kind,
     icon:
       iconUrl === undefined || iconHash === undefined
         ? undefined
@@ -300,7 +309,363 @@ export async function resolveServiceRegistry(
     downloadUrl: entry.downloadUrl,
     hash: entry.hash,
     id: entry.id,
-    adapter: entry.adapter,
+    kind: entry.kind,
     icon: entry.icon,
+  };
+}
+
+const MAX_REDIRECT_HOPS = 5;
+const MAX_CAPABILITY_PAGE_BYTES = 256 * 1024;
+
+/**
+ * JSON fetch with per-hop redirect re-validation. Unlike `fetchRegistryJson`,
+ * redirects are followed manually so every hop runs
+ * `assertRegistryAddressAllowed` (the same guard `fetchStream` applies for
+ * downloads). The final URL is returned because relative capability URLs
+ * resolve against the post-redirect URL, not the caller-supplied one.
+ */
+async function fetchRegistryJsonSafe(
+  url: string,
+  label: string,
+): Promise<{ finalUrl: string; body: Record<string, unknown> }> {
+  let currentUrl = url;
+
+  for (let hop = 0; ; hop++) {
+    await assertRegistryAddressAllowed(currentUrl);
+
+    if (hop > MAX_REDIRECT_HOPS) {
+      throw new HttpError(502, `${label} registry redirected too many times.`);
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      REGISTRY_FETCH_TIMEOUT_MS,
+    );
+
+    let response: Response;
+    try {
+      response = await fetch(currentUrl, {
+        signal: controller.signal,
+        redirect: "manual",
+      });
+    } catch {
+      clearTimeout(timeout);
+      throw new HttpError(502, `Failed to fetch ${label} registry metadata.`);
+    }
+    clearTimeout(timeout);
+
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get("location");
+      if (!location) {
+        throw new HttpError(
+          502,
+          `${label} registry redirect had no Location header.`,
+        );
+      }
+      await response.body?.cancel().catch(() => {});
+      currentUrl = new URL(location, currentUrl).toString();
+      continue;
+    }
+
+    if (!response.ok) {
+      throw new HttpError(
+        502,
+        `${label} registry responded with status ${response.status}.`,
+      );
+    }
+
+    let body: Record<string, unknown>;
+    try {
+      body = (await response.json()) as Record<string, unknown>;
+    } catch {
+      throw new HttpError(400, `${label} registry returned invalid JSON.`);
+    }
+
+    return { finalUrl: currentUrl, body };
+  }
+}
+
+const CAPABILITY_KEY_PATTERN = /^(definitions|modules)\.v(\d+)$/;
+const REGISTRY_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
+
+export interface ResolvedCapability {
+  version: number;
+  url: string;
+}
+
+export interface RegistryIndexInfo {
+  id: string;
+  finalUrl: string;
+  definitions: ResolvedCapability | null;
+  modules: ResolvedCapability | null;
+}
+
+const SUPPORTED_DEFINITIONS_VERSIONS = [1] as const;
+const SUPPORTED_MODULES_VERSIONS = [1] as const;
+
+function resolveCapability(
+  body: Record<string, unknown>,
+  capability: "definitions" | "modules",
+  supported: readonly number[],
+  finalUrl: string,
+  label: string,
+): ResolvedCapability | null {
+  const offered: { version: number; url: string }[] = [];
+
+  for (const [key, value] of Object.entries(body)) {
+    const match = key.match(CAPABILITY_KEY_PATTERN);
+    if (!match || match[1] !== capability) continue;
+    assertNonEmptyString(
+      value,
+      `${label} registry '${key}' must be a non-empty string.`,
+    );
+    offered.push({ version: Number(match[2]), url: value.trim() });
+  }
+
+  const best = offered
+    .filter((entry) => supported.includes(entry.version))
+    .sort((a, b) => b.version - a.version)[0];
+
+  if (!best) return null;
+
+  const resolved = new URL(best.url, finalUrl);
+  const discoveryOrigin = new URL(finalUrl).origin;
+
+  if (resolved.origin !== discoveryOrigin) {
+    throw new HttpError(
+      400,
+      `${label} registry '${capability}.v${best.version}' must resolve to the same origin as the registry.`,
+    );
+  }
+
+  return { version: best.version, url: resolved.toString() };
+}
+
+/**
+ * Discovers and negotiates a registry's capabilities from its well-known
+ * document. Unrecognized keys (including a `name` key) are ignored for
+ * forward compatibility.
+ */
+export async function fetchRegistryIndex(
+  baseUrl: string,
+): Promise<RegistryIndexInfo> {
+  const discoveryUrl = new URL(
+    "/.well-known/registry.json",
+    baseUrl,
+  ).toString();
+  const { finalUrl, body } = await fetchRegistryJsonSafe(
+    discoveryUrl,
+    "well-known",
+  );
+
+  assertNonEmptyString(
+    body.id,
+    "Registry well-known response must include a non-empty 'id' string.",
+  );
+  if (!REGISTRY_ID_PATTERN.test(body.id.trim())) {
+    throw new HttpError(
+      400,
+      `Registry id '${body.id}' must be a slug matching /^[A-Za-z0-9_-]+$/.`,
+    );
+  }
+
+  return {
+    id: body.id.trim(),
+    finalUrl,
+    definitions: resolveCapability(
+      body,
+      "definitions",
+      SUPPORTED_DEFINITIONS_VERSIONS,
+      finalUrl,
+      "Well-known",
+    ),
+    modules: resolveCapability(
+      body,
+      "modules",
+      SUPPORTED_MODULES_VERSIONS,
+      finalUrl,
+      "Well-known",
+    ),
+  };
+}
+
+export interface RegistryEntry {
+  id: string;
+  name?: string;
+  description?: string;
+  source: string;
+  kind?: string;
+  type?: "adapter" | "environment";
+  icon?: RegistryIcon;
+}
+
+export interface RegistryPage {
+  entries: RegistryEntry[];
+  nextCursor: string | null;
+}
+
+function assertEntry(
+  value: unknown,
+  capability: "definitions" | "modules",
+  capabilityUrl: string,
+): RegistryEntry {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new HttpError(400, `${capability} entry must be an object.`);
+  }
+  const entry = value as Record<string, unknown>;
+
+  assertNonEmptyString(
+    entry.id,
+    `${capability} entry must include a non-empty 'id'.`,
+  );
+  if (!REGISTRY_ID_PATTERN.test(entry.id.trim())) {
+    throw new HttpError(
+      400,
+      `${capability} entry id '${entry.id}' must be a slug.`,
+    );
+  }
+  assertNonEmptyString(
+    entry.source,
+    `${capability} entry '${entry.id}' must include a non-empty 'source'.`,
+  );
+
+  const resolvedSource = new URL(entry.source.trim(), capabilityUrl);
+  if (resolvedSource.origin !== new URL(capabilityUrl).origin) {
+    throw new HttpError(
+      400,
+      `${capability} entry '${entry.id}' source must resolve to the registry's origin.`,
+    );
+  }
+
+  if (capability === "modules") {
+    assertNonEmptyString(
+      entry.type,
+      `modules entry '${entry.id}' must include a non-empty 'type'.`,
+    );
+    if (entry.type !== "adapter" && entry.type !== "environment") {
+      throw new HttpError(
+        400,
+        `modules entry '${entry.id}' type must be 'adapter' or 'environment'.`,
+      );
+    }
+  }
+
+  const kind =
+    capability === "definitions"
+      ? normalizeOptionalString(
+          entry.kind,
+          `definitions entry '${entry.id}' kind must be a string if provided.`,
+        )
+      : undefined;
+  if (kind !== undefined) {
+    assertKind(
+      kind,
+      `definitions entry '${entry.id}' kind must match <identifier>@<version>, e.g. 'openapi@3.0'.`,
+    );
+  }
+
+  const icon = entry.icon;
+  if (icon !== undefined && typeof icon !== "object") {
+    throw new HttpError(
+      400,
+      `${capability} entry '${entry.id}' 'icon' must be an object if provided.`,
+    );
+  }
+  const iconUrl = normalizeOptionalString(
+    (icon as Record<string, unknown> | undefined)?.url,
+    `${capability} entry '${entry.id}' 'icon.url' must be a non-empty string if provided.`,
+  );
+  const iconHash = normalizeOptionalString(
+    (icon as Record<string, unknown> | undefined)?.hash,
+    `${capability} entry '${entry.id}' 'icon.hash' must be a non-empty string if provided.`,
+  );
+  if (icon !== undefined && (iconUrl === undefined || iconHash === undefined)) {
+    throw new HttpError(
+      400,
+      `${capability} entry '${entry.id}' 'icon' must include non-empty 'url' and 'hash' strings.`,
+    );
+  }
+
+  return {
+    id: entry.id.trim(),
+    name: normalizeOptionalString(
+      entry.name,
+      `${capability} entry '${entry.id}' name must be a string if provided.`,
+    ),
+    description: normalizeOptionalString(
+      entry.description,
+      `${capability} entry '${entry.id}' description must be a string if provided.`,
+    ),
+    source: resolvedSource.toString(),
+    kind,
+    type:
+      capability === "modules"
+        ? (entry.type as "adapter" | "environment")
+        : undefined,
+    icon:
+      iconUrl === undefined || iconHash === undefined
+        ? undefined
+        : { url: iconUrl, hash: iconHash },
+  };
+}
+
+/**
+ * Fetches and validates one page of a registry capability endpoint. All
+ * filtering is advisory: query params are forwarded untouched and entries are
+ * never filtered client-side, since that would break pagination.
+ */
+export async function fetchRegistryCapabilityPage(
+  capabilityUrl: string,
+  capability: "definitions" | "modules",
+  params: {
+    query?: string;
+    type?: string;
+    kind?: string;
+    cursor?: string;
+    limit?: number;
+  },
+): Promise<RegistryPage> {
+  const url = new URL(capabilityUrl);
+  if (params.query) url.searchParams.set("query", params.query);
+  if (params.type) url.searchParams.set("type", params.type);
+  if (params.kind) url.searchParams.set("kind", params.kind);
+  if (params.cursor) url.searchParams.set("cursor", params.cursor);
+  url.searchParams.set("limit", String(params.limit ?? 50));
+
+  const { body } = await fetchRegistryJsonSafe(url.toString(), capability);
+
+  if (Buffer.byteLength(JSON.stringify(body)) > MAX_CAPABILITY_PAGE_BYTES) {
+    throw new HttpError(
+      400,
+      `${capability} response exceeds the maximum page size.`,
+    );
+  }
+
+  const rawEntries = body[capability];
+  if (!Array.isArray(rawEntries)) {
+    throw new HttpError(
+      400,
+      `${capability} response must include a '${capability}' array.`,
+    );
+  }
+
+  const nextCursor = body.nextCursor;
+  if (
+    nextCursor !== undefined &&
+    nextCursor !== null &&
+    typeof nextCursor !== "string"
+  ) {
+    throw new HttpError(
+      400,
+      `${capability} response 'nextCursor' must be a string or null.`,
+    );
+  }
+
+  return {
+    entries: rawEntries.map((entry) =>
+      assertEntry(entry, capability, capabilityUrl),
+    ),
+    nextCursor: nextCursor ?? null,
   };
 }

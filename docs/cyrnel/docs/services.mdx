@@ -81,8 +81,8 @@ Response (`201`):
 ```json
 {
   "source": "https://registry.example.com/services/petstore",
-  "adapter": "openapi",
-  "id": "petstore"
+  "adapter": "openapi",   // optional; overrides the resolver default
+  "id": "petstore"        // optional; overrides the registry default
 }
 ```
 
@@ -96,7 +96,7 @@ interface RegistryDescriptor {
     downloadUrl: string;   // URL to the definition file
     hash?: string;         // SHA-256 of the definition text (skip + integrity)
     id?: string;           // default service id (client can override)
-    adapter?: string;      // default adapter module id (client can override)
+    kind?: string;         // definition kind, e.g. "openapi@3.0" (see Definition kinds)
     icon?: {               // optional service icon
       url: string;         //   raster image URL (png/webp only)
       hash: string;        //   SHA-256 of the image bytes
@@ -107,10 +107,18 @@ interface RegistryDescriptor {
 
 The `version` request field (optional) selects a semver range; omitted or
 `"latest"` resolves to `latestVersion`. If the response includes a `hash`, the server verifies the downloaded content
-matches it. The effective `id` and `adapter` are merged from the request body
-and registry response (body wins over registry default). The `source` URL is
-persisted in the database so the service can be re-resolved later for updates.
-The service starts disabled.
+matches it. The effective `id` is merged from the request body and the registry
+response (body wins over registry default). The `adapter` is resolved as follows:
+an explicit `adapter` in the body wins; otherwise the server ranks installed
+adapter modules against the definition `kind` (see [Definition kinds &
+adapter compatibility](/cyrnel/specs/definition-kinds)) and selects the best
+compatible and active adapter. The `source` URL is persisted in the database so
+the service can be re-resolved later for updates. The service starts disabled.
+
+`400` when the descriptor has no `kind` or when no installed adapter is
+compatible and active for the resolved `kind` (and the body did not provide an
+explicit `adapter` override). Resolve candidates first with
+`GET /services/install/adapters?kind=<kind>`.
 
 If a version entry declares an `icon`, the server downloads the image bytes
 through the same SSRF-guarded egress path as definitions, verifies the
@@ -134,7 +142,9 @@ Response (`201`):
 ```
 
 `409` on duplicate `id`. Either the request body or the registry must provide
-an `id` and `adapter` or the server returns `400`.
+an `id`; an `adapter` must be provided explicitly or resolvable from the
+definition `kind` with a compatible, active adapter module, otherwise the server
+returns `400`.
 
 ## Update a Service
 

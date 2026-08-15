@@ -17,8 +17,15 @@ import { generateDefinition } from "./generateDefinition";
 
 class OpenapiAdapter implements AdapterModule {
   private readonly services = new Map<string, ServiceState>();
+  private logger: ModuleSetupContext["logger"] | null = null;
 
-  async setup(_context: ModuleSetupContext): Promise<void> {}
+  async setup(context: ModuleSetupContext): Promise<void> {
+    const patterns =
+      (context.config.redactionPatterns as string[] | undefined) ?? [];
+    this.logger = context.logger.redact(patterns).child({
+      phase: "adapter-setup",
+    });
+  }
 
   async teardown(): Promise<void> {
     this.services.clear();
@@ -97,13 +104,52 @@ class OpenapiAdapter implements AdapterModule {
         ? service.config.timeoutMs
         : 30000;
 
-    return makeRequest({
-      method: toolDomain.method,
-      url,
-      headers: Object.keys(headers).length > 0 ? headers : undefined,
-      body: params.body,
-      timeoutMs,
+    const logger = this.logger?.child({
+      serviceId: input.serviceId,
+      toolId: input.toolId,
+      phase: "adapter-invoke",
     });
+    logger?.info(
+      {
+        event: "adapter-request",
+        method: toolDomain.method,
+        path: path,
+        requestHeaders: headers,
+      },
+      "Sending adapter request",
+    );
+
+    const startedAt = Date.now();
+    try {
+      const result = await makeRequest({
+        method: toolDomain.method,
+        url,
+        headers: Object.keys(headers).length > 0 ? headers : undefined,
+        body: params.body,
+        timeoutMs,
+      });
+
+      logger?.info(
+        {
+          event: "adapter-response",
+          statusCode: Number(result.status),
+          durationMs: Date.now() - startedAt,
+        },
+        "Received adapter response",
+      );
+
+      return result;
+    } catch (err) {
+      logger?.error(
+        {
+          event: "adapter-response-failed",
+          err,
+          durationMs: Date.now() - startedAt,
+        },
+        "Adapter request failed",
+      );
+      throw err;
+    }
   }
 }
 
@@ -116,6 +162,12 @@ export default {
         default: 30000,
         minimum: 1,
         description: "Default request timeout in milliseconds for all services",
+      },
+      redactionPatterns: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "Additional redaction path patterns merged with the host-enforced baseline for this module's logs",
       },
     },
     additionalProperties: false,

@@ -2,14 +2,22 @@ import type { Request, Response } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  addRegistry,
+  browseDefinitions,
+  browseModules,
   createRegistry,
   deleteRegistry,
   listRegistries,
+  refreshRegistry,
 } from "@/controllers/registry.controller";
 import { HttpError } from "@/models/error.model";
 
 const registriesService = {
   createRegistry: vi.fn(),
+  addRegistry: vi.fn(),
+  refreshRegistry: vi.fn(),
+  browseDefinitions: vi.fn(),
+  browseModules: vi.fn(),
   listRegistries: vi.fn(),
   getRegistry: vi.fn(),
   deleteRegistry: vi.fn(),
@@ -198,5 +206,194 @@ describe("registry.controller", () => {
         deleteRegistry(makeReq({ params: {} }), cast(res)),
       ).rejects.toBeInstanceOf(HttpError);
     });
+  });
+});
+
+const samplePage = {
+  entries: [
+    {
+      id: "github",
+      name: "GitHub",
+      source: "https://registry.github.com/definitions/github",
+      kind: "openapi@3.0",
+    },
+  ],
+  nextCursor: null,
+};
+
+describe("addRegistry", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+  it("adds a registry from baseUrl alone", async () => {
+    const res = makeRes();
+    registriesService.addRegistry.mockResolvedValue(sampleRecord);
+
+    await addRegistry(
+      makeReq({ body: { baseUrl: "  https://registry.example.com  " } }),
+      cast(res),
+    );
+
+    expect(registriesService.addRegistry).toHaveBeenCalledWith(
+      "https://registry.example.com",
+      undefined,
+    );
+    expect(res.status).toHaveBeenCalledWith(201);
+    expect(res.json).toHaveBeenCalledWith(sampleRecord);
+  });
+
+  it("forwards an id override", async () => {
+    const res = makeRes();
+    registriesService.addRegistry.mockResolvedValue(sampleRecord);
+
+    await addRegistry(
+      makeReq({
+        body: { baseUrl: "https://registry.example.com", id: "  alias  " },
+      }),
+      cast(res),
+    );
+
+    expect(registriesService.addRegistry).toHaveBeenCalledWith(
+      "https://registry.example.com",
+      "alias",
+    );
+  });
+
+  it.each([
+    { body: {}, why: "missing baseUrl" },
+    { body: { baseUrl: "not a url" }, why: "invalid baseUrl" },
+    { body: { baseUrl: "ftp://x.com" }, why: "non-http scheme" },
+    {
+      body: { baseUrl: "https://x.com", id: "not a slug" },
+      why: "bad id slug",
+    },
+    { body: "nope", why: "non-object body" },
+  ])("rejects $why", async ({ body }) => {
+    const res = makeRes();
+    await expect(
+      addRegistry(makeReq({ body }), cast(res)),
+    ).rejects.toBeInstanceOf(HttpError);
+    expect(registriesService.addRegistry).not.toHaveBeenCalled();
+  });
+});
+
+describe("refreshRegistry", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+  it("returns 200 with the updated record", async () => {
+    const res = makeRes();
+    registriesService.refreshRegistry.mockResolvedValue(sampleRecord);
+
+    await refreshRegistry(makeReq({ params: { id: "github" } }), cast(res));
+
+    expect(registriesService.refreshRegistry).toHaveBeenCalledWith("github");
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith(sampleRecord);
+  });
+
+  it("rejects a missing id", async () => {
+    const res = makeRes();
+    await expect(
+      refreshRegistry(makeReq({ params: {} }), cast(res)),
+    ).rejects.toBeInstanceOf(HttpError);
+  });
+});
+
+describe("browseDefinitions", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+  it("returns the definitions envelope and forwards params", async () => {
+    const res = makeRes();
+    registriesService.browseDefinitions.mockResolvedValue(samplePage);
+
+    await browseDefinitions(
+      makeReq({
+        params: { id: "github" },
+        query: { query: "git", kind: "github", limit: "25", cursor: "abc" },
+      }),
+      cast(res),
+    );
+
+    expect(registriesService.browseDefinitions).toHaveBeenCalledWith("github", {
+      query: "git",
+      kind: "github",
+      limit: 25,
+      cursor: "abc",
+    });
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith({
+      definitions: samplePage.entries,
+      nextCursor: null,
+    });
+  });
+
+  it("accepts an empty query string", async () => {
+    const res = makeRes();
+    registriesService.browseDefinitions.mockResolvedValue({
+      entries: [],
+      nextCursor: null,
+    });
+
+    await browseDefinitions(makeReq({ params: { id: "github" } }), cast(res));
+
+    expect(registriesService.browseDefinitions).toHaveBeenCalledWith("github", {
+      query: undefined,
+      kind: undefined,
+      limit: undefined,
+      cursor: undefined,
+    });
+  });
+
+  it.each([
+    { query: { query: "" }, why: "empty query" },
+    { query: { limit: "0" }, why: "zero limit" },
+    { query: { limit: "201" }, why: "limit above max" },
+    { query: { limit: "abc" }, why: "non-numeric limit" },
+  ])("rejects $why", async ({ query }) => {
+    const res = makeRes();
+    await expect(
+      browseDefinitions(makeReq({ params: { id: "x" }, query }), cast(res)),
+    ).rejects.toBeInstanceOf(HttpError);
+    expect(registriesService.browseDefinitions).not.toHaveBeenCalled();
+  });
+});
+
+describe("browseModules", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+  it("returns the modules envelope and forwards params", async () => {
+    const res = makeRes();
+    registriesService.browseModules.mockResolvedValue(samplePage);
+
+    await browseModules(
+      makeReq({ params: { id: "github" }, query: { type: "adapter" } }),
+      cast(res),
+    );
+
+    expect(registriesService.browseModules).toHaveBeenCalledWith("github", {
+      type: "adapter",
+      query: undefined,
+      limit: undefined,
+      cursor: undefined,
+    });
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith({
+      modules: samplePage.entries,
+      nextCursor: null,
+    });
+  });
+
+  it("rejects an invalid type", async () => {
+    const res = makeRes();
+    await expect(
+      browseModules(
+        makeReq({ params: { id: "x" }, query: { type: "wat" } }),
+        cast(res),
+      ),
+    ).rejects.toBeInstanceOf(HttpError);
+    expect(registriesService.browseModules).not.toHaveBeenCalled();
   });
 });

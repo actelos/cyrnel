@@ -29,7 +29,10 @@ import {
 import { logger } from "@/infra/logging";
 import type { HybridToolHit, SearchIndex } from "@/infra/search/search-engine";
 import { HttpError } from "@/models/error.model";
-import type { GenerateDefinitionInput } from "@/models/modules.model";
+import type {
+  GenerateDefinitionInput,
+  RankedAdapter,
+} from "@/models/modules.model";
 import type {
   DirectInstallServiceInput,
   GetServiceDefinitionResult,
@@ -88,6 +91,8 @@ export interface AdapterController {
   hydrateService(adapterId: string, state: ServiceState): Promise<void>;
   dehydrateService(adapterId: string, serviceId: string): Promise<void>;
   generateToolDocs(input: ToolDocsInput): Promise<string>;
+  rankAdapters(kind?: string): Promise<RankedAdapter[]>;
+  resolveDefaultAdapter(kind?: string): Promise<string | undefined>;
 }
 
 const encryptedSecretsSchema = z.object({
@@ -527,6 +532,18 @@ export class ServicesService {
     await this.reindexServiceSearch(input.id);
   }
 
+  async listInstallAdapters(
+    kind?: string,
+  ): Promise<{ default: string | null; adapters: RankedAdapter[] }> {
+    const adapters = await this.controller.rankAdapters(kind);
+    return {
+      default:
+        adapters.find((adapter) => adapter.compatible && adapter.active)?.id ??
+        null,
+      adapters,
+    };
+  }
+
   async createServiceFromRegistry(
     input: RegistryInstallServiceInput,
   ): Promise<string> {
@@ -534,7 +551,9 @@ export class ServicesService {
     const registry = await resolveServiceRegistry(input.source, input.version);
 
     const effectiveId = input.id ?? registry.id;
-    const effectiveAdapter = input.adapter ?? registry.adapter;
+    const effectiveAdapter =
+      input.adapter ??
+      (await this.controller.resolveDefaultAdapter(registry.kind));
 
     if (!effectiveId) {
       throw new HttpError(
@@ -546,7 +565,9 @@ export class ServicesService {
     if (!effectiveAdapter) {
       throw new HttpError(
         400,
-        "Adapter must be provided either in the request body or by the registry.",
+        `No adapter is available for definition kind '${
+          registry.kind ?? "(unknown)"
+        }'. Install a compatible adapter module or provide an adapter explicitly.`,
       );
     }
 
