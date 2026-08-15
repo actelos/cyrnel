@@ -82,6 +82,28 @@ describe("normalizeLogObject", () => {
     expect(entry.statusCode).toBe(500);
   });
 
+  it("preserves module log type and module context", () => {
+    const entry = normalizeLogObject(
+      rawLog({
+        type: "module",
+        moduleId: "mod",
+        moduleType: "adapter",
+        executionId: 9,
+        dispatchId: "dispatch-1",
+        toolId: "tool-a",
+        phase: "dispatch",
+      }),
+      1,
+    );
+    expect(entry.type).toBe("module");
+    expect(entry.moduleId).toBe("mod");
+    expect(entry.moduleType).toBe("adapter");
+    expect(entry.executionId).toBe(9);
+    expect(entry.dispatchId).toBe("dispatch-1");
+    expect(entry.toolId).toBe("tool-a");
+    expect(entry.phase).toBe("dispatch");
+  });
+
   it("keeps correlation keys and event", () => {
     const entry = normalizeLogObject(
       rawLog({

@@ -73,6 +73,23 @@ describe("matchesLogFilters", () => {
     expect(matchesLogFilters(entry, { environmentId: "env" })).toBe(true);
   });
 
+  it("matches module-specific context", () => {
+    const entry = makeEntry({
+      type: "module",
+      moduleType: "adapter",
+      executionId: 11,
+      dispatchId: "dispatch-1",
+      toolId: "tool-a",
+      phase: "dispatch",
+    });
+    expect(matchesLogFilters(entry, { type: "module" })).toBe(true);
+    expect(matchesLogFilters(entry, { moduleType: "adapter" })).toBe(true);
+    expect(matchesLogFilters(entry, { executionId: 11 })).toBe(true);
+    expect(matchesLogFilters(entry, { dispatchId: "dispatch-1" })).toBe(true);
+    expect(matchesLogFilters(entry, { toolId: "tool-a" })).toBe(true);
+    expect(matchesLogFilters(entry, { phase: "dispatch" })).toBe(true);
+  });
+
   it("matches statusCode and duration range", () => {
     const entry = makeEntry({
       type: "request",

@@ -13,8 +13,14 @@ interface EndpointMetadata {
 
 class HttpAdapter implements AdapterModule {
   private services = new Map<string, ServiceState>();
+  private logger: ModuleSetupContext["logger"] | null = null;
 
-  async setup(_context: ModuleSetupContext) {}
+  async setup(context: ModuleSetupContext) {
+    const patterns =
+      (context.config.redactionPatterns as string[] | undefined) ?? [];
+    this.logger = context.logger.redact(patterns).child({ phase: "setup" });
+    this.logger?.info({ event: "adapter-ready" }, "Adapter initialized");
+  }
 
   async teardown() {
     this.services.clear();
@@ -86,11 +92,29 @@ class HttpAdapter implements AdapterModule {
   }
 
   async invoke(input: InvokeInput): Promise<unknown> {
+    const logger = this.logger?.child({
+      serviceId: input.serviceId,
+      toolId: input.toolId,
+      phase: "invoke",
+    });
+
     const svc = this.services.get(input.serviceId);
-    if (!svc) throw new Error(`Service ${input.serviceId} not found`);
+    if (!svc) {
+      logger?.error(
+        { event: "service-not-found", serviceId: input.serviceId },
+        "Service not found",
+      );
+      throw new Error(`Service ${input.serviceId} not found`);
+    }
 
     const tool = svc.tools[input.toolId];
-    if (!tool) throw new Error(`Tool ${input.toolId} not found`);
+    if (!tool) {
+      logger?.error(
+        { event: "tool-not-found", toolId: input.toolId },
+        "Tool not found",
+      );
+      throw new Error(`Tool ${input.toolId} not found`);
+    }
 
     const { method, path } = tool.adapterDomain as EndpointMetadata;
     const baseUrl = svc.adapterDomain.baseUrl as string;
@@ -102,6 +126,11 @@ class HttpAdapter implements AdapterModule {
     };
     if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
 
+    logger?.info(
+      { event: "request", method, path },
+      "Forwarding request to upstream service",
+    );
+
     const res = await fetch(url, {
       method,
       headers,
@@ -109,6 +138,10 @@ class HttpAdapter implements AdapterModule {
     });
 
     if (!res.ok) {
+      logger?.error(
+        { event: "request-failed", status: res.status },
+        `Upstream responded ${res.status}`,
+      );
       throw new Error(`HTTP ${res.status}: ${await res.text()}`);
     }
 
@@ -119,7 +152,14 @@ class HttpAdapter implements AdapterModule {
 export default {
   configSchema: {
     type: "object",
-    properties: {},
+    properties: {
+      redactionPatterns: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "Path patterns (dot/bracket notation) merged additively with the host-enforced baseline for this module's logs.",
+      },
+    },
     additionalProperties: false,
   },
   secretsSchema: {

@@ -24,12 +24,15 @@ user-facing description.
 
 ## Setup
 
-`setup({ config, secrets, bindings })` is called when the environment is
-activated. `config` and `secrets` carry the module-level settings from
+`setup({ config, secrets, bindings, logger })` is called when the environment
+is activated. `config` and `secrets` carry the module-level settings from
 the `modules` database row. `bindings` is the host's
 [callback surface](/cyrnel/specs/environment-bindings), store it and use it to
 report execution state, capture I/O, and forward tool discovery /
-invocation requests.
+invocation requests. `logger` is the host-owned
+[`ModuleLogger`](/cyrnel/specs/types#modulelogger), store it and use it for
+all module logging; every entry is tagged `type: "module"` with your module's
+identity already applied.
 
 The host activates **at most one environment at a time**. A previously
 active environment is moved to draining state and torn down only after
