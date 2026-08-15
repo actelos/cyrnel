@@ -1,7 +1,31 @@
-import type { EnvironmentBindings, ExecutionInput } from "@cyrnel/sdk";
+import type {
+  EnvironmentBindings,
+  ExecutionInput,
+  ModuleLogBindings,
+  ModuleLogger,
+} from "@cyrnel/sdk";
 import { describe, expect, it, vi } from "vitest";
 
 import tsivm, { toBuffer } from "@/index";
+
+const stubLogger: ModuleLogger<ModuleLogBindings> = {
+  context: {},
+  child: <Next extends ModuleLogBindings>(
+    bindings: Next,
+  ): ModuleLogger<ModuleLogBindings & Next> =>
+    ({
+      ...stubLogger,
+      context: { ...stubLogger.context, ...bindings },
+    }) as ModuleLogger<ModuleLogBindings & Next>,
+  redact: () => stubLogger,
+  isLevelEnabled: () => true,
+  trace: () => {},
+  debug: () => {},
+  info: () => {},
+  warn: () => {},
+  error: () => {},
+  fatal: () => {},
+};
 
 describe("typescript-ivm default export", () => {
   it("declares the supported configSchema", () => {
@@ -13,6 +37,18 @@ describe("typescript-ivm default export", () => {
         queueTtlMs: { type: "integer", minimum: 1 },
         maxCodeSizeBytes: { type: "integer", minimum: 1024 },
         memoryLimitMb: { type: "integer", minimum: 16 },
+        bindings: {
+          type: "object",
+          properties: {
+            base64: { type: "boolean" },
+            textCodecs: { type: "boolean" },
+            url: { type: "boolean" },
+            timers: { type: "boolean" },
+            randomValues: { type: "boolean" },
+            fullConsole: { type: "boolean" },
+          },
+          additionalProperties: false,
+        },
       },
       additionalProperties: false,
     });
@@ -104,7 +140,12 @@ describe("environment module", () => {
     const { bindings, setState } = createBindings();
     const environment = tsivm.instantiate();
 
-    await environment.setup({ bindings, config: {}, secrets: {} });
+    await environment.setup({
+      bindings,
+      config: {},
+      secrets: {},
+      logger: stubLogger,
+    });
 
     const promise = environment.execute({
       eid: 42,
@@ -125,7 +166,12 @@ describe("environment module", () => {
     const { bindings, setState } = createBindings();
     const environment = tsivm.instantiate();
 
-    await environment.setup({ bindings, config: {}, secrets: {} });
+    await environment.setup({
+      bindings,
+      config: {},
+      secrets: {},
+      logger: stubLogger,
+    });
 
     const exec1 = environment.execute({
       eid: 1,
@@ -175,7 +221,12 @@ describe("environment module", () => {
     const { bindings } = createBindings();
     const environment = tsivm.instantiate();
 
-    await environment.setup({ bindings, config: {}, secrets: {} });
+    await environment.setup({
+      bindings,
+      config: {},
+      secrets: {},
+      logger: stubLogger,
+    });
 
     await environment.execute({
       eid: 4,
@@ -187,7 +238,12 @@ describe("environment module", () => {
 
     await environment.teardown();
 
-    await environment.setup({ bindings, config: {}, secrets: {} });
+    await environment.setup({
+      bindings,
+      config: {},
+      secrets: {},
+      logger: stubLogger,
+    });
 
     const result = await environment.execute({
       eid: 5,
@@ -204,7 +260,12 @@ describe("environment module", () => {
     const { bindings } = createBindings();
     const environment = tsivm.instantiate();
 
-    await environment.setup({ bindings, config: {}, secrets: {} });
+    await environment.setup({
+      bindings,
+      config: {},
+      secrets: {},
+      logger: stubLogger,
+    });
 
     const result = await environment.execute({
       eid: 7,
@@ -221,7 +282,12 @@ describe("environment module", () => {
     const { bindings } = createBindings();
     const environment = tsivm.instantiate();
 
-    await environment.setup({ bindings, config: {}, secrets: {} });
+    await environment.setup({
+      bindings,
+      config: {},
+      secrets: {},
+      logger: stubLogger,
+    });
 
     const result = await environment.execute({
       eid: 8,
@@ -242,6 +308,7 @@ describe("environment module", () => {
       bindings,
       config: { maxCodeSizeBytes: 1024 },
       secrets: {},
+      logger: stubLogger,
     });
 
     const result = await environment.execute({
@@ -261,7 +328,12 @@ describe("environment module", () => {
     const { bindings } = createBindings();
     const environment = tsivm.instantiate();
 
-    await environment.setup({ bindings, config: {}, secrets: {} });
+    await environment.setup({
+      bindings,
+      config: {},
+      secrets: {},
+      logger: stubLogger,
+    });
 
     const exec1 = environment.execute({
       eid: 1,
@@ -297,7 +369,12 @@ describe("environment module", () => {
     const { bindings } = createBindings();
     const environment = tsivm.instantiate();
 
-    await environment.setup({ bindings, config: {}, secrets: {} });
+    await environment.setup({
+      bindings,
+      config: {},
+      secrets: {},
+      logger: stubLogger,
+    });
 
     const promise = environment.execute({
       eid: 9,
@@ -317,7 +394,12 @@ describe("environment module", () => {
     const { bindings } = createBindings();
     const environment = tsivm.instantiate();
 
-    await environment.setup({ bindings, config: {}, secrets: {} });
+    await environment.setup({
+      bindings,
+      config: {},
+      secrets: {},
+      logger: stubLogger,
+    });
 
     const promise = environment.execute({
       eid: 10,
@@ -342,7 +424,12 @@ describe("environment module", () => {
     const { bindings } = createBindings();
     const environment = tsivm.instantiate();
 
-    await environment.setup({ bindings, config: {}, secrets: {} });
+    await environment.setup({
+      bindings,
+      config: {},
+      secrets: {},
+      logger: stubLogger,
+    });
 
     const result = await environment.execute({
       eid: 12,
@@ -357,7 +444,12 @@ describe("environment module", () => {
     const { bindings } = createBindings();
     const environment = tsivm.instantiate();
 
-    await environment.setup({ bindings, config: {}, secrets: {} });
+    await environment.setup({
+      bindings,
+      config: {},
+      secrets: {},
+      logger: stubLogger,
+    });
 
     const result = await environment.execute({
       eid: 13,
@@ -372,7 +464,12 @@ describe("environment module", () => {
     const { bindings } = createBindings();
     const environment = tsivm.instantiate();
 
-    await environment.setup({ bindings, config: {}, secrets: {} });
+    await environment.setup({
+      bindings,
+      config: {},
+      secrets: {},
+      logger: stubLogger,
+    });
 
     const promise = environment.execute({
       eid: 20,
@@ -410,7 +507,12 @@ describe("environment module", () => {
     const { bindings } = createBindings();
     const environment = tsivm.instantiate();
 
-    await environment.setup({ bindings, config: {}, secrets: {} });
+    await environment.setup({
+      bindings,
+      config: {},
+      secrets: {},
+      logger: stubLogger,
+    });
 
     const exec1 = environment.execute({
       eid: 31,
@@ -446,6 +548,7 @@ describe("environment module", () => {
       bindings,
       config: { poolSize: 1, queueTtlMs: 1 },
       secrets: {},
+      logger: stubLogger,
     });
 
     const exec1 = environment.execute({
@@ -475,7 +578,12 @@ describe("environment module", () => {
     const { bindings, setState } = createBindings();
     const environment = tsivm.instantiate();
 
-    await environment.setup({ bindings, config: { poolSize: 1 }, secrets: {} });
+    await environment.setup({
+      bindings,
+      config: { poolSize: 1 },
+      secrets: {},
+      logger: stubLogger,
+    });
 
     const exec1 = environment.execute({
       eid: 41,
@@ -510,6 +618,7 @@ describe("environment module", () => {
       bindings,
       config: { poolSize: 1, maxQueueSize: 1 },
       secrets: {},
+      logger: stubLogger,
     });
 
     const exec1 = environment.execute({
@@ -536,5 +645,116 @@ describe("environment module", () => {
     await environment.kill(51);
     await environment.kill(52);
     await Promise.all([exec1, exec2]);
+  });
+
+  it("lists every binding as disabled in docs by default", async () => {
+    const { bindings } = createBindings();
+    const environment = tsivm.instantiate();
+
+    await environment.setup({
+      bindings,
+      config: {},
+      secrets: {},
+      logger: stubLogger,
+    });
+
+    const docs = await environment.generateDocs();
+
+    expect(docs).toContain("## Optional bindings (currently disabled)");
+    expect(docs).not.toContain("## Enabled optional bindings");
+    expect(docs).toContain("btoa(str), atob(str) (base64 binding disabled)");
+    expect(docs).toContain(
+      "TextEncoder, TextDecoder (textCodecs binding disabled)",
+    );
+    expect(docs).toContain("URL, URLSearchParams (url binding disabled)");
+    expect(docs).toContain(
+      "setTimeout(cb, ms), setInterval(cb, ms), clearTimeout(id), clearInterval(id), queueMicrotask(cb) (timers binding disabled)",
+    );
+    expect(docs).toContain(
+      "crypto.getRandomValues(typedArray), crypto.randomUUID() (randomValues binding disabled)",
+    );
+    expect(docs).toContain(
+      "console.warn/info/debug/table/trace/time/count/group/assert and other methods (fullConsole binding disabled)",
+    );
+  });
+
+  it("reflects enabled bindings in docs", async () => {
+    const { bindings } = createBindings();
+    const environment = tsivm.instantiate();
+
+    await environment.setup({
+      bindings,
+      config: { bindings: { base64: true, fullConsole: true } },
+      secrets: {},
+      logger: stubLogger,
+    });
+
+    const docs = await environment.generateDocs();
+
+    expect(docs).toContain(
+      "## Enabled optional bindings (operator-configured)",
+    );
+    expect(docs).toContain("- **base64**: `btoa(str), atob(str)`");
+    expect(docs).toContain("- **fullConsole**: `console.warn");
+    expect(docs).toContain("textCodecs binding disabled");
+    expect(docs).not.toContain("base64 binding disabled");
+  });
+
+  it("enabling url implies textCodecs in docs", async () => {
+    const { bindings } = createBindings();
+    const environment = tsivm.instantiate();
+
+    await environment.setup({
+      bindings,
+      config: { bindings: { url: true } },
+      secrets: {},
+      logger: stubLogger,
+    });
+
+    const urlDocs = await environment.generateDocs();
+    expect(urlDocs).toContain("URL");
+    expect(urlDocs).toContain("- **textCodecs**: `TextEncoder, TextDecoder");
+    expect(urlDocs).not.toContain("textCodecs binding disabled");
+  });
+
+  it("does not leak bindings between environments with different configs", async () => {
+    const { bindings } = createBindings();
+    const urlEnvironment = tsivm.instantiate();
+    const base64Environment = tsivm.instantiate();
+
+    await urlEnvironment.setup({
+      bindings,
+      config: { bindings: { url: true } },
+      secrets: {},
+      logger: stubLogger,
+    });
+    await base64Environment.setup({
+      bindings,
+      config: { bindings: { base64: true } },
+      secrets: {},
+      logger: stubLogger,
+    });
+
+    const urlResult = await urlEnvironment.execute({
+      eid: 61,
+      code: `const u = new URL("https://example.com/x");
+console.log(typeof btoa === "undefined", u.pathname);`,
+      envConfig: { timeoutMs: 30_000 },
+    } satisfies ExecutionInput);
+    const base64Result = await base64Environment.execute({
+      eid: 62,
+      code: `console.log(typeof URL === "undefined", btoa("ok"));`,
+      envConfig: { timeoutMs: 30_000 },
+    } satisfies ExecutionInput);
+
+    expect(urlResult).toBe("success");
+    expect(base64Result).toBe("success");
+    const stdout = bindings.emitStdout.mock.calls.map((call) =>
+      call[1].toString("utf8"),
+    );
+    expect(stdout).toEqual(["true /x\n", "true b2s=\n"]);
+
+    await urlEnvironment.teardown();
+    await base64Environment.teardown();
   });
 });
