@@ -3,6 +3,7 @@ import { maxSatisfying, valid } from "semver";
 import { HttpError } from "@/models/error.model";
 import { assertKind } from "@/utils/compatibility.util";
 import { assertRegistryAddressAllowed } from "@/utils/download.util";
+import { fetchWithRegistryAuth } from "@/utils/registry-auth.util";
 
 const REGISTRY_FETCH_TIMEOUT_MS = 10_000;
 
@@ -50,37 +51,7 @@ async function fetchRegistryJson(
   source: string,
   label: string,
 ): Promise<Record<string, unknown>> {
-  await assertRegistryAddressAllowed(source);
-
-  const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(),
-    REGISTRY_FETCH_TIMEOUT_MS,
-  );
-
-  let response: Response;
-  try {
-    response = await fetch(source, { signal: controller.signal });
-  } catch {
-    clearTimeout(timeout);
-    throw new HttpError(502, `Failed to fetch ${label} registry metadata.`);
-  }
-  clearTimeout(timeout);
-
-  if (!response.ok) {
-    throw new HttpError(
-      502,
-      `${label} registry responded with status ${response.status}.`,
-    );
-  }
-
-  let body: Record<string, unknown>;
-  try {
-    body = (await response.json()) as Record<string, unknown>;
-  } catch {
-    throw new HttpError(400, `${label} registry returned invalid JSON.`);
-  }
-
+  const { body } = await fetchRegistryJsonSafe(source, label);
   return body;
 }
 
@@ -345,10 +316,9 @@ async function fetchRegistryJsonSafe(
 
     let response: Response;
     try {
-      response = await fetch(currentUrl, {
+      ({ response } = await fetchWithRegistryAuth(currentUrl, {
         signal: controller.signal,
-        redirect: "manual",
-      });
+      }));
     } catch {
       clearTimeout(timeout);
       throw new HttpError(502, `Failed to fetch ${label} registry metadata.`);
@@ -399,7 +369,18 @@ export interface RegistryIndexInfo {
   finalUrl: string;
   definitions: ResolvedCapability | null;
   modules: ResolvedCapability | null;
+  auth: RegistryAuthDeclaration | null;
 }
+
+export type RegistryAuthDeclaration =
+  | { type: "apiKey"; name: string }
+  | {
+      type: "oauth2";
+      grantType: "client_credentials";
+      tokenEndpoint: string;
+      scopes?: string[];
+    }
+  | { type: "unsupported"; declaredType: string; reason?: string };
 
 const SUPPORTED_DEFINITIONS_VERSIONS = [1] as const;
 const SUPPORTED_MODULES_VERSIONS = [1] as const;
@@ -440,6 +421,101 @@ function resolveCapability(
   }
 
   return { version: best.version, url: resolved.toString() };
+}
+
+function parseAdvertisedAuth(
+  body: Record<string, unknown>,
+  label: string,
+): RegistryAuthDeclaration | null {
+  const auth = body.auth;
+  if (auth === undefined) return null;
+
+  if (typeof auth !== "object" || auth === null || Array.isArray(auth)) {
+    throw new HttpError(
+      400,
+      `${label} registry 'auth' must be an object if provided.`,
+    );
+  }
+
+  const record = auth as Record<string, unknown>;
+  if (typeof record.type !== "string" || record.type.trim().length === 0) {
+    throw new HttpError(
+      400,
+      `${label} registry 'auth.type' must be a non-empty string.`,
+    );
+  }
+
+  if (record.type === "apiKey") {
+    if (record.in !== undefined && record.in !== "header") {
+      return {
+        type: "unsupported",
+        declaredType: "apiKey",
+        reason:
+          "'in' must be 'header'; query-param api keys are not supported.",
+      };
+    }
+    assertNonEmptyString(
+      record.name,
+      `${label} registry apiKey 'auth.name' must be a non-empty string.`,
+    );
+    return { type: "apiKey", name: record.name.trim() };
+  }
+
+  if (record.type === "oauth2") {
+    if (
+      record.grantType !== undefined &&
+      record.grantType !== "client_credentials"
+    ) {
+      return {
+        type: "unsupported",
+        declaredType: "oauth2",
+        reason: `grant '${record.grantType}' is not supported; only 'client_credentials' is.`,
+      };
+    }
+    assertNonEmptyString(
+      record.tokenEndpoint,
+      `${label} registry oauth2 'auth.tokenEndpoint' must be a non-empty string.`,
+    );
+    const tokenEndpoint = record.tokenEndpoint.trim();
+    let parsed: URL;
+    try {
+      parsed = new URL(tokenEndpoint);
+    } catch {
+      throw new HttpError(
+        400,
+        `${label} registry oauth2 'auth.tokenEndpoint' must be a valid absolute URL.`,
+      );
+    }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      throw new HttpError(
+        400,
+        `${label} registry oauth2 'auth.tokenEndpoint' must be an http(s) URL.`,
+      );
+    }
+
+    let scopes: string[] | undefined;
+    if (record.scopes !== undefined) {
+      if (
+        !Array.isArray(record.scopes) ||
+        !record.scopes.every((scope) => typeof scope === "string")
+      ) {
+        throw new HttpError(
+          400,
+          `${label} registry oauth2 'auth.scopes' must be an array of strings if provided.`,
+        );
+      }
+      scopes = (record.scopes as string[]).map((scope) => scope.trim());
+    }
+
+    return {
+      type: "oauth2",
+      grantType: "client_credentials",
+      tokenEndpoint,
+      scopes,
+    };
+  }
+
+  return { type: "unsupported", declaredType: record.type };
 }
 
 /**
@@ -487,6 +563,7 @@ export async function fetchRegistryIndex(
       finalUrl,
       "Well-known",
     ),
+    auth: parseAdvertisedAuth(body, "Well-known"),
   };
 }
 

@@ -545,6 +545,157 @@ describe("fetchRegistryIndex", () => {
       fetchRegistryIndex("https://registry.example.com"),
     ).rejects.toMatchObject({ statusCode: 502 });
   });
+
+  describe("well-known auth advertisement", () => {
+    function indexBodyWithAuth(auth: unknown): Record<string, unknown> {
+      return {
+        id: "cyrnel-dev",
+        ...(auth === undefined ? {} : { auth }),
+        "definitions.v1": "/definitions/v1",
+      };
+    }
+
+    async function fetchIndexWithAuth(auth: unknown) {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => jsonResponse(indexBodyWithAuth(auth))),
+      );
+      return fetchRegistryIndex("https://registry.example.com");
+    }
+
+    it("returns null when no auth key is advertised", async () => {
+      const index = await fetchIndexWithAuth(undefined);
+      expect(index.auth).toBeNull();
+    });
+
+    it("parses an apiKey advertisement and trims the header name", async () => {
+      const index = await fetchIndexWithAuth({
+        type: "apiKey",
+        name: "  X-Dev-Key  ",
+      });
+      expect(index.auth).toEqual({ type: "apiKey", name: "X-Dev-Key" });
+    });
+
+    it("accepts apiKey without an 'in' key", async () => {
+      const index = await fetchIndexWithAuth({
+        type: "apiKey",
+        name: "X-Dev-Key",
+      });
+      expect(index.auth).toEqual({ type: "apiKey", name: "X-Dev-Key" });
+    });
+
+    it("marks query-param api keys as unsupported", async () => {
+      const index = await fetchIndexWithAuth({
+        type: "apiKey",
+        name: "key",
+        in: "query",
+      });
+      expect(index.auth).toMatchObject({
+        type: "unsupported",
+        declaredType: "apiKey",
+      });
+    });
+
+    it("parses an oauth2 client-credentials advertisement with scopes", async () => {
+      const index = await fetchIndexWithAuth({
+        type: "oauth2",
+        grantType: "client_credentials",
+        tokenEndpoint: "https://registry.example.com/oauth/token",
+        scopes: ["definitions:read", " modules:read "],
+      });
+      expect(index.auth).toEqual({
+        type: "oauth2",
+        grantType: "client_credentials",
+        tokenEndpoint: "https://registry.example.com/oauth/token",
+        scopes: ["definitions:read", "modules:read"],
+      });
+    });
+
+    it("omits scopes when not advertised", async () => {
+      const index = await fetchIndexWithAuth({
+        type: "oauth2",
+        grantType: "client_credentials",
+        tokenEndpoint: "https://registry.example.com/oauth/token",
+      });
+      expect(index.auth).toEqual({
+        type: "oauth2",
+        grantType: "client_credentials",
+        tokenEndpoint: "https://registry.example.com/oauth/token",
+      });
+    });
+
+    it("marks non-client-credentials grants as unsupported", async () => {
+      const index = await fetchIndexWithAuth({
+        type: "oauth2",
+        grantType: "authorization_code",
+        tokenEndpoint: "https://registry.example.com/oauth/token",
+      });
+      expect(index.auth).toMatchObject({
+        type: "unsupported",
+        declaredType: "oauth2",
+      });
+    });
+
+    it("rejects an oauth2 advertisement with a non-absolute token endpoint", async () => {
+      await expect(
+        fetchIndexWithAuth({
+          type: "oauth2",
+          grantType: "client_credentials",
+          tokenEndpoint: "/oauth/token",
+        }),
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it("rejects an oauth2 advertisement with a non-http(s) token endpoint", async () => {
+      await expect(
+        fetchIndexWithAuth({
+          type: "oauth2",
+          grantType: "client_credentials",
+          tokenEndpoint: "mailto:token@example.com",
+        }),
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it("rejects an oauth2 advertisement with non-string scopes", async () => {
+      await expect(
+        fetchIndexWithAuth({
+          type: "oauth2",
+          grantType: "client_credentials",
+          tokenEndpoint: "https://registry.example.com/oauth/token",
+          scopes: [42],
+        }),
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it("rejects an apiKey advertisement without a name", async () => {
+      await expect(
+        fetchIndexWithAuth({ type: "apiKey" }),
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it("marks unknown auth types as unsupported for forward compatibility", async () => {
+      const index = await fetchIndexWithAuth({
+        type: "jwt",
+        issuer: "https://x",
+      });
+      expect(index.auth).toEqual({
+        type: "unsupported",
+        declaredType: "jwt",
+      });
+    });
+
+    it("rejects a non-object auth value", async () => {
+      await expect(fetchIndexWithAuth("apiKey")).rejects.toMatchObject({
+        statusCode: 400,
+      });
+    });
+
+    it("rejects an auth value with a blank type", async () => {
+      await expect(
+        fetchIndexWithAuth({ type: " ", name: "X-Key" }),
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
+  });
 });
 
 const DEFINITIONS_PAGE = {
