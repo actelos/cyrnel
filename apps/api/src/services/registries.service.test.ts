@@ -1,4 +1,6 @@
+import crypto from "node:crypto";
 import fs from "node:fs/promises";
+import { createServer } from "node:http";
 import path from "node:path";
 import { eq, sql } from "drizzle-orm";
 import {
@@ -13,10 +15,14 @@ import {
 } from "vitest";
 
 import { db } from "@/db/client";
-import { registries } from "@/db/schema";
+import { registries, registryAuth } from "@/db/schema";
 import { HttpError } from "@/models/error.model";
 import { RegistriesService } from "@/services/registries.service";
 import { encodeCursor } from "@/utils/pagination.util";
+import {
+  invalidateAccessToken,
+  invalidateRegistryAuthCache,
+} from "@/utils/registry-auth.util";
 
 vi.mock("@/utils/download.util", () => ({
   assertRegistryAddressAllowed: vi.fn(async () => undefined),
@@ -25,6 +31,12 @@ vi.mock("@/utils/download.util", () => ({
 const MIGRATIONS_DIR = path.resolve(import.meta.dirname, "../../drizzle");
 
 async function applyMigrations(): Promise<void> {
+  const existing = await db.run(
+    sql.raw(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='registries'",
+    ),
+  );
+  if (existing.rows.length > 0) return;
   const entries = (await fs.readdir(MIGRATIONS_DIR))
     .filter((name) => name.endsWith(".sql"))
     .sort();
@@ -643,6 +655,551 @@ describe("seedDefault()", () => {
       items: [],
       nextCursor: null,
       hasMore: false,
+    });
+  });
+});
+
+describe("RegistriesService registry auth", () => {
+  type Enforcement = "none" | "apikey" | "oauth2";
+
+  interface FixtureState {
+    enforcement: Enforcement;
+    advertisement: unknown;
+    apiKey: string;
+    keyHeader: string;
+    clientId: string;
+    clientSecret: string;
+    tokenEndpoint: string | null;
+    token: string;
+    failNextDefinitions: number;
+    tokenExchanges: number;
+    tokenBodies: string[];
+    definitionsHeaders: Array<Record<string, string | string[] | undefined>>;
+  }
+
+  const SECRETS_KEY = crypto.randomBytes(32).toString("base64");
+  const originalSecretsKey = process.env.CYRNEL_SECRETS_KEY;
+  const originalPreviousKeys = process.env.CYRNEL_SECRETS_PREVIOUS_KEYS;
+
+  const state: FixtureState = {
+    enforcement: "none",
+    advertisement: undefined,
+    apiKey: "fixture-key",
+    keyHeader: "X-Fixture-Key",
+    clientId: "fixture-client",
+    clientSecret: "fixture-secret",
+    tokenEndpoint: null,
+    token: "fixture-access-token",
+    failNextDefinitions: 0,
+    tokenExchanges: 0,
+    tokenBodies: [],
+    definitionsHeaders: [],
+  };
+
+  let baseUrl: string;
+  let fixtureServer: import("node:http").Server;
+
+  function advertiseApiKey(headerName = state.keyHeader): void {
+    state.advertisement = { type: "apiKey", name: headerName };
+  }
+
+  function advertiseOAuth2(tokenEndpoint?: string): void {
+    state.advertisement = {
+      type: "oauth2",
+      grantType: "client_credentials",
+      tokenEndpoint: tokenEndpoint ?? `${baseUrl}/oauth/token`,
+      scopes: ["registry:read"],
+    };
+  }
+
+  function isAuthorized(
+    headers: Record<string, string | string[] | undefined>,
+  ): boolean {
+    if (state.enforcement === "apikey") {
+      return headers[state.keyHeader.toLowerCase()] === state.apiKey;
+    }
+    if (state.enforcement === "oauth2") {
+      return headers.authorization === `Bearer ${state.token}`;
+    }
+    return true;
+  }
+
+  beforeAll(async () => {
+    process.env.CYRNEL_SECRETS_KEY = SECRETS_KEY;
+    delete process.env.CYRNEL_SECRETS_PREVIOUS_KEYS;
+    await applyMigrations();
+
+    fixtureServer = createServer((req, res) => {
+      const url = new URL(
+        req.url ?? "/",
+        `http://127.0.0.1:${req.socket.localPort ?? 0}`,
+      );
+
+      if (req.method === "POST" && url.pathname === "/oauth/token") {
+        let body = "";
+        req.on("data", (chunk: Buffer) => {
+          body += chunk.toString("utf8");
+        });
+        req.on("end", () => {
+          state.tokenExchanges += 1;
+          state.tokenBodies.push(body);
+          const params = new URLSearchParams(body);
+          if (
+            params.get("client_id") !== state.clientId ||
+            params.get("client_secret") !== state.clientSecret
+          ) {
+            res.writeHead(401, { "content-type": "application/json" });
+            res.end(JSON.stringify({ error: "invalid_client" }));
+            return;
+          }
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(
+            JSON.stringify({
+              access_token: state.token,
+              token_type: "Bearer",
+              expires_in: 3600,
+            }),
+          );
+        });
+        return;
+      }
+
+      if (url.pathname === "/.well-known/registry.json") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            id: "auth-fixture",
+            ...(state.advertisement === undefined
+              ? {}
+              : { auth: state.advertisement }),
+            "definitions.v1": "/definitions/v1",
+          }),
+        );
+        return;
+      }
+
+      if (url.pathname === "/definitions/v1") {
+        state.definitionsHeaders.push(req.headers);
+        if (state.failNextDefinitions > 0) {
+          state.failNextDefinitions -= 1;
+          res.writeHead(401, { "content-type": "application/json" });
+          res.end(JSON.stringify({ error: "unauthorized" }));
+          return;
+        }
+        if (!isAuthorized(req.headers)) {
+          res.writeHead(401, { "content-type": "application/json" });
+          res.end(JSON.stringify({ error: "unauthorized" }));
+          return;
+        }
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ definitions: [], nextCursor: null }));
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: `Not found: ${url.pathname}` }));
+    });
+
+    await new Promise<void>((resolve) => {
+      fixtureServer.listen(0, "127.0.0.1", resolve);
+    });
+    const address = fixtureServer.address();
+    if (address === null || typeof address === "string") {
+      throw new Error("auth fixture server did not bind a port");
+    }
+    baseUrl = `http://127.0.0.1:${address.port}`;
+    state.tokenEndpoint = `${baseUrl}/oauth/token`;
+  });
+
+  afterAll(async () => {
+    if (originalSecretsKey === undefined) {
+      delete process.env.CYRNEL_SECRETS_KEY;
+    } else {
+      process.env.CYRNEL_SECRETS_KEY = originalSecretsKey;
+    }
+    if (originalPreviousKeys === undefined) {
+      delete process.env.CYRNEL_SECRETS_PREVIOUS_KEYS;
+    } else {
+      process.env.CYRNEL_SECRETS_PREVIOUS_KEYS = originalPreviousKeys;
+    }
+    await new Promise<void>((resolve, reject) => {
+      fixtureServer.close((err) => (err ? reject(err) : resolve()));
+    });
+    await resetDb();
+  });
+
+  beforeEach(async () => {
+    await db.run(sql.raw("PRAGMA foreign_keys = OFF"));
+    await db.run(sql.raw("DELETE FROM registry_auth"));
+    await db.run(sql.raw("DELETE FROM registries"));
+    await db.run(sql.raw("PRAGMA foreign_keys = ON"));
+    invalidateRegistryAuthCache();
+
+    state.enforcement = "none";
+    state.advertisement = undefined;
+    state.failNextDefinitions = 0;
+    state.tokenExchanges = 0;
+    state.tokenBodies = [];
+    state.definitionsHeaders = [];
+  });
+
+  it("stores api key credentials encrypted and attaches them on browse", async () => {
+    advertiseApiKey();
+    state.enforcement = "apikey";
+
+    const result = await svc.addRegistry(baseUrl, undefined, {
+      type: "apiKey",
+      apiKey: state.apiKey,
+    });
+
+    expect(result.id).toBe("auth-fixture");
+    expect(result.auth).toMatchObject({
+      type: "apiKey",
+      status: "configured",
+    });
+
+    const [row] = await db
+      .select()
+      .from(registryAuth)
+      .where(eq(registryAuth.registryId, result.id))
+      .limit(1);
+    expect(row).toBeDefined();
+    expect(row.authType).toBe("apiKey");
+    expect(row.headerName).toBe("X-Fixture-Key");
+    expect(JSON.stringify(row.config)).not.toContain(state.apiKey);
+    expect(JSON.stringify(row.config)).toContain("aes-256-gcm");
+
+    await svc.browseDefinitions(result.id, {});
+    const lastHeaders = state.definitionsHeaders.at(-1);
+    expect(lastHeaders?.["x-fixture-key"]).toBe(state.apiKey);
+
+    const authState = await svc.getAuthState(result.id);
+    expect(authState.authType).toBe("apiKey");
+    expect(authState.headerName).toBe("X-Fixture-Key");
+    expect(authState.tokenExpiresAt).toBeNull();
+  });
+
+  it("list responses expose auth metadata but never secrets", async () => {
+    advertiseApiKey();
+    state.enforcement = "apikey";
+    await svc.addRegistry(baseUrl, undefined, {
+      type: "apiKey",
+      apiKey: "super-secret-key",
+    });
+
+    const { items } = await svc.listRegistries();
+    expect(items[0].authType).toBe("apiKey");
+    const serialized = JSON.stringify(items);
+    expect(serialized).not.toContain("super-secret-key");
+    expect(serialized).not.toContain("aes-256-gcm");
+  });
+
+  it("exchanges oauth2 credentials, caches the token, and browses with the bearer", async () => {
+    advertiseOAuth2();
+    state.enforcement = "oauth2";
+
+    const result = await svc.addRegistry(baseUrl, undefined, {
+      type: "oauth2",
+      clientId: state.clientId,
+      clientSecret: state.clientSecret,
+      scopes: ["registry:read", "registry:write"],
+    });
+
+    expect(result.auth).toMatchObject({
+      type: "oauth2",
+      status: "configured",
+    });
+    expect(result.auth?.tokenExpiresAt).toBeGreaterThan(Date.now() + 3_500_000);
+    expect(state.tokenExchanges).toBe(1);
+
+    const params = new URLSearchParams(state.tokenBodies[0]);
+    expect(params.get("grant_type")).toBe("client_credentials");
+    expect(params.get("client_id")).toBe(state.clientId);
+    expect(params.get("scope")).toBe("registry:read registry:write");
+
+    await svc.browseDefinitions(result.id, {});
+    expect(state.definitionsHeaders.at(-1)?.authorization).toBe(
+      `Bearer ${state.token}`,
+    );
+
+    const authState = await svc.getAuthState(result.id);
+    expect(authState.authType).toBe("oauth2");
+    expect(authState.tokenEndpoint).toBe(state.tokenEndpoint);
+    expect(authState.tokenExpiresAt).not.toBeNull();
+  });
+
+  it("never stores credentials when the methods mismatch", async () => {
+    advertiseOAuth2();
+    state.enforcement = "oauth2";
+
+    const result = await svc.addRegistry(baseUrl, undefined, {
+      type: "apiKey",
+      apiKey: "super-secret-key",
+    });
+
+    expect(result.auth).toMatchObject({
+      type: "apiKey",
+      status: "error",
+      message: expect.stringContaining("oauth2"),
+    });
+    expect((await svc.listRegistries()).items).toHaveLength(1);
+    const [row] = await db.select().from(registryAuth).limit(1);
+    expect(row).toBeUndefined();
+
+    await expect(
+      svc.setRegistryAuth(result.id, {
+        type: "apiKey",
+        apiKey: "super-secret-key",
+      }),
+    ).rejects.toMatchObject({ statusCode: 400 });
+    const [stillEmpty] = await db.select().from(registryAuth).limit(1);
+    expect(stillEmpty).toBeUndefined();
+  });
+
+  it("stores the registry with error status when the token exchange fails at setup", async () => {
+    advertiseOAuth2();
+    state.enforcement = "oauth2";
+
+    const result = await svc.addRegistry(baseUrl, undefined, {
+      type: "oauth2",
+      clientId: "wrong-client",
+      clientSecret: "wrong-secret",
+    });
+
+    expect(result.auth).toMatchObject({ type: "oauth2", status: "error" });
+    expect((await svc.listRegistries()).items).toHaveLength(1);
+
+    const repaired = await svc.setRegistryAuth(result.id, {
+      type: "oauth2",
+      clientId: state.clientId,
+      clientSecret: state.clientSecret,
+    });
+    expect(repaired.auth.status).toBe("configured");
+    expect(repaired.auth.tokenExpiresAt).not.toBeNull();
+
+    await expect(svc.browseDefinitions(result.id, {})).resolves.toBeDefined();
+  });
+
+  it("refuses plaintext-http token endpoints advertised outside loopback", async () => {
+    advertiseOAuth2("http://public.invalid/oauth/token");
+    state.enforcement = "oauth2";
+
+    await expect(
+      svc.addRegistry(baseUrl, undefined, {
+        type: "oauth2",
+        clientId: state.clientId,
+        clientSecret: state.clientSecret,
+      }),
+    ).rejects.toMatchObject({ statusCode: 400 });
+
+    expect((await svc.listRegistries()).items).toHaveLength(0);
+  });
+
+  it("keeps the pinned token endpoint when the advertisement drifts", async () => {
+    advertiseOAuth2();
+    state.enforcement = "oauth2";
+    const result = await svc.addRegistry(baseUrl, undefined, {
+      type: "oauth2",
+      clientId: state.clientId,
+      clientSecret: state.clientSecret,
+    });
+
+    advertiseOAuth2(`${baseUrl}/oauth/drift-token`);
+
+    await expect(svc.refreshRegistry(result.id)).resolves.toMatchObject({
+      id: result.id,
+    });
+
+    const authState = await svc.getAuthState(result.id);
+    expect(authState.tokenEndpoint).toBe(state.tokenEndpoint);
+  });
+
+  it("keeps the pinned header name when the api key advertisement drifts", async () => {
+    advertiseApiKey();
+    state.enforcement = "apikey";
+    const result = await svc.addRegistry(baseUrl, undefined, {
+      type: "apiKey",
+      apiKey: "super-secret-key",
+    });
+
+    advertiseApiKey("X-Fixture-Key-Drift");
+
+    await expect(svc.refreshRegistry(result.id)).resolves.toBeDefined();
+
+    const authState = await svc.getAuthState(result.id);
+    expect(authState.headerName).toBe("X-Fixture-Key");
+  });
+
+  it("exchanges a single token for concurrent refresh requests", async () => {
+    advertiseOAuth2();
+    state.enforcement = "oauth2";
+    const result = await svc.addRegistry(baseUrl, undefined, {
+      type: "oauth2",
+      clientId: state.clientId,
+      clientSecret: state.clientSecret,
+    });
+    expect(state.tokenExchanges).toBe(1);
+
+    await invalidateAccessToken(result.id);
+
+    await Promise.all([
+      svc.browseDefinitions(result.id, {}),
+      svc.browseDefinitions(result.id, {}),
+    ]);
+
+    expect(state.tokenExchanges).toBe(2);
+  });
+
+  it("retries exactly once with a fresh token after a 401", async () => {
+    advertiseOAuth2();
+    state.enforcement = "oauth2";
+    const result = await svc.addRegistry(baseUrl, undefined, {
+      type: "oauth2",
+      clientId: state.clientId,
+      clientSecret: state.clientSecret,
+    });
+    expect(state.tokenExchanges).toBe(1);
+
+    await invalidateAccessToken(result.id);
+    state.failNextDefinitions = 1;
+
+    await expect(svc.browseDefinitions(result.id, {})).resolves.toBeDefined();
+    expect(state.tokenExchanges).toBe(3);
+    expect(state.failNextDefinitions).toBe(0);
+  });
+
+  it("reuses a stored token across cache reloads", async () => {
+    advertiseOAuth2();
+    state.enforcement = "oauth2";
+    const result = await svc.addRegistry(baseUrl, undefined, {
+      type: "oauth2",
+      clientId: state.clientId,
+      clientSecret: state.clientSecret,
+    });
+
+    invalidateRegistryAuthCache();
+    invalidateAccessToken(result.id);
+
+    await expect(svc.browseDefinitions(result.id, {})).resolves.toBeDefined();
+    expect(state.tokenExchanges).toBe(1);
+  });
+
+  it("scopes auth headers to the owning registry", async () => {
+    advertiseApiKey();
+    state.enforcement = "apikey";
+    const resultA = await svc.addRegistry(baseUrl, undefined, {
+      type: "apiKey",
+      apiKey: state.apiKey,
+    });
+
+    const otherKey = "secret-b";
+    const otherHeaders: Array<Record<string, string | string[] | undefined>> =
+      [];
+    const otherServer = createServer((req, res) => {
+      const url = new URL(req.url ?? "/", "http://127.0.0.1");
+      if (url.pathname === "/.well-known/registry.json") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            id: "other-fixture",
+            auth: { type: "apiKey", name: "X-Other-Key" },
+            "definitions.v1": "/definitions/v1",
+          }),
+        );
+        return;
+      }
+      if (url.pathname === "/definitions/v1") {
+        otherHeaders.push(req.headers);
+        if (req.headers["x-other-key"] !== otherKey) {
+          res.writeHead(401, { "content-type": "application/json" });
+          res.end(JSON.stringify({ error: "unauthorized" }));
+          return;
+        }
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ definitions: [], nextCursor: null }));
+        return;
+      }
+      res.writeHead(404).end();
+    });
+    await new Promise<void>((resolve) => {
+      otherServer.listen(0, "127.0.0.1", resolve);
+    });
+    const otherAddress = otherServer.address();
+    if (otherAddress === null || typeof otherAddress === "string") {
+      throw new Error("other fixture server did not bind a port");
+    }
+
+    try {
+      const resultB = await svc.addRegistry(
+        `http://127.0.0.1:${otherAddress.port}`,
+        undefined,
+        { type: "apiKey", apiKey: otherKey },
+      );
+
+      state.definitionsHeaders = [];
+      await Promise.all([
+        svc.browseDefinitions(resultA.id, {}),
+        svc.browseDefinitions(resultB.id, {}),
+      ]);
+
+      expect(state.definitionsHeaders.at(-1)?.["x-fixture-key"]).toBe(
+        state.apiKey,
+      );
+      expect(state.definitionsHeaders.at(-1)?.["x-other-key"]).toBeUndefined();
+      expect(otherHeaders.at(-1)?.["x-other-key"]).toBe(otherKey);
+      expect(otherHeaders.at(-1)?.["x-fixture-key"]).toBeUndefined();
+
+      state.definitionsHeaders = [];
+      await svc.browseDefinitions(resultA.id, {});
+      expect(state.definitionsHeaders.at(-1)?.["x-other-key"]).toBeUndefined();
+    } finally {
+      await new Promise<void>((resolve) => {
+        otherServer.close(() => resolve());
+      });
+    }
+  });
+
+  it("cascades auth rows when a registry is deleted", async () => {
+    advertiseApiKey();
+    state.enforcement = "apikey";
+    const result = await svc.addRegistry(baseUrl, undefined, {
+      type: "apiKey",
+      apiKey: "super-secret-key",
+    });
+
+    await svc.deleteRegistry(result.id);
+
+    const [row] = await db
+      .select()
+      .from(registryAuth)
+      .where(eq(registryAuth.registryId, result.id))
+      .limit(1);
+    expect(row).toBeUndefined();
+  });
+
+  it("setRegistryAuth replaces the method and deleteRegistryAuth removes it", async () => {
+    advertiseApiKey();
+    state.enforcement = "apikey";
+    const result = await svc.addRegistry(baseUrl, undefined, {
+      type: "apiKey",
+      apiKey: "super-secret-key",
+    });
+
+    advertiseOAuth2();
+    state.enforcement = "oauth2";
+    const replaced = await svc.setRegistryAuth(result.id, {
+      type: "oauth2",
+      clientId: state.clientId,
+      clientSecret: state.clientSecret,
+    });
+    expect(replaced.auth.status).toBe("configured");
+    expect((await svc.getAuthState(result.id)).authType).toBe("oauth2");
+
+    await svc.deleteRegistryAuth(result.id);
+    expect((await svc.getAuthState(result.id)).authType).toBeNull();
+
+    await expect(svc.deleteRegistryAuth(result.id)).rejects.toMatchObject({
+      statusCode: 404,
     });
   });
 });

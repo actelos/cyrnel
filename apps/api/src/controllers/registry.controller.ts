@@ -40,6 +40,23 @@ const createRegistryBodySchema = z.object({
   baseUrl: registryBaseUrlBodySchema,
 });
 
+const apiKeyAuthSchema = z.object({
+  type: z.literal("apiKey"),
+  apiKey: nonEmptyTrimmedString("apiKey"),
+});
+
+const oauthAuthSchema = z.object({
+  type: z.literal("oauth2"),
+  clientId: nonEmptyTrimmedString("clientId"),
+  clientSecret: nonEmptyTrimmedString("clientSecret"),
+  scopes: z.array(nonEmptyTrimmedString("scopes")).optional(),
+});
+
+const registryAuthBodySchema = z.discriminatedUnion("type", [
+  apiKeyAuthSchema,
+  oauthAuthSchema,
+]);
+
 export async function listRegistries(
   req: Request,
   res: Response,
@@ -102,6 +119,7 @@ function isHttpUrl(value: string): boolean {
 const addRegistryBodySchema = z.object({
   baseUrl: registryBaseUrlBodySchema,
   id: registryIdBodySchema.optional(),
+  auth: registryAuthBodySchema.optional(),
 });
 
 const browseQuerySchema = z.object({
@@ -133,8 +151,36 @@ export async function addRegistry(req: Request, res: Response): Promise<void> {
   const record = await registriesService.addRegistry(
     payload.baseUrl,
     payload.id,
+    payload.auth,
   );
   res.status(201).json(record);
+}
+
+export async function setRegistryAuth(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const registriesService = getRegistriesService(req);
+  const id = parseRegistryId(req.params.id);
+  const payload = parseOrHttpError(
+    registryAuthBodySchema,
+    req.body,
+    "Request body must be an object.",
+  );
+  const result = await registriesService.setRegistryAuth(id, payload);
+  res.status(200).json(result);
+}
+
+export async function deleteRegistryAuth(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const registriesService = getRegistriesService(req);
+  const id = parseRegistryId(req.params.id);
+
+  await registriesService.deleteRegistryAuth(id);
+
+  res.status(204).send();
 }
 
 export async function refreshRegistry(

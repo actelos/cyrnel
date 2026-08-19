@@ -237,6 +237,7 @@ describe("addRegistry", () => {
     expect(registriesService.addRegistry).toHaveBeenCalledWith(
       "https://registry.example.com",
       undefined,
+      undefined,
     );
     expect(res.status).toHaveBeenCalledWith(201);
     expect(res.json).toHaveBeenCalledWith(sampleRecord);
@@ -256,6 +257,7 @@ describe("addRegistry", () => {
     expect(registriesService.addRegistry).toHaveBeenCalledWith(
       "https://registry.example.com",
       "alias",
+      undefined,
     );
   });
 
