@@ -1,4 +1,4 @@
-import { Plus, RotateCcw, Trash2 } from "lucide-react";
+import { KeyRound, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { z } from "zod";
@@ -12,6 +12,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -25,6 +26,13 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -42,6 +50,8 @@ const registrySchema = z.object({
   lastSyncedAt: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
+  authType: z.enum(["apiKey", "oauth2"]).nullable(),
+  tokenExpiresAt: z.number().nullable(),
 });
 
 const registryListSchema = z.object({
@@ -51,6 +61,71 @@ const registryListSchema = z.object({
 });
 
 type Registry = z.infer<typeof registrySchema>;
+
+type AuthFormType = "none" | "apiKey" | "oauth2";
+
+interface AuthFormState {
+  type: AuthFormType;
+  apiKey: string;
+  clientId: string;
+  clientSecret: string;
+  scopes: string;
+}
+
+const emptyAuthForm: AuthFormState = {
+  type: "none",
+  apiKey: "",
+  clientId: "",
+  clientSecret: "",
+  scopes: "",
+};
+
+function authBody(form: AuthFormState): Record<string, unknown> {
+  if (form.type === "apiKey") {
+    return { type: "apiKey", apiKey: form.apiKey.trim() };
+  }
+  if (form.type === "oauth2") {
+    const scopes = form.scopes
+      .split(",")
+      .map((scope) => scope.trim())
+      .filter(Boolean);
+    return {
+      type: "oauth2",
+      clientId: form.clientId.trim(),
+      clientSecret: form.clientSecret.trim(),
+      ...(scopes.length > 0 ? { scopes } : {}),
+    };
+  }
+  return {};
+}
+
+function formatTokenExpiry(expiresAt: number | null): string | null {
+  if (expiresAt === null) return null;
+  return new Date(expiresAt).toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+const authResultSchema = z.object({
+  auth: z.object({
+    type: z.enum(["apiKey", "oauth2"]),
+    status: z.enum(["configured", "error"]),
+    headerName: z.string().nullable().optional(),
+    tokenExpiresAt: z.number().nullable().optional(),
+    message: z.string().nullable().optional(),
+  }),
+});
+
+function authFormValid(form: AuthFormState): boolean {
+  if (form.type === "apiKey") return form.apiKey.trim().length > 0;
+  if (form.type === "oauth2") {
+    return (
+      form.clientId.trim().length > 0 && form.clientSecret.trim().length > 0
+    );
+  }
+  return true;
+}
 
 const REGISTRY_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 
@@ -69,6 +144,106 @@ function isValidHttpUrl(value: string): boolean {
   }
 }
 
+interface AuthFieldsProps {
+  form: AuthFormState;
+  onChange: (form: AuthFormState) => void;
+  idPrefix: string;
+}
+
+function AuthFields({ form, onChange, idPrefix }: AuthFieldsProps) {
+  return (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <Label htmlFor={`${idPrefix}-auth-type`}>Authentication</Label>
+        <Select
+          value={form.type}
+          onValueChange={(value: AuthFormType) =>
+            onChange({ ...form, type: value })
+          }
+        >
+          <SelectTrigger id={`${idPrefix}-auth-type`} className="w-full">
+            <SelectValue placeholder="Select authentication" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">None</SelectItem>
+            <SelectItem value="apiKey">API key (header)</SelectItem>
+            <SelectItem value="oauth2">OAuth2 client credentials</SelectItem>
+          </SelectContent>
+        </Select>
+        <p className="text-muted-foreground text-xs">
+          Optional. The registry's well-known document must advertise a matching
+          method; it is fetched and validated before credentials are stored.
+        </p>
+      </div>
+      {form.type === "apiKey" ? (
+        <div className="space-y-2">
+          <Label htmlFor={`${idPrefix}-api-key`}>API key</Label>
+          <Input
+            id={`${idPrefix}-api-key`}
+            type="password"
+            autoComplete="off"
+            onChange={(event) =>
+              onChange({ ...form, apiKey: event.target.value })
+            }
+            placeholder="secret"
+            value={form.apiKey}
+          />
+          <p className="text-muted-foreground text-xs">
+            Stored encrypted (AES-256-GCM) and sent in the header named by the
+            registry's advertisement.
+          </p>
+        </div>
+      ) : null}
+      {form.type === "oauth2" ? (
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor={`${idPrefix}-client-id`}>Client id</Label>
+            <Input
+              id={`${idPrefix}-client-id`}
+              autoComplete="off"
+              onChange={(event) =>
+                onChange({ ...form, clientId: event.target.value })
+              }
+              placeholder="client-id"
+              value={form.clientId}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor={`${idPrefix}-client-secret`}>Client secret</Label>
+            <Input
+              id={`${idPrefix}-client-secret`}
+              type="password"
+              autoComplete="off"
+              onChange={(event) =>
+                onChange({ ...form, clientSecret: event.target.value })
+              }
+              placeholder="secret"
+              value={form.clientSecret}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor={`${idPrefix}-scopes`}>Scopes</Label>
+            <Input
+              id={`${idPrefix}-scopes`}
+              autoComplete="off"
+              onChange={(event) =>
+                onChange({ ...form, scopes: event.target.value })
+              }
+              placeholder="registry:read, registry:write"
+              value={form.scopes}
+            />
+            <p className="text-muted-foreground text-xs">
+              Optional, comma-separated. Defaults to the scopes advertised by
+              the registry. The token endpoint is taken from the advertisement,
+              never from this form.
+            </p>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export default function RegistriesPage() {
   const { mutate } = useSWRConfig();
   const { addNotification } = useNotification();
@@ -76,10 +251,15 @@ export default function RegistriesPage() {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [addId, setAddId] = useState("");
   const [addBaseUrl, setAddBaseUrl] = useState("");
+  const [addAuth, setAddAuth] = useState<AuthFormState>(emptyAuthForm);
   const [isAdding, setIsAdding] = useState(false);
 
   const [deleteTarget, setDeleteTarget] = useState<Registry | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  const [authTarget, setAuthTarget] = useState<Registry | null>(null);
+  const [authForm, setAuthForm] = useState<AuthFormState>(emptyAuthForm);
+  const [isSavingAuth, setIsSavingAuth] = useState(false);
 
   const registriesUrl = buildUrl("/registries");
 
@@ -119,8 +299,17 @@ export default function RegistriesPage() {
 
   const addIdValid = REGISTRY_ID_PATTERN.test(addId.trim());
   const addBaseUrlValid = isValidHttpUrl(addBaseUrl.trim());
+  const addAuthValid =
+    addAuth.type === "none" ||
+    (addAuth.type === "apiKey" && addAuth.apiKey.trim().length > 0) ||
+    (addAuth.type === "oauth2" &&
+      addAuth.clientId.trim().length > 0 &&
+      addAuth.clientSecret.trim().length > 0);
   const canAdd =
-    addBaseUrlValid && (addId.trim().length === 0 || addIdValid) && !isAdding;
+    addBaseUrlValid &&
+    (addId.trim().length === 0 || addIdValid) &&
+    addAuthValid &&
+    !isAdding;
 
   const handleAddRegistry = async () => {
     if (!addBaseUrlValid) {
@@ -142,8 +331,10 @@ export default function RegistriesPage() {
     const trimmedId = addId.trim();
     setIsAdding(true);
     try {
-      const body: Record<string, string> = { baseUrl: addBaseUrl.trim() };
+      const body: Record<string, unknown> = { baseUrl: addBaseUrl.trim() };
       if (trimmedId) body.id = trimmedId;
+      const auth = authBody(addAuth);
+      if (addAuth.type !== "none") body.auth = auth;
       await apiFetch(buildUrl("/registries"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -151,6 +342,7 @@ export default function RegistriesPage() {
       });
       setAddId("");
       setAddBaseUrl("");
+      setAddAuth(emptyAuthForm);
       setIsAddOpen(false);
       await refreshRegistries();
       addNotification({
@@ -192,6 +384,99 @@ export default function RegistriesPage() {
     } finally {
       setIsDeleting(false);
     }
+  };
+
+  const handleSaveAuth = async () => {
+    if (authTarget === null) return;
+    if (authForm.type !== "none" && !authFormValid(authForm)) {
+      addNotification({
+        type: "error",
+        title: "Error",
+        message: "Fill in the credential fields for the selected auth type.",
+      });
+      return;
+    }
+    setIsSavingAuth(true);
+    try {
+      const body = authBody(authForm);
+      const response = await apiFetchJson(
+        buildUrl(`/registries/${authTarget.id}/auth`),
+        authResultSchema,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        },
+      );
+      setAuthTarget(null);
+      setAuthForm(emptyAuthForm);
+      await refreshRegistries();
+      if (response.auth.status === "configured") {
+        addNotification({
+          type: "success",
+          title: "Success",
+          message: `Auth saved for '${authTarget.id}'.`,
+        });
+      } else {
+        addNotification({
+          type: "error",
+          title: "Saved with errors",
+          message:
+            response.auth.message ??
+            `Auth stored for '${authTarget.id}' but validation failed.`,
+        });
+      }
+    } catch (error) {
+      addNotification({
+        type: "error",
+        title: "Error",
+        message: errorMessageFrom(error, "Unable to save auth."),
+      });
+    } finally {
+      setIsSavingAuth(false);
+    }
+  };
+
+  const handleRemoveAuth = async () => {
+    if (authTarget === null) return;
+    setIsSavingAuth(true);
+    try {
+      await apiFetch(buildUrl(`/registries/${authTarget.id}/auth`), {
+        method: "DELETE",
+      });
+      setAuthTarget(null);
+      setAuthForm(emptyAuthForm);
+      await refreshRegistries();
+      addNotification({
+        type: "success",
+        title: "Success",
+        message: `Auth removed for '${authTarget.id}'.`,
+      });
+    } catch (error) {
+      addNotification({
+        type: "error",
+        title: "Error",
+        message: errorMessageFrom(error, "Unable to remove auth."),
+      });
+    } finally {
+      setIsSavingAuth(false);
+    }
+  };
+
+  const openAuthDialog = (registry: Registry) => {
+    setAuthTarget(registry);
+    setAuthForm({
+      type: registry.authType ?? "none",
+      apiKey: "",
+      clientId: "",
+      clientSecret: "",
+      scopes: "",
+    });
+  };
+
+  const closeAuthDialog = () => {
+    setAuthTarget(null);
+    setAuthForm(emptyAuthForm);
   };
 
   return (
@@ -246,6 +531,11 @@ export default function RegistriesPage() {
                     Absolute http(s) URL; normalized before storage.
                   </p>
                 </div>
+                <AuthFields
+                  form={addAuth}
+                  onChange={setAddAuth}
+                  idPrefix="add-registry"
+                />
               </div>
               <DialogFooter>
                 <Button
@@ -305,9 +595,26 @@ export default function RegistriesPage() {
                 <TableRow key={registry.id} className="group">
                   <TableCell>
                     <div className="min-w-0 space-y-1">
-                      <span className="font-mono text-sm font-medium">
-                        {registry.id}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-sm font-medium">
+                          {registry.id}
+                        </span>
+                        {registry.authType !== null ? (
+                          <Badge
+                            variant="outline"
+                            className="font-mono text-[10px]"
+                          >
+                            {registry.authType}
+                            {registry.authType === "oauth2" &&
+                            registry.tokenExpiresAt !== null ? (
+                              <span className="text-muted-foreground">
+                                {" "}
+                                · {formatTokenExpiry(registry.tokenExpiresAt)}
+                              </span>
+                            ) : null}
+                          </Badge>
+                        ) : null}
+                      </div>
                       <p
                         className="text-muted-foreground text-xs font-mono truncate max-w-md"
                         title={registry.baseUrl}
@@ -329,6 +636,16 @@ export default function RegistriesPage() {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-8"
+                        aria-label={`Configure auth for registry ${registry.id}`}
+                        onClick={() => openAuthDialog(registry)}
+                      >
+                        <KeyRound />
+                      </Button>
                       <Button
                         type="button"
                         variant="ghost"
@@ -374,6 +691,50 @@ export default function RegistriesPage() {
           ) : null}
         </CardContent>
       </Card>
+
+      <Dialog
+        open={authTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) closeAuthDialog();
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Auth for {authTarget?.id ?? ""}</DialogTitle>
+            <DialogDescription>
+              Set or update the credentials used when this Cyrnel server talks
+              to the registry. Choosing None leaves the registry
+              unauthenticated.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="my-2">
+            <AuthFields
+              form={authForm}
+              onChange={setAuthForm}
+              idPrefix="registry-auth"
+            />
+          </div>
+          <DialogFooter>
+            {authTarget?.authType !== null ? (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isSavingAuth}
+                onClick={() => void handleRemoveAuth()}
+              >
+                Remove auth
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              disabled={isSavingAuth}
+              onClick={() => void handleSaveAuth()}
+            >
+              {isSavingAuth ? "Saving" : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog
         open={deleteTarget !== null}
