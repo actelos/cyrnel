@@ -64,6 +64,20 @@
       "when": 1786256127124,
       "tag": "0008_rapid_warhawk",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1786741200000,
+      "tag": "0009_add_auto_update_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1787093524184,
+      "tag": "0010_sparkling_supreme_intelligence",
+      "breakpoints": true
     }
   ]
 }

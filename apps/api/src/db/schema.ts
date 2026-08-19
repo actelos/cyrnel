@@ -37,6 +37,10 @@ export const services = sqliteTable(
       .notNull(),
     definitionContent: text("definition_content").notNull().default(""),
     stale: integer("stale", { mode: "boolean" }).notNull().default(false),
+    autoUpdate: integer("auto_update", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    autoUpdateConstraint: text("auto_update_constraint"),
     iconData: blob("icon_data", { mode: "buffer" }),
     iconMime: text("icon_mime"),
     iconHash: text("icon_hash"),
@@ -106,6 +110,10 @@ export const modules = sqliteTable(
     source: text("source").notNull().default(""),
     enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
     missing: integer("missing", { mode: "boolean" }).notNull().default(false),
+    autoUpdate: integer("auto_update", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    autoUpdateConstraint: text("auto_update_constraint"),
     iconData: blob("icon_data", { mode: "buffer" }),
     iconMime: text("icon_mime"),
     iconHash: text("icon_hash"),
@@ -170,8 +178,25 @@ export const registries = sqliteTable("registries", {
   updatedAt: text("updated_at").notNull(),
 });
 
+export const registryAuth = sqliteTable("registry_auth", {
+  registryId: text("registry_id")
+    .primaryKey()
+    .references(() => registries.id, { onDelete: "cascade" }),
+  authType: text("auth_type").$type<"apiKey" | "oauth2">().notNull(),
+  config: text("config", { mode: "json" })
+    .$type<EncryptedSecretsPayload>()
+    .notNull(),
+  token: text("token", { mode: "json" }).$type<EncryptedSecretsPayload>(),
+  tokenEndpoint: text("token_endpoint"),
+  headerName: text("header_name"),
+  tokenExpiresAt: integer("token_expires_at"),
+  updatedAt: integer("updated_at").notNull(),
+});
+
 export type RegistryRecord = typeof registries.$inferSelect;
 export type NewRegistryRecord = typeof registries.$inferInsert;
+export type RegistryAuthRecord = typeof registryAuth.$inferSelect;
+export type NewRegistryAuthRecord = typeof registryAuth.$inferInsert;
 
 export const processes = sqliteTable("processes", {
   id: integer("id").primaryKey({ autoIncrement: true }),
