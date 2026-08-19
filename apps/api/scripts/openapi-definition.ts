@@ -385,6 +385,17 @@ const ServiceListItemSchema = registry.register(
       createdAt: z
         .string()
         .describe("ISO-8601 timestamp of when the service was installed."),
+      autoUpdate: z
+        .boolean()
+        .describe(
+          "Whether the service opted into the background auto-update sweep.",
+        ),
+      autoUpdateConstraint: z
+        .string()
+        .nullable()
+        .describe(
+          "Semver range pinning the auto-update registry version, or null for latest.",
+        ),
     })
     .describe(
       "Compact service summary returned by service list and detail endpoints.",
@@ -438,6 +449,12 @@ const ServiceInstallRequestSchema = registry.register(
         .openapi({ example: "^1.0.0" })
         .describe(
           "Optional semantic range or exact version. Resolves from registry. Defaults to latest.",
+        ),
+      autoUpdate: z
+        .boolean()
+        .optional()
+        .describe(
+          "Whether to auto-update this service with the registry source it is installed from. Defaults to true.",
         ),
     })
     .describe("Request body used to install a service from a registry."),
@@ -501,6 +518,12 @@ const ServiceDirectInstallRequestSchema = registry.register(
         .string()
         .min(1)
         .describe("Adapter module identifier responsible for the service."),
+      autoUpdate: z
+        .boolean()
+        .optional()
+        .describe(
+          "Whether to auto-update this service with the definition URL it was installed from. Defaults to true.",
+        ),
     })
     .describe("Request body used to install a service from a direct URL."),
 );
@@ -548,6 +571,45 @@ const ServiceUpdateResponseSchema = registry.register(
         ),
     })
     .describe("Response returned by the service update endpoint."),
+);
+
+const ServiceAutoUpdateRequestSchema = registry.register(
+  "ServiceAutoUpdateRequest",
+  z
+    .object({
+      autoUpdate: z
+        .boolean()
+        .describe(
+          "Whether the service opts into the background auto-update sweep.",
+        ),
+      constraint: z
+        .string()
+        .nullable()
+        .optional()
+        .describe(
+          "Optional semver range pinning which registry version is selected. Omitted or null means latest. Invalid ranges are rejected with 400.",
+        ),
+    })
+    .describe("Request body used to opt a service into auto-updates."),
+);
+
+const ServiceAutoUpdateResponseSchema = registry.register(
+  "ServiceAutoUpdateResponse",
+  z
+    .object({
+      id: z
+        .string()
+        .min(1)
+        .describe("Identifier of the service whose auto-update flag was set."),
+      autoUpdate: z.boolean().describe("The stored auto-update opt-in state."),
+      constraint: z
+        .string()
+        .nullable()
+        .describe(
+          "The normalized semver range stored for the sweep, or null for latest.",
+        ),
+    })
+    .describe("Response returned by the service auto-update endpoint."),
 );
 
 const ServicePatchResponseSchema = registry.register(
@@ -819,6 +881,17 @@ const ModuleSchema = registry.register(
       createdAt: z
         .string()
         .describe("ISO-8601 timestamp of when the module was installed."),
+      autoUpdate: z
+        .boolean()
+        .describe(
+          "Whether the module opted into the background auto-update sweep.",
+        ),
+      autoUpdateConstraint: z
+        .string()
+        .nullable()
+        .describe(
+          "Semver range pinning the auto-update registry version, or null for latest.",
+        ),
     })
     .describe("Module manifest record returned by the modules endpoints."),
 );
@@ -869,6 +942,12 @@ const ModuleInstallRequestSchema = registry.register(
         .describe(
           "Optional semantic range or exact version. Resolves from registry. Defaults to latest.",
         ),
+      autoUpdate: z
+        .boolean()
+        .optional()
+        .describe(
+          "Whether to auto-update this module with the registry source it is installed from. Defaults to true.",
+        ),
     })
     .describe("Request body used to install a module from a registry."),
 );
@@ -882,6 +961,12 @@ const ModuleDirectInstallRequestSchema = registry.register(
         .min(1)
         .describe(
           "Direct URL of the .tar.zst module archive to download and install.",
+        ),
+      autoUpdate: z
+        .boolean()
+        .optional()
+        .describe(
+          "Whether to auto-update this module with the archive URL it was installed from. Defaults to true.",
         ),
     })
     .describe("Request body used to install a module from a direct URL."),
@@ -914,6 +999,45 @@ const ModuleUpdateResponseSchema = registry.register(
         ),
     })
     .describe("Response returned by the module update endpoint."),
+);
+
+const ModuleAutoUpdateRequestSchema = registry.register(
+  "ModuleAutoUpdateRequest",
+  z
+    .object({
+      autoUpdate: z
+        .boolean()
+        .describe(
+          "Whether the module opts into the background auto-update sweep.",
+        ),
+      constraint: z
+        .string()
+        .nullable()
+        .optional()
+        .describe(
+          "Optional semver range pinning which registry version is selected. Omitted or null means latest. Invalid ranges are rejected with 400.",
+        ),
+    })
+    .describe("Request body used to opt a module into auto-updates."),
+);
+
+const ModuleAutoUpdateResponseSchema = registry.register(
+  "ModuleAutoUpdateResponse",
+  z
+    .object({
+      id: z
+        .string()
+        .min(1)
+        .describe("Identifier of the module whose auto-update flag was set."),
+      autoUpdate: z.boolean().describe("The stored auto-update opt-in state."),
+      constraint: z
+        .string()
+        .nullable()
+        .describe(
+          "The normalized semver range stored for the sweep, or null for latest.",
+        ),
+    })
+    .describe("Response returned by the module auto-update endpoint."),
 );
 
 const ModuleEnabledRequestSchema = registry.register(
@@ -950,8 +1074,121 @@ const RegistrySchema = registry.register(
       updatedAt: z
         .string()
         .describe("ISO-8601 timestamp of the last mutation to the record."),
+      authType: z
+        .enum(["apiKey", "oauth2"])
+        .nullable()
+        .describe(
+          "Authentication method configured for this registry, or null when none is set.",
+        ),
+      tokenExpiresAt: z
+        .number()
+        .nullable()
+        .describe(
+          "Epoch-ms timestamp when the cached OAuth2 access token expires, or null for api key auth or when no token has been fetched.",
+        ),
     })
     .describe("Record of a registered registry."),
+);
+
+const ApiKeyAuthSetupSchema = registry.register(
+  "ApiKeyAuthSetup",
+  z
+    .object({
+      type: z
+        .literal("apiKey")
+        .describe("API key authentication; the key is sent in a fixed header."),
+      apiKey: z
+        .string()
+        .min(1)
+        .describe(
+          "API key sent in the header named by the registry's well-known auth advertisement.",
+        ),
+    })
+    .describe("API key credentials for a registry."),
+);
+
+const OAuthAuthSetupSchema = registry.register(
+  "OAuthAuthSetup",
+  z
+    .object({
+      type: z
+        .literal("oauth2")
+        .describe("OAuth2 client-credentials authentication."),
+      clientId: z.string().min(1).describe("OAuth2 client id."),
+      clientSecret: z.string().min(1).describe("OAuth2 client secret."),
+      scopes: z
+        .array(z.string().min(1))
+        .optional()
+        .describe(
+          "Optional requested scopes. Defaults to the scopes advertised by the registry.",
+        ),
+    })
+    .describe("OAuth2 client-credentials for a registry."),
+);
+
+const RegistryAuthSetupSchema = registry.register(
+  "RegistryAuthSetup",
+  z
+    .discriminatedUnion("type", [ApiKeyAuthSetupSchema, OAuthAuthSetupSchema])
+    .describe(
+      "Credentials used when the server talks to the registry. The token endpoint (oauth2) and header name (apiKey) always come from the registry's well-known advertisement, never from this request.",
+    ),
+);
+
+const RegistryAuthResultSchema = registry.register(
+  "RegistryAuthResult",
+  z
+    .object({
+      type: z.enum(["apiKey", "oauth2"]),
+      status: z
+        .enum(["configured", "error"])
+        .describe(
+          "configured when credentials were successfully stored; error when storage or validation failed.",
+        ),
+      headerName: z
+        .string()
+        .nullable()
+        .optional()
+        .describe(
+          "Header the api key is sent in, when the registry advertises api key auth.",
+        ),
+      tokenExpiresAt: z
+        .number()
+        .nullable()
+        .optional()
+        .describe(
+          "Epoch-ms timestamp when the fetched access token expires, when the registry advertises oauth2.",
+        ),
+      message: z
+        .string()
+        .nullable()
+        .optional()
+        .describe("Human-readable detail when status is error."),
+    })
+    .describe("Outcome of storing credentials for a registry."),
+);
+
+const RegistryCreatedResponseSchema = registry.register(
+  "RegistryCreatedResponse",
+  z
+    .object({
+      ...RegistrySchema.shape,
+      auth: RegistryAuthResultSchema.nullable()
+        .optional()
+        .describe(
+          "Outcome of storing the credentials supplied in the request, or null when no auth was supplied.",
+        ),
+    })
+    .describe("Response body of a registry registration request."),
+);
+
+const RegistryAuthSetupResponseSchema = registry.register(
+  "RegistryAuthSetupResponse",
+  z
+    .object({
+      auth: RegistryAuthResultSchema,
+    })
+    .describe("Response body of a registry auth setup request."),
 );
 
 const RegistryListResponseSchema = paginatedResponseSchema(
@@ -977,6 +1214,9 @@ const AddRegistryRequestSchema = registry.register(
         .describe(
           "Optional local id override. When omitted, the id advertised by the registry's well-known document is used.",
         ),
+      auth: RegistryAuthSetupSchema.optional().describe(
+        "Optional credentials for the registry, validated against its well-known auth advertisement before storage.",
+      ),
     })
     .describe("Request body used to register a registry via discovery."),
 );
@@ -1681,6 +1921,37 @@ registry.registerPath({
 
 registry.registerPath({
   method: "post",
+  path: "/services/{serviceId}/auto-update",
+  tags: ["Services"],
+  summary: "Opt a service into background auto-updates",
+  description:
+    "Sets whether the service is re-resolved from its stored registry source on the background auto-update sweep. The optional constraint is a semver range pinning which registry version is selected (omitted or null means latest); invalid ranges are rejected with 400. If the sweep interval is 0 the flag is still stored but nothing runs. Only works for registry-installed services.",
+  request: {
+    params: serviceIdParam,
+    body: { content: jsonContent(ServiceAutoUpdateRequestSchema) },
+  },
+  responses: {
+    200: {
+      description: "The auto-update opt-in state.",
+      content: jsonContent(ServiceAutoUpdateResponseSchema),
+    },
+    400: apiErrorResponse(
+      "The serviceId path parameter, request body, or constraint was invalid.",
+    ),
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    404: apiErrorResponse("The service could not be found."),
+    ...rateLimitResponse(),
+    409: apiErrorResponse(
+      "The service has no stored registry source and cannot enable auto-update.",
+    ),
+    500: apiErrorResponse("The auto-update state could not be stored."),
+  },
+});
+
+registry.registerPath({
+  method: "post",
   path: "/services/{serviceId}/sync",
   tags: ["Services"],
   summary: "Sync a service from its stored definition",
@@ -2298,6 +2569,37 @@ registry.registerPath({
 });
 
 registry.registerPath({
+  method: "post",
+  path: "/modules/{moduleId}/auto-update",
+  tags: ["Modules"],
+  summary: "Opt a module into background auto-updates",
+  description:
+    "Sets whether the module is re-resolved from its stored registry source on the background auto-update sweep. The optional constraint is a semver range pinning which registry version is selected (omitted or null means latest); invalid ranges are rejected with 400. If the sweep interval is 0 the flag is still stored but nothing runs. Only works for registry-installed modules.",
+  request: {
+    params: moduleIdParam,
+    body: { content: jsonContent(ModuleAutoUpdateRequestSchema) },
+  },
+  responses: {
+    200: {
+      description: "The auto-update opt-in state.",
+      content: jsonContent(ModuleAutoUpdateResponseSchema),
+    },
+    400: apiErrorResponse(
+      "The moduleId path parameter, request body, or constraint was invalid.",
+    ),
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    404: apiErrorResponse("The module could not be found."),
+    ...rateLimitResponse(),
+    409: apiErrorResponse(
+      "The module has no stored registry source and cannot enable auto-update.",
+    ),
+    500: apiErrorResponse("The auto-update state could not be stored."),
+  },
+});
+
+registry.registerPath({
   method: "patch",
   path: "/modules/{moduleId}",
   tags: ["Modules"],
@@ -2386,12 +2688,12 @@ registry.registerPath({
   tags: ["Registries"],
   summary: "Register a registry",
   description:
-    "Discovers a registry from its base URL: fetches its well-known document, negotiates the highest supported definitions/modules capability, and stores a record. The advertised id is used unless an explicit id override is supplied. The base URL is validated and normalized before storage.",
+    "Discovers a registry from its base URL: fetches its well-known document, negotiates the highest supported definitions/modules capability, and stores a record. The advertised id is used unless an explicit id override is supplied. The base URL is validated and normalized before storage. When auth credentials are supplied, the well-known auth advertisement is validated first: safety refusals (plaintext transport, method mismatch) fail the request with 400, while a failed live token exchange still stores the record and reports error status on the auth field.",
   request: { body: { content: jsonContent(AddRegistryRequestSchema) } },
   responses: {
     201: {
       description: "The registry record was created.",
-      content: jsonContent(RegistrySchema),
+      content: jsonContent(RegistryCreatedResponseSchema),
     },
     400: apiErrorResponse(
       "The request body was invalid, or the registry's well-known document is malformed or advertises no supported capability.",
@@ -2407,6 +2709,58 @@ registry.registerPath({
       "The registry could not be reached or returned a non-2xx response.",
     ),
     500: apiErrorResponse("The registry could not be created."),
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/registries/{id}/auth",
+  tags: ["Registries"],
+  summary: "Set registry auth",
+  description:
+    "Stores or replaces the credentials used when this server talks to the registry. The method must match the registry's well-known auth advertisement: a mismatch or an unsupported method fails with 400 and nothing is stored. Credentials are encrypted at rest with AES-256-GCM. For oauth2, a client-credentials token is exchanged immediately; transport policy refusals (non-https token endpoint outside the loopback/insecure-CIDR allowlist) fail with 400, while exchange failures store the credentials and report error status.",
+  request: {
+    params: registryIdParam,
+    body: { content: jsonContent(RegistryAuthSetupSchema) },
+  },
+  responses: {
+    200: {
+      description: "The credentials were stored.",
+      content: jsonContent(RegistryAuthSetupResponseSchema),
+    },
+    400: apiErrorResponse(
+      "The request body was invalid, the method does not match the registry's advertisement, or transport policy refused the credentials.",
+    ),
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    ...rateLimitResponse(),
+    404: apiErrorResponse("The registry could not be found."),
+    502: apiErrorResponse(
+      "The registry or its token endpoint could not be reached.",
+    ),
+    500: apiErrorResponse("The credentials could not be stored."),
+  },
+});
+
+registry.registerPath({
+  method: "delete",
+  path: "/registries/{id}/auth",
+  tags: ["Registries"],
+  summary: "Remove registry auth",
+  description:
+    "Deletes the stored credentials for the registry. Subsequent fetches to the registry are unauthenticated.",
+  request: { params: registryIdParam },
+  responses: {
+    204: { description: "The credentials were deleted." },
+    400: apiErrorResponse("The id path parameter was invalid."),
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    404: apiErrorResponse(
+      "The registry could not be found, or it has no auth configured.",
+    ),
+    500: apiErrorResponse("The credentials could not be deleted."),
   },
 });
 
@@ -2504,7 +2858,7 @@ registry.registerPath({
   tags: ["Registries"],
   summary: "Delete a registry",
   description:
-    "Hard-deletes the registry record. Nothing references registries yet, so there are no cascade effects.",
+    "Hard-deletes the registry record and any stored credentials for it (cascade).",
   request: { params: registryIdParam },
   responses: {
     204: { description: "The registry was deleted successfully." },
