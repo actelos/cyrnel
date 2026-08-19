@@ -10,6 +10,91 @@ const HOST = "127.0.0.1";
 const PORT = 9372;
 const BASE_URL = `http://${HOST}:${PORT}`;
 
+const AUTH_MODE = (
+  process.env.CYRNEL_DEV_REGISTRY_AUTH_MODE ?? "none"
+).toLowerCase();
+const DRIFT_AUTH = process.env.CYRNEL_DEV_REGISTRY_DRIFT_AUTH === "1";
+const API_KEY = process.env.CYRNEL_DEV_REGISTRY_API_KEY ?? "dev-registry-key";
+const BEARER_TOKEN =
+  process.env.CYRNEL_DEV_REGISTRY_TOKEN ?? "dev-registry-token";
+const CLIENT_ID = process.env.CYRNEL_DEV_REGISTRY_CLIENT_ID ?? "dev-client";
+const CLIENT_SECRET =
+  process.env.CYRNEL_DEV_REGISTRY_CLIENT_SECRET ?? "dev-secret";
+const TOKEN_EXPIRES_IN = Number(
+  process.env.CYRNEL_DEV_REGISTRY_TOKEN_EXPIRES_IN ?? 3600,
+);
+const SCOPES = ["definitions:read", "modules:read"];
+
+function advertisedAuth():
+  | { type: "apiKey"; name: string }
+  | {
+      type: "oauth2";
+      grantType: "client_credentials";
+      tokenEndpoint: string;
+      scopes: string[];
+    }
+  | undefined {
+  if (AUTH_MODE === "apikey") {
+    return {
+      type: "apiKey",
+      name: DRIFT_AUTH ? "X-Dev-Registry-Key-Drift" : "X-Dev-Registry-Key",
+    };
+  }
+  if (AUTH_MODE === "oauth2") {
+    return {
+      type: "oauth2",
+      grantType: "client_credentials",
+      tokenEndpoint: `${BASE_URL}${DRIFT_AUTH ? "/oauth/drift-token" : "/oauth/token"}`,
+      scopes: SCOPES,
+    };
+  }
+  return undefined;
+}
+
+function isAuthorized(
+  headers: import("node:http").IncomingHttpHeaders,
+): boolean {
+  if (AUTH_MODE === "apikey") {
+    return headers["x-dev-registry-key"] === API_KEY;
+  }
+  if (AUTH_MODE === "oauth2") {
+    return headers.authorization === `Bearer ${BEARER_TOKEN}`;
+  }
+  return true;
+}
+
+function handleTokenRequest(
+  req: import("node:http").IncomingMessage,
+  res: import("node:http").ServerResponse,
+): void {
+  let body = "";
+  req.on("data", (chunk: Buffer) => {
+    body += chunk.toString("utf8");
+  });
+  req.on("end", () => {
+    const params = new URLSearchParams(body);
+    if (
+      params.get("grant_type") !== "client_credentials" ||
+      params.get("client_id") !== CLIENT_ID ||
+      params.get("client_secret") !== CLIENT_SECRET
+    ) {
+      res.writeHead(401, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "invalid_client" }));
+      return;
+    }
+    json(res, {
+      access_token: BEARER_TOKEN,
+      token_type: "Bearer",
+      expires_in: TOKEN_EXPIRES_IN,
+    });
+  });
+}
+
+function unauthorized(res: import("node:http").ServerResponse): void {
+  res.writeHead(401, { "content-type": "application/json" });
+  res.end(JSON.stringify({ error: "unauthorized" }));
+}
+
 interface DefinitionEntry {
   id: string;
   name: string;
@@ -247,9 +332,19 @@ function contentHash(content: string): string {
 const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", BASE_URL);
 
+  if (AUTH_MODE === "oauth2" && url.pathname === "/oauth/token") {
+    return handleTokenRequest(req, res);
+  }
+
+  if (url.pathname !== "/.well-known/registry.json") {
+    if (!isAuthorized(req.headers)) return unauthorized(res);
+  }
+
   if (url.pathname === "/.well-known/registry.json") {
+    const auth = advertisedAuth();
     return json(res, {
       id: "cyrnel-dev",
+      ...(auth ? { auth } : {}),
       "definitions.v1": "/definitions/v1",
       "modules.v1": "/modules/v1",
     });
