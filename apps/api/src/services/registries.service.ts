@@ -20,6 +20,7 @@ import {
   fetchRegistryCapabilityPage,
   fetchRegistryIndex,
   type RegistryAuthDeclaration,
+  type RegistryAuthScope,
   type RegistryPage,
 } from "@/utils/registry.util";
 import {
@@ -28,6 +29,7 @@ import {
   isCredentialTransportAllowed,
 } from "@/utils/registry-auth.util";
 import {
+  decryptSecrets,
   type EncryptedSecretsPayload,
   encryptSecrets,
 } from "@/utils/secrets.util";
@@ -86,7 +88,7 @@ type ResolvedAuthDeclaration =
         type: "oauth2";
         grantType: "client_credentials";
         tokenEndpoint: string;
-        scopes?: string[];
+        scopes?: RegistryAuthScope[];
       };
       material: RegistryOAuthSetupInput;
     }
@@ -230,6 +232,52 @@ export class RegistriesService {
     return row;
   }
 
+  async getRegistryAuthState(id: string): Promise<
+    AuthStateRecord & {
+      availableScopes: RegistryAuthScope[];
+      configuredScopes: string[];
+    }
+  > {
+    const registry = await this.getRegistry(id);
+    const state = await this.getAuthState(id);
+
+    let configuredScopes: string[] = [];
+    if (state.authType === "oauth2") {
+      const [row] = await db
+        .select({ config: registryAuth.config })
+        .from(registryAuth)
+        .where(eq(registryAuth.registryId, id))
+        .limit(1)
+        .catch(() => {
+          throw new HttpError(500, `Failed to load registry '${id}' auth.`);
+        });
+      if (row) {
+        try {
+          const config = decryptSecrets(row.config);
+          if (
+            Array.isArray(config.scopes) &&
+            config.scopes.every((scope) => typeof scope === "string")
+          ) {
+            configuredScopes = config.scopes as string[];
+          }
+        } catch (err) {
+          logger.warn(
+            { err, registryId: id },
+            "Failed to decrypt registry auth config for scope read",
+          );
+        }
+      }
+    }
+
+    const index = await fetchRegistryIndex(registry.baseUrl);
+    const availableScopes =
+      state.authType === "oauth2" && index.auth?.type === "oauth2"
+        ? (index.auth.scopes ?? [])
+        : [];
+
+    return { ...state, availableScopes, configuredScopes };
+  }
+
   async deleteRegistry(id: string): Promise<void> {
     const [deleted] = await db
       .delete(registries)
@@ -284,7 +332,9 @@ export class RegistriesService {
               clientId: resolved.material.clientId,
               clientSecret: resolved.material.clientSecret,
               tokenEndpoint: resolved.declaration.tokenEndpoint,
-              scopes: resolved.material.scopes ?? resolved.declaration.scopes,
+              scopes:
+                resolved.material.scopes ??
+                resolved.declaration.scopes?.map((scope) => scope.id),
             });
           } catch (error) {
             if (error instanceof HttpError && error.statusCode === 400) {
@@ -370,7 +420,9 @@ export class RegistriesService {
           clientId: resolved.material.clientId,
           clientSecret: resolved.material.clientSecret,
           tokenEndpoint: resolved.declaration.tokenEndpoint,
-          scopes: resolved.material.scopes ?? resolved.declaration.scopes,
+          scopes:
+            resolved.material.scopes ??
+            resolved.declaration.scopes?.map((scope) => scope.id),
         });
       } catch (error) {
         if (error instanceof HttpError && error.statusCode === 400) {
@@ -524,6 +576,18 @@ export class RegistriesService {
         400,
         "Registry oauth2 token endpoint must be https; refusing to store client credentials.",
       );
+    }
+    const advertisedScopeIds = declaration.scopes?.map((scope) => scope.id);
+    if (material.scopes && advertisedScopeIds) {
+      const unknown = material.scopes.filter(
+        (scope) => !advertisedScopeIds.includes(scope),
+      );
+      if (unknown.length > 0) {
+        throw new HttpError(
+          400,
+          `Requested scope(s) not advertised by the registry: ${unknown.join(", ")}.`,
+        );
+      }
     }
     return { ok: true, type: "oauth2" as const, declaration, material };
   }

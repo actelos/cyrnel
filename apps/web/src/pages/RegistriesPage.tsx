@@ -15,6 +15,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -26,6 +27,11 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -69,7 +75,7 @@ interface AuthFormState {
   apiKey: string;
   clientId: string;
   clientSecret: string;
-  scopes: string;
+  scopes: string[];
 }
 
 const emptyAuthForm: AuthFormState = {
@@ -77,7 +83,7 @@ const emptyAuthForm: AuthFormState = {
   apiKey: "",
   clientId: "",
   clientSecret: "",
-  scopes: "",
+  scopes: [],
 };
 
 function authBody(form: AuthFormState): Record<string, unknown> {
@@ -86,9 +92,8 @@ function authBody(form: AuthFormState): Record<string, unknown> {
   }
   if (form.type === "oauth2") {
     const scopes = form.scopes
-      .split(",")
       .map((scope) => scope.trim())
-      .filter(Boolean);
+      .filter((scope) => scope.length > 0);
     return {
       type: "oauth2",
       clientId: form.clientId.trim(),
@@ -115,6 +120,20 @@ const authResultSchema = z.object({
     tokenExpiresAt: z.number().nullable().optional(),
     message: z.string().nullable().optional(),
   }),
+});
+
+const authStateSchema = z.object({
+  authType: z.enum(["apiKey", "oauth2"]).nullable(),
+  tokenEndpoint: z.string().nullable(),
+  headerName: z.string().nullable(),
+  tokenExpiresAt: z.number().nullable(),
+  availableScopes: z.array(
+    z.object({
+      id: z.string(),
+      description: z.string().optional(),
+    }),
+  ),
+  configuredScopes: z.array(z.string()),
 });
 
 function authFormValid(form: AuthFormState): boolean {
@@ -144,13 +163,95 @@ function isValidHttpUrl(value: string): boolean {
   }
 }
 
+interface AuthScopeOption {
+  id: string;
+  description?: string;
+}
+
 interface AuthFieldsProps {
   form: AuthFormState;
   onChange: (form: AuthFormState) => void;
   idPrefix: string;
+  scopes?: AuthScopeOption[];
 }
 
-function AuthFields({ form, onChange, idPrefix }: AuthFieldsProps) {
+function ScopeSelect({ form, onChange, idPrefix, scopes }: AuthFieldsProps) {
+  return (
+    <div className="space-y-2">
+      <Label>Scopes</Label>
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            id={`${idPrefix}-scopes`}
+            variant="outline"
+            className="w-full justify-start font-normal"
+          >
+            {form.scopes.length > 0 ? (
+              <span className="truncate">{form.scopes.join(", ")}</span>
+            ) : scopes && scopes.length > 0 ? (
+              <span className="text-muted-foreground">
+                All ({scopes.length} available)
+              </span>
+            ) : (
+              <span className="text-muted-foreground">
+                {scopes?.length
+                  ? "Select scopes"
+                  : "No scopes advertised by the registry"}
+              </span>
+            )}
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-72">
+          <div className="max-h-56 space-y-0 overflow-auto">
+            {scopes && scopes.length > 0 ? (
+              scopes.map((scope) => {
+                const checked = form.scopes.includes(scope.id);
+                return (
+                  <div
+                    key={scope.id}
+                    className="flex items-start gap-2 rounded-sm px-2 py-1.5 hover:bg-accent"
+                  >
+                    <Checkbox
+                      aria-label={`Scope ${scope.id}`}
+                      checked={checked}
+                      onCheckedChange={() => {
+                        const next = checked
+                          ? form.scopes.filter((s) => s !== scope.id)
+                          : [...form.scopes, scope.id];
+                        onChange({ ...form, scopes: next });
+                      }}
+                    />
+                    <span className="min-w-0">
+                      <span className="block font-mono text-sm">
+                        {scope.id}
+                      </span>
+                      {scope.description ? (
+                        <span className="text-muted-foreground block text-xs">
+                          {scope.description}
+                        </span>
+                      ) : null}
+                    </span>
+                  </div>
+                );
+              })
+            ) : (
+              <p className="text-muted-foreground px-2 py-1 text-xs">
+                The registry does not advertise any selectable scopes.
+              </p>
+            )}
+          </div>
+        </PopoverContent>
+      </Popover>
+      <p className="text-muted-foreground text-xs">
+        Optional. When nothing is selected, the full set of scopes advertised by
+        the registry is requested.
+      </p>
+    </div>
+  );
+}
+
+function AuthFields({ form, onChange, idPrefix, scopes }: AuthFieldsProps) {
   return (
     <div className="space-y-4">
       <div className="space-y-2">
@@ -221,23 +322,22 @@ function AuthFields({ form, onChange, idPrefix }: AuthFieldsProps) {
               value={form.clientSecret}
             />
           </div>
-          <div className="space-y-2">
-            <Label htmlFor={`${idPrefix}-scopes`}>Scopes</Label>
-            <Input
-              id={`${idPrefix}-scopes`}
-              autoComplete="off"
-              onChange={(event) =>
-                onChange({ ...form, scopes: event.target.value })
-              }
-              placeholder="registry:read, registry:write"
-              value={form.scopes}
+          {scopes === undefined ? (
+            <div className="space-y-2">
+              <Label>Scopes</Label>
+              <p className="text-muted-foreground text-xs">
+                Defaults to the scopes advertised by the registry; choose
+                specific scopes after adding it.
+              </p>
+            </div>
+          ) : (
+            <ScopeSelect
+              form={form}
+              onChange={onChange}
+              idPrefix={idPrefix}
+              scopes={scopes}
             />
-            <p className="text-muted-foreground text-xs">
-              Optional, comma-separated. Defaults to the scopes advertised by
-              the registry. The token endpoint is taken from the advertisement,
-              never from this form.
-            </p>
-          </div>
+          )}
         </div>
       ) : null}
     </div>
@@ -259,6 +359,7 @@ export default function RegistriesPage() {
 
   const [authTarget, setAuthTarget] = useState<Registry | null>(null);
   const [authForm, setAuthForm] = useState<AuthFormState>(emptyAuthForm);
+  const [authScopes, setAuthScopes] = useState<AuthScopeOption[]>([]);
   const [isSavingAuth, setIsSavingAuth] = useState(false);
 
   const registriesUrl = buildUrl("/registries");
@@ -465,17 +566,34 @@ export default function RegistriesPage() {
 
   const openAuthDialog = (registry: Registry) => {
     setAuthTarget(registry);
+    setAuthScopes([]);
     setAuthForm({
       type: registry.authType ?? "none",
       apiKey: "",
       clientId: "",
       clientSecret: "",
-      scopes: "",
+      scopes: [],
     });
+    apiFetchJson(buildUrl(`/registries/${registry.id}/auth`), authStateSchema)
+      .then((state) => {
+        setAuthScopes(state.availableScopes);
+        setAuthForm((current) => ({
+          ...current,
+          scopes: state.configuredScopes,
+        }));
+      })
+      .catch(() => {
+        addNotification({
+          type: "error",
+          title: "Error",
+          message: `Unable to load auth details for '${registry.id}'.`,
+        });
+      });
   };
 
   const closeAuthDialog = () => {
     setAuthTarget(null);
+    setAuthScopes([]);
     setAuthForm(emptyAuthForm);
   };
 
@@ -712,6 +830,7 @@ export default function RegistriesPage() {
               form={authForm}
               onChange={setAuthForm}
               idPrefix="registry-auth"
+              scopes={authScopes}
             />
           </div>
           <DialogFooter>

@@ -1120,10 +1120,45 @@ const OAuthAuthSetupSchema = registry.register(
         .array(z.string().min(1))
         .optional()
         .describe(
-          "Optional requested scopes. Defaults to the scopes advertised by the registry.",
+          "Optional requested scopes; each must be one of the scopes advertised by the registry. Defaults to all advertised scopes when omitted.",
         ),
     })
     .describe("OAuth2 client-credentials for a registry."),
+);
+
+const RegistryAuthAvailableScopeSchema = registry.register(
+  "RegistryAuthAvailableScope",
+  z
+    .object({
+      id: z.string().min(1).describe("Scope identifier."),
+      description: z
+        .string()
+        .optional()
+        .describe("Human-readable description of what the scope permits."),
+    })
+    .describe("A scope offered by the registry's oauth2 auth advertisement."),
+);
+
+const RegistryAuthReadResponseSchema = registry.register(
+  "RegistryAuthReadResponse",
+  z
+    .object({
+      authType: z.enum(["apiKey", "oauth2"]).nullable(),
+      tokenEndpoint: z.string().nullable(),
+      headerName: z.string().nullable(),
+      tokenExpiresAt: z.number().nullable(),
+      availableScopes: z
+        .array(RegistryAuthAvailableScopeSchema)
+        .describe(
+          "Scopes advertised by the registry's current well-known document when oauth2 auth is configured; empty otherwise.",
+        ),
+      configuredScopes: z
+        .array(z.string())
+        .describe("Scopes currently configured for the registry."),
+    })
+    .describe(
+      "Current auth configuration for a registry and the oauth2 scopes its advertisement offers.",
+    ),
 );
 
 const RegistryAuthSetupSchema = registry.register(
@@ -2688,7 +2723,7 @@ registry.registerPath({
   tags: ["Registries"],
   summary: "Register a registry",
   description:
-    "Discovers a registry from its base URL: fetches its well-known document, negotiates the highest supported definitions/modules capability, and stores a record. The advertised id is used unless an explicit id override is supplied. The base URL is validated and normalized before storage. When auth credentials are supplied, the well-known auth advertisement is validated first: safety refusals (plaintext transport, method mismatch) fail the request with 400, while a failed live token exchange still stores the record and reports error status on the auth field.",
+    "Discovers a registry from its base URL: fetches its well-known document, negotiates the highest supported definitions/modules capability, and stores a record. The advertised id is used unless an explicit id override is supplied. The base URL is validated and normalized before storage. When auth credentials are supplied, the well-known auth advertisement is validated first: safety refusals (plaintext transport, method mismatch, a requested oauth2 scope the registry does not advertise) fail the request with 400, while a failed live token exchange still stores the record and reports error status on the auth field.",
   request: { body: { content: jsonContent(AddRegistryRequestSchema) } },
   responses: {
     201: {
@@ -2729,7 +2764,7 @@ registry.registerPath({
       content: jsonContent(RegistryAuthSetupResponseSchema),
     },
     400: apiErrorResponse(
-      "The request body was invalid, the method does not match the registry's advertisement, or transport policy refused the credentials.",
+      "The request body was invalid, the method does not match the registry's advertisement, a requested scope is not advertised, or transport policy refused the credentials.",
     ),
     401: apiErrorResponse(
       "A bearer token was required but missing or invalid.",
@@ -2740,6 +2775,31 @@ registry.registerPath({
       "The registry or its token endpoint could not be reached.",
     ),
     500: apiErrorResponse("The credentials could not be stored."),
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/registries/{id}/auth",
+  tags: ["Registries"],
+  summary: "Get registry auth",
+  description:
+    "Returns the currently configured auth for a registry together with the oauth2 scopes offered by its current well-known advertisement. The advertisement is fetched live; scopes are never cached.",
+  request: { params: registryIdParam },
+  responses: {
+    200: {
+      description: "The registry auth configuration.",
+      content: jsonContent(RegistryAuthReadResponseSchema),
+    },
+    400: apiErrorResponse("The id path parameter was invalid."),
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    404: apiErrorResponse("The registry could not be found."),
+    502: apiErrorResponse(
+      "The registry's well-known document could not be reached.",
+    ),
+    500: apiErrorResponse("The auth configuration could not be loaded."),
   },
 });
 

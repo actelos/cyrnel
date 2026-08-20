@@ -23,7 +23,10 @@ const CLIENT_SECRET =
 const TOKEN_EXPIRES_IN = Number(
   process.env.CYRNEL_DEV_REGISTRY_TOKEN_EXPIRES_IN ?? 3600,
 );
-const SCOPES = ["definitions:read", "modules:read"];
+const SCOPES: Array<{ id: string; description: string }> = [
+  { id: "definitions:read", description: "Read registry definitions" },
+  { id: "modules:read", description: "Read registry modules" },
+];
 
 function advertisedAuth():
   | { type: "apiKey"; name: string }
@@ -31,7 +34,7 @@ function advertisedAuth():
       type: "oauth2";
       grantType: "client_credentials";
       tokenEndpoint: string;
-      scopes: string[];
+      scopes: Array<{ id: string; description: string }>;
     }
   | undefined {
   if (AUTH_MODE === "apikey") {
@@ -81,6 +84,16 @@ function handleTokenRequest(
       res.writeHead(401, { "content-type": "application/json" });
       res.end(JSON.stringify({ error: "invalid_client" }));
       return;
+    }
+    const requestedScope = params.get("scope");
+    if (requestedScope !== null) {
+      const available = new Set(SCOPES.map((scope) => scope.id));
+      const requested = requestedScope.split(" ").filter(Boolean);
+      if (requested.some((scope) => !available.has(scope))) {
+        res.writeHead(400, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "invalid_scope" }));
+        return;
+      }
     }
     json(res, {
       access_token: BEARER_TOKEN,

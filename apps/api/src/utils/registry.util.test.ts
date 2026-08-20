@@ -601,13 +601,19 @@ describe("fetchRegistryIndex", () => {
         type: "oauth2",
         grantType: "client_credentials",
         tokenEndpoint: "https://registry.example.com/oauth/token",
-        scopes: ["definitions:read", " modules:read "],
+        scopes: [
+          { id: "definitions:read", description: "Read definitions" },
+          { id: " modules:read " },
+        ],
       });
       expect(index.auth).toEqual({
         type: "oauth2",
         grantType: "client_credentials",
         tokenEndpoint: "https://registry.example.com/oauth/token",
-        scopes: ["definitions:read", "modules:read"],
+        scopes: [
+          { id: "definitions:read", description: "Read definitions" },
+          { id: "modules:read" },
+        ],
       });
     });
 
@@ -663,6 +669,28 @@ describe("fetchRegistryIndex", () => {
           grantType: "client_credentials",
           tokenEndpoint: "https://registry.example.com/oauth/token",
           scopes: [42],
+        }),
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it("rejects an oauth2 advertisement with a scope lacking an id", async () => {
+      await expect(
+        fetchIndexWithAuth({
+          type: "oauth2",
+          grantType: "client_credentials",
+          tokenEndpoint: "https://registry.example.com/oauth/token",
+          scopes: [{ description: "no id" }],
+        }),
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it("rejects an oauth2 advertisement with a non-string scope description", async () => {
+      await expect(
+        fetchIndexWithAuth({
+          type: "oauth2",
+          grantType: "client_credentials",
+          tokenEndpoint: "https://registry.example.com/oauth/token",
+          scopes: [{ id: "definitions:read", description: 42 }],
         }),
       ).rejects.toMatchObject({ statusCode: 400 });
     });

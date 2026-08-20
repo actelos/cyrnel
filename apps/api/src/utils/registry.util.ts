@@ -372,15 +372,35 @@ export interface RegistryIndexInfo {
   auth: RegistryAuthDeclaration | null;
 }
 
+export interface RegistryAuthScope {
+  id: string;
+  description?: string;
+}
+
 export type RegistryAuthDeclaration =
   | { type: "apiKey"; name: string }
   | {
       type: "oauth2";
       grantType: "client_credentials";
       tokenEndpoint: string;
-      scopes?: string[];
+      scopes?: RegistryAuthScope[];
     }
   | { type: "unsupported"; declaredType: string; reason?: string };
+
+function isRegistryAuthScope(
+  value: unknown,
+): value is { id: string; description?: string } {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  if (typeof record.id !== "string" || record.id.trim().length === 0) {
+    return false;
+  }
+  return (
+    record.description === undefined || typeof record.description === "string"
+  );
+}
 
 const SUPPORTED_DEFINITIONS_VERSIONS = [1] as const;
 const SUPPORTED_MODULES_VERSIONS = [1] as const;
@@ -493,18 +513,23 @@ function parseAdvertisedAuth(
       );
     }
 
-    let scopes: string[] | undefined;
+    let scopes: RegistryAuthScope[] | undefined;
     if (record.scopes !== undefined) {
       if (
         !Array.isArray(record.scopes) ||
-        !record.scopes.every((scope) => typeof scope === "string")
+        !record.scopes.every(isRegistryAuthScope)
       ) {
         throw new HttpError(
           400,
-          `${label} registry oauth2 'auth.scopes' must be an array of strings if provided.`,
+          `${label} registry oauth2 'auth.scopes' must be an array of { id, description } objects if provided.`,
         );
       }
-      scopes = (record.scopes as string[]).map((scope) => scope.trim());
+      scopes = record.scopes.map((scope) => ({
+        id: scope.id.trim(),
+        ...(scope.description !== undefined
+          ? { description: scope.description.trim() }
+          : {}),
+      }));
     }
 
     return {

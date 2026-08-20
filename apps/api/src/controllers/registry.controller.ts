@@ -171,6 +171,18 @@ export async function setRegistryAuth(
   res.status(200).json(result);
 }
 
+export async function getRegistryAuth(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const registriesService = getRegistriesService(req);
+  const id = parseRegistryId(req.params.id);
+
+  const state = await registriesService.getRegistryAuthState(id);
+
+  res.status(200).json(state);
+}
+
 export async function deleteRegistryAuth(
   req: Request,
   res: Response,

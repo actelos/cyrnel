@@ -8,6 +8,7 @@ import {
   deleteRegistryAuth,
   getDefinitionIcon,
   getModuleIcon,
+  getRegistryAuth,
   listRegistries,
   refreshRegistry,
   setRegistryAuth,
@@ -32,6 +33,7 @@ registryRouter.post(
   createRateLimiter(5, 60_000, "POST /registries/:id/auth"),
   setRegistryAuth,
 );
+registryRouter.get("/:id/auth", getRegistryAuth);
 registryRouter.delete("/:id/auth", deleteRegistryAuth);
 registryRouter.get("/:id/definitions", browseDefinitions);
 registryRouter.get("/:id/modules", browseModules);

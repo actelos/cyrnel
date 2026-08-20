@@ -7,6 +7,7 @@ import {
   browseModules,
   createRegistry,
   deleteRegistry,
+  getRegistryAuth,
   listRegistries,
   refreshRegistry,
 } from "@/controllers/registry.controller";
@@ -21,6 +22,7 @@ const registriesService = {
   listRegistries: vi.fn(),
   getRegistry: vi.fn(),
   deleteRegistry: vi.fn(),
+  getRegistryAuthState: vi.fn(),
 };
 
 interface MockResponse {
@@ -298,6 +300,39 @@ describe("refreshRegistry", () => {
     const res = makeRes();
     await expect(
       refreshRegistry(makeReq({ params: {} }), cast(res)),
+    ).rejects.toBeInstanceOf(HttpError);
+  });
+});
+
+describe("getRegistryAuth", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+  it("returns 200 with the auth state and scopes", async () => {
+    const res = makeRes();
+    const state = {
+      authType: "oauth2" as const,
+      tokenEndpoint: "https://registry.example.com/oauth/token",
+      headerName: null,
+      tokenExpiresAt: 1234,
+      availableScopes: [{ id: "registry:read", description: "Read" }],
+      configuredScopes: ["registry:read"],
+    };
+    registriesService.getRegistryAuthState.mockResolvedValue(state);
+
+    await getRegistryAuth(makeReq({ params: { id: "github" } }), cast(res));
+
+    expect(registriesService.getRegistryAuthState).toHaveBeenCalledWith(
+      "github",
+    );
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith(state);
+  });
+
+  it("rejects a missing id", async () => {
+    const res = makeRes();
+    await expect(
+      getRegistryAuth(makeReq({ params: {} }), cast(res)),
     ).rejects.toBeInstanceOf(HttpError);
   });
 });

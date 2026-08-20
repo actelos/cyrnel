@@ -708,7 +708,10 @@ describe("RegistriesService registry auth", () => {
       type: "oauth2",
       grantType: "client_credentials",
       tokenEndpoint: tokenEndpoint ?? `${baseUrl}/oauth/token`,
-      scopes: ["registry:read"],
+      scopes: [
+        { id: "registry:read", description: "Read from the registry" },
+        { id: "registry:write", description: "Write to the registry" },
+      ],
     };
   }
 
@@ -902,7 +905,7 @@ describe("RegistriesService registry auth", () => {
       type: "oauth2",
       clientId: state.clientId,
       clientSecret: state.clientSecret,
-      scopes: ["registry:read", "registry:write"],
+      scopes: ["registry:read"],
     });
 
     expect(result.auth).toMatchObject({
@@ -915,7 +918,7 @@ describe("RegistriesService registry auth", () => {
     const params = new URLSearchParams(state.tokenBodies[0]);
     expect(params.get("grant_type")).toBe("client_credentials");
     expect(params.get("client_id")).toBe(state.clientId);
-    expect(params.get("scope")).toBe("registry:read registry:write");
+    expect(params.get("scope")).toBe("registry:read");
 
     await svc.browseDefinitions(result.id, {});
     expect(state.definitionsHeaders.at(-1)?.authorization).toBe(
@@ -926,6 +929,90 @@ describe("RegistriesService registry auth", () => {
     expect(authState.authType).toBe("oauth2");
     expect(authState.tokenEndpoint).toBe(state.tokenEndpoint);
     expect(authState.tokenExpiresAt).not.toBeNull();
+  });
+
+  it("defaults to the full advertised scope set when none is requested", async () => {
+    advertiseOAuth2();
+    state.enforcement = "oauth2";
+
+    const result = await svc.addRegistry(baseUrl, undefined, {
+      type: "oauth2",
+      clientId: state.clientId,
+      clientSecret: state.clientSecret,
+    });
+
+    expect(result.auth?.status).toBe("configured");
+    const params = new URLSearchParams(state.tokenBodies[0]);
+    expect(params.get("scope")).toBe("registry:read registry:write");
+  });
+
+  it("refuses requested scopes the registry does not advertise", async () => {
+    advertiseOAuth2();
+    state.enforcement = "oauth2";
+
+    await expect(
+      svc.addRegistry(baseUrl, undefined, {
+        type: "oauth2",
+        clientId: state.clientId,
+        clientSecret: state.clientSecret,
+        scopes: ["registry:read", "registry:admin"],
+      }),
+    ).rejects.toMatchObject({ statusCode: 400 });
+    expect((await svc.listRegistries()).items).toHaveLength(0);
+
+    const result = await svc.addRegistry(baseUrl, undefined, {
+      type: "oauth2",
+      clientId: state.clientId,
+      clientSecret: state.clientSecret,
+    });
+    const exchangesBefore = state.tokenExchanges;
+    await expect(
+      svc.setRegistryAuth(result.id, {
+        type: "oauth2",
+        clientId: state.clientId,
+        clientSecret: state.clientSecret,
+        scopes: ["registry:admin"],
+      }),
+    ).rejects.toMatchObject({ statusCode: 400 });
+    const [row] = await db.select().from(registryAuth).limit(1);
+    expect(row).toBeDefined();
+    expect(state.tokenExchanges).toBe(exchangesBefore);
+  });
+
+  it("reads back available and configured scopes from the live advertisement", async () => {
+    advertiseOAuth2();
+    state.enforcement = "oauth2";
+
+    const result = await svc.addRegistry(baseUrl, undefined, {
+      type: "oauth2",
+      clientId: state.clientId,
+      clientSecret: state.clientSecret,
+      scopes: ["registry:read"],
+    });
+
+    const authState = await svc.getRegistryAuthState(result.id);
+    expect(authState.availableScopes).toEqual([
+      { id: "registry:read", description: "Read from the registry" },
+      { id: "registry:write", description: "Write to the registry" },
+    ]);
+    expect(authState.configuredScopes).toEqual(["registry:read"]);
+
+    await expect(svc.getRegistryAuthState("missing")).rejects.toMatchObject({
+      statusCode: 404,
+    });
+  });
+
+  it("reads back no scopes when api key auth is configured", async () => {
+    advertiseApiKey();
+    state.enforcement = "apikey";
+    const result = await svc.addRegistry(baseUrl, undefined, {
+      type: "apiKey",
+      apiKey: state.apiKey,
+    });
+
+    const authState = await svc.getRegistryAuthState(result.id);
+    expect(authState.availableScopes).toEqual([]);
+    expect(authState.configuredScopes).toEqual([]);
   });
 
   it("never stores credentials when the methods mismatch", async () => {

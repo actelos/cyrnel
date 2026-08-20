@@ -1265,7 +1265,7 @@
               "type": "string",
               "minLength": 1
             },
-            "description": "Optional requested scopes. Defaults to the scopes advertised by the registry."
+            "description": "Optional requested scopes; each must be one of the scopes advertised by the registry. Defaults to all advertised scopes when omitted."
           }
         },
         "required": [
@@ -1274,6 +1274,73 @@
           "clientSecret"
         ],
         "description": "OAuth2 client-credentials for a registry."
+      },
+      "RegistryAuthAvailableScope": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Scope identifier."
+          },
+          "description": {
+            "type": "string",
+            "description": "Human-readable description of what the scope permits."
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "description": "A scope offered by the registry's oauth2 auth advertisement."
+      },
+      "RegistryAuthReadResponse": {
+        "type": "object",
+        "properties": {
+          "authType": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "apiKey",
+              "oauth2",
+              null
+            ]
+          },
+          "tokenEndpoint": {
+            "type": "string",
+            "nullable": true
+          },
+          "headerName": {
+            "type": "string",
+            "nullable": true
+          },
+          "tokenExpiresAt": {
+            "type": "number",
+            "nullable": true
+          },
+          "availableScopes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RegistryAuthAvailableScope"
+            },
+            "description": "Scopes advertised by the registry's current well-known document when oauth2 auth is configured; empty otherwise."
+          },
+          "configuredScopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Scopes currently configured for the registry."
+          }
+        },
+        "required": [
+          "authType",
+          "tokenEndpoint",
+          "headerName",
+          "tokenExpiresAt",
+          "availableScopes",
+          "configuredScopes"
+        ],
+        "description": "Current auth configuration for a registry and the oauth2 scopes its advertisement offers."
       },
       "RegistryAuthSetup": {
         "oneOf": [
@@ -1306,10 +1373,10 @@
           "status": {
             "type": "string",
             "enum": [
-              "ok",
+              "configured",
               "error"
             ],
-            "description": "ok when credentials validated against the registry; error when they were stored but a live validation (e.g. token exchange) failed."
+            "description": "configured when credentials were successfully stored; error when storage or validation failed."
           },
           "headerName": {
             "type": "string",
@@ -1387,10 +1454,10 @@
               "status": {
                 "type": "string",
                 "enum": [
-                  "ok",
+                  "configured",
                   "error"
                 ],
-                "description": "ok when credentials validated against the registry; error when they were stored but a live validation (e.g. token exchange) failed."
+                "description": "configured when credentials were successfully stored; error when storage or validation failed."
               },
               "headerName": {
                 "type": "string",
@@ -7521,7 +7588,7 @@
           "Registries"
         ],
         "summary": "Register a registry",
-        "description": "Discovers a registry from its base URL: fetches its well-known document, negotiates the highest supported definitions/modules capability, and stores a record. The advertised id is used unless an explicit id override is supplied. The base URL is validated and normalized before storage. When auth credentials are supplied, the well-known auth advertisement is validated first: safety refusals (plaintext transport, method mismatch) fail the request with 400, while a failed live token exchange still stores the record and reports error status on the auth field.",
+        "description": "Discovers a registry from its base URL: fetches its well-known document, negotiates the highest supported definitions/modules capability, and stores a record. The advertised id is used unless an explicit id override is supplied. The base URL is validated and normalized before storage. When auth credentials are supplied, the well-known auth advertisement is validated first: safety refusals (plaintext transport, method mismatch, a requested oauth2 scope the registry does not advertise) fail the request with 400, while a failed live token exchange still stores the record and reports error status on the auth field.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -7672,7 +7739,7 @@
             }
           },
           "400": {
-            "description": "The request body was invalid, the method does not match the registry's advertisement, or transport policy refused the credentials.",
+            "description": "The request body was invalid, the method does not match the registry's advertisement, a requested scope is not advertised, or transport policy refused the credentials.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7749,6 +7816,88 @@
           },
           "502": {
             "description": "The registry or its token endpoint could not be reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Registries"
+        ],
+        "summary": "Get registry auth",
+        "description": "Returns the currently configured auth for a registry together with the oauth2 scopes offered by its current well-known advertisement. The advertisement is fetched live; scopes are never cached.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Registry slug identifying the registry."
+            },
+            "required": true,
+            "description": "Registry slug identifying the registry.",
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The registry auth configuration.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistryAuthReadResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The id path parameter was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A bearer token was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The registry could not be found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The auth configuration could not be loaded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The registry's well-known document could not be reached.",
             "content": {
               "application/json": {
                 "schema": {
