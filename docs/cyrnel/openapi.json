@@ -1322,7 +1322,7 @@
             "items": {
               "$ref": "#/components/schemas/RegistryAuthAvailableScope"
             },
-            "description": "Scopes advertised by the registry's current well-known document when oauth2 auth is configured; empty otherwise."
+            "description": "Scopes advertised by the registry's current well-known document when it advertises oauth2 auth, regardless of whether auth is configured; empty otherwise."
           },
           "configuredScopes": {
             "type": "array",

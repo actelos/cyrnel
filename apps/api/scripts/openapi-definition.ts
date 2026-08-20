@@ -1150,7 +1150,7 @@ const RegistryAuthReadResponseSchema = registry.register(
       availableScopes: z
         .array(RegistryAuthAvailableScopeSchema)
         .describe(
-          "Scopes advertised by the registry's current well-known document when oauth2 auth is configured; empty otherwise.",
+          "Scopes advertised by the registry's current well-known document when it advertises oauth2 auth, regardless of whether auth is configured; empty otherwise.",
         ),
       configuredScopes: z
         .array(z.string())

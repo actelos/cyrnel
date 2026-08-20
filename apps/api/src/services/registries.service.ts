@@ -271,9 +271,7 @@ export class RegistriesService {
 
     const index = await fetchRegistryIndex(registry.baseUrl);
     const availableScopes =
-      state.authType === "oauth2" && index.auth?.type === "oauth2"
-        ? (index.auth.scopes ?? [])
-        : [];
+      index.auth?.type === "oauth2" ? (index.auth.scopes ?? []) : [];
 
     return { ...state, availableScopes, configuredScopes };
   }

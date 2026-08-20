@@ -1015,6 +1015,20 @@ describe("RegistriesService registry auth", () => {
     expect(authState.configuredScopes).toEqual([]);
   });
 
+  it("exposes advertised scopes before any auth is configured", async () => {
+    advertiseOAuth2();
+    state.enforcement = "oauth2";
+    const result = await svc.addRegistry(baseUrl, undefined);
+
+    const authState = await svc.getRegistryAuthState(result.id);
+    expect(authState.authType).toBeNull();
+    expect(authState.availableScopes).toEqual([
+      { id: "registry:read", description: "Read from the registry" },
+      { id: "registry:write", description: "Write to the registry" },
+    ]);
+    expect(authState.configuredScopes).toEqual([]);
+  });
+
   it("never stores credentials when the methods mismatch", async () => {
     advertiseOAuth2();
     state.enforcement = "oauth2";
