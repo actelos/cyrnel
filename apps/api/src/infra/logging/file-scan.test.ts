@@ -22,7 +22,7 @@ const makeEntry = (overrides: Partial<LogEntry>): LogEntry => ({
 function writeLines(file: string, entries: LogEntry[]): void {
   fs.writeFileSync(
     file,
-    entries.map((e) => JSON.stringify(e)).join("\n") + "\n",
+    `${entries.map((e) => JSON.stringify(e)).join("\n")}\n`,
   );
 }
 

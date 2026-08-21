@@ -22,22 +22,31 @@ sources:
 2. **Custom modules**, loaded from `$CYRNEL_DATA_DIR/modules/<name>/`. Each
    directory must contain a `module.json`:
 
-   ```json
-   {
-     "id": "my-adapter",
-     "version": "1.2.3",
-     "type": "adapter",
-     "name": "My Adapter",
-     "description": "this is my my adapter",
-     "main": "./index.js",
-     "engines": { "cyrnel": "^x.x.x" }
-   }
-   ```
+    ```json
+    {
+      "id": "my-adapter",
+      "version": "1.2.3",
+      "type": "adapter",
+      "name": "My Adapter",
+      "description": "this is my my adapter",
+      "main": "./index.js",
+      "engines": { "cyrnel": "^x.x.x" },
+      "compatibility": [
+        { "identifier": "openapi", "version": ">=3.0 <4.0" }
+      ]
+    }
+    ```
 
-   `version` is a required semver string. `engines` is optional, but when
-   present its `cyrnel` field is **required**: a semver range the Cyrnel core
-   version (`CYRNEL_CORE_VERSION`) must satisfy, or the module is rejected with
-   a 400 error. Omitting `engines` entirely means "no core version constraint".
+    `version` is a required semver string. `engines` is optional, but when
+    present its `cyrnel` field is **required**: a semver range the Cyrnel core
+    version (`CYRNEL_CORE_VERSION`) must satisfy, or the module is rejected with
+    a 400 error. Omitting `engines` entirely means "no core version constraint".
+
+    `compatibility` is optional and only meaningful for `adapter` modules.
+    Each entry declares an `<identifier>` and a semver `version` range that the
+    adapter can consume (see [Definition kinds & adapter
+    compatibility](/cyrnel/specs/definition-kinds)). When a service definition
+    carries a matching kind, the adapter is offered as an install target for it.
 
    `main` is an ES module exporting `instantiate(): AdapterModule` or
    `EnvironmentModule`. See

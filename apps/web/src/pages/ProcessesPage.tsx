@@ -780,7 +780,7 @@ export default function ProcessesPage() {
                           {process.id}
                         </TableCell>
                         <TableCell className="font-mono text-xs">
-                          {process.pid ?? "—"}
+                          {process.pid ?? ": "}
                         </TableCell>
                         <TableCell>{process.ref ?? "-"}</TableCell>
                         <TableCell>

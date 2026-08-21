@@ -86,7 +86,7 @@ describe("createRateLimiter", () => {
     vi.mocked(logger.warn).mockClear();
     if (!server) return;
     await new Promise<void>((resolve, reject) =>
-      server!.close((err) => (err ? reject(err) : resolve())),
+      server?.close((err) => (err ? reject(err) : resolve())),
     );
     server = undefined;
   });
@@ -99,7 +99,7 @@ describe("createRateLimiter", () => {
     });
 
     server = app.listen(0);
-    await new Promise<void>((resolve) => server!.once("listening", resolve));
+    await new Promise<void>((resolve) => server?.once("listening", resolve));
     const { port } = server.address() as AddressInfo;
     return `http://127.0.0.1:${port}`;
   }
@@ -129,7 +129,7 @@ describe("createRateLimiter", () => {
     });
 
     server = app.listen(0);
-    await new Promise<void>((resolve) => server!.once("listening", resolve));
+    await new Promise<void>((resolve) => server?.once("listening", resolve));
     const { port } = server.address() as AddressInfo;
 
     const first = await fetch(`http://127.0.0.1:${port}/`);

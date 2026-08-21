@@ -1,0 +1,1 @@
+ALTER TABLE `registries` DROP COLUMN `name`;

@@ -1,0 +1,84 @@
+---
+title: "Pagination"
+description: "Cursor/limit semantics for registry catalog browse pages"
+sidebarTitle: "Pagination"
+---
+
+Registry catalog pages (`definitions.v1` / `modules.v1`) are cursor-paginated.
+Cyrnel forwards your cursors verbatim - it never decodes them - and stops
+when a page returns `nextCursor: null`.
+
+> This is the **registry→Cyrnel** contract. Cyrnel's own list endpoints use
+> a different envelope; see [Pagination](/cyrnel/docs/pagination).
+
+## Request
+
+Cyrnel sends to the capability URL:
+
+| Params | Meaning |
+| --- | --- |
+| `query` | Free-text search (forwarded untouched) |
+| `type` / `kind` | Content filter for modules / definitions (forwarded untouched) |
+| `cursor` | Opaque token from the previous response's `nextCursor` |
+| `limit` | Always present (default **50**; regulators are free to clamp within the cap) |
+
+- `limit` values above `200` are capped by Cyrnel's API layer; within a
+  registry, clamp as you see fit.
+- Cursors and filters are independent: a mismatch between them should not
+  400 - treat a malformed or unrecognized `cursor` as "start from the
+  first page" (the reference fixture does exactly that).
+
+## Response
+
+```json
+{
+  "definitions": [],
+  "nextCursor": null
+}
+```
+
+Rule for every catalog page:
+
+- The item array key must exist (`definitions` or `modules`): its absence
+  is a `400 <capability> response must include a '<capability>' array.`
+- `nextCursor` is optional but must be `string` or `null`.
+- The **serialized** JSON body must be ≤ **256 KiB**: larger pages fail
+  with `400 <capability> response exceeds the maximum page size.` Keep
+  entries slim, or reduce `limit`.
+- There is **no `hasMore`** field - the presence of `nextCursor: null` is
+  the end-of-list signal. (Cyrnel's own API list endpoints, by contrast,
+  return `{items, nextCursor, hasMore}`.)
+
+## What Cyrnel never does
+
+- Never decodes or inspects the cursor contents.
+- Never filters or re-orders entries - every entry in every page is
+  consumed as sent (each is independently validated).
+- Never page-jumps; it stops as soon as `nextCursor` is `null`.
+
+## Advisory filters
+
+`query`, `type`, `kind` are relayed as hints. You may ignore them.
+
+<Info>
+  If you do filter, apply the filter **before** pagination so pages stay
+  consistent as cursors advance. The reference implementation substrings
+  `query` over `id`/`name`/`description` (case-insensitive) and applies
+  exact matches on `type`/`kind`, with cursors encoded as base64 of an
+  offset.
+</Info>
+
+## Consistency
+
+There is no consistency requirement across page boundaries, but cursors
+only make sense if the underlying ordering is **stable within a paging
+session**. Sort by a stable key (e.g. `id`) and keep the item set static
+while a client pages; a registry that reorders items on every request
+breaks its own cursor contract.
+
+## Size math
+
+`limit` 50 × ~5 KiB entries ≈ 250 KiB - right at the cap. For rich
+entries (long descriptions, icons), lean on `limit` ≤ 50 or keep entries
+lean. If a page trips the 256 KiB cap, Cyrnel returns a `400` and the
+browse fails (clients should retry with a smaller `limit`).

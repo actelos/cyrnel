@@ -27,3 +27,6 @@ data.db-*
 
 # Local model cache
 .cache
+
+# Installed module state
+modules

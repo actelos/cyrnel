@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { HttpError } from "@/models/error.model";
 import {
+  decryptAndMaybeReEncrypt,
   decryptSecrets,
   type EncryptedSecretsPayload,
   encryptSecrets,
@@ -284,6 +285,42 @@ describe("secrets.util", () => {
       process.env.CYRNEL_SECRETS_PREVIOUS_KEYS = oldKey.toString("base64");
 
       expect(decryptSecrets(payload)).toEqual({ token: "abc" });
+    });
+
+    it("re-encrypts under the primary key when the stored kid is a previous key", async () => {
+      const previousKey = crypto.randomBytes(32).toString("base64");
+      const previousKid = (() => {
+        const k = Buffer.from(previousKey, "base64");
+        return crypto.createHash("sha256").update(k).digest("hex").slice(0, 16);
+      })();
+      const originalPrevious = process.env.CYRNEL_SECRETS_PREVIOUS_KEYS;
+      process.env.CYRNEL_SECRETS_PREVIOUS_KEYS = previousKey;
+      try {
+        process.env.CYRNEL_SECRETS_KEY = previousKey;
+        const oldPayload = encryptSecrets({ token: "abc" });
+        expect(oldPayload.kid).toBe(previousKid);
+        process.env.CYRNEL_SECRETS_KEY = VALID_KEY;
+
+        const persisted: EncryptedSecretsPayload[] = [];
+        const result = await decryptAndMaybeReEncrypt(
+          oldPayload,
+          async (p) => {
+            persisted.push(p);
+          },
+          { event: "test-reencrypt" },
+        );
+
+        expect(result).toEqual({ token: "abc" });
+        expect(persisted).toHaveLength(1);
+        expect(persisted[0].kid).toBe(getPrimaryKeyId());
+        expect(decryptSecrets(persisted[0])).toEqual({ token: "abc" });
+      } finally {
+        if (originalPrevious === undefined) {
+          delete process.env.CYRNEL_SECRETS_PREVIOUS_KEYS;
+        } else {
+          process.env.CYRNEL_SECRETS_PREVIOUS_KEYS = originalPrevious;
+        }
+      }
     });
   });
 });

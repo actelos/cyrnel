@@ -1,0 +1,130 @@
+---
+title: "Registry security"
+description: "Threat model, egress guards, size caps, integrity checks, and operator controls"
+sidebarTitle: "Security"
+---
+
+Cyrnel treats every registry as **untrusted network input**: content is
+schema-validated, capped by size, checked by hash, and fetched through an
+egress guard that runs on **every hop** of every request. This page
+defines those guarantees and the controls operators can set.
+
+## Threat model
+
+A hostile or compromised registry can try to:
+
+- Make Cyrnel fetch internal addresses (SSRF): e.g. via `downloadUrl`,
+  capability URLs, redirects, or the token endpoint.
+- Exhaust memory/disk with unbounded downloads.
+- Install malicious modules. Module installs are subject to the same
+  scrutiny as any locally-authored module - see
+  [Security](/cyrnel/docs/security).
+
+<Warning>
+  Treat registries as untrusted until you can vouch for them. Only install
+  modules (and definitions, which run adapter code) from registries you
+  control or otherwise trust.
+</Warning>
+
+- Exfiltrate credentials via redirects - mitigated by per-hop rescoping
+  and transport rules.
+
+## Egress guard
+
+Applied to **every** registry fetch: well-known, browse pages, version
+descriptors, definition/archive/icon downloads, and oauth2 token
+endpoints.
+
+| Control | Behavior |
+| --- | --- |
+| Timeouts | 10 seconds per request phase (well-known, capability, descriptor, download, token) |
+| DNS | Hostnames are resolved (`dns.lookup`) and **every** address is checked |
+| Redirects | Max 5; each hop re-guarded and re-authed; `304` and missing `Location` fail |
+
+For each resolved address, in order:
+
+1. **Blocklist**: `CYRNEL_REGISTRY_BLOCKED_IPS` (CIDR CSV) denies;
+   takes priority over everything.
+2. **Allowlist**: `CYRNEL_REGISTRY_ALLOWED_IPS` (CIDR CSV) permits and
+   bypasses the default guard.
+3. **Block-all**: `CYRNEL_BLOCK_ALL_REGISTRIES=1|true` denies everything
+   that didn't match the allowlist.
+4. **Default guard**: the address must be a valid IP with range
+   `unicast` (private, loopback, link-local, multicast, and reserved
+   ranges are blocked unless allowlisted).
+5. **Allow.**
+
+Both IPv4 and IPv6 CIDR are supported. Failures return `502` (e.g.
+`Registry download blocked: address is not publicly routable.`).
+
+## Size caps
+
+Enforced **twice** per download - via `content-length` up front and by
+streamed byte-counting - and reported as `413`:
+
+| Payload | Cap |
+| --- | --- |
+| Well-known document | none |
+| Catalog page | 256 KiB (on the serialized JSON) |
+| Version descriptor | via download cap (30 MiB) |
+| Definition document | 30 MiB |
+| Module archive | 10 MiB |
+| Icon | 256 KiB |
+| Token response | 1 MiB |
+
+Zero-byte downloads fail with `400 Downloaded <label> was empty.` There is
+no retry logic anywhere in the fetch path (a single oauth2 401 retry
+excepted).
+
+## Integrity
+
+| Check | Where |
+| --- | --- |
+| Content hash vs descriptor `hash` | Definitions & module archives & icons (mismatch → `400`) |
+| `manifest.version` == descriptor version | Module install/update |
+| `manifest.id` / `manifest.type` stability | Module updates |
+| Schema validation | Well-known, pages, entries, descriptors |
+| Slug constraints | Registry `id`, entry ids, kind identifiers |
+
+Advertised hashes are optional but without them Cyrnel cannot detect a
+mutated artifact - always publish them.
+
+## Auth transport
+
+Credential-bearing requests require https; plaintext is refused with
+`502` unless the resolved address is loopback or in
+`CYRNEL_REGISTRY_AUTH_INSECURE_CIDRS`. Credentials attach only within the
+registry's origin + base-path scope and are stripped on cross-origin hops
+(which also defeats redirect-based credential theft). See
+[Authentication](/cyrnel/registry-specs/authentication).
+
+## Environment variables
+
+All registry-related runtime variables:
+
+| Variable | Purpose |
+| --- | --- |
+| `CYRNEL_REGISTRY_ALLOWED_IPS` | CIDR CSV always allowed (bypasses default guard) |
+| `CYRNEL_REGISTRY_BLOCKED_IPS` | CIDR CSV always blocked (highest priority) |
+| `CYRNEL_BLOCK_ALL_REGISTRIES` | `1`/`true` denies all registry egress except allowlisted |
+| `CYRNEL_REGISTRY_AUTH_INSECURE_CIDRS` | CIDR CSV allowed to carry credentials over plaintext http (loopback always allowed) |
+| `CYRNEL_DEFAULT_REGISTRY_URL` | Seeded into `registries` at startup when the table is empty |
+| `CYRNEL_AUTO_UPDATE_INTERVAL_MS` | Auto-update sweep interval (default `0` = disabled) |
+
+Related storage: registry ids/base URLs and auth config live in the
+`registries`/`registry_auth` tables; `registry_auth.config` and `token`
+are encrypted at rest with `CYRNEL_SECRETS_KEY` (AES-256-GCM). See
+[Secrets](/cyrnel/docs/security#secrets).
+
+## Author checklist
+
+- Serve over **https** (or loopback) if you require auth.
+- Keep artifacts **immutable by version** and descriptors **stable
+  forever**: updates re-resolve stored URLs.
+- Publish `hash` for every artifact and icon.
+- Apply request filters **before** pagination and keep ordering stable.
+- Keep pages under the 256 KiB serialized cap.
+- Don't require auth for `/.well-known/registry.json`: it must always be
+  discoverable.
+- Don't rely on Cyrnel honoring redirects beyond 5 or issuing a `304`.
+- Validate and sandbox anything your registry installs onto servers.

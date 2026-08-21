@@ -10,6 +10,7 @@ import {
   desc,
   eq,
   getTableColumns,
+  isNotNull,
   or,
   type SQL,
   sql,
@@ -28,8 +29,12 @@ import {
 } from "@/db/schema";
 import { logger } from "@/infra/logging";
 import type { HybridToolHit, SearchIndex } from "@/infra/search/search-engine";
+import type { AutoUpdateTarget } from "@/infra/updater/auto-updater";
 import { HttpError } from "@/models/error.model";
-import type { GenerateDefinitionInput } from "@/models/modules.model";
+import type {
+  GenerateDefinitionInput,
+  RankedAdapter,
+} from "@/models/modules.model";
 import type {
   DirectInstallServiceInput,
   GetServiceDefinitionResult,
@@ -46,6 +51,7 @@ import type {
   SetServiceEnabledInput,
   SetToolEnablesInput,
 } from "@/models/services.model";
+import { isUniqueConstraintError } from "@/utils/db-errors.util";
 import { downloadText } from "@/utils/download.util";
 import { computeContentHash } from "@/utils/hash.util";
 import type { IconColumns } from "@/utils/icon.util";
@@ -87,6 +93,8 @@ export interface AdapterController {
   hydrateService(adapterId: string, state: ServiceState): Promise<void>;
   dehydrateService(adapterId: string, serviceId: string): Promise<void>;
   generateToolDocs(input: ToolDocsInput): Promise<string>;
+  rankAdapters(kind?: string): Promise<RankedAdapter[]>;
+  resolveDefaultAdapter(kind?: string): Promise<string | undefined>;
 }
 
 const encryptedSecretsSchema = z.object({
@@ -526,6 +534,18 @@ export class ServicesService {
     await this.reindexServiceSearch(input.id);
   }
 
+  async listInstallAdapters(
+    kind?: string,
+  ): Promise<{ default: string | null; adapters: RankedAdapter[] }> {
+    const adapters = await this.controller.rankAdapters(kind);
+    return {
+      default:
+        adapters.find((adapter) => adapter.compatible && adapter.active)?.id ??
+        null,
+      adapters,
+    };
+  }
+
   async createServiceFromRegistry(
     input: RegistryInstallServiceInput,
   ): Promise<string> {
@@ -533,7 +553,9 @@ export class ServicesService {
     const registry = await resolveServiceRegistry(input.source, input.version);
 
     const effectiveId = input.id ?? registry.id;
-    const effectiveAdapter = input.adapter ?? registry.adapter;
+    const effectiveAdapter =
+      input.adapter ??
+      (await this.controller.resolveDefaultAdapter(registry.kind));
 
     if (!effectiveId) {
       throw new HttpError(
@@ -545,7 +567,9 @@ export class ServicesService {
     if (!effectiveAdapter) {
       throw new HttpError(
         400,
-        "Adapter must be provided either in the request body or by the registry.",
+        `No adapter is available for definition kind '${
+          registry.kind ?? "(unknown)"
+        }'. Install a compatible adapter module or provide an adapter explicitly.`,
       );
     }
 
@@ -710,7 +734,32 @@ export class ServicesService {
     }
   }
 
-  async updateService(id: string): Promise<void> {
+  async listAutoUpdateServices(): Promise<AutoUpdateTarget[]> {
+    const rows = await db
+      .select({
+        id: services.id,
+        source: services.source,
+        version: services.version,
+        constraint: services.autoUpdateConstraint,
+      })
+      .from(services)
+      .where(and(eq(services.autoUpdate, true), isNotNull(services.source)))
+      .catch(() => {
+        throw new HttpError(500, "Failed to list auto-update services.");
+      });
+    return rows.map((row) => ({
+      id: row.id,
+      kind: "service" as const,
+      source: row.source as string,
+      version: row.version,
+      constraint: row.constraint,
+    }));
+  }
+
+  async updateService(
+    id: string,
+    constraint?: string | null,
+  ): Promise<boolean> {
     const [service] = await db
       .select({
         adapter: services.adapter,
@@ -741,7 +790,10 @@ export class ServicesService {
     };
     try {
       const { resolveServiceRegistry } = await import("@/utils/registry.util");
-      registry = await resolveServiceRegistry(service.source);
+      registry = await resolveServiceRegistry(
+        service.source,
+        constraint ?? undefined,
+      );
     } catch (err) {
       if (err instanceof HttpError) {
         throw new HttpError(
@@ -768,7 +820,7 @@ export class ServicesService {
       registry.version === service.version
     ) {
       await this.persistServiceIcon(id, iconColumns);
-      return;
+      return false;
     }
 
     const definitionContent = await this.downloadDefinition(
@@ -778,7 +830,7 @@ export class ServicesService {
 
     if (hash === service.hash && registry.version === service.version) {
       await this.persistServiceIcon(id, iconColumns);
-      return;
+      return false;
     }
 
     const parsedDefinition = await this.controller.generateDefinition({
@@ -850,6 +902,8 @@ export class ServicesService {
         "Failed to dehydrate service on update",
       );
     }
+
+    return true;
   }
 
   private async persistServiceIcon(
@@ -1556,25 +1610,4 @@ export class ServicesService {
       );
     }
   }
-}
-
-function isUniqueConstraintError(
-  err: unknown,
-  seen = new Set<unknown>(),
-): boolean {
-  if (!err || typeof err !== "object" || seen.has(err)) return false;
-  seen.add(err);
-  const { code, message } = err as { code?: unknown; message?: unknown };
-  const c = typeof code === "string" ? code : "";
-  const m = typeof message === "string" ? message : "";
-  if (
-    c === "23505" ||
-    /^SQLITE_CONSTRAINT_(UNIQUE|PRIMARYKEY)$/i.test(c) ||
-    /UNIQUE constraint failed:|duplicate key value|\bduplicate key\b|violates unique constraint/i.test(
-      m,
-    )
-  ) {
-    return true;
-  }
-  return isUniqueConstraintError((err as { cause?: unknown }).cause, seen);
 }

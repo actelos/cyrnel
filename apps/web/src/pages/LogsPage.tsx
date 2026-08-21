@@ -1,9 +1,3 @@
-import {
-  type LogEntry,
-  type LogLevel,
-  type LogType,
-  logEntrySchema,
-} from "@cyrnel/sdk";
 import { ChevronDown, Pause, Play } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
@@ -33,6 +27,12 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { apiFetchJson, buildUrl, errorMessageFrom } from "@/lib/api";
+import {
+  type LogEntry,
+  type LogLevel,
+  type LogType,
+  logEntrySchema,
+} from "@/lib/log-schema";
 import { cn } from "@/lib/utils";
 
 const logPageSchema = z.object({
@@ -45,6 +45,12 @@ interface LogFilters {
   query: string;
   level: LogLevel | "all";
   type: LogType | "all";
+  moduleType: "adapter" | "environment" | "all";
+  moduleId: string;
+  executionId: string;
+  dispatchId: string;
+  toolId: string;
+  phase: string;
 }
 
 const PAGE_LIMIT = 100;
@@ -76,12 +82,32 @@ const filterParams = (filters: LogFilters) => ({
   query: filters.query.trim().length > 0 ? filters.query.trim() : undefined,
   level: filters.level === "all" ? undefined : filters.level,
   type: filters.type === "all" ? undefined : filters.type,
+  moduleId:
+    filters.moduleId.trim().length > 0 ? filters.moduleId.trim() : undefined,
+  executionId:
+    filters.executionId.trim().length > 0
+      ? filters.executionId.trim()
+      : undefined,
+  toolId: filters.toolId.trim().length > 0 ? filters.toolId.trim() : undefined,
+  dispatchId:
+    filters.dispatchId.trim().length > 0
+      ? filters.dispatchId.trim()
+      : undefined,
+  phase: filters.phase.trim().length > 0 ? filters.phase.trim() : undefined,
 });
 
 export default function LogsPage() {
   const [query, setQuery] = useState("");
   const [level, setLevel] = useState<LogLevel | "all">("all");
   const [type, setType] = useState<LogType | "all">("all");
+  const [moduleId, setModuleId] = useState("");
+  const [executionId, setExecutionId] = useState("");
+  const [dispatchId, setDispatchId] = useState("");
+  const [toolId, setToolId] = useState("");
+  const [phase, setPhase] = useState("");
+  const [moduleType, setModuleType] = useState<
+    "adapter" | "environment" | "all"
+  >("all");
   const [history, setHistory] = useState<LogEntry[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -95,8 +121,28 @@ export default function LogsPage() {
   const paginationVersionRef = useRef(0);
 
   const filters = useMemo<LogFilters>(
-    () => ({ query, level, type }),
-    [query, level, type],
+    () => ({
+      query,
+      level,
+      type,
+      moduleType,
+      moduleId,
+      executionId,
+      dispatchId,
+      toolId,
+      phase,
+    }),
+    [
+      query,
+      level,
+      type,
+      moduleType,
+      moduleId,
+      executionId,
+      dispatchId,
+      toolId,
+      phase,
+    ],
   );
 
   const matches = useCallback(
@@ -107,6 +153,49 @@ export default function LogsPage() {
       const needle = filters.query.trim().toLowerCase();
       if (needle.length > 0 && !entry.message.toLowerCase().includes(needle)) {
         return false;
+      }
+      const moduleNeedle = filters.moduleId.trim().toLowerCase();
+      if (moduleNeedle.length > 0) {
+        if (
+          entry.moduleId === undefined ||
+          !entry.moduleId.toLowerCase().includes(moduleNeedle)
+        )
+          return false;
+      }
+      const execNeedle = filters.executionId.trim();
+      if (execNeedle.length > 0) {
+        if (
+          entry.executionId === undefined ||
+          String(entry.executionId) !== execNeedle
+        )
+          return false;
+      }
+      const toolNeedle = filters.toolId.trim().toLowerCase();
+      if (toolNeedle.length > 0) {
+        if (
+          entry.toolId === undefined ||
+          !entry.toolId.toLowerCase().includes(toolNeedle)
+        )
+          return false;
+      }
+      if (filters.moduleType !== "all") {
+        if (entry.moduleType !== filters.moduleType) return false;
+      }
+      const dispatchNeedle = filters.dispatchId.trim().toLowerCase();
+      if (dispatchNeedle.length > 0) {
+        if (
+          entry.dispatchId === undefined ||
+          !entry.dispatchId.toLowerCase().includes(dispatchNeedle)
+        )
+          return false;
+      }
+      const phaseNeedle = filters.phase.trim().toLowerCase();
+      if (phaseNeedle.length > 0) {
+        if (
+          entry.phase === undefined ||
+          !entry.phase.toLowerCase().includes(phaseNeedle)
+        )
+          return false;
       }
       return true;
     },
@@ -293,8 +382,56 @@ export default function LogsPage() {
                 <SelectItem value="all">All types</SelectItem>
                 <SelectItem value="app">App</SelectItem>
                 <SelectItem value="request">Request</SelectItem>
+                <SelectItem value="module">Module</SelectItem>
               </SelectContent>
             </Select>
+            <Select
+              onValueChange={(value) =>
+                setModuleType(value as "adapter" | "environment" | "all")
+              }
+              value={moduleType}
+            >
+              <SelectTrigger className="w-[150px]">
+                <SelectValue placeholder="Module type" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All module types</SelectItem>
+                <SelectItem value="adapter">Adapter</SelectItem>
+                <SelectItem value="environment">Environment</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <Input
+              placeholder="Module ID"
+              value={moduleId}
+              onChange={(event) => setModuleId(event.target.value)}
+              className="min-w-[10rem] flex-1"
+            />
+            <Input
+              placeholder="Execution ID"
+              value={executionId}
+              onChange={(event) => setExecutionId(event.target.value)}
+              className="w-[10rem]"
+            />
+            <Input
+              placeholder="Tool ID"
+              value={toolId}
+              onChange={(event) => setToolId(event.target.value)}
+              className="w-[10rem]"
+            />
+            <Input
+              placeholder="Dispatch ID"
+              value={dispatchId}
+              onChange={(event) => setDispatchId(event.target.value)}
+              className="w-[10rem]"
+            />
+            <Input
+              placeholder="Phase"
+              value={phase}
+              onChange={(event) => setPhase(event.target.value)}
+              className="w-[10rem]"
+            />
           </div>
         </header>
         <Card className="flex min-h-0 flex-1 flex-col">
@@ -361,10 +498,36 @@ export default function LogsPage() {
                           </span>
                         ) : entry.processId !== undefined ? (
                           <span>proc {String(entry.processId)}</span>
+                        ) : entry.dispatchId !== undefined ? (
+                          <span title={entry.dispatchId}>
+                            dispatch {entry.dispatchId.slice(0, 8)}
+                          </span>
+                        ) : entry.executionId !== undefined ? (
+                          <span>exec {String(entry.executionId)}</span>
+                        ) : entry.moduleId !== undefined ? (
+                          <span
+                            className="flex flex-wrap items-center gap-1"
+                            title={entry.moduleId}
+                          >
+                            {entry.moduleType ? (
+                              <Badge
+                                variant="outline"
+                                className="px-1 py-0 text-[10px]"
+                              >
+                                {entry.moduleType}
+                              </Badge>
+                            ) : null}
+                            <span>module {entry.moduleId.slice(0, 8)}</span>
+                            {entry.phase ? (
+                              <span className="text-muted-foreground">
+                                · {entry.phase}
+                              </span>
+                            ) : null}
+                          </span>
                         ) : entry.statusCode !== undefined ? (
                           <span>{entry.method ?? ""}</span>
                         ) : (
-                          <span className="text-muted-foreground">—</span>
+                          <span className="text-muted-foreground">: </span>
                         )}
                       </TableCell>
                       <TableCell className="text-right font-mono text-xs">
@@ -380,7 +543,7 @@ export default function LogsPage() {
                             {entry.statusCode}
                           </span>
                         ) : (
-                          <span className="text-muted-foreground">—</span>
+                          <span className="text-muted-foreground">: </span>
                         )}
                       </TableCell>
                     </TableRow>

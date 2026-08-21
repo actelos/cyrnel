@@ -22,7 +22,10 @@ import {
 
 import { db } from "@/db/client";
 import { HttpError } from "@/models/error.model";
-import type { GenerateDefinitionInput } from "@/models/modules.model";
+import type {
+  GenerateDefinitionInput,
+  RankedAdapter,
+} from "@/models/modules.model";
 import {
   type AdapterController,
   ServicesService,
@@ -90,6 +93,12 @@ function makeController(overrides: Partial<ControllerSpy> = {}): ControllerSpy {
     ),
     generateToolDocs: vi.fn<AdapterController["generateToolDocs"]>(
       async (_input: ToolDocsInput): Promise<string> => "# docs",
+    ),
+    rankAdapters: vi.fn<AdapterController["rankAdapters"]>(
+      async (): Promise<RankedAdapter[]> => [],
+    ),
+    resolveDefaultAdapter: vi.fn<AdapterController["resolveDefaultAdapter"]>(
+      async (): Promise<string | undefined> => undefined,
     ),
     ...overrides,
   };

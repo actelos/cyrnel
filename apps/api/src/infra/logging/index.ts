@@ -6,6 +6,12 @@ import type { LogBus } from "@/infra/logging/bus";
 import type { LogFileOptions } from "@/infra/logging/file-scan";
 import type { LogEntry } from "@/infra/logging/log-entry";
 import { LogSink, type LogSinkOptions } from "@/infra/logging/log-sink";
+
+export {
+  createModuleLogger,
+  type ModuleLoggerContext,
+} from "@/infra/logging/module-logger";
+
 import type { RingBuffer } from "@/infra/logging/ring-buffer";
 
 const { NODE_ENV, LOG_LEVEL } = process.env;

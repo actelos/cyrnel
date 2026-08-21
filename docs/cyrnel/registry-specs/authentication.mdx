@@ -1,0 +1,166 @@
+---
+title: "Authentication"
+description: "Advertised auth methods: API keys, OAuth2 client credentials, scope selection"
+sidebarTitle: "Authentication"
+---
+
+A registry may advertise an authentication method in its
+[well-known document](/cyrnel/registry-specs/well-known). Auth is
+**advisory**: it is never required, and it exists so Cyrnel can protect
+the registry's private content and issue scoped tokens. A registry that
+doesn't advertise `auth` is simply used anonymously.
+
+## Advertisement
+
+Two methods are understood; anything else is recorded as `unsupported`
+(ignored) until a setup request needs it, which then fails with `400`.
+
+### API key (header)
+
+```json
+{ "type": "apiKey", "name": "X-Registry-Key" }
+```
+
+- `name` is the header Cyrnel will send the key under (trimmed). It is
+  **pinned at setup**.
+- Query-parameter API keys are **not** supported: advertising
+  `"in": "query"` (or anything other than `"header"`) marks the method
+  unsupported with the reason `'in' must be 'header'; query-param api keys
+  are not supported.`
+
+### OAuth2 client credentials
+
+```json
+{
+  "type": "oauth2",
+  "grantType": "client_credentials",
+  "tokenEndpoint": "https://registry.example/oauth/token",
+  "scopes": [
+    { "id": "definitions:read", "description": "Read registry definitions" },
+    { "id": "modules:read", "description": "Read registry modules" }
+  ]
+}
+```
+
+- `grantType` may only be `client_credentials` (or omitted); anything else
+  is unsupported.
+- `tokenEndpoint` must be an absolute `http(s)` URL.
+- `scopes` is an optional list of `{ id, description? }`. It describes the
+  scopes the registry **offers**; see
+  [Scope selection](#scope-selection).
+
+## Credential scope
+
+Credentials are attached **only** to requests within the registry's
+origin and, if the base URL has a path, that path prefix. On cross-origin
+redirects they are stripped - Cyrnel re-evaluates scope at every hop.
+
+## Transport rules
+
+Credentials are only sent over:
+
+- `https`, or
+- `http` where the resolved address is loopback, or
+- `http` where the resolved address matches a CIDR in
+  `CYRNEL_REGISTRY_AUTH_INSECURE_CIDRS`.
+
+Attach-time violations fail the request with `502 Registry authentication
+requires https; refusing to send credentials over plaintext http.`
+Setup-time violations are `400` safety refusals (nothing stored). Local
+development over plaintext on loopback works out of the box.
+
+## Setup
+
+Auth is configured either at add time (`POST /registries` with `auth`) or
+later via `POST /registries/:id/auth`: both validated against the **live
+advertisement** (fetched fresh, never from the stored snapshot):
+
+```json
+{ "type": "oauth2", "clientId": "my-client", "clientSecret": "secret", "scopes": ["definitions:read"] }
+```
+
+### Safety refusals (400, nothing stored)
+
+| Cause | Message (`...`) |
+| --- | --- |
+| No advertised method | `The registry does not advertise an 'auth' method.` |
+| Unsupported advertisement | `The registry advertises unsupported auth '<type>' (<reason>).` |
+| Method mismatch | `The registry advertises oauth2; an api key cannot be used.` (and vice versa) |
+| Plaintext transport (not exempt) | `Registry authentication requires https; ...` |
+| Unadvertised scope | `Requested scope(s) not advertised by the registry: <scopes>.` |
+
+### Failure persistence (two paths)
+
+| Path | On token-exchange failure |
+| --- | --- |
+| `POST /registries` (add) | Registry is still created; response `auth: {type, status: "error", message}`; **credentials are not stored**. |
+| `POST /registries/:id/auth` | Credentials **are** stored; response `auth: {type, status: "error", message}`. `400` exchange errors rethrow with nothing stored. |
+
+Success returns `auth: { type, status: "configured", tokenExpiresAt }`.
+
+### Pinning & drift
+
+`headerName` (apiKey) and `tokenEndpoint` (oauth2) are **pinned from the
+advertisement at setup time**. If the registry later changes what it
+advertises, Cyrnel keeps using the pinned values and logs a warning
+(prompting reconfiguration): it never silently adopts the drift. Drift
+log events: `registry-auth-unsupported`, `registry-auth-unconfigured`,
+`registry-auth-type-drift`, `registry-auth-token-endpoint-drift` ("pinned
+endpoint retained (reconfigure to adopt)"), `registry-auth-header-drift`
+("pinned header retained (reconfigure to adopt)").
+
+## Token lifecycle
+
+- Tokens are persisted encrypted in the `registry_auth` table and reused
+  until their `expiresAt` is within 30 seconds of expiry (skew), then a
+  fresh exchange happens.
+- The exchange is **single-flight**: concurrent first requests share one
+  request.
+- Token requests are `POST <tokenEndpoint>` with a
+  `application/x-www-form-urlencoded` body:
+  `grant_type=client_credentials`, `client_id`, `client_secret`, and
+  `scope` (space-joined selected scopes).
+- The response must include `access_token` (string); `expires_in`
+  (seconds) defaults to 1 hour when absent; `refresh_token` is stored but
+  **never used**: refresh is always a fresh client-credentials exchange.
+- A single `401` from the upstream after using an oauth2 token triggers
+  one retry with a freshly exchanged token. apiKey auth never retries.
+- Signature for well-formed failures: non-2xx token response → `502
+  Registry oauth2 token endpoint responded with status N.`; malformed →
+  `502` with the parse reason.
+
+## Scope selection
+
+- Setting `scopes` to a **subset** of the advertised list is allowed and
+  attached to the token request.
+- Omitting `scopes` requests the **full advertised set** (Cyrnel sends the
+  space-joined advertised scope ids).
+- Any scope **not advertised** is a `400` safety refusal - a registry that
+  doesn't advertise `scopes` gets **no** `scope` parameter at all.
+- The current state is readable via `GET /registries/:id/auth`:
+
+```json
+{
+  "authType": "oauth2",
+  "tokenEndpoint": "https://registry.example/oauth/token",
+  "headerName": null,
+  "tokenExpiresAt": 1724000000000,
+  "availableScopes": [
+    { "id": "definitions:read", "description": "Read registry definitions" }
+  ],
+  "configuredScopes": ["definitions:read"]
+}
+```
+
+`availableScopes` is fetched **live** from the registry's current
+advertisement on every read (never cached); `configuredScopes` is
+decrypted from stored config. `authType` may be `null` (nothing
+configured); `tokenExpiresAt` is `null` for apiKey.
+
+## Testing drift & scopes
+
+The dev fixture can advertise values it does **not** enforce
+(`CYRNEL_DEV_REGISTRY_DRIFT_AUTH=1`) to exercise the pinning behavior,
+and it enforces its advertised scopes on the token endpoint
+(`invalid_scope` for unknown requested scopes). See
+[Building a registry](/cyrnel/registry-specs/building-a-registry).

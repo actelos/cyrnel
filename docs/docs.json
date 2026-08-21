@@ -68,7 +68,8 @@
                     "pages": [
                       "cyrnel/specs/module",
                       "cyrnel/specs/adapter-module",
-                      "cyrnel/specs/environment-module"
+                      "cyrnel/specs/environment-module",
+                      "cyrnel/specs/definition-kinds"
                     ]
                   },
                   {

@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { sendIconResponse } from "@/controllers/icon-response.util";
 import type { ServicesService } from "@/services/services.service";
+import { KIND_PATTERN } from "@/utils/compatibility.util";
 import { paginationQuerySchema } from "@/utils/pagination.util";
 import { parseOrHttpError } from "@/utils/validation.util";
 
@@ -74,6 +75,14 @@ const patchServiceBodySchema = z.object({
 const enabledBodySchema = z.object({
   enabled: z.boolean({ error: "Field 'enabled' must be a boolean." }),
 });
+
+const installAdaptersKindQuerySchema = querySchema.refine(
+  (value) => value === undefined || KIND_PATTERN.test(value),
+  {
+    message:
+      "Field 'kind' must match <identifier>@<version>, e.g. 'openapi@3.0'.",
+  },
+);
 
 const jsonPatchOperationSchema = z.union([
   z.object({
@@ -265,6 +274,25 @@ export async function installServiceRegistry(
   const id = await servicesService.createServiceFromRegistry(payload);
 
   res.status(201).json({ id });
+}
+
+export async function listInstallAdapters(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const servicesService = getServicesService(req);
+  const kind =
+    req.query?.kind === undefined
+      ? undefined
+      : parseOrHttpError(
+          installAdaptersKindQuerySchema,
+          req.query.kind,
+          "Invalid query parameters.",
+        );
+
+  const result = await servicesService.listInstallAdapters(kind);
+
+  res.status(200).json(result);
 }
 
 export async function patchService(req: Request, res: Response): Promise<void> {

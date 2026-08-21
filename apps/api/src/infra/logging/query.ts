@@ -12,6 +12,7 @@ export interface LogQueryFilters {
   level?: LogLevel;
   levelMin?: LogLevel;
   type?: LogType;
+  moduleType?: "adapter" | "environment";
   query?: string;
   event?: string;
   requestId?: string;
@@ -20,6 +21,10 @@ export interface LogQueryFilters {
   serviceId?: string;
   moduleId?: string;
   environmentId?: string;
+  executionId?: number;
+  dispatchId?: string;
+  toolId?: string;
+  phase?: string;
   statusCode?: number;
   durationMin?: number;
   durationMax?: number;
@@ -66,6 +71,11 @@ export function matchesLogFilters(
     return false;
 
   if (filters.type !== undefined && entry.type !== filters.type) return false;
+  if (
+    filters.moduleType !== undefined &&
+    entry.moduleType !== filters.moduleType
+  )
+    return false;
 
   if (filters.query !== undefined && filters.query.length > 0) {
     const needle = filters.query.toLowerCase();
@@ -89,6 +99,20 @@ export function matchesLogFilters(
     filters.environmentId !== undefined &&
     entry.environmentId !== filters.environmentId
   )
+    return false;
+  if (
+    filters.executionId !== undefined &&
+    entry.executionId !== filters.executionId
+  )
+    return false;
+  if (
+    filters.dispatchId !== undefined &&
+    entry.dispatchId !== filters.dispatchId
+  )
+    return false;
+  if (filters.toolId !== undefined && entry.toolId !== filters.toolId)
+    return false;
+  if (filters.phase !== undefined && entry.phase !== filters.phase)
     return false;
 
   if (

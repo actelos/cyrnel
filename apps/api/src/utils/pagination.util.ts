@@ -68,7 +68,7 @@ function isCursorPayload(value: unknown): value is CursorPayload {
 
 /**
  * Decodes an opaque cursor token. Malformed tokens, unsupported versions,
- * and — when `expectedArity` is given — payloads whose sort-key length
+ * and - when `expectedArity` is given - payloads whose sort-key length
  * does not match are hard errors (`400 invalid_cursor` / `400
  * cursor_expired`) rather than a silent reset to the first page.
  */

@@ -16,8 +16,15 @@ import type { AdapterModule, InvokeInput, ModuleSetupContext, ServiceDefinition,
 
 class MyAdapter implements AdapterModule {
   private state = new Map<string, ServiceState>();
+  private logger: ModuleSetupContext["logger"] | null = null;
 
-  async setup(_context: ModuleSetupContext) {}
+  async setup(context: ModuleSetupContext) {
+    // Configure reduction for yourself from your own config field, then scope
+    // a base phase. The host manages the rest of the correlation metadata.
+    const patterns = (context.config.redactionPatterns as string[] | undefined) ?? [];
+    this.logger = context.logger.redact(patterns).child({ phase: "setup" });
+    this.logger?.info({ event: "adapter-ready" }, "Adapter initialized");
+  }
   async teardown() { this.state.clear(); }
 
   async generateDefinition(input: string): Promise<ServiceDefinition> {
@@ -53,16 +60,51 @@ class MyAdapter implements AdapterModule {
   async invoke(input: InvokeInput): Promise<unknown> {
     const svc = this.state.get(input.serviceId);
     if (!svc) throw new Error(`unknown service ${input.serviceId}`);
+    const logger = this.logger?.child({
+      serviceId: input.serviceId,
+      toolId: input.toolId,
+      phase: "invoke",
+    });
+    logger?.info({ event: "invoke-start", parameters: input.parameters }, "Invoking tool");
     // ...use svc.adapterDomain / svc.config / svc.secrets to issue the call
     return { ok: true };
   }
 }
 
-const configSchema = { type: "object", properties: {} } as const;
+const configSchema = {
+  type: "object",
+  properties: {
+    redactionPatterns: {
+      type: "array",
+      items: { type: "string" },
+      description:
+        "Path patterns (dot/bracket notation) merged additively with the host-enforced baseline for this module's logs.",
+    },
+  },
+} as const;
 const secretsSchema = { type: "null" } as const;
 
 export default { configSchema, secretsSchema, instantiate: () => new MyAdapter() };
 ```
+
+## Logging
+
+The host owns all logging - your module never creates a logger. The logger it
+receives in `setup` already carries your module's identity (`moduleId`,
+`moduleType`, `adapterId`), and every entry is tagged `type: "module"`.
+
+- Call `context.logger.redact(patterns)` to opt into **self-managed
+  reduction**. Declare `redactionPatterns` in your own `configSchema` and read
+  it back from `context.config`: the host never supplies patterns for you.
+  Your patterns merge additively on top of a non-disableable baseline
+  (secrets / tokens / passwords / authorization).
+- Use `logger.child({ ... })` to scope a logger for a phase or a specific
+  invocation. `child` accepts only `phase`/`event`; the host-owned correlation
+  fields (`serviceId`, `toolId`, `executionId`, …) are merged in by the host
+  and cannot be forged.
+- Emit structured logs with `logger.info({ event, ...payload }, "message")`.
+  All six levels are available: `trace`, `debug`, `info`, `warn`, `error`,
+  `fatal`.
 
 ## Full Example
 

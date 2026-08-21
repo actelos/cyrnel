@@ -93,6 +93,29 @@ For the bundled `typescript-ivm`:
 - Timeouts terminate the isolate; the worker slot is recreated rather than
   reused.
 
+### Opt-in sandbox bindings
+
+By default the isolate exposes a bare ECMAScript runtime: no `fetch`, no
+`setTimeout`, no `TextEncoder`, no `btoa`, no `crypto`, no `URL`. Operators
+can selectively enable web-platform APIs via the module's `bindings`
+config, each a boolean:
+
+| Flag | APIs exposed |
+| --- | --- |
+| `base64` | `btoa(str)`, `atob(str)` (Latin-1 only, host-independent) |
+| `textCodecs` | `TextEncoder`, `TextDecoder` (UTF-8; implied by `url`) |
+| `url` | `URL`, `URLSearchParams` (WHATWG, vendored) |
+| `timers` | `setTimeout`, `setInterval`, `clearTimeout`, `clearInterval`, `queueMicrotask` |
+| `randomValues` | `crypto.getRandomValues(typedArray)`, `crypto.randomUUID()` (host-sourced entropy) |
+| `fullConsole` | `console.warn/info/debug/table/trace/time/count/group/assert` and other methods |
+
+All flags default to `false`. Bindings are resolved once at environment
+activation - an agent cannot enable them per-execution. Timers are
+host-supervised (max delay 60000 ms, max 16 concurrent, cleared when the
+execution function returns), and random values come from the host via
+`node:crypto`. The environment's docs (`GET /environment/docs`) list which
+bindings are enabled for the active config.
+
 If you write a custom environment, the relevant questions are:
 
 - What can user code reach? (Network? Filesystem? Native code?)

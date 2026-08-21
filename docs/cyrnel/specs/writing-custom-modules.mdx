@@ -142,6 +142,18 @@ export default {
 - `instantiate` is a zero-argument factory that returns a fresh module
   instance. The host calls it each time the module is activated.
 
+### Logging
+
+The host passes a host-owned `logger` into your module's `setup` context.
+Every entry you emit is tagged `type: "module"` with your module's identity
+(`moduleId`, `moduleType`, `adapterId`/`environmentId`) already applied, and
+you configure your own reduction via `logger.redact()` from a
+`redactionPatterns` field in your `configSchema`. You cannot forge or override
+the host-managed correlation fields (`serviceId`, `toolId`, `executionId`,
+`dispatchId`, `requestId`). See
+[Types → Module logging](/cyrnel/specs/types#module-logging) and the
+type-specific guides for the full contract.
+
 For the type-specific skeletons see:
 
 - [Writing a custom adapter module](/cyrnel/specs/writing-custom-adapter-module)

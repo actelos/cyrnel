@@ -5,6 +5,90 @@
 export type JSONSchema = Record<string, unknown>;
 
 /**
+ * Log severity levels available to module loggers, lowest to highest.
+ */
+export const MODULE_LOG_LEVELS = [
+  "trace",
+  "debug",
+  "info",
+  "warn",
+  "error",
+  "fatal",
+] as const;
+
+export type ModuleLogLevel = (typeof MODULE_LOG_LEVELS)[number];
+
+/**
+ * Bindings a module may attach to its log entries via `logger.child(...)`.
+ *
+ * Everything that identifies or correlates a log (module id, module type,
+ * service/adapter/environment id, execution/dispatch/tool/request id) is
+ * injected by the host and is intentionally absent here so a module cannot
+ * forge or override host-managed correlation metadata.
+ */
+export interface ModuleLogBindings {
+  phase?: string;
+  event?: string;
+}
+
+export type ModuleLogPayload = Record<string, unknown>;
+
+/**
+ * Logger instance injected into every module via {@link ModuleSetupContext}.
+ * Modules must not construct root loggers; they receive one host-owned
+ * logger and may call `.child()` to add scoped bindings.
+ */
+export interface ModuleLogger<C extends ModuleLogBindings = ModuleLogBindings> {
+  readonly context: Readonly<C>;
+  child<Next extends ModuleLogBindings>(bindings: Next): ModuleLogger<C & Next>;
+  /**
+   * Returns a new logger that applies the given reduction (redaction) path
+   * patterns to every payload, in addition to the host-enforced baseline.
+   * The module configures reduction for itself from its own configuration;
+   * patterns are merged additively and can never disable the host baseline.
+   */
+  redact(patterns: readonly string[]): ModuleLogger<C>;
+  isLevelEnabled(level: ModuleLogLevel): boolean;
+  trace(obj: ModuleLogPayload, message?: string): void;
+  trace(message: string): void;
+  debug(obj: ModuleLogPayload, message?: string): void;
+  debug(message: string): void;
+  info(obj: ModuleLogPayload, message?: string): void;
+  info(message: string): void;
+  warn(obj: ModuleLogPayload, message?: string): void;
+  warn(message: string): void;
+  error(obj: ModuleLogPayload, message?: string): void;
+  error(message: string): void;
+  fatal(obj: ModuleLogPayload, message?: string): void;
+  fatal(message: string): void;
+}
+
+/**
+ * Setup context delivered to every module's `setup()` method.
+ * Modules receive their configuration, secrets, and a host-owned logger.
+ */
+export interface ModuleSetupContext<
+  C extends ModuleLogBindings = ModuleLogBindings,
+> {
+  config: Record<string, unknown>;
+  secrets: Record<string, unknown>;
+  logger: ModuleLogger<C>;
+}
+
+/**
+ * Setup context for adapter modules.
+ */
+export type AdapterSetupContext = ModuleSetupContext;
+
+/**
+ * Setup context for environment modules. In addition to the standard
+ * module fields, environment modules receive {@link EnvironmentBindings}.
+ */
+export interface EnvironmentSetupContext extends ModuleSetupContext {
+  bindings: EnvironmentBindings;
+}
+
+/**
  * Defines a tool exposed by a service.
  */
 export interface ToolDefinition {
@@ -30,16 +114,6 @@ export interface ServiceDefinition {
   adapterDomain: Record<string, unknown>;
 }
 
-// Base Module
-
-/**
- * Context provided when initializing a module.
- */
-export interface ModuleSetupContext {
-  config: Record<string, unknown>;
-  secrets: Record<string, unknown>;
-}
-
 /**
  * Base interface implemented by all Cyrnel modules.
  */
@@ -61,8 +135,6 @@ export interface Module {
    */
   teardown(): Promise<void>;
 }
-
-// Environment Module
 
 /**
  * Input used to invoke a tool.
@@ -154,13 +226,6 @@ export interface ModuleExport {
 }
 
 /**
- * Context provided when initializing an environment module.
- */
-export interface EnvironmentSetupContext extends ModuleSetupContext {
-  bindings: EnvironmentBindings;
-}
-
-/**
  * Input used to execute code within an environment.
  */
 export interface ExecutionInput {
@@ -244,8 +309,6 @@ export interface EnvironmentModule extends Module {
   generateToolDocs(input: ToolDocsInput): Promise<string>;
 }
 
-// Adapter Modules
-
 /**
  * Persisted adapter-specific state for a tool.
  */
@@ -313,13 +376,3 @@ export interface AdapterModule extends Module {
    */
   invoke(input: InvokeInput): Promise<unknown>;
 }
-
-export {
-  createLogEntrySchema,
-  LOG_LEVELS,
-  LOG_TYPES,
-  type LogEntry,
-  type LogLevel,
-  type LogType,
-  logEntrySchema,
-} from "./log-entry";

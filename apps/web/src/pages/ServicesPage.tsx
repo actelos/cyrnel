@@ -6,16 +6,20 @@ import remarkGfm from "remark-gfm";
 import useSWR, { useSWRConfig } from "swr";
 import { z } from "zod";
 import { EntityIcon } from "@/components/entity-icon";
+import { RegistryBrowser } from "@/components/RegistryBrowser";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
@@ -76,18 +80,6 @@ const manualServiceSchema = z.object({
   adapter: z.string().trim().min(1, { message: "Adapter is required." }),
 });
 
-const registryServiceSchema = z.object({
-  source: z.url({ message: "Source must be a valid URL." }),
-  adapter: z.string().trim().optional(),
-  id: z
-    .string()
-    .trim()
-    .regex(/^[A-Za-z_$][A-Za-z0-9_$]*$/, {
-      message: "Id must be a valid TypeScript identifier.",
-    })
-    .optional(),
-});
-
 const adapterListBaseParams: Record<string, string | undefined> = {
   type: "adapter",
   enabled: "true",
@@ -113,13 +105,6 @@ export default function ServicesPage() {
   const [manualAdapter, setManualAdapter] = useState("");
   const [manualErrors, setManualErrors] = useState<
     Partial<Record<"id" | "url" | "adapter" | "form", string>>
-  >({});
-  const [registrySource, setRegistrySource] = useState("");
-  const [registryAdapter, setRegistryAdapter] = useState("");
-  const [registryId, setRegistryId] = useState("");
-  const [registryVersion, setRegistryVersion] = useState("");
-  const [registryErrors, setRegistryErrors] = useState<
-    Partial<Record<"source" | "adapter" | "id" | "version" | "form", string>>
   >({});
   const [isInstalling, setIsInstalling] = useState(false);
   const { addNotification } = useNotification();
@@ -306,55 +291,6 @@ export default function ServicesPage() {
     }
   };
 
-  const handleRegistryInstall = async () => {
-    setRegistryErrors({});
-
-    const body: Record<string, string> = { source: registrySource.trim() };
-    if (registryAdapter.trim()) body.adapter = registryAdapter.trim();
-    if (registryId.trim()) body.id = registryId.trim();
-    if (registryVersion.trim()) body.version = registryVersion.trim();
-
-    const parsed = registryServiceSchema.safeParse(body);
-
-    if (!parsed.success) {
-      const fieldErrors = z.flattenError(parsed.error).fieldErrors;
-      setRegistryErrors({
-        source: fieldErrors.source?.[0],
-        adapter: fieldErrors.adapter?.[0],
-        id: fieldErrors.id?.[0],
-      });
-      return;
-    }
-
-    setIsInstalling(true);
-    try {
-      await apiFetch(buildUrl("/services/install"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(parsed.data),
-      });
-
-      setRegistrySource("");
-      setRegistryAdapter("");
-      setRegistryId("");
-      setIsInstallOpen(false);
-      await refreshServices();
-      addNotification({
-        type: "success",
-        title: "Success",
-        message: "Service installed.",
-      });
-    } catch (error) {
-      addNotification({
-        type: "error",
-        title: "Error",
-        message: errorMessageFrom(error, "Unable to install service."),
-      });
-    } finally {
-      setIsInstalling(false);
-    }
-  };
-
   const handleSyncService = async (serviceId: string) => {
     try {
       await apiFetch(buildUrl(`/services/${serviceId}/sync`), {
@@ -408,257 +344,137 @@ export default function ServicesPage() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Popover open={isInstallOpen} onOpenChange={setIsInstallOpen}>
-              <PopoverTrigger asChild>
+            <Dialog open={isInstallOpen} onOpenChange={setIsInstallOpen}>
+              <DialogTrigger asChild>
                 <Button className="gap-2" type="button">
                   <Plus />
                   Install service
                 </Button>
-              </PopoverTrigger>
-              <PopoverContent align="end" className="w-md">
-                <div className="space-y-4">
-                  <div className="space-y-1">
-                    <h3 className="text-sm font-medium">Install service</h3>
-                    <p className="text-muted-foreground text-xs">
-                      Install from a registry or provide details manually.
-                    </p>
-                  </div>
-                  <Tabs
-                    value={installTab}
-                    onValueChange={(v) =>
-                      setInstallTab(v as "manual" | "registry")
-                    }
+              </DialogTrigger>
+              <DialogContent className="flex max-w-3xl h-[min(85vh,46rem)] flex-col lg:max-w-4xl">
+                <DialogHeader>
+                  <DialogTitle>Install service</DialogTitle>
+                  <DialogDescription>
+                    Install from a registry or provide details manually.
+                  </DialogDescription>
+                </DialogHeader>
+                <Tabs
+                  value={installTab}
+                  onValueChange={(v) =>
+                    setInstallTab(v as "manual" | "registry")
+                  }
+                  className="flex min-h-0 flex-1 flex-col gap-2"
+                >
+                  <TabsList className="w-full">
+                    <TabsTrigger className="flex-1" value="registry">
+                      Registry
+                    </TabsTrigger>
+                    <TabsTrigger className="flex-1" value="manual">
+                      Manual
+                    </TabsTrigger>
+                  </TabsList>
+                  <TabsContent
+                    value="registry"
+                    className="min-h-0 flex-1 overflow-hidden"
                   >
-                    <TabsList className="w-full">
-                      <TabsTrigger className="flex-1" value="registry">
-                        Registry
-                      </TabsTrigger>
-                      <TabsTrigger className="flex-1" value="manual">
-                        Manual
-                      </TabsTrigger>
-                    </TabsList>
-                    <TabsContent value="registry">
-                      <div className="space-y-3 pt-2">
-                        <div className="space-y-2">
-                          <Label htmlFor="service-registry-id">
-                            ID{" "}
-                            <span className="text-muted-foreground">
-                              (optional)
-                            </span>
-                          </Label>
-                          <Input
-                            id="service-registry-id"
-                            onChange={(event) =>
-                              setRegistryId(event.target.value)
-                            }
-                            placeholder="myService"
-                            value={registryId}
-                          />
-                          {registryErrors.id ? (
-                            <p className="text-xs text-destructive">
-                              {registryErrors.id}
-                            </p>
-                          ) : null}
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="service-registry-source">
-                            Source URL
-                          </Label>
-                          <Input
-                            id="service-registry-source"
-                            onChange={(event) =>
-                              setRegistrySource(event.target.value)
-                            }
-                            placeholder="https://registry.example.com/service"
-                            value={registrySource}
-                          />
-                          {registryErrors.source ? (
-                            <p className="text-xs text-destructive">
-                              {registryErrors.source}
-                            </p>
-                          ) : null}
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="service-registry-adapter">
-                            Adapter
-                          </Label>
-                          {adapters.length > 0 ? (
-                            <Select
-                              onValueChange={setRegistryAdapter}
-                              value={registryAdapter}
-                            >
-                              <SelectTrigger
-                                id="service-registry-adapter"
-                                className="w-full"
-                              >
-                                <SelectValue placeholder="From registry" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {adapters.map((adapter) => (
-                                  <SelectItem
-                                    key={adapter.id}
-                                    value={adapter.id}
-                                  >
-                                    {adapter.name}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          ) : (
-                            <Input
-                              id="service-registry-adapter"
-                              onChange={(event) =>
-                                setRegistryAdapter(event.target.value)
-                              }
-                              placeholder="openapi"
-                              value={registryAdapter}
-                            />
-                          )}
-                          {registryErrors.adapter ? (
-                            <p className="text-xs text-destructive">
-                              {registryErrors.adapter}
-                            </p>
-                          ) : null}
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="service-registry-version">
-                            Version{" "}
-                            <span className="text-muted-foreground">
-                              (optional, default: latest)
-                            </span>
-                          </Label>
-                          <Input
-                            id="service-registry-version"
-                            onChange={(event) =>
-                              setRegistryVersion(event.target.value)
-                            }
-                            placeholder="^1.0.0"
-                            value={registryVersion}
-                          />
-                          {registryErrors.version ? (
-                            <p className="text-xs text-destructive">
-                              {registryErrors.version}
-                            </p>
-                          ) : null}
-                        </div>
-                        <div className="flex items-center justify-end gap-2">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => setIsInstallOpen(false)}
-                          >
-                            Cancel
-                          </Button>
-                          <Button
-                            type="button"
-                            disabled={isInstalling}
-                            onClick={() => void handleRegistryInstall()}
-                          >
-                            {isInstalling ? "Installing" : "Install"}
-                          </Button>
-                        </div>
+                    <RegistryBrowser
+                      kind="service"
+                      onInstalled={refreshServices}
+                    />
+                  </TabsContent>
+                  <TabsContent
+                    value="manual"
+                    className="min-h-0 flex-1 overflow-y-auto"
+                  >
+                    <div className="space-y-3 pt-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="service-manual-id">ID</Label>
+                        <Input
+                          id="service-manual-id"
+                          onChange={(event) => setManualId(event.target.value)}
+                          placeholder="myService"
+                          value={manualId}
+                        />
+                        {manualErrors.id ? (
+                          <p className="text-xs text-destructive">
+                            {manualErrors.id}
+                          </p>
+                        ) : null}
                       </div>
-                    </TabsContent>
-                    <TabsContent value="manual">
-                      <div className="space-y-3 pt-2">
-                        <div className="space-y-2">
-                          <Label htmlFor="service-manual-id">ID</Label>
-                          <Input
-                            id="service-manual-id"
-                            onChange={(event) =>
-                              setManualId(event.target.value)
-                            }
-                            placeholder="myService"
-                            value={manualId}
-                          />
-                          {manualErrors.id ? (
-                            <p className="text-xs text-destructive">
-                              {manualErrors.id}
-                            </p>
-                          ) : null}
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="service-manual-url">
-                            Definition URL
-                          </Label>
-                          <Input
-                            id="service-manual-url"
-                            onChange={(event) =>
-                              setManualUrl(event.target.value)
-                            }
-                            placeholder="https://example.com/manifest.json"
-                            value={manualUrl}
-                          />
-                          {manualErrors.url ? (
-                            <p className="text-xs text-destructive">
-                              {manualErrors.url}
-                            </p>
-                          ) : null}
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="service-manual-adapter">
-                            Adapter
-                          </Label>
-                          {adapters.length > 0 ? (
-                            <Select
-                              onValueChange={setManualAdapter}
-                              value={manualAdapter}
-                            >
-                              <SelectTrigger
-                                id="service-manual-adapter"
-                                className="w-full"
-                              >
-                                <SelectValue placeholder="Select an adapter" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {adapters.map((adapter) => (
-                                  <SelectItem
-                                    key={adapter.id}
-                                    value={adapter.id}
-                                  >
-                                    {adapter.name}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          ) : (
-                            <Input
+                      <div className="space-y-2">
+                        <Label htmlFor="service-manual-url">
+                          Definition URL
+                        </Label>
+                        <Input
+                          id="service-manual-url"
+                          onChange={(event) => setManualUrl(event.target.value)}
+                          placeholder="https://example.com/manifest.json"
+                          value={manualUrl}
+                        />
+                        {manualErrors.url ? (
+                          <p className="text-xs text-destructive">
+                            {manualErrors.url}
+                          </p>
+                        ) : null}
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="service-manual-adapter">Adapter</Label>
+                        {adapters.length > 0 ? (
+                          <Select
+                            onValueChange={setManualAdapter}
+                            value={manualAdapter}
+                          >
+                            <SelectTrigger
                               id="service-manual-adapter"
-                              onChange={(event) =>
-                                setManualAdapter(event.target.value)
-                              }
-                              placeholder="openapi"
-                              value={manualAdapter}
-                            />
-                          )}
-                          {manualErrors.adapter ? (
-                            <p className="text-xs text-destructive">
-                              {manualErrors.adapter}
-                            </p>
-                          ) : null}
-                        </div>
-                        <div className="flex items-center justify-end gap-2">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => setIsInstallOpen(false)}
-                          >
-                            Cancel
-                          </Button>
-                          <Button
-                            type="button"
-                            disabled={isInstalling}
-                            onClick={() => void handleManualInstall()}
-                          >
-                            {isInstalling ? "Installing" : "Install"}
-                          </Button>
-                        </div>
+                              className="w-full"
+                            >
+                              <SelectValue placeholder="Select an adapter" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {adapters.map((adapter) => (
+                                <SelectItem key={adapter.id} value={adapter.id}>
+                                  {adapter.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <Input
+                            id="service-manual-adapter"
+                            onChange={(event) =>
+                              setManualAdapter(event.target.value)
+                            }
+                            placeholder="openapi"
+                            value={manualAdapter}
+                          />
+                        )}
+                        {manualErrors.adapter ? (
+                          <p className="text-xs text-destructive">
+                            {manualErrors.adapter}
+                          </p>
+                        ) : null}
                       </div>
-                    </TabsContent>
-                  </Tabs>
-                </div>
-              </PopoverContent>
-            </Popover>
+                      <div className="flex items-center justify-end gap-2 pt-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => setIsInstallOpen(false)}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          type="button"
+                          disabled={isInstalling}
+                          onClick={() => void handleManualInstall()}
+                        >
+                          {isInstalling ? "Installing" : "Install"}
+                        </Button>
+                      </div>
+                    </div>
+                  </TabsContent>
+                </Tabs>
+              </DialogContent>
+            </Dialog>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-3">

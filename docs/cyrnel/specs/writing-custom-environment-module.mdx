@@ -23,9 +23,16 @@ import type {
 
 class MyEnvironment implements EnvironmentModule {
   private bindings!: EnvironmentBindings;
+  private logger: EnvironmentSetupContext["logger"] | null = null;
+  private config: Record<string, unknown> = {};
 
-  async setup({ bindings }: EnvironmentSetupContext) {
+  async setup({ bindings, config, logger }: EnvironmentSetupContext) {
     this.bindings = bindings;
+    this.config = config;
+    // Configure reduction for yourself from your own config field, then scope
+    // a base phase. The host manages the rest of the correlation metadata.
+    const patterns = (this.config.redactionPatterns as string[] | undefined) ?? [];
+    this.logger = logger.redact(patterns).child({ phase: "setup" });
   }
 
   async teardown() {}
@@ -38,6 +45,9 @@ class MyEnvironment implements EnvironmentModule {
     const timeoutMs =
       (input.envConfig?.timeoutMs as number | undefined) ?? 30_000;
 
+    const execLogger = this.logger?.child({ executionId: eid, phase: "execution" });
+    execLogger?.info({ event: "execution-start" }, "Execution starting");
+
     this.bindings.setState(eid, "running");
     try {
       // ...execute input.code in your runtime, emitting stdout/stderr/output
@@ -45,6 +55,7 @@ class MyEnvironment implements EnvironmentModule {
       return "success";
     } catch (err) {
       this.bindings.setError(eid, String(err));
+      execLogger?.error({ event: "execution-failed", err }, "Execution failed");
       return "failed";
     }
   }
@@ -60,11 +71,40 @@ class MyEnvironment implements EnvironmentModule {
   }
 }
 
-const configSchema = { type: "object", properties: {} } as const;
+const configSchema = {
+  type: "object",
+  properties: {
+    redactionPatterns: {
+      type: "array",
+      items: { type: "string" },
+      description:
+        "Path patterns (dot/bracket notation) merged additively with the host-enforced baseline for this module's logs.",
+    },
+  },
+} as const;
 const secretsSchema = { type: "null" } as const;
 
 export default { configSchema, secretsSchema, instantiate: () => new MyEnvironment() };
 ```
+
+## Logging
+
+The host owns all logging - your module never creates a logger. The logger it
+receives in `setup` already carries your module's identity (`moduleId`,
+`moduleType`, `environmentId`), and every entry is tagged `type: "module"`.
+
+- Call `context.logger.redact(patterns)` to opt into **self-managed
+  reduction**. Declare `redactionPatterns` in your own `configSchema` and read
+  it back from `context.config`: the host never supplies patterns for you.
+  Your patterns merge additively on top of a non-disableable baseline
+  (secrets / tokens / passwords / authorization).
+- Use `logger.child({ ... })` to scope a logger for a phase or a specific
+  execution. `child` accepts only `phase`/`event`; the host-owned correlation
+  fields (`executionId`, `dispatchId`, `toolId`, …) are merged in by the host
+  and cannot be forged.
+- Emit structured logs with `logger.info({ event, ...payload }, "message")`.
+  All six levels are available: `trace`, `debug`, `info`, `warn`, `error`,
+  `fatal`.
 
 ## `envConfig`
 

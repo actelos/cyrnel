@@ -1,0 +1,146 @@
+---
+title: "Install & update"
+description: "How Cyrnel installs and updates services and modules from a registry"
+sidebarTitle: "Install & update"
+---
+
+Installs happen through the Cyrnel API (`POST /services/install`,
+`POST /modules/install`) or the equivalent web UI dialogs. Both flows
+fetch a version descriptor, download a hash-verified artifact, and - for
+modules - check engine compatibility.
+
+## Service install
+
+`POST /services/install`
+
+```json
+{ "source": "https://registry.example/definitions/github", "version": "1.0.0" }
+```
+
+Optional fields: `id` (override; must be a valid JS identifier),
+`adapter` (explicit adapter id), `autoUpdate` (boolean, default `true`).
+
+Flow:
+
+1. `GET source` → version descriptor; resolve the version
+   ([semver rules](/cyrnel/registry-specs/definitions#version-selection)).
+2. `id` = request `id` → descriptor entry `id` → else `400`
+   (`'id' must be provided for the service install.`).
+3. `adapter` = request `adapter` → else the best compatible, **active**
+   adapter (see below). None found → `400 No adapter is available for
+   definition kind '<kind>'. Install a compatible adapter module or
+   provide an adapter explicitly.`
+4. Download `downloadUrl` (30 MiB cap) and optional icon (256 KiB cap) in
+   parallel; sha-256 the bytes and compare with `hash` → on mismatch
+   `400 Definition content hash does not match registry metadata hash.`
+5. The adapter parses the definition and generates the service + tools.
+6. Response `201 { "id": "<installed service id>" }`. Id collision → `409`.
+   Note: service descriptors' `engines.cyrnel` is **not** enforced.
+
+### Adapter selection & ranking
+
+`GET /services/install/adapters?kind=openapi@3.0` returns:
+
+```json
+{
+  "default": "openapi",
+  "adapters": [
+    { "id": "openapi", "name": "OpenAPI Adapter", "compatible": true,  "active": true,  "isBuiltin": true },
+    { "id": "my-adapter", "name": "My Adapter",      "compatible": true,  "active": false, "isBuiltin": false }
+  ]
+}
+```
+
+`kind` is optional; its version part is padded to semver (`3.0` → `3.0.0`)
+and matched with `maxSatisfying` semantics against each adapter's
+`compatibility[]` ranges whose `identifier` equals the kind's identifier.
+Ranking compares: compatible > incompatible; then active > inactive; then
+builtin (canonical) > third-party; then name. `default` is the first
+adapter that is both compatible and active.
+
+## Module install
+
+`POST /modules/install`
+
+```json
+{ "source": "https://registry.example/modules/github" }
+```
+
+Optional fields: `version`, `id`, `autoUpdate` (default `true`).
+
+Flow:
+
+1. `GET source` → descriptor; resolve version.
+2. **Engine gate:** the descriptor's `engines.cyrnel` range must satisfy
+   the running core version (currently `3.0.0`): mismatch refuses
+   install.
+3. Download the archive (10 MiB cap), verify `hash` → on mismatch
+   `400 Archive content hash does not match registry metadata hash.`
+4. Extract; validate the `module.json` manifest
+   ([required fields](/cyrnel/registry-specs/modules#archive-format));
+   `manifest.version` must equal the resolved descriptor version.
+5. Register the module. `manifest.id` collision → `409`.
+
+## Updates
+
+Manual `POST /services/:id/update` / `POST /modules/:id/update` **take no
+body** and always resolve the **latest** version from the stored `source`
+URL. Both require a stored install source:
+
+```
+409 '<id>' has no stored install source and cannot be updated automatically.
+Only registry-installed services/modules can be updated.
+```
+
+On update:
+
+- Cyrnel re-fetches the stored `source`, redownloads, and re-verifies
+  (hash + manifest checks).
+- If version and hash are unchanged, it short-circuits: `{ "updated": false }`.
+- Module updates swap the module directory with a `.bak` and roll back on
+  any failure, then regenerate adapter-generated services.
+- Service updates regenerate tools (delete + reinsert) and clear `stale`.
+
+### Staleness & missing
+
+A failed adapter regeneration after a module update marks affected
+services `stale`: they can't be enabled or invoked until re-synced.
+Modules that are removed at their source are reported `missing`; services
+built from a missing module are effectively disabled.
+
+### Sync vs. update
+
+`POST /services/:id/sync` is **not** a registry fetch: it re-runs the
+adapter against the **stored** definition content (no download) to repair
+tools, returning `{ id, updated: true }`. Use sync to recover tools; use
+update to pull new definition/archive content.
+
+## Auto-update
+
+Registry-sourced installs opt in to background updates by default
+(`autoUpdate = true`). The background sweeper runs on
+`CYRNEL_AUTO_UPDATE_INTERVAL_MS` (default `0` = disabled; `0` also skips
+the startup sweep). On each sweep it re-resolves the stored `source` with
+the stored constraint and updates anything newer.
+
+Tuning per item:
+
+```json
+// POST /services/:id/auto-update   (also POST /modules/:id/auto-update)
+{ "autoUpdate": true, "constraint": ">=1.0.0 <2.0.0" }
+```
+
+- `constraint` is a semver range; empty string is rejected (`400`), send
+  `null` or omit it for "latest".
+- Response: `{ id, autoUpdate, constraint }`.
+- Sweeps pass `preserveEnabled` so enabled services stay enabled.
+
+## What your registry must guarantee
+
+- **Descriptor URLs are immutable and long-lived.** Cyrnel re-fetches the
+  exact `source` URL it was installed from, forever.
+- **Artifact URLs are immutable per version.** Mutating a version's bytes
+  breaks the hash check and misleads update short-circuiting.
+- **`latestVersion` is truthful.** It drives default installs and updates.
+  Changes don't cascade back into Cyrnel until the next sweep - a registry
+  can never force-update a consumer.
