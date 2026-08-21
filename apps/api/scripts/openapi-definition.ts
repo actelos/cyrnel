@@ -1274,14 +1274,24 @@ const RegistryEntrySchema = registry.register(
         .describe(
           "Normalized absolute URL of the entry's descriptor, on the registry's origin.",
         ),
-      adapter: z
+      kind: z
         .string()
+        .min(1)
         .optional()
-        .describe("Adapter hint. Definitions only."),
+        .describe(
+          "Definition kind hint (e.g. 'openapi@3.0'). Definitions only.",
+        ),
       type: z
         .enum(MODULE_TYPES)
         .optional()
         .describe("Module type. Modules only."),
+      icon: z
+        .object({
+          url: z.string().describe("Absolute URL of the entry icon."),
+          hash: z.string().describe("Content hash of the icon, for caching."),
+        })
+        .optional()
+        .describe("Entry icon, when advertised by the registry."),
     })
     .describe("One advertised service definition or module."),
 );
@@ -1349,11 +1359,11 @@ const RegistryBrowseQuerySchema = z.object({
 });
 
 const RegistryDefinitionsQuerySchema = RegistryBrowseQuerySchema.extend({
-  adapter: z
+  kind: z
     .string()
     .min(1)
     .optional()
-    .describe("Adapter hint filter forwarded to the registry."),
+    .describe("Definition kind filter forwarded to the registry."),
 });
 
 const RegistryModulesQuerySchema = RegistryBrowseQuerySchema.extend({
@@ -2856,7 +2866,7 @@ registry.registerPath({
   tags: ["Registries"],
   summary: "Browse registry definitions",
   description:
-    "Returns one page of service definitions advertised by the registry, as served by its definitions capability endpoint. Filtering is advisory: query, adapter and cursor are forwarded unchanged and entries are not filtered server-side.",
+    "Returns one page of service definitions advertised by the registry, as served by its definitions capability endpoint. Filtering is advisory: query, kind and cursor are forwarded unchanged and entries are not filtered server-side.",
   request: {
     params: registryIdParam,
     query: RegistryDefinitionsQuerySchema,

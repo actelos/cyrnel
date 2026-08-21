@@ -93,8 +93,6 @@ class HttpAdapter implements AdapterModule {
 
   async invoke(input: InvokeInput): Promise<unknown> {
     const logger = this.logger?.child({
-      serviceId: input.serviceId,
-      toolId: input.toolId,
       phase: "invoke",
     });
 

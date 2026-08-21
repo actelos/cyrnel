@@ -45,9 +45,12 @@ interface LogFilters {
   query: string;
   level: LogLevel | "all";
   type: LogType | "all";
+  moduleType: "adapter" | "environment" | "all";
   moduleId: string;
   executionId: string;
+  dispatchId: string;
   toolId: string;
+  phase: string;
 }
 
 const PAGE_LIMIT = 100;
@@ -86,6 +89,11 @@ const filterParams = (filters: LogFilters) => ({
       ? filters.executionId.trim()
       : undefined,
   toolId: filters.toolId.trim().length > 0 ? filters.toolId.trim() : undefined,
+  dispatchId:
+    filters.dispatchId.trim().length > 0
+      ? filters.dispatchId.trim()
+      : undefined,
+  phase: filters.phase.trim().length > 0 ? filters.phase.trim() : undefined,
 });
 
 export default function LogsPage() {
@@ -94,7 +102,12 @@ export default function LogsPage() {
   const [type, setType] = useState<LogType | "all">("all");
   const [moduleId, setModuleId] = useState("");
   const [executionId, setExecutionId] = useState("");
+  const [dispatchId, setDispatchId] = useState("");
   const [toolId, setToolId] = useState("");
+  const [phase, setPhase] = useState("");
+  const [moduleType, setModuleType] = useState<
+    "adapter" | "environment" | "all"
+  >("all");
   const [history, setHistory] = useState<LogEntry[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -108,8 +121,28 @@ export default function LogsPage() {
   const paginationVersionRef = useRef(0);
 
   const filters = useMemo<LogFilters>(
-    () => ({ query, level, type, moduleId, executionId, toolId }),
-    [query, level, type, moduleId, executionId, toolId],
+    () => ({
+      query,
+      level,
+      type,
+      moduleType,
+      moduleId,
+      executionId,
+      dispatchId,
+      toolId,
+      phase,
+    }),
+    [
+      query,
+      level,
+      type,
+      moduleType,
+      moduleId,
+      executionId,
+      dispatchId,
+      toolId,
+      phase,
+    ],
   );
 
   const matches = useCallback(
@@ -142,6 +175,25 @@ export default function LogsPage() {
         if (
           entry.toolId === undefined ||
           !entry.toolId.toLowerCase().includes(toolNeedle)
+        )
+          return false;
+      }
+      if (filters.moduleType !== "all") {
+        if (entry.moduleType !== filters.moduleType) return false;
+      }
+      const dispatchNeedle = filters.dispatchId.trim().toLowerCase();
+      if (dispatchNeedle.length > 0) {
+        if (
+          entry.dispatchId === undefined ||
+          !entry.dispatchId.toLowerCase().includes(dispatchNeedle)
+        )
+          return false;
+      }
+      const phaseNeedle = filters.phase.trim().toLowerCase();
+      if (phaseNeedle.length > 0) {
+        if (
+          entry.phase === undefined ||
+          !entry.phase.toLowerCase().includes(phaseNeedle)
         )
           return false;
       }
@@ -333,6 +385,21 @@ export default function LogsPage() {
                 <SelectItem value="module">Module</SelectItem>
               </SelectContent>
             </Select>
+            <Select
+              onValueChange={(value) =>
+                setModuleType(value as "adapter" | "environment" | "all")
+              }
+              value={moduleType}
+            >
+              <SelectTrigger className="w-[150px]">
+                <SelectValue placeholder="Module type" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All module types</SelectItem>
+                <SelectItem value="adapter">Adapter</SelectItem>
+                <SelectItem value="environment">Environment</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <Input
@@ -351,6 +418,18 @@ export default function LogsPage() {
               placeholder="Tool ID"
               value={toolId}
               onChange={(event) => setToolId(event.target.value)}
+              className="w-[10rem]"
+            />
+            <Input
+              placeholder="Dispatch ID"
+              value={dispatchId}
+              onChange={(event) => setDispatchId(event.target.value)}
+              className="w-[10rem]"
+            />
+            <Input
+              placeholder="Phase"
+              value={phase}
+              onChange={(event) => setPhase(event.target.value)}
               className="w-[10rem]"
             />
           </div>

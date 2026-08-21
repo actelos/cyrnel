@@ -26,7 +26,6 @@ class ShellEnvironment implements EnvironmentModule {
   async execute(input: ExecutionInput): Promise<ExecutionExitState> {
     const eid = input.eid;
     const execLogger = this.logger?.child({
-      executionId: eid,
       phase: "execution",
     });
     execLogger?.info({ event: "execution-start" }, "Execution starting");

@@ -298,6 +298,7 @@ const MAX_CAPABILITY_PAGE_BYTES = 256 * 1024;
 async function fetchRegistryJsonSafe(
   url: string,
   label: string,
+  options?: { maxBytes?: number },
 ): Promise<{ finalUrl: string; body: Record<string, unknown> }> {
   let currentUrl = url;
 
@@ -347,13 +348,62 @@ async function fetchRegistryJsonSafe(
 
     let body: Record<string, unknown>;
     try {
-      body = (await response.json()) as Record<string, unknown>;
-    } catch {
+      body = (await readJsonBounded(
+        response,
+        label,
+        options?.maxBytes,
+      )) as Record<string, unknown>;
+    } catch (err) {
+      if (err instanceof HttpError) throw err;
       throw new HttpError(400, `${label} registry returned invalid JSON.`);
     }
 
     return { finalUrl: currentUrl, body };
   }
+}
+
+async function readJsonBounded(
+  response: Response,
+  label: string,
+  maxBytes?: number,
+): Promise<unknown> {
+  if (maxBytes !== undefined) {
+    const raw = response.headers.get("content-length");
+    if (raw !== null) {
+      const declared = Number(raw);
+      if (Number.isFinite(declared) && declared > maxBytes) {
+        await response.body?.cancel().catch(() => {});
+        throw new HttpError(
+          400,
+          `${label} response exceeds the maximum page size.`,
+        );
+      }
+    }
+  }
+
+  if (!response.body) return response.json();
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (maxBytes !== undefined) {
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel().catch(() => {});
+        throw new HttpError(
+          400,
+          `${label} response exceeds the maximum page size.`,
+        );
+      }
+    }
+    text += decoder.decode(value, { stream: true });
+  }
+  text += decoder.decode();
+  return JSON.parse(text);
 }
 
 const CAPABILITY_KEY_PATTERN = /^(definitions|modules)\.v(\d+)$/;
@@ -446,6 +496,7 @@ function resolveCapability(
 function parseAdvertisedAuth(
   body: Record<string, unknown>,
   label: string,
+  discoveryUrl: string,
 ): RegistryAuthDeclaration | null {
   const auth = body.auth;
   if (auth === undefined) return null;
@@ -510,6 +561,12 @@ function parseAdvertisedAuth(
       throw new HttpError(
         400,
         `${label} registry oauth2 'auth.tokenEndpoint' must be an http(s) URL.`,
+      );
+    }
+    if (parsed.origin !== new URL(discoveryUrl).origin) {
+      throw new HttpError(
+        400,
+        `${label} registry oauth2 'auth.tokenEndpoint' must be on the registry's origin.`,
       );
     }
 
@@ -588,7 +645,7 @@ export async function fetchRegistryIndex(
       finalUrl,
       "Well-known",
     ),
-    auth: parseAdvertisedAuth(body, "Well-known"),
+    auth: parseAdvertisedAuth(body, "Well-known", finalUrl),
   };
 }
 
@@ -735,14 +792,9 @@ export async function fetchRegistryCapabilityPage(
   if (params.cursor) url.searchParams.set("cursor", params.cursor);
   url.searchParams.set("limit", String(params.limit ?? 50));
 
-  const { body } = await fetchRegistryJsonSafe(url.toString(), capability);
-
-  if (Buffer.byteLength(JSON.stringify(body)) > MAX_CAPABILITY_PAGE_BYTES) {
-    throw new HttpError(
-      400,
-      `${capability} response exceeds the maximum page size.`,
-    );
-  }
+  const { body } = await fetchRegistryJsonSafe(url.toString(), capability, {
+    maxBytes: MAX_CAPABILITY_PAGE_BYTES,
+  });
 
   const rawEntries = body[capability];
   if (!Array.isArray(rawEntries)) {

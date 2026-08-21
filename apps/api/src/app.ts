@@ -104,7 +104,7 @@ export class App {
           .updateModule(id, constraint)
           .then((result) => result.updated),
       updateService: (id, constraint) =>
-        this.servicesService.updateService(id, constraint).then(() => true),
+        this.servicesService.updateService(id, constraint),
     });
     this.autoUpdater.start(autoUpdateInterval);
   }

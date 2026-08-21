@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import path from "node:path";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import {
   afterAll,
   afterEach,
@@ -14,6 +14,7 @@ import {
 
 import { db } from "@/db/client";
 import { registries, registryAuth } from "@/db/schema";
+import { RegistriesService } from "@/services/registries.service";
 import { downloadBinary } from "@/utils/download.util";
 import {
   fetchWithRegistryAuth,
@@ -339,5 +340,35 @@ describe("download registry auth integration (downloadBinary)", () => {
       String(u).includes("/file"),
     ) as [string, { headers?: Record<string, string> }];
     expect(call?.[1].headers?.["X-Key"]).toBeUndefined();
+  });
+});
+
+describe("registry auth cleanup on registry deletion", () => {
+  beforeEach(async () => {
+    await resetDb();
+    invalidateRegistryAuthCache();
+  });
+
+  it("removes the stored credentials when the registry is deleted", async () => {
+    await seedApiKeyRegistry(
+      "r1",
+      "https://reg.example.com",
+      "secret",
+      "X-Key",
+    );
+
+    const storedBefore = await db
+      .select()
+      .from(registryAuth)
+      .where(eq(registryAuth.registryId, "r1"));
+    expect(storedBefore).toHaveLength(1);
+
+    await new RegistriesService().deleteRegistry("r1");
+
+    const storedAfter = await db
+      .select()
+      .from(registryAuth)
+      .where(eq(registryAuth.registryId, "r1"));
+    expect(storedAfter).toHaveLength(0);
   });
 });

@@ -489,7 +489,11 @@ export default function RegistriesPage() {
 
   const handleSaveAuth = async () => {
     if (authTarget === null) return;
-    if (authForm.type !== "none" && !authFormValid(authForm)) {
+    if (authForm.type === "none") {
+      await handleRemoveAuth();
+      return;
+    }
+    if (!authFormValid(authForm)) {
       addNotification({
         type: "error",
         title: "Error",

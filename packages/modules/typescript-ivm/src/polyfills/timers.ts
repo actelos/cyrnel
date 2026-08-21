@@ -79,9 +79,12 @@
     value: (id: number): void => {
       const entry = pending.get(id);
       if (!entry) return;
-      entry.callback(...entry.args);
-      if (!entry.repeat) {
-        pending.delete(id);
+      try {
+        entry.callback(...entry.args);
+      } finally {
+        if (!entry.repeat) {
+          pending.delete(id);
+        }
       }
     },
     writable: false,

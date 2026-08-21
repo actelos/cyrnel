@@ -106,4 +106,39 @@ describe("createModuleLogger redaction", () => {
     expect(data.b).toBe(REDACTED);
     expect(data.c).toBe("3");
   });
+
+  it("redacts hyphenated API-key header names", () => {
+    const { logger, getLastData } = makeFakePino();
+    const ml = createModuleLogger(logger, baseContext);
+    ml.info({
+      headers: { "x-api-key": "secret", "X-API-Key": "secret2" },
+    });
+    const data = getLastData();
+    expect(data.headers).toEqual({
+      "x-api-key": REDACTED,
+      "X-API-Key": REDACTED,
+    });
+  });
+
+  it("terminates on module patterns with repeated wildcards", () => {
+    const { logger, getLastData } = makeFakePino();
+    const ml = createModuleLogger(logger, baseContext).redact(["a*****b"]);
+    ml.info({ token: "axb", other: "keep" });
+    const data = getLastData();
+    expect(data.token).toBe(REDACTED);
+    expect(data.other).toBe("keep");
+  });
+
+  it("redacts a circular error cause without throwing", () => {
+    const { logger, getLastData } = makeFakePino();
+    const ml = createModuleLogger(logger, baseContext);
+    const err = new Error("boom");
+    const cause = new Error("root");
+    err.cause = cause;
+    (cause as { cause?: unknown }).cause = err;
+    expect(() => ml.error({ err })).not.toThrow();
+    const data = getLastData();
+    expect(data.err).toBeDefined();
+    expect(JSON.stringify(data.err)).toContain("[Circular]");
+  });
 });

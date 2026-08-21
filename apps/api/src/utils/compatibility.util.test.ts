@@ -99,6 +99,46 @@ describe("rankAdapters", () => {
     const ranked = rankAdapters(kind, tied);
     expect(ranked.map((a) => a.id)).toEqual(["core", "third"]);
   });
+
+  it("ranks every compatible adapter before any incompatible one", () => {
+    const mixed = [
+      {
+        id: "incompat-active-builtin",
+        name: "IncompatActiveBuiltin",
+        active: true,
+        isBuiltin: true,
+        compatibility: [{ identifier: "asyncapi", version: ">=2.0" }],
+      },
+      {
+        id: "compat-inactive",
+        name: "CompatInactive",
+        active: false,
+        compatibility: compatible,
+      },
+      {
+        id: "compat-active",
+        name: "CompatActive",
+        active: true,
+        compatibility: compatible,
+      },
+    ];
+    const ranked = rankAdapters(kind, mixed);
+    expect(ranked.map((a) => a.id)).toEqual([
+      "compat-active",
+      "compat-inactive",
+      "incompat-active-builtin",
+    ]);
+  });
+});
+
+describe("parseKind", () => {
+  it("throws on a kind without a version", () => {
+    expect(() => parseKind("openapi")).toThrow();
+  });
+
+  it("throws on a malformed kind", () => {
+    expect(() => parseKind("not-a-kind")).toThrow();
+  });
 });
 
 describe("resolveDefaultAdapterId", () => {

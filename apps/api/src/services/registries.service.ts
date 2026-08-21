@@ -277,15 +277,22 @@ export class RegistriesService {
   }
 
   async deleteRegistry(id: string): Promise<void> {
-    const [deleted] = await db
-      .delete(registries)
-      .where(eq(registries.id, id))
-      .returning({ id: registries.id })
+    const deleted = await db
+      .transaction(async (tx) => {
+        await tx.delete(registryAuth).where(eq(registryAuth.registryId, id));
+        const result = await tx
+          .delete(registries)
+          .where(eq(registries.id, id))
+          .returning({ id: registries.id });
+        return result;
+      })
       .catch(() => {
         throw new HttpError(500, `Failed to delete registry '${id}'.`);
       });
 
-    if (!deleted) throw new HttpError(404, `Registry '${id}' not found.`);
+    if (deleted.length === 0) {
+      throw new HttpError(404, `Registry '${id}' not found.`);
+    }
     invalidateRegistryAuthCache();
   }
 

@@ -16,7 +16,6 @@ import {
   sql,
 } from "drizzle-orm";
 import jsonpatch from "fast-json-patch";
-import { satisfies } from "semver";
 
 import { z } from "zod";
 
@@ -757,7 +756,10 @@ export class ServicesService {
     }));
   }
 
-  async updateService(id: string, constraint?: string | null): Promise<void> {
+  async updateService(
+    id: string,
+    constraint?: string | null,
+  ): Promise<boolean> {
     const [service] = await db
       .select({
         adapter: services.adapter,
@@ -780,17 +782,6 @@ export class ServicesService {
         `Service '${id}' has no stored install source and cannot be updated automatically. Only registry-installed services can be updated.`,
       );
 
-    if (constraint) {
-      try {
-        if (satisfies(service.version, constraint)) {
-          return;
-        }
-      } catch {
-        // Invalid installed version or constraint range; fall through to the
-        // registry check rather than assuming the service is up to date.
-      }
-    }
-
     let registry: {
       version: string;
       downloadUrl: string;
@@ -799,7 +790,10 @@ export class ServicesService {
     };
     try {
       const { resolveServiceRegistry } = await import("@/utils/registry.util");
-      registry = await resolveServiceRegistry(service.source);
+      registry = await resolveServiceRegistry(
+        service.source,
+        constraint ?? undefined,
+      );
     } catch (err) {
       if (err instanceof HttpError) {
         throw new HttpError(
@@ -826,7 +820,7 @@ export class ServicesService {
       registry.version === service.version
     ) {
       await this.persistServiceIcon(id, iconColumns);
-      return;
+      return false;
     }
 
     const definitionContent = await this.downloadDefinition(
@@ -836,7 +830,7 @@ export class ServicesService {
 
     if (hash === service.hash && registry.version === service.version) {
       await this.persistServiceIcon(id, iconColumns);
-      return;
+      return false;
     }
 
     const parsedDefinition = await this.controller.generateDefinition({
@@ -908,6 +902,8 @@ export class ServicesService {
         "Failed to dehydrate service on update",
       );
     }
+
+    return true;
   }
 
   private async persistServiceIcon(

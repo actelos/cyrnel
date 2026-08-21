@@ -37,7 +37,11 @@ export function parseKind(
   kind: string | undefined,
 ): DefinitionKind | undefined {
   if (kind === undefined) return undefined;
-  const [identifier, version] = kind.trim().split("@");
+  assertKind(
+    kind,
+    "Definition kind must match <identifier>@<version>, e.g. 'openapi@3.0'.",
+  );
+  const [identifier, version] = kind.trim().split("@") as [string, string];
   return { identifier, version };
 }
 
@@ -80,8 +84,9 @@ export function rankAdapters(
     const compatible = isKindCompatible(kind, adapter.compatibility);
     const active = adapter.active ?? false;
     const builtin = adapter.isBuiltin ?? false;
-    if (compatible) return active ? (builtin ? 0 : 2) : 4;
-    return active ? (builtin ? 3 : 5) : 6;
+    const group = compatible ? 0 : 4;
+    if (active) return group + (builtin ? 0 : 1);
+    return group + (builtin ? 2 : 3);
   };
   return [...adapters].sort(
     (a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name),

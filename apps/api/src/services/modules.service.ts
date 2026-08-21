@@ -44,7 +44,11 @@ import {
   services as servicesTable,
   tools as toolsTable,
 } from "@/db/schema";
-import { createModuleLogger, logger } from "@/infra/logging";
+import {
+  createModuleLogger,
+  logger,
+  type ModuleLoggerContext,
+} from "@/infra/logging";
 import type { AutoUpdateTarget } from "@/infra/updater/auto-updater";
 import { HttpError } from "@/models/error.model";
 import {
@@ -1133,17 +1137,6 @@ export class ModuleService {
         `Module '${id}' has no stored install source and cannot be updated automatically. Only registry-installed modules can be updated.`,
       );
 
-    if (constraint) {
-      try {
-        if (satisfies(row.version, constraint)) {
-          return { updated: false };
-        }
-      } catch {
-        // Invalid installed version or constraint range; fall through to the
-        // registry check rather than assuming the module is up to date.
-      }
-    }
-
     let registry: {
       version: string;
       downloadUrl: string;
@@ -1153,7 +1146,10 @@ export class ModuleService {
     };
     try {
       const { resolveModuleRegistry } = await import("@/utils/registry.util");
-      registry = await resolveModuleRegistry(row.source);
+      registry = await resolveModuleRegistry(
+        row.source,
+        constraint ?? undefined,
+      );
       this.assertEngineCompatibility(registry.engines, `Module '${id}'`);
     } catch (err) {
       if (err instanceof HttpError) {
@@ -1979,17 +1975,22 @@ export class ModuleService {
   }
 
   private moduleLogger(id: string) {
-    const manifest = this.requireRegistered(id);
-    return createModuleLogger(logger, {
+    const manifest = this.manifests.get(id);
+    const context = {
       category: "module",
       moduleId: id,
-      moduleType: manifest.type,
-      moduleName: manifest.name,
-      moduleVersion: manifest.version,
-      ...(manifest.type === "adapter"
-        ? { adapterId: id }
-        : { environmentId: id }),
-    });
+      ...(manifest
+        ? {
+            moduleType: manifest.type,
+            moduleName: manifest.name,
+            moduleVersion: manifest.version,
+            ...(manifest.type === "adapter"
+              ? { adapterId: id }
+              : { environmentId: id }),
+          }
+        : {}),
+    } as ModuleLoggerContext;
+    return createModuleLogger(logger, context);
   }
 
   private deactivateEnvironment(id: string): void {

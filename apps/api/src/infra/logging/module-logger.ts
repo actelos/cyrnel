@@ -47,6 +47,7 @@ const DEFAULT_REDACTION_PATTERNS = [
   "**.*passwd*",
   "**.*apiKey*",
   "**.*api_key*",
+  "**.*api-key*",
 ] as const;
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -55,16 +56,20 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return prototype === Object.prototype || prototype === null;
 }
 
-function serializeError(err: Error): Record<string, unknown> {
+function serializeError(
+  err: Error,
+  seen: WeakSet<object>,
+): Record<string, unknown> {
+  seen.add(err);
   const output: Record<string, unknown> = {
     type: err.name,
     message: err.message,
   };
   const code = (err as { code?: unknown }).code;
-  if (code !== undefined) output.code = serializeValue(code);
+  if (code !== undefined) output.code = serializeValue(code, seen);
   if (err.stack) output.stack = err.stack;
   const cause = (err as { cause?: unknown }).cause;
-  if (cause !== undefined) output.cause = serializeValue(cause);
+  if (cause !== undefined) output.cause = serializeValue(cause, seen);
   return output;
 }
 
@@ -85,7 +90,10 @@ function serializeValue(value: unknown, seen = new WeakSet<object>()): unknown {
   }
   if (value instanceof Date) return value.toISOString();
   if (value instanceof URL) return value.toString();
-  if (value instanceof Error) return serializeError(value);
+  if (value instanceof Error) {
+    if (seen.has(value)) return "[Circular]";
+    return serializeError(value, seen);
+  }
   if (Array.isArray(value)) {
     if (seen.has(value)) return "[Circular]";
     seen.add(value);
@@ -171,17 +179,37 @@ function splitPath(path: string): string[] {
   return segments;
 }
 
-function escapeRegex(input: string): string {
-  return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
+/**
+ * Linear, allocation-free glob match for a single path segment. Supports `*`
+ * wildcards that match any (possibly empty) run of characters. The pattern and
+ * value are compared case-insensitively. No regular expression is constructed
+ * from the module-supplied pattern, so a pathological pattern cannot trigger
+ * catastrophic backtracking.
+ */
 function segmentMatches(pattern: string, value: string): boolean {
   if (pattern === "*") return true;
-  const regex = new RegExp(
-    `^${escapeRegex(pattern).replace(/\\\*/g, ".*")}$`,
-    "i",
-  );
-  return regex.test(value);
+  const patternLower = pattern.toLowerCase();
+  const valueLower = value.toLowerCase();
+
+  let p = 0;
+  let v = 0;
+  while (p < patternLower.length) {
+    if (patternLower[p] === "*") {
+      // Collapse consecutive wildcards to a single one.
+      while (patternLower[p + 1] === "*") p += 1;
+      if (p === patternLower.length - 1) return true;
+      const next = patternLower[p + 1];
+      const found = valueLower.indexOf(next, v);
+      if (found === -1) return false;
+      p += 1;
+      v = found;
+      continue;
+    }
+    if (patternLower[p] !== valueLower[v]) return false;
+    p += 1;
+    v += 1;
+  }
+  return v === valueLower.length;
 }
 
 function pathMatches(

@@ -105,8 +105,6 @@ class OpenapiAdapter implements AdapterModule {
         : 30000;
 
     const logger = this.logger?.child({
-      serviceId: input.serviceId,
-      toolId: input.toolId,
       phase: "adapter-invoke",
     });
     logger?.info(
