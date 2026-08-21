@@ -1581,9 +1581,10 @@
             "type": "string",
             "description": "Normalized absolute URL of the entry's descriptor, on the registry's origin."
           },
-          "adapter": {
+          "kind": {
             "type": "string",
-            "description": "Adapter hint. Definitions only."
+            "minLength": 1,
+            "description": "Definition kind hint (e.g. 'openapi@3.0'). Definitions only."
           },
           "type": {
             "type": "string",
@@ -1592,6 +1593,24 @@
               "environment"
             ],
             "description": "Module type. Modules only."
+          },
+          "icon": {
+            "type": "object",
+            "properties": {
+              "url": {
+                "type": "string",
+                "description": "Absolute URL of the entry icon."
+              },
+              "hash": {
+                "type": "string",
+                "description": "Content hash of the icon, for caching."
+              }
+            },
+            "required": [
+              "url",
+              "hash"
+            ],
+            "description": "Entry icon, when advertised by the registry."
           }
         },
         "required": [
@@ -8100,7 +8119,7 @@
           "Registries"
         ],
         "summary": "Browse registry definitions",
-        "description": "Returns one page of service definitions advertised by the registry, as served by its definitions capability endpoint. Filtering is advisory: query, adapter and cursor are forwarded unchanged and entries are not filtered server-side.",
+        "description": "Returns one page of service definitions advertised by the registry, as served by its definitions capability endpoint. Filtering is advisory: query, kind and cursor are forwarded unchanged and entries are not filtered server-side.",
         "parameters": [
           {
             "schema": {
@@ -8152,11 +8171,11 @@
             "schema": {
               "type": "string",
               "minLength": 1,
-              "description": "Adapter hint filter forwarded to the registry."
+              "description": "Definition kind filter forwarded to the registry."
             },
             "required": false,
-            "description": "Adapter hint filter forwarded to the registry.",
-            "name": "adapter",
+            "description": "Definition kind filter forwarded to the registry.",
+            "name": "kind",
             "in": "query"
           }
         ],
