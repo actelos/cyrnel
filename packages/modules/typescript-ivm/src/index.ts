@@ -145,7 +145,7 @@ const BINDING_DOCS: Record<
   timers: {
     apis: "setTimeout(cb, ms), setInterval(cb, ms), clearTimeout(id), clearInterval(id), queueMicrotask(cb)",
     description:
-      "Schedule callbacks. Host-supervised: max delay 60000ms, max 16 concurrent per execution. Timers are cleared when the execution function returns or is terminated — only awaited timers keep the execution alive.",
+      "Schedule callbacks. Host-supervised: max delay 60000ms, max 16 concurrent per execution. Timers are cleared when the execution function returns or is terminated - only awaited timers keep the execution alive.",
     risk: "Moderate. Sleep/busy patterns occupy pool slots until the host timeout kills the isolate; runaway intervals can flood output. Caps are enforced by the host.",
   },
   randomValues: {

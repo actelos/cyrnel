@@ -1698,11 +1698,11 @@
           "type": {
             "type": "string",
             "enum": [
-              "application",
+              "app",
               "request",
               "module"
             ],
-            "description": "Entry category: 'application' for API logs, 'request' for HTTP request logs, 'module' for module-emitted logs."
+            "description": "Entry category: 'app' for API logs, 'request' for HTTP request logs, 'module' for module-emitted logs."
           },
           "message": {
             "type": "string",
@@ -8638,7 +8638,7 @@
             "schema": {
               "type": "string",
               "enum": [
-                "application",
+                "app",
                 "request",
                 "module"
               ]

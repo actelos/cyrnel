@@ -7,9 +7,11 @@ import {
   browseModules,
   createRegistry,
   deleteRegistry,
+  deleteRegistryAuth,
   getRegistryAuth,
   listRegistries,
   refreshRegistry,
+  setRegistryAuth,
 } from "@/controllers/registry.controller";
 import { HttpError } from "@/models/error.model";
 
@@ -23,6 +25,8 @@ const registriesService = {
   getRegistry: vi.fn(),
   deleteRegistry: vi.fn(),
   getRegistryAuthState: vi.fn(),
+  setRegistryAuth: vi.fn(),
+  deleteRegistryAuth: vi.fn(),
 };
 
 interface MockResponse {
@@ -337,6 +341,72 @@ describe("getRegistryAuth", () => {
   });
 });
 
+describe("setRegistryAuth", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("validates the body and delegates to the service with a 200", async () => {
+    const res = makeRes();
+    const body = { type: "apiKey", apiKey: "secret" };
+    registriesService.setRegistryAuth.mockResolvedValue({
+      type: "apiKey",
+      status: "configured",
+    });
+
+    await setRegistryAuth(
+      makeReq({ params: { id: "github" }, body }),
+      cast(res),
+    );
+
+    expect(registriesService.setRegistryAuth).toHaveBeenCalledWith(
+      "github",
+      body,
+    );
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it("rejects a missing id", async () => {
+    const res = makeRes();
+    await expect(
+      setRegistryAuth(
+        makeReq({ params: {}, body: { type: "apiKey", apiKey: "s" } }),
+        cast(res),
+      ),
+    ).rejects.toBeInstanceOf(HttpError);
+  });
+
+  it("rejects an invalid auth body", async () => {
+    const res = makeRes();
+    await expect(
+      setRegistryAuth(
+        makeReq({ params: { id: "github" }, body: { type: "apiKey" } }),
+        cast(res),
+      ),
+    ).rejects.toBeInstanceOf(HttpError);
+  });
+});
+
+describe("deleteRegistryAuth", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("delegates to the service and responds 204", async () => {
+    const res = makeRes();
+    await deleteRegistryAuth(makeReq({ params: { id: "github" } }), cast(res));
+    expect(registriesService.deleteRegistryAuth).toHaveBeenCalledWith("github");
+    expect(res.status).toHaveBeenCalledWith(204);
+  });
+
+  it("rejects a missing id", async () => {
+    const res = makeRes();
+    await expect(
+      deleteRegistryAuth(makeReq({ params: {} }), cast(res)),
+    ).rejects.toBeInstanceOf(HttpError);
+  });
+});
+
 describe("browseDefinitions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -375,18 +445,15 @@ describe("browseDefinitions", () => {
 
     await browseDefinitions(makeReq({ params: { id: "github" } }), cast(res));
 
-    expect(registriesService.browseDefinitions).toHaveBeenCalledWith("github", {
-      query: undefined,
-      kind: undefined,
-      limit: undefined,
-      cursor: undefined,
-    });
+    expect(registriesService.browseDefinitions).toHaveBeenCalledWith(
+      "github",
+      expect.objectContaining({ limit: 20 }),
+    );
   });
 
   it.each([
     { query: { query: "" }, why: "empty query" },
     { query: { limit: "0" }, why: "zero limit" },
-    { query: { limit: "201" }, why: "limit above max" },
     { query: { limit: "abc" }, why: "non-numeric limit" },
   ])("rejects $why", async ({ query }) => {
     const res = makeRes();
@@ -394,6 +461,19 @@ describe("browseDefinitions", () => {
       browseDefinitions(makeReq({ params: { id: "x" }, query }), cast(res)),
     ).rejects.toBeInstanceOf(HttpError);
     expect(registriesService.browseDefinitions).not.toHaveBeenCalled();
+  });
+
+  it("clamps a limit above the maximum instead of rejecting", async () => {
+    const res = makeRes();
+    registriesService.browseDefinitions.mockResolvedValue(samplePage);
+    await browseDefinitions(
+      makeReq({ params: { id: "x" }, query: { limit: "201" } }),
+      cast(res),
+    );
+    expect(registriesService.browseDefinitions).toHaveBeenCalledWith(
+      "x",
+      expect.objectContaining({ limit: 100 }),
+    );
   });
 });
 
@@ -410,12 +490,10 @@ describe("browseModules", () => {
       cast(res),
     );
 
-    expect(registriesService.browseModules).toHaveBeenCalledWith("github", {
-      type: "adapter",
-      query: undefined,
-      limit: undefined,
-      cursor: undefined,
-    });
+    expect(registriesService.browseModules).toHaveBeenCalledWith(
+      "github",
+      expect.objectContaining({ type: "adapter", limit: 20 }),
+    );
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith({
       modules: samplePage.entries,

@@ -5,6 +5,7 @@ import pinoHttp from "pino-http";
 import { TransformersEmbedder } from "@/infra/embedding/embedder";
 import { logger } from "@/infra/logging";
 import { SearchEngine } from "@/infra/search/search-engine";
+import { AutoUpdater } from "@/infra/updater/auto-updater";
 import { apiKeyMiddleware } from "@/middleware/auth.middleware";
 import { errorMiddleware } from "@/middleware/error.middleware";
 import { ipAccessMiddleware } from "@/middleware/ip-access.middleware";
@@ -23,6 +24,8 @@ import { ServicesService } from "@/services/services.service";
 
 const DEFAULT_RECONCILE_INTERVAL_MS = 1_800_000;
 const MAX_RECONCILE_INTERVAL_MS = 2_147_483_647;
+const DEFAULT_AUTO_UPDATE_INTERVAL_MS = 0;
+const MAX_AUTO_UPDATE_INTERVAL_MS = 2_147_483_647;
 
 export class App {
   readonly express: express.Express;
@@ -31,6 +34,8 @@ export class App {
   readonly processService: ProcessService;
   readonly registriesService: RegistriesService;
   readonly servicesService: ServicesService;
+
+  private autoUpdater: AutoUpdater | null = null;
 
   constructor() {
     this.moduleService = new ModuleService(
@@ -85,9 +90,28 @@ export class App {
     );
     this.servicesService.startSearchReconciliation(interval);
     void this.servicesService.reconcileSearchGuarded();
+
+    const autoUpdateInterval = parseAutoUpdateInterval(
+      process.env.CYRNEL_AUTO_UPDATE_INTERVAL_MS,
+    );
+    this.autoUpdater = new AutoUpdater({
+      listTargets: async () => [
+        ...(await this.moduleService.listAutoUpdateModules()),
+        ...(await this.servicesService.listAutoUpdateServices()),
+      ],
+      updateModule: (id, constraint) =>
+        this.moduleService
+          .updateModule(id, constraint)
+          .then((result) => result.updated),
+      updateService: (id, constraint) =>
+        this.servicesService.updateService(id, constraint).then(() => true),
+    });
+    this.autoUpdater.start(autoUpdateInterval);
   }
 
   async shutdown(): Promise<void> {
+    this.autoUpdater?.stop();
+    this.autoUpdater = null;
     this.servicesService.closeSearch();
     await this.processService.shutdown();
     try {
@@ -174,6 +198,37 @@ function parseReconcileInterval(raw: string | undefined): number {
       "Invalid CYRNEL_RECONCILE_INTERVAL_MS; using default",
     );
     return DEFAULT_RECONCILE_INTERVAL_MS;
+  }
+  return parsed;
+}
+
+function parseAutoUpdateInterval(raw: string | undefined): number {
+  if (raw === undefined) return DEFAULT_AUTO_UPDATE_INTERVAL_MS;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    logger.warn(
+      { event: "invalid-auto-update-interval", raw },
+      "Invalid CYRNEL_AUTO_UPDATE_INTERVAL_MS; using default (disabled)",
+    );
+    return DEFAULT_AUTO_UPDATE_INTERVAL_MS;
+  }
+  if (parsed === 0) {
+    logger.info(
+      { event: "auto-update-disabled" },
+      "CYRNEL_AUTO_UPDATE_INTERVAL_MS is 0; auto-update sweep disabled",
+    );
+    return 0;
+  }
+  if (parsed > MAX_AUTO_UPDATE_INTERVAL_MS) {
+    logger.warn(
+      {
+        event: "invalid-auto-update-interval",
+        raw,
+        max: MAX_AUTO_UPDATE_INTERVAL_MS,
+      },
+      "Invalid CYRNEL_AUTO_UPDATE_INTERVAL_MS; using default (disabled)",
+    );
+    return DEFAULT_AUTO_UPDATE_INTERVAL_MS;
   }
   return parsed;
 }

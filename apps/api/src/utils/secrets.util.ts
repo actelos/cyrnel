@@ -50,7 +50,7 @@ function getAllKeys(): Array<{ id: string; key: Buffer }> {
   if (previous.some((k) => k.id === primary.id))
     throw new HttpError(
       500,
-      "Primary secrets key collides with a previous key — check CYRNEL_SECRETS_KEY and CYRNEL_SECRETS_PREVIOUS_KEYS.",
+      "Primary secrets key collides with a previous key - check CYRNEL_SECRETS_KEY and CYRNEL_SECRETS_PREVIOUS_KEYS.",
     );
 
   return [primary, ...previous];

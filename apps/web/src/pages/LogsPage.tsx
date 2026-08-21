@@ -448,7 +448,7 @@ export default function LogsPage() {
                         ) : entry.statusCode !== undefined ? (
                           <span>{entry.method ?? ""}</span>
                         ) : (
-                          <span className="text-muted-foreground">—</span>
+                          <span className="text-muted-foreground">: </span>
                         )}
                       </TableCell>
                       <TableCell className="text-right font-mono text-xs">
@@ -464,7 +464,7 @@ export default function LogsPage() {
                             {entry.statusCode}
                           </span>
                         ) : (
-                          <span className="text-muted-foreground">—</span>
+                          <span className="text-muted-foreground">: </span>
                         )}
                       </TableCell>
                     </TableRow>

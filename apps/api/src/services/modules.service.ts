@@ -24,6 +24,7 @@ import {
   eq,
   getTableColumns,
   inArray,
+  isNotNull,
   notInArray,
   or,
   sql,
@@ -33,7 +34,6 @@ import { decompress as zstdDecompress } from "fzstd";
 import { satisfies } from "semver";
 import { Unpack } from "tar";
 import { z } from "zod";
-
 import { CYRNEL_CORE_VERSION } from "@/constants";
 import { db } from "@/db/client";
 import {
@@ -45,6 +45,7 @@ import {
   tools as toolsTable,
 } from "@/db/schema";
 import { createModuleLogger, logger } from "@/infra/logging";
+import type { AutoUpdateTarget } from "@/infra/updater/auto-updater";
 import { HttpError } from "@/models/error.model";
 import {
   type FilterModuleManifestInput,
@@ -1078,7 +1079,34 @@ export class ModuleService {
     };
   }
 
-  async updateModule(id: string): Promise<{ updated: boolean }> {
+  async listAutoUpdateModules(): Promise<AutoUpdateTarget[]> {
+    const rows = await db
+      .select({
+        id: modulesTable.id,
+        source: modulesTable.source,
+        version: modulesTable.version,
+        constraint: modulesTable.autoUpdateConstraint,
+      })
+      .from(modulesTable)
+      .where(
+        and(eq(modulesTable.autoUpdate, true), isNotNull(modulesTable.source)),
+      )
+      .catch(() => {
+        throw new HttpError(500, "Failed to list auto-update modules.");
+      });
+    return rows.map((row) => ({
+      id: row.id,
+      kind: "module" as const,
+      source: row.source as string,
+      version: row.version,
+      constraint: row.constraint,
+    }));
+  }
+
+  async updateModule(
+    id: string,
+    constraint?: string | null,
+  ): Promise<{ updated: boolean }> {
     if (!this.modulesPath) {
       throw new HttpError(503, "ModuleService has not been initialized.");
     }
@@ -1104,6 +1132,17 @@ export class ModuleService {
         409,
         `Module '${id}' has no stored install source and cannot be updated automatically. Only registry-installed modules can be updated.`,
       );
+
+    if (constraint) {
+      try {
+        if (satisfies(row.version, constraint)) {
+          return { updated: false };
+        }
+      } catch {
+        // Invalid installed version or constraint range; fall through to the
+        // registry check rather than assuming the module is up to date.
+      }
+    }
 
     let registry: {
       version: string;

@@ -7,7 +7,8 @@ A process is a stateful execution unit in cyrnel. When a client submits code,
 cyrnel creates a process record with a stable identifier (`id`), runs it on the
 active [environment module](/cyrnel/docs/environments-modules), captures its
 output, and persists the result to the database. Process execution does not
-block the client request unless `block: true` is set.
+block the client request; the API responds immediately and the process runs
+asynchronously.
 
 ## Process Model
 
@@ -89,21 +90,17 @@ Response (`201`):
 { "id": 1 }
 ```
 
-If `block: true` and `autorun: true`, cyrnel polls until `state === "idle"`
-before responding. The HTTP status is still `201`.
-
 ## Run an Existing Process
 
 `POST /processes/:id/signals/run`
 
 ```json
-{ "force": false, "block": false }
+{ "force": false }
 ```
 
 - The process must currently be `idle`.
 - If the process has stored outputs (any of `exitState`, `output`, `stdout`,
   `stderr` is non-empty), `force: true` is required to overwrite them.
-- `block: true` waits until the run completes.
 
 The run signal also works on **historical processes** that only exist in the
 database (for example after an API restart, or after an
@@ -122,8 +119,8 @@ Response (`200`): the process record.
   `exitState = "canceled"`.
 - If `running`, it moves to `terminating` first, then to `idle` with
   `exitState = "canceled"` once the environment confirms.
-- If already `idle` — including historical processes that only exist in the
-  database — the call returns `409`.
+- If already `idle`: including historical processes that only exist in the
+  database - the call returns `409`.
 
 Response (`200`): the process record.
 
@@ -154,7 +151,7 @@ Response (`200`): the process record.
 
 When `CYRNEL_MAX_IDLE_PROCESSES` is set, idle processes are unloaded
 automatically (least recently executed first) once the in-memory idle pool
-exceeds the cap. The behavior is identical to an explicit unload — the
+exceeds the cap. The behavior is identical to an explicit unload - the
 database record and outputs are preserved, and the process can be revived
 with a [run signal](/cyrnel/docs/processes#run-an-existing-process). The cap
 is checked whenever a process becomes idle or is created without

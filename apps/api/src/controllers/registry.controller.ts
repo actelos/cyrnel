@@ -122,15 +122,8 @@ const addRegistryBodySchema = z.object({
   auth: registryAuthBodySchema.optional(),
 });
 
-const browseQuerySchema = z.object({
+const browseQuerySchema = paginationQuerySchema.extend({
   query: nonEmptyTrimmedString("query").optional(),
-  cursor: nonEmptyTrimmedString("cursor").optional(),
-  limit: z.coerce
-    .number({ error: "Field 'limit' must be a number." })
-    .int({ error: "Field 'limit' must be a positive integer." })
-    .positive({ error: "Field 'limit' must be a positive integer." })
-    .max(200, { error: "Field 'limit' must be at most 200." })
-    .optional(),
 });
 
 const browseDefinitionsQuerySchema = browseQuerySchema.extend({

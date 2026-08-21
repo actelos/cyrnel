@@ -23,8 +23,8 @@ Kinds live on the definition side only:
 - In a registry **definition descriptor** (the versioned JSON the entry's
   `source` resolves to), as the optional `kind` field on each version entry.
 
-Kinds are advisory metadata — the server never rejects an entry solely because
-its kind is missing — but they are what the compatibility resolver uses to pick
+Kinds are advisory metadata - the server never rejects an entry solely because
+its kind is missing - but they are what the compatibility resolver uses to pick
 an adapter.
 
 > Version ranges in this document follow [semver](https://github.com/npm/node-semver)
@@ -54,7 +54,7 @@ Each entry has:
 
 `compatibility` is optional and only meaningful for `adapter` modules
 (environment modules ignore it). An empty or absent list means "declares no
-kinds" — the adapter is still installable, it just won't be offered as a
+kinds": the adapter is still installable, it just won't be offered as a
 default for any kind.
 
 ## How compatibility is checked
@@ -97,18 +97,18 @@ user has chosen a definition.
 
 `POST /services/install` resolves the adapter as follows:
 
-1. An explicit `adapter` in the request body **always wins** — even an adapter
+1. An explicit `adapter` in the request body **always wins**: even an adapter
    whose `compatibility` does not match the definition `kind`. This lets users
    force an install with an unconventional adapter.
 2. Otherwise, the server looks up the definition's `kind` (from the registry
-   descriptor) and selects the **default** ranked adapter — the compatible and
+   descriptor) and selects the **default** ranked adapter - the compatible and
    active one; built-in (canonical) adapters win ties.
 3. If neither yields an adapter and no compatible+active adapter exists, the
    request fails with `400`.
 
 The selected adapter id is the one recorded on the resulting service row and
 used to call `adapter.generateDefinition`. It is unrelated to the definition
-`kind` — `kind` describes the *definition*, `adapter` selects the *module*.
+`kind`: `kind` describes the *definition*, `adapter` selects the *module*.
 
 ## Built-in adapters
 

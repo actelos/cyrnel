@@ -206,7 +206,7 @@ function pathMatches(
 
 /**
  * Build the redaction ruleset for a logger by merging the host-enforced
- * baseline (secrets/tokens/passwords/authorization — never disableable)
+ * baseline (secrets/tokens/passwords/authorization - never disableable)
  * with the module's own additive patterns. Patterns are de-duplicated and
  * pre-split into path segments for matching. Non-string entries and patterns
  * that split to an empty segment list are dropped, since an empty pattern

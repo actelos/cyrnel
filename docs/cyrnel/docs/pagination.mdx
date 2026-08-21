@@ -1,7 +1,7 @@
 # Pagination
 
-Every list endpoint in the API (`GET /modules`, `GET /services`,
-`GET /tools`, `GET /processes`, `GET /logs`) returns the same paginated
+Most list endpoints in the API (`GET /modules`, `GET /services`,
+`GET /tools`, `GET /processes`, `GET /logs`) return the same paginated
 envelope:
 
 ```json
@@ -23,6 +23,11 @@ envelope:
   for modules, services, processes, and logs; `(serviceId, id)` ascending for
   tools). Cursors encode a position in that ordering, **not** the filters —
   restart from the first page (omit `cursor`) whenever the filters change.
+
+> **Note:** registry browse endpoints (`GET /registries/:id/definitions`,
+> `GET /registries/:id/modules`) return `{ definitions | modules, nextCursor }`
+> rather than the `{ items, nextCursor, hasMore }` envelope above, but use the
+> same `cursor`/`limit` query parameters (`limit` clamped to 100, default 20).
 
 ## Errors
 

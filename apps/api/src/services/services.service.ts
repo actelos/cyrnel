@@ -10,11 +10,13 @@ import {
   desc,
   eq,
   getTableColumns,
+  isNotNull,
   or,
   type SQL,
   sql,
 } from "drizzle-orm";
 import jsonpatch from "fast-json-patch";
+import { satisfies } from "semver";
 
 import { z } from "zod";
 
@@ -28,6 +30,7 @@ import {
 } from "@/db/schema";
 import { logger } from "@/infra/logging";
 import type { HybridToolHit, SearchIndex } from "@/infra/search/search-engine";
+import type { AutoUpdateTarget } from "@/infra/updater/auto-updater";
 import { HttpError } from "@/models/error.model";
 import type {
   GenerateDefinitionInput,
@@ -732,7 +735,29 @@ export class ServicesService {
     }
   }
 
-  async updateService(id: string): Promise<void> {
+  async listAutoUpdateServices(): Promise<AutoUpdateTarget[]> {
+    const rows = await db
+      .select({
+        id: services.id,
+        source: services.source,
+        version: services.version,
+        constraint: services.autoUpdateConstraint,
+      })
+      .from(services)
+      .where(and(eq(services.autoUpdate, true), isNotNull(services.source)))
+      .catch(() => {
+        throw new HttpError(500, "Failed to list auto-update services.");
+      });
+    return rows.map((row) => ({
+      id: row.id,
+      kind: "service" as const,
+      source: row.source as string,
+      version: row.version,
+      constraint: row.constraint,
+    }));
+  }
+
+  async updateService(id: string, constraint?: string | null): Promise<void> {
     const [service] = await db
       .select({
         adapter: services.adapter,
@@ -754,6 +779,17 @@ export class ServicesService {
         409,
         `Service '${id}' has no stored install source and cannot be updated automatically. Only registry-installed services can be updated.`,
       );
+
+    if (constraint) {
+      try {
+        if (satisfies(service.version, constraint)) {
+          return;
+        }
+      } catch {
+        // Invalid installed version or constraint range; fall through to the
+        // registry check rather than assuming the service is up to date.
+      }
+    }
 
     let registry: {
       version: string;

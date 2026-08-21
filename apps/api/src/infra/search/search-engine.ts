@@ -48,7 +48,7 @@ export interface SearchOptions {
    * Opaque-cursor continuation key `[score, serviceId, toolId]`: resume the
    * ranked result list strictly after this hit. Search results are sorted by
    * RRF score descending, so the cursor must carry the score boundary of the
-   * last served hit — a bare `(serviceId, toolId)` key cannot slice a
+   * last served hit - a bare `(serviceId, toolId)` key cannot slice a
    * score-ordered list (equal-score ties are broken by composite key).
    */
   afterKey?: [score: number, serviceId: string, toolId: string];

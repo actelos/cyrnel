@@ -190,9 +190,8 @@ interface ModuleLogger<C = ModuleLogBindings> {
   warn(payload?: ModuleLogPayload, message?: string): void;
   error(payload?: ModuleLogPayload, message?: string): void;
   fatal(payload?: ModuleLogPayload, message?: string): void;
-  child<Next extends ModuleLogBindings = C & ModuleLogBindings>(
-    bindings: ModuleLogBindings,
-  ): ModuleLogger<Next>;
+  isLevelEnabled(level: ModuleLogLevel): boolean;
+  child<Next extends ModuleLogBindings>(bindings: Next): ModuleLogger<C & Next>;
   redact(patterns: readonly string[]): ModuleLogger<C>;
 }
 ```
@@ -205,7 +204,7 @@ const patterns = (context.config.redactionPatterns as string[] | undefined) ?? [
 this.logger = context.logger.redact(patterns).child({ phase: "setup" });
 
 this.logger?.info({ event: "request", path }, "Sending request");
-const scoped = this.logger?.child({ serviceId: input.serviceId, toolId: input.toolId });
+const scoped = this.logger?.child({ phase: "invoke", event: "adapter-request" });
 scoped?.warn({ event: "rate-limited" }, "Upstream throttled");
 ```
 
@@ -216,9 +215,9 @@ scoped?.warn({ event: "rate-limited" }, "Upstream throttled");
   (secrets / tokens / passwords / authorization). Chained `redact()` calls
   accumulate patterns; non-string or empty-split patterns are ignored so a
   malformed pattern can never redact the whole payload. The host never pushes
-  patterns into the setup context — reduction is configured by the module, for
+  patterns into the setup context - reduction is configured by the module, for
   the module.
-- `context` is `Readonly` — a module reads but never mutates the logger's
+- `context` is `Readonly`: a module reads but never mutates the logger's
   bound metadata.
 
 ### `ModuleSetupContext` and `AdapterSetupContext`

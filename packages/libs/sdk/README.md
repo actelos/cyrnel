@@ -43,7 +43,7 @@ import type {
 The host owns all logging. A module receives a single `ModuleLogger` through
 its `setup` context and never constructs a root logger itself. Every entry a
 module emits is automatically tagged with `type: "module"`, `moduleId`,
-`moduleType`, and the owning `adapterId`/`environmentId` — these correlation
+`moduleType`, and the owning `adapterId`/`environmentId`: these correlation
 fields are host-managed and cannot be forged or overridden by the module.
 
 ```ts
@@ -64,14 +64,14 @@ this.logger?.info({ event: "request", path }, "Sending request");
 - `ModuleLogger` exposes the six levels `trace` / `debug` / `info` / `warn` /
   `error` / `fatal`, each accepting `(payload?, message?)`.
 - `child(bindings)` scopes the logger. `bindings` is `ModuleLogBindings`
-  (`{ phase?, event? }` only) — the host merges only `phase`/`event`, so a
+  (`{ phase?, event? }` only): the host merges only `phase`/`event`, so a
   module cannot set host-owned correlation metadata.
 - `redact(patterns)` returns a **new** logger that applies the module's path
   patterns **additively** on top of a non-disableable host baseline
   (secrets / tokens / passwords / authorization). Chained `redact()` calls
   accumulate; non-string or empty patterns are ignored. The host never pushes
   patterns into the setup context.
-- `context` is `Readonly` — a module reads but never mutates the logger's
+- `context` is `Readonly`: a module reads but never mutates the logger's
   bound metadata.
 
 `AdapterSetupContext` is a plain alias of `ModuleSetupContext`; the

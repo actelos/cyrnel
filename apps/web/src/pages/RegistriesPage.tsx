@@ -633,7 +633,7 @@ export default function RegistriesPage() {
                     value={addId}
                   />
                   <p className="text-muted-foreground text-xs">
-                    Optional — when omitted, the id advertised by the registry's
+                    Optional - when omitted, the id advertised by the registry's
                     discovery document is used. Slug: letters, numbers, - and _.
                   </p>
                 </div>
