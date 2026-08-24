@@ -8594,7 +8594,7 @@
       }
     },
     "/logs": {
-      "undefined": {
+      "get": {
         "tags": [
           "Logs"
         ],
@@ -8950,7 +8950,7 @@
       }
     },
     "/logs/stream": {
-      "undefined": {
+      "get": {
         "tags": [
           "Logs"
         ],
