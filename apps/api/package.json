@@ -13,7 +13,7 @@
     "db:migrate": "drizzle-kit migrate",
     "db:generate": "drizzle-kit generate",
     "registry:dev": "tsx scripts/dev-registry.ts",
-    "openapi:generate": "tsx scripts/generate-definition.ts --out ./openapi.json ../../docs/cyrnel/openapi.json"
+    "openapi:generate": "tsx scripts/generate-definition.ts --out ./openapi.json ../../docs/cyrnel/openapi.json ../../docs/openapi.json"
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^8.5.0",
