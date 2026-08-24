@@ -91,7 +91,7 @@
               },
               {
                 "tab": "API Reference",
-                "openapi": "./cyrnel/openapi.json"
+                "openapi": "/cyrnel/openapi.json"
               }
             ]
           },
