@@ -90,6 +90,39 @@
                 ]
               },
               {
+                "tab": "Registry Specification",
+                "groups": [
+                  {
+                    "group": "Overview",
+                    "pages": ["cyrnel/registry-specs/registry-overview"]
+                  },
+                  {
+                    "group": "Discovery & Auth",
+                    "pages": [
+                      "cyrnel/registry-specs/well-known",
+                      "cyrnel/registry-specs/authentication"
+                    ]
+                  },
+                  {
+                    "group": "Capabilities",
+                    "pages": [
+                      "cyrnel/registry-specs/definitions",
+                      "cyrnel/registry-specs/modules",
+                      "cyrnel/registry-specs/pagination"
+                    ]
+                  },
+                  {
+                    "group": "Operations",
+                    "pages": [
+                      "cyrnel/registry-specs/install-and-update",
+                      "cyrnel/registry-specs/building-a-registry",
+                      "cyrnel/registry-specs/registry-management-api",
+                      "cyrnel/registry-specs/security"
+                    ]
+                  }
+                ]
+              },
+              {
                 "tab": "API Reference",
                 "openapi": "/openapi.json"
               }
