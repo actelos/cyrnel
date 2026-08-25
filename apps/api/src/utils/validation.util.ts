@@ -66,7 +66,7 @@ export function assertPlainJsonSchema(
       for (let i = 0; i < v.length; i++) check(v[i], `${path}/${i}`);
       return;
     }
-    if (typeof v === "object" && v !== null) {
+    if (typeof v === "object") {
       if (seen.has(v))
         throw new HttpError(
           400,
