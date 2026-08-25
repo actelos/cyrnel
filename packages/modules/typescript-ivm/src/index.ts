@@ -425,7 +425,7 @@ export function toBuffer(data: unknown): Buffer {
   const MAX_BUFFER_SIZE = 4 * 1024 * 1024;
 
   if (Buffer.isBuffer(data)) {
-    assertSize(data.byteLength, 4 * 1024 * 1024);
+    assertSize(data.byteLength, MAX_BUFFER_SIZE);
     return data;
   }
 
