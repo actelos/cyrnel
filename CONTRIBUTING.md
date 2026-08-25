@@ -6,6 +6,7 @@ better.
 [1. Getting Started](#getting-started)
 [2. Issues](#issues)
 [3. Pull Requests](#pull-requests)
+[4. Contributors](#contributors)
 
 ## Getting Started
 
@@ -51,3 +52,11 @@ Prior to submitting your PR, please run the following pre-flight checks locally:
 - Run `pnpm test` to make sure no existing tests are broken.
 
 Running these before you open the PR will reduce back and forth with the team.
+
+## Contributors
+
+Thank you to everyone who has contributed to cyrnel!
+
+<a href="https://github.com/actelos/cyrnel/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=actelos/cyrnel" alt="cyrnel contributors" />
+</a>
