@@ -404,7 +404,13 @@ describe("fetchRegistryIndex", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: string) =>
-        String(input).startsWith("https://registry.example.com")
+        (() => {
+          const url = new URL(String(input));
+          return (
+            url.protocol === "https:" &&
+            url.hostname === "registry.example.com"
+          );
+        })()
           ? redirectResponse(
               "https://mirror.example.com/.well-known/registry.json",
             )
