@@ -407,8 +407,7 @@ describe("fetchRegistryIndex", () => {
         (() => {
           const url = new URL(String(input));
           return (
-            url.protocol === "https:" &&
-            url.hostname === "registry.example.com"
+            url.protocol === "https:" && url.hostname === "registry.example.com"
           );
         })()
           ? redirectResponse(
