@@ -18,7 +18,7 @@ An **environment module** runs the code clients submit through
     the `timeoutMs` field on `POST /processes` elapses.
 
 Environment modules implement the SDK
-[`EnvironmentModule`](/cyrnel/specs/environment-module) interface.
+[`EnvironmentModule`](/cyrnel/module-specs/environment-module) interface.
 
 ## Lifecycle
 
@@ -34,7 +34,7 @@ interface EnvironmentModule extends Module {
 ```
 
 1. **`setup({ bindings })`** is called when the environment is activated.
-   `bindings` is the [`EnvironmentBindings`](/cyrnel/specs/environment-bindings) callback
+   `bindings` is the [`EnvironmentBindings`](/cyrnel/module-specs/environment-bindings) callback
    surface back into the host (discovery, invocation, state, output).
  2. **`execute(input)`** is called for each process. `input.eid` is the
     process id; the environment must use it on every callback so the host
@@ -129,8 +129,8 @@ See [Security](/cyrnel/docs/security) for the broader picture.
 
 ## Authoring
 
-See [Writing a custom environment module](/cyrnel/specs/writing-custom-environment-module)
+See [Writing a custom environment module](/cyrnel/module-specs/writing-custom-environment-module)
 for the file layout, a skeleton, and a full working example.
-[`EnvironmentModule`](/cyrnel/specs/environment-module) covers the interface
-contract in full, and [`EnvironmentBindings`](/cyrnel/specs/environment-bindings)
+[`EnvironmentModule`](/cyrnel/module-specs/environment-module) covers the interface
+contract in full, and [`EnvironmentBindings`](/cyrnel/module-specs/environment-bindings)
 documents the callback surface.

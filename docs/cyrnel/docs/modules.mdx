@@ -45,12 +45,12 @@ sources:
     `compatibility` is optional and only meaningful for `adapter` modules.
     Each entry declares an `<identifier>` and a semver `version` range that the
     adapter can consume (see [Definition kinds & adapter
-    compatibility](/cyrnel/specs/definition-kinds)). When a service definition
+    compatibility](/cyrnel/module-specs/definition-kinds)). When a service definition
     carries a matching kind, the adapter is offered as an install target for it.
 
    `main` is an ES module exporting `instantiate(): AdapterModule` or
    `EnvironmentModule`. See
-   [Writing a custom module](/cyrnel/specs/writing-custom-modules).
+   [Writing a custom module](/cyrnel/module-specs/writing-custom-modules).
 
 The registry is reflected to the `modules` table. Three things can happen
 during reconciliation:

@@ -7,11 +7,11 @@ sidebarTitle: "Writing a custom module"
 This page covers the mechanics shared by every custom module, registration, and
 lifecycle. For type-specific skeletons and examples see:
 
-- [Writing a custom adapter module](/cyrnel/specs/writing-custom-adapter-module)
-- [Writing a custom environment module](/cyrnel/specs/writing-custom-environment-module)
+- [Writing a custom adapter module](/cyrnel/module-specs/writing-custom-adapter-module)
+- [Writing a custom environment module](/cyrnel/module-specs/writing-custom-environment-module)
 
-For the full interface reference, see [`AdapterModule`](/cyrnel/specs/adapter-module)
-and [`EnvironmentModule`](/cyrnel/specs/environment-module).
+For the full interface reference, see [`AdapterModule`](/cyrnel/module-specs/adapter-module)
+and [`EnvironmentModule`](/cyrnel/module-specs/environment-module).
 
 ## Installation
 
@@ -151,13 +151,13 @@ you configure your own reduction via `logger.redact()` from a
 `redactionPatterns` field in your `configSchema`. You cannot forge or override
 the host-managed correlation fields (`serviceId`, `toolId`, `executionId`,
 `dispatchId`, `requestId`). See
-[Types → Module logging](/cyrnel/specs/types#module-logging) and the
+[Types → Module logging](/cyrnel/module-specs/types#module-logging) and the
 type-specific guides for the full contract.
 
 For the type-specific skeletons see:
 
-- [Writing a custom adapter module](/cyrnel/specs/writing-custom-adapter-module)
-- [Writing a custom environment module](/cyrnel/specs/writing-custom-environment-module)
+- [Writing a custom adapter module](/cyrnel/module-specs/writing-custom-adapter-module)
+- [Writing a custom environment module](/cyrnel/module-specs/writing-custom-environment-module)
 
 ## Iteration Workflow
 

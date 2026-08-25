@@ -10,10 +10,10 @@ state) and the interfaces that adapter and environment modules implement.
 
 ## Who implements what
 
-- **Adapter authors** implement [`AdapterModule`](/cyrnel/specs/adapter-module).
+- **Adapter authors** implement [`AdapterModule`](/cyrnel/module-specs/adapter-module).
 - **Environment authors** implement
-  [`EnvironmentModule`](/cyrnel/specs/environment-module).
-- **Cyrnel itself** implements [`EnvironmentBindings`](/cyrnel/specs/environment-bindings),
+  [`EnvironmentModule`](/cyrnel/module-specs/environment-module).
+- **Cyrnel itself** implements [`EnvironmentBindings`](/cyrnel/module-specs/environment-bindings),
   which is what an environment module *calls into*.
 
 ## Module Manifests
@@ -37,7 +37,7 @@ code export.
 
 - **Custom modules** declare basic metadata in `module.json` and the
   schemas + factory in a default export from their entry file.  See
-  [Writing a custom module](/cyrnel/specs/writing-custom-modules) for
+  [Writing a custom module](/cyrnel/module-specs/writing-custom-modules) for
   the full layout.
 
 Config and secrets schemas are **not** part of `module.json`; they come

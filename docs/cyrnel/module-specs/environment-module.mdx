@@ -27,10 +27,10 @@ user-facing description.
 `setup({ config, secrets, bindings, logger })` is called when the environment
 is activated. `config` and `secrets` carry the module-level settings from
 the `modules` database row. `bindings` is the host's
-[callback surface](/cyrnel/specs/environment-bindings), store it and use it to
+[callback surface](/cyrnel/module-specs/environment-bindings), store it and use it to
 report execution state, capture I/O, and forward tool discovery /
 invocation requests. `logger` is the host-owned
-[`ModuleLogger`](/cyrnel/specs/types#modulelogger), store it and use it for
+[`ModuleLogger`](/cyrnel/module-specs/types#modulelogger), store it and use it for
 all module logging; every entry is tagged `type: "module"` with your module's
 identity already applied.
 
@@ -180,8 +180,8 @@ export function instantiate(): EnvironmentModule {
 > **Note:** The manifest metadata (name, version, type, etc.) goes in
 > `module.json` for custom modules. Only built-in modules ship `export
 > const manifest` from code. The skeleton above omits it, see
-> [Writing a custom environment module](/cyrnel/specs/writing-custom-environment-module)
+> [Writing a custom environment module](/cyrnel/module-specs/writing-custom-environment-module)
 > for a step-by-step walkthrough and a full working example.
 
-See [`EnvironmentBindings`](/cyrnel/specs/environment-bindings) for the callbacks and
-[Execution](/cyrnel/specs/environment-execution) for the state machine details.
+See [`EnvironmentBindings`](/cyrnel/module-specs/environment-bindings) for the callbacks and
+[Execution](/cyrnel/module-specs/environment-execution) for the state machine details.

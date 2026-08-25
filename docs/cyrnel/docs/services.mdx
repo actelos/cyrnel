@@ -111,7 +111,7 @@ matches it. The effective `id` is merged from the request body and the registry
 response (body wins over registry default). The `adapter` is resolved as follows:
 an explicit `adapter` in the body wins; otherwise the server ranks installed
 adapter modules against the definition `kind` (see [Definition kinds &
-adapter compatibility](/cyrnel/specs/definition-kinds)) and selects the best
+adapter compatibility](/cyrnel/module-specs/definition-kinds)) and selects the best
 compatible and active adapter. The `source` URL is persisted in the database so
 the service can be re-resolved later for updates. The service starts disabled.
 

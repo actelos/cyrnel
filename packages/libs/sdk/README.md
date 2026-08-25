@@ -78,5 +78,5 @@ this.logger?.info({ event: "request", path }, "Sending request");
 adapter-vs-environment distinction lives in the `AdapterModule` /
 `EnvironmentModule` interfaces, not in the context type.
 
-More details in our [specification](https://actelos.mintlify.app/cyrnel/specs).
+More details in our [specification](https://actelos.mintlify.app/cyrnel/module-specs).
 Built with [Cyrnel](https://github.com/actelos/cyrnel).
