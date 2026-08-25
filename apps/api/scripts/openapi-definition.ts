@@ -3010,6 +3010,7 @@ const logListQuerySchema = z.object({
 });
 
 registry.registerPath({
+  method: "get",
   path: "/logs",
   tags: ["Logs"],
   summary: "List log entries",
@@ -3035,6 +3036,7 @@ registry.registerPath({
 });
 
 registry.registerPath({
+  method: "get",
   path: "/logs/stream",
   tags: ["Logs"],
   summary: "Stream log entries over SSE",
