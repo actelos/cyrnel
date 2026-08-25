@@ -51,6 +51,33 @@ pnpm check:fix && pnpm test && pnpm typecheck && pnpm build
 
 Iterating during dev? Use scoped forms (`pnpm -C <pkg> ...`), run full gauntlet before commit.
 
+## Branch workflow
+
+`develop` is the integration branch (default on GitHub) and the only branch kept locally most of the time. `main` is production and receives only `develop` → `main` release PRs.
+
+**Implementing a change (feature / fix / chore / docs):**
+
+1. Start from latest develop: `git switch develop && git pull token-origin develop`
+2. Create a short-lived branch: `git switch -c feat/<name>` / `fix/<name>` / `chore/<name>` / `docs/<name>`
+3. Implement, then run the validation gauntlet above
+4. Commit with conventional style matching history — `feat(scope): …`, `fix(scope): …`, `chore(deps): …`, `docs: …`
+5. Push: `git push -u token-origin <branch>` (use `token-origin` — `origin` is SSH and may not have a working key)
+6. Open a PR → `develop` (the default target). CI gates: `checks` (biome / typecheck / test / build) is the required check; Docker image builds (`build (api/web/mcp)`) also run on develop PRs but are informational there — they only gate `main`
+7. Merge to `develop` (squash, matching history). No review approval required on `develop`
+8. Delete the branch locally and on the remote
+
+**Promoting to main (release):**
+
+1. Open a PR `develop` → `main` (e.g. `release: vX.Y.Z`)
+2. Gates: all checks + Docker builds, **1 required approval**, branch up-to-date
+3. Merge → CI (`publish.yml`) publishes the SDK to npm and pushes Docker images
+4. Merge `main` back into `develop` immediately after, so the next release PR is clean
+
+**Branch protection (GitHub):**
+
+- `main` — PR required + 1 approval, required checks: `checks`, `build (api)`, `build (web)`, `build (mcp)`; strict; force-push and deletion blocked; enforced for admins
+- `develop` — PR required (no approval), required check: `checks`; strict; force-push and deletion blocked
+
 ## Quirks & gotchas
 
 - **Express 5** — API uses Express v5; verify `@types/express` version if adding type augmentations
@@ -60,7 +87,9 @@ Iterating during dev? Use scoped forms (`pnpm -C <pkg> ...`), run full gauntlet 
 - **`inject-workspace-packages: true`** — workspace deps are symlinked, SDK changes propagate instantly
 - **`.npmrc`**: `auto-install-peers=false`
 - **Environment** — copy `apps/api/.example.env` → `apps/api/.env`. `CYRNEL_SECRETS_KEY` is AES-256-GCM, 32 bytes base64: `openssl rand -base64 32`. Unset `CYRNEL_API_KEY` = unauthenticated access.
-- **PR target** is `develop` branch (not `main`)
+- **Search & Vector Engine** — uses `@xenova/transformers` (local ONNX model, default `Xenova/bge-small-en-v1.5`) and `sqlite-vec` native extension alongside SQLite FTS5 for hybrid tool search.
+- **Registry protocol** — `GET <baseUrl>/.well-known/registry.json` advertises capabilities as a keyed map (`definitions.v1`, `modules.v1`); Cyrnel negotiates the highest supported version, resolves relative URLs against the post-redirect discovery URL, and enforces same-origin for capability URLs and entry sources. Unknown well-known keys are ignored for forward compatibility. Registry definitions entries carry a `kind` string (`<identifier>@<version>`, e.g. `openapi@3.0`) instead of an `adapter` field; the browse `kind` query param is advisory. Adapter modules declare a `compatibility` list (`[{ identifier, version: <semver range> }]`) so the server can rank them for install (`GET /services/install/adapters?kind=…`) and auto-select the best compatible active adapter when `POST /services/install` omits `adapter`. `apps/api/scripts/dev-registry.ts` (`pnpm -C apps/api registry:dev`, port 9372) is the local fixture registry.
+- **Registry auth** — the well-known doc may advertise a public `auth` key (`{type:"apiKey",name}` or `{type:"oauth2",grantType:"client_credentials",tokenEndpoint,scopes?:[{id,description?}]}`); it is advisory and never required. `scopes` lists the oauth2 scopes the registry offers; a setup request may select any subset of them (anything else is a 400 safety refusal), and omitting `scopes` requests the full advertised set. Credentials are stored per registry in a `registry_auth` table (FK cascade, encrypted at rest via `secrets.util.ts`, `apiKey` + `headerName` or `clientId`/`clientSecret` + optional `scopes` as `config`, cached OAuth2 `token` + `tokenExpiresAt`). The `tokenEndpoint` and apiKey `headerName` are pinned from the advertisement at store time; drift on refresh only logs a warning. Credential-bearing requests require https unless the resolved address is loopback or matches `CYRNEL_REGISTRY_AUTH_INSECURE_CIDRS`. Auth is attached only within the registry's origin + base-path scope and stripped on cross-origin hops. Token exchange is single-flight with one 401 retry. Setup/removal routes: `POST /registries` (optional `auth`), `POST /registries/:id/auth`, `DELETE /registries/:id/auth` (configured via well-known validation; safety refusals — plaintext transport, method mismatch, unadvertised scope, unsupported method — fail 400 with nothing stored; exchange failures store credentials with `status:"error"`). `GET /registries/:id/auth` returns the configured state plus the registry's currently advertised `availableScopes` (fetched live, never cached) and decrypted `configuredScopes`.
 - **Migrations don't auto-run** — run `pnpm -C apps/api db:migrate` explicitly before `pnpm -C apps/api dev` if schema changed
 - **`@cyrnel/sdk` has no tests** (no vitest dep, no test script)
 
@@ -86,7 +115,7 @@ pnpm changeset          # create .changeset/*.md file
 # Don't hand-edit CHANGELOG.md
 ```
 
-CI (`publish.yml`) on push to `main`: publishes SDK to npm + builds/pushes Docker images for `api`, `web`, `mcp` to ghcr.io.
+CI (`publish.yml`) runs on any push to `main` — including direct pushes and revert commits, not only PR merges — and publishes the SDK to npm plus builds/pushes Docker images for `api`, `web`, `mcp` to ghcr.io. In practice pushes to `main` are governed by branch protection (PR + approval), i.e. the `develop` → `main` release PR.
 
 ## Package.json editing rules
 
@@ -112,6 +141,16 @@ CI (`publish.yml`) on push to `main`: publishes SDK to npm + builds/pushes Docke
 - Avoid `any` — prefer `unknown` + narrowing
 - API logs: `pino`/`pino-http` with stable keys (`requestId`, `userId`, `adapterId`). Never log secrets.
 
+## Infra conventions (`apps/api/src/infra/`)
+
+`infra/<subsystem>/` holds generic, stateful subsystems with their own lifecycle (e.g. `infra/logging/`, `infra/search/`, `infra/embedding/`). Examples: logging, search indexing, embedding models, job schedulers. Domain orchestration that ties an infra subsystem into the API lives in `src/services/` (e.g. `log.service.ts`, the search passthroughs on `services.service.ts`).
+
+- Keep the directory **flat**: one level of files per subsystem, no nested subdirectories and no `index.ts` barrels — import directly (`@/infra/logging/log-sink`). Exception: the subsystem's own entry module may be named `index.ts` so it imports as the directory path (`@/infra/logging` is the logger runtime).
+- One concern per file, co-located `*.test.ts`
+- Subsystems own their state and lifecycle (file descriptors, DB connections, model weights, timers) and expose `init()`/`close()` (plus internal lifecycle hooks like `rotate()`, `reconcile()`)
+- **Dependency rule**: `services → infra` only. Infra must never import from `services/`, `controllers/`, or `routes/`; cross-infra imports are allowed only in one direction (`infra/search → infra/embedding`), with one exception: any layer may import `infra/logging` (logging is cross-cutting). `services/log.service.ts` is the app-layer facade for log queries/streaming only — the logger is imported directly from `infra/logging` everywhere, never through another service.
+- Infra subsystems are invisible past the service layer: services expose narrow methods (e.g. `initSearch()`, `closeSearch()`), never the raw engine instance
+
 ## Environment variables
 
 Full set of env vars (see `apps/api/.example.env` for defaults):
@@ -123,6 +162,7 @@ Full set of env vars (see `apps/api/.example.env` for defaults):
 | `CYRNEL_ALLOWED_IPS` | Inbound IP allowlist (comma-separated CIDR) |
 | `CYRNEL_BLOCKED_IPS` | Inbound IP blocklist (comma-separated CIDR) |
 | `CYRNEL_MAX_ACTIVE_PROCESSES` | Max in-memory process records (default 1000) |
+| `CYRNEL_MAX_IDLE_PROCESSES` | Max idle in-memory records before LRU auto-unload (unset = unlimited) |
 | `CYRNEL_MAX_CODE_SIZE_BYTES` | Max sandbox code submission size (default 102400) |
 | `CYRNEL_INVOKE_TIMEOUT_MS` | Tool invocation timeout (default 30000) |
 | `CYRNEL_MAX_CONNECTIONS` | Max concurrent connections (0 = unlimited) |
@@ -132,3 +172,13 @@ Full set of env vars (see `apps/api/.example.env` for defaults):
 | `CYRNEL_REGISTRY_ALLOWED_IPS` | Registry egress allowlist |
 | `CYRNEL_REGISTRY_BLOCKED_IPS` | Registry egress blocklist |
 | `CYRNEL_BLOCK_ALL_REGISTRIES` | Deny all registry downloads (1/true) |
+| `CYRNEL_REGISTRY_AUTH_INSECURE_CIDRS` | Comma-separated CIDR ranges allowed to carry registry credentials over plaintext http (loopback is always allowed) |
+| `CYRNEL_DEFAULT_REGISTRY_URL` | Registry seeded at startup when the registries table is empty (unset = no seeding) |
+| `CYRNEL_EMBEDDING_MODEL` | Local ONNX embedding model (default `Xenova/bge-small-en-v1.5`) |
+| `CYRNEL_RECONCILE_INTERVAL_MS` | Background search vector reconciliation sweep interval in ms (default `1800000`; `0` disables only the recurring sweep — the startup reconciliation still runs) |
+| `CYRNEL_AUTO_UPDATE_INTERVAL_MS` | Background module/service auto-update sweep interval in ms (default `0` = disabled; items are opted in at install — `autoUpdate` defaults to `true` — and adjustable via `POST /modules/:id/auto-update` or `POST /services/:id/auto-update`) |
+| `CYRNEL_LOG_FILE` | Persistent JSONL log file (default `<CYRNEL_DATA_DIR>/logs/app.log`; `false` disables) |
+| `CYRNEL_LOG_ROTATION_MB` | Rotate active log file at this size in MB (default `10`) |
+| `CYRNEL_LOG_MAX_FILES` | Max rotated log files kept (default `5`) |
+| `CYRNEL_LOG_RING_BUFFER` | In-memory entries served by `GET /logs` (default `10000`) |
+| `CYRNEL_LOG_DEDUPE_WINDOW_MS` | Dedupe window for identical warn/error messages, ms (default `0` = off) |

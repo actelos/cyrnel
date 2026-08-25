@@ -13,19 +13,27 @@ import type {
   JSONSchema,
   Module,
   ModuleExport,
-  ModuleSetupContext,
   ServiceDefinition,
   ServiceState,
   ToolDocsInput,
 } from "@cyrnel/sdk";
 import tsivm from "@cyrnel/typescript-ivm";
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  getTableColumns,
+  inArray,
+  isNotNull,
+  notInArray,
+  or,
+  sql,
+} from "drizzle-orm";
 import jsonpatch from "fast-json-patch";
 import { decompress as zstdDecompress } from "fzstd";
 import { satisfies } from "semver";
 import { Unpack } from "tar";
 import { z } from "zod";
-
 import { CYRNEL_CORE_VERSION } from "@/constants";
 import { db } from "@/db/client";
 import {
@@ -36,23 +44,56 @@ import {
   services as servicesTable,
   tools as toolsTable,
 } from "@/db/schema";
-import { logger } from "@/logger";
+import {
+  createModuleLogger,
+  logger,
+  type ModuleLoggerContext,
+} from "@/infra/logging";
+import type { AutoUpdateTarget } from "@/infra/updater/auto-updater";
 import { HttpError } from "@/models/error.model";
 import {
   type FilterModuleManifestInput,
   type GenerateDefinitionInput,
   type GetModuleManifestResult,
   type ListModuleManifestResult,
+  type ModuleConfigView,
   type ModuleManifestRecord,
   type ModuleManifestSchema,
+  type ModuleSecretsPresence,
   type ModuleType,
   moduleManifestSchema,
   type PatchModuleConfigInput,
   type PatchModuleSecretsInput,
+  type RankedAdapter,
   type SetModuleEnabledInput,
 } from "@/models/modules.model";
+import {
+  isKindCompatible,
+  parseKind,
+  rankAdapters,
+  resolveDefaultAdapterId,
+} from "@/utils/compatibility.util";
 import { downloadBinary } from "@/utils/download.util";
 import { computeBinaryHash } from "@/utils/hash.util";
+import type { IconColumns } from "@/utils/icon.util";
+import { fetchAndValidateIcon, resolveIconUpdate } from "@/utils/icon.util";
+import {
+  decodeCursor,
+  escapeLike,
+  invalidCursorError,
+  keysetConditions,
+  PAGINATION_DEFAULT_LIMIT,
+  type PaginatedResult,
+  paginatePage,
+} from "@/utils/pagination.util";
+import {
+  collectOutdatedPaths,
+  filterPayloadToSchema,
+  isNullOnlySchema,
+  mergeStaleKeys,
+  newOutdatedPaths,
+  pathExists,
+} from "@/utils/schema.util";
 import {
   collectPresentPaths,
   decryptAndMaybeReEncrypt,
@@ -61,7 +102,7 @@ import {
 import {
   applyJsonSchemaDefaults,
   assertPlainJsonSchema,
-  validateJsonSchema,
+  normalizeSummary,
 } from "@/utils/validation.util";
 
 const MODULE_DOWNLOAD_MAX_BYTES = 10 * 1024 * 1024;
@@ -82,10 +123,12 @@ interface AdapterLifecycle {
 interface RegisteredModule {
   id: string;
   name: string;
+  summary: string;
   description: string;
   type: ModuleType;
   version: string;
   isBuiltin: boolean;
+  compatibility?: { identifier: string; version: string }[];
   configSchema: JSONSchema;
   secretsSchema: JSONSchema;
 }
@@ -93,6 +136,10 @@ interface RegisteredModule {
 interface ValidatedSetupValues {
   config: Record<string, unknown>;
   secrets: Record<string, unknown>;
+}
+
+interface SetupValues extends ValidatedSetupValues {
+  logger: ReturnType<typeof createModuleLogger>;
 }
 
 type JsonObject = Record<string, unknown>;
@@ -165,8 +212,13 @@ export class ModuleService {
       draining.flatMap((instance) =>
         Array.from(instance.executions).map((eid) =>
           instance.module.kill(eid).catch((err) => {
-            logger.warn(
-              { err, environmentId: instance.id, eid },
+            this.moduleLogger(instance.id).warn(
+              {
+                event: "execution-kill-failed",
+                err,
+                environmentId: instance.id,
+                eid,
+              },
               "Failed to kill execution during shutdown",
             );
           }),
@@ -177,7 +229,10 @@ export class ModuleService {
     await Promise.all(
       Array.from(this.adapters.entries()).map(([id, a]) =>
         a.teardown().catch((err) => {
-          logger.warn({ err, adapterId: id }, "Adapter teardown failed");
+          this.moduleLogger(id).warn(
+            { event: "adapter-teardown-failed", err, adapterId: id },
+            "Adapter teardown failed",
+          );
         }),
       ),
     );
@@ -220,6 +275,46 @@ export class ModuleService {
   ): Promise<ServiceDefinition> {
     return this.requireAdapter(input.adapter).generateDefinition(
       input.definition,
+    );
+  }
+
+  async rankAdapters(kind?: string): Promise<RankedAdapter[]> {
+    const parsedKind = parseKind(kind);
+    return rankAdapters(
+      parsedKind,
+      this.registeredAdapters().map((manifest) => ({
+        id: manifest.id,
+        name: manifest.name,
+        active: this.adapters.has(manifest.id),
+        isBuiltin: manifest.isBuiltin,
+        compatibility: manifest.compatibility,
+      })),
+    ).map((adapter) => ({
+      id: adapter.id,
+      name: adapter.name,
+      compatible: isKindCompatible(parsedKind, adapter.compatibility),
+      active: adapter.active ?? false,
+      isBuiltin: adapter.isBuiltin ?? false,
+    }));
+  }
+
+  async resolveDefaultAdapter(kind?: string): Promise<string | undefined> {
+    const parsedKind = parseKind(kind);
+    return resolveDefaultAdapterId(
+      parsedKind,
+      this.registeredAdapters().map((manifest) => ({
+        id: manifest.id,
+        name: manifest.name,
+        active: this.adapters.has(manifest.id),
+        isBuiltin: manifest.isBuiltin,
+        compatibility: manifest.compatibility,
+      })),
+    );
+  }
+
+  private registeredAdapters(): RegisteredModule[] {
+    return [...this.manifests.values()].filter(
+      (manifest) => manifest.type === "adapter",
     );
   }
 
@@ -286,7 +381,7 @@ export class ModuleService {
 
   async list(
     filters: FilterModuleManifestInput = {},
-  ): Promise<ListModuleManifestResult[]> {
+  ): Promise<PaginatedResult<ListModuleManifestResult>> {
     const conditions = [];
     if (filters.type !== undefined) {
       conditions.push(eq(modulesTable.type, filters.type));
@@ -297,38 +392,98 @@ export class ModuleService {
     if (filters.missing !== undefined) {
       conditions.push(eq(modulesTable.missing, filters.missing));
     }
+    if (filters.isBuiltin !== undefined) {
+      const builtinIds = [...this.manifests.values()]
+        .filter((manifest) => manifest.isBuiltin)
+        .map((manifest) => manifest.id);
+      conditions.push(
+        filters.isBuiltin
+          ? inArray(modulesTable.id, builtinIds)
+          : notInArray(modulesTable.id, builtinIds),
+      );
+    }
+    const query = filters.query?.trim().toLowerCase();
+    if (query) {
+      const pattern = `%${escapeLike(query)}%`;
+      conditions.push(
+        or(
+          sql`${modulesTable.id} LIKE ${pattern} ESCAPE ${"\\"}`,
+          sql`${modulesTable.name} LIKE ${pattern} ESCAPE ${"\\"}`,
+          sql`${modulesTable.summary} LIKE ${pattern} ESCAPE ${"\\"}`,
+          sql`${modulesTable.description} LIKE ${pattern} ESCAPE ${"\\"}`,
+        ),
+      );
+    }
 
+    const cursor =
+      filters.cursor !== undefined ? decodeCursor(filters.cursor, 2) : null;
+    if (cursor !== null) {
+      const [createdAt, id] = cursor.sortKey;
+      if (typeof createdAt !== "string" || typeof id !== "string") {
+        throw invalidCursorError();
+      }
+      const predicate = keysetConditions(
+        [
+          [modulesTable.createdAt, createdAt],
+          [modulesTable.id, id],
+        ],
+        "before",
+      );
+      if (predicate) conditions.push(predicate);
+    }
+
+    const { iconData, iconMime, ...moduleColumns } =
+      getTableColumns(modulesTable);
+
+    const limit = filters.limit ?? PAGINATION_DEFAULT_LIMIT;
     const rows = await db
-      .select()
+      .select({
+        ...moduleColumns,
+        iconHash: modulesTable.iconHash,
+      })
       .from(modulesTable)
       .where(conditions.length > 0 ? and(...conditions) : undefined)
-      .orderBy(asc(modulesTable.id));
+      .orderBy(desc(modulesTable.createdAt), desc(modulesTable.id))
+      .limit(limit + 1);
 
-    const query = filters.query?.trim().toLowerCase();
-    return rows
-      .filter((row) =>
-        filters.isBuiltin === undefined
-          ? true
-          : this.isBuiltin(row.id) === filters.isBuiltin,
-      )
-      .filter((row) =>
-        query
-          ? `${row.id}\n${row.name}\n${row.description}`
-              .toLowerCase()
-              .includes(query)
-          : true,
-      )
-      .map((row) => this.toListRecord(row));
+    return paginatePage(
+      rows.map((row) => this.toListRecord(row)),
+      limit,
+      (item) => [item.createdAt, item.id],
+    );
   }
 
   async get(id: string): Promise<GetModuleManifestResult | undefined> {
+    const { iconData, iconMime, ...moduleColumns } =
+      getTableColumns(modulesTable);
     const [row] = await db
-      .select()
+      .select({
+        ...moduleColumns,
+        iconHash: modulesTable.iconHash,
+      })
       .from(modulesTable)
       .where(eq(modulesTable.id, id))
       .limit(1);
 
     return row ? this.toManifestRecord(row) : undefined;
+  }
+
+  async getIcon(
+    id: string,
+  ): Promise<{ data: Buffer; mime: string; hash: string } | null> {
+    const [row] = await db
+      .select({
+        iconData: modulesTable.iconData,
+        iconMime: modulesTable.iconMime,
+        iconHash: modulesTable.iconHash,
+      })
+      .from(modulesTable)
+      .where(eq(modulesTable.id, id))
+      .limit(1);
+
+    if (!row) throw new HttpError(404, `Module '${id}' not found.`);
+    if (!row.iconData || !row.iconMime || !row.iconHash) return null;
+    return { data: row.iconData, mime: row.iconMime, hash: row.iconHash };
   }
 
   async setEnabled(input: SetModuleEnabledInput): Promise<void> {
@@ -406,21 +561,48 @@ export class ModuleService {
     return this.requireRegistered(id).secretsSchema;
   }
 
-  async getSecretsPresence(id: string): Promise<{ present: string[] }> {
-    const payload = await this.loadSecrets(id);
-    return { present: collectPresentPaths(payload) };
+  async getConfigView(id: string): Promise<ModuleConfigView> {
+    const manifest = this.requireRegistered(id);
+    const payload = await this.getConfig(id);
+    if (isNullOnlySchema(manifest.configSchema)) {
+      return { config: payload, outdated: [] };
+    }
+    return {
+      config: filterPayloadToSchema(manifest.configSchema, payload),
+      outdated: collectOutdatedPaths(manifest.configSchema, payload),
+    };
   }
 
-  async patchConfig(input: PatchModuleConfigInput): Promise<void> {
+  async getSecretsPresence(id: string): Promise<ModuleSecretsPresence> {
+    const manifest = this.requireRegistered(id);
+    const payload = await this.loadSecrets(id);
+    if (isNullOnlySchema(manifest.secretsSchema)) {
+      return { present: collectPresentPaths(payload), outdated: [] };
+    }
+    return {
+      present: collectPresentPaths(
+        filterPayloadToSchema(manifest.secretsSchema, payload, {
+          keepPermitted: true,
+        }),
+      ),
+      outdated: collectOutdatedPaths(manifest.secretsSchema, payload),
+    };
+  }
+
+  async patchConfig(input: PatchModuleConfigInput): Promise<ModuleConfigView> {
     const manifest = this.requireRegistered(input.id);
     const current = await this.getConfig(input.id);
     const nullOnly = isNullOnlySchema(manifest.configSchema);
+
+    const patch = input.patch.filter(
+      (op) => !(op.op === "remove" && !pathExists(current, op.path)),
+    );
 
     let updated: JsonObject | null;
     try {
       const result = jsonpatch.applyPatch(
         current,
-        input.patch,
+        patch,
         true,
         false,
       ).newDocument;
@@ -456,15 +638,23 @@ export class ModuleService {
           "Configuration payload must be a JSON object.",
         );
       }
-      validateJsonSchema(
-        manifest.configSchema,
-        updated,
-        `Invalid configuration for module '${input.id}'.`,
+      const added = newOutdatedPaths(
+        collectOutdatedPaths(manifest.configSchema, current),
+        collectOutdatedPaths(manifest.configSchema, updated),
       );
-      payload = applyJsonSchemaDefaults(
-        manifest.configSchema,
+      if (added.length > 0) {
+        throw new HttpError(
+          400,
+          `Invalid configuration for module '${input.id}': schema-disallowed keys ${added.join(", ")} cannot be added.`,
+        );
+      }
+      payload = mergeStaleKeys(
+        applyJsonSchemaDefaults(
+          manifest.configSchema,
+          filterPayloadToSchema(manifest.configSchema, updated),
+          `Invalid configuration for module '${input.id}'.`,
+        ),
         updated,
-        `Invalid configuration for module '${input.id}'.`,
       );
     }
 
@@ -489,17 +679,28 @@ export class ModuleService {
       });
 
     await this.reloadIfActive(input.id);
+
+    return {
+      config: nullOnly
+        ? payload
+        : filterPayloadToSchema(manifest.configSchema, payload ?? {}),
+      outdated: collectOutdatedPaths(manifest.configSchema, payload ?? {}),
+    };
   }
 
   async patchSecrets(input: PatchModuleSecretsInput): Promise<void> {
     const manifest = this.requireRegistered(input.id);
     const current = await this.loadSecrets(input.id);
 
+    const patch = input.patch.filter(
+      (op) => !(op.op === "remove" && !pathExists(current, op.path)),
+    );
+
     let updated: Record<string, unknown>;
     try {
       const result = jsonpatch.applyPatch(
         current,
-        input.patch,
+        patch,
         true,
         false,
       ).newDocument;
@@ -517,19 +718,27 @@ export class ModuleService {
 
     const nullOnly = isNullOnlySchema(manifest.secretsSchema);
     if (!nullOnly) {
-      validateJsonSchema(
-        manifest.secretsSchema,
-        updated,
-        `Invalid secrets for module '${input.id}'.`,
+      const added = newOutdatedPaths(
+        collectOutdatedPaths(manifest.secretsSchema, current),
+        collectOutdatedPaths(manifest.secretsSchema, updated),
       );
+      if (added.length > 0) {
+        throw new HttpError(
+          400,
+          `Invalid secrets for module '${input.id}': schema-disallowed keys ${added.join(", ")} cannot be added.`,
+        );
+      }
     }
 
     const payload = nullOnly
       ? updated
-      : applyJsonSchemaDefaults(
-          manifest.secretsSchema,
+      : mergeStaleKeys(
+          applyJsonSchemaDefaults(
+            manifest.secretsSchema,
+            filterPayloadToSchema(manifest.secretsSchema, updated),
+            `Invalid secrets for module '${input.id}'.`,
+          ),
           updated,
-          `Invalid secrets for module '${input.id}'.`,
         );
 
     const encrypted = encryptSecrets(payload);
@@ -650,10 +859,12 @@ export class ModuleService {
       this.manifests.set(manifest.id, {
         id: manifest.id,
         name: manifest.name,
+        summary: normalizeSummary(manifest.summary),
         description: manifest.description,
         type: manifest.type,
         version: manifest.version,
         isBuiltin: false,
+        compatibility: manifest.compatibility,
         configSchema,
         secretsSchema,
       });
@@ -670,7 +881,9 @@ export class ModuleService {
     try {
       await db.insert(modulesTable).values({
         id: manifest.id,
+        createdAt: new Date().toISOString(),
         name: manifest.name,
+        summary: normalizeSummary(manifest.summary),
         description: manifest.description,
         type: manifest.type,
         hash: archiveHash,
@@ -692,6 +905,7 @@ export class ModuleService {
     return {
       id: manifest.id,
       name: manifest.name,
+      summary: normalizeSummary(manifest.summary),
       description: manifest.description,
       type: manifest.type,
       hash: archiveHash,
@@ -700,6 +914,8 @@ export class ModuleService {
       isBuiltin: false,
       enabled: false,
       missing: false,
+      hasIcon: false,
+      compatibility: manifest.compatibility,
       configSchema,
       secretsSchema,
     };
@@ -798,10 +1014,12 @@ export class ModuleService {
       this.manifests.set(manifest.id, {
         id: manifest.id,
         name: manifest.name,
+        summary: normalizeSummary(manifest.summary),
         description: manifest.description,
         type: manifest.type,
         version: manifest.version,
         isBuiltin: false,
+        compatibility: manifest.compatibility,
         configSchema,
         secretsSchema,
       });
@@ -815,10 +1033,16 @@ export class ModuleService {
       );
     }
 
+    const icon = registry.icon
+      ? await fetchAndValidateIcon(registry.icon, "module", manifest.id)
+      : null;
+
     try {
       await db.insert(modulesTable).values({
         id: manifest.id,
+        createdAt: new Date().toISOString(),
         name: manifest.name,
+        summary: normalizeSummary(manifest.summary),
         description: manifest.description,
         type: manifest.type,
         hash: archiveHash,
@@ -826,6 +1050,9 @@ export class ModuleService {
         source: source,
         enabled: false,
         missing: false,
+        iconData: icon?.data ?? null,
+        iconMime: icon?.mime ?? null,
+        iconHash: icon?.hash ?? null,
       });
     } catch {
       await fs.rm(installDir, { recursive: true, force: true }).catch(() => {});
@@ -840,6 +1067,7 @@ export class ModuleService {
     return {
       id: manifest.id,
       name: manifest.name,
+      summary: normalizeSummary(manifest.summary),
       description: manifest.description,
       type: manifest.type,
       hash: archiveHash,
@@ -848,12 +1076,41 @@ export class ModuleService {
       isBuiltin: false,
       enabled: false,
       missing: false,
+      hasIcon: icon !== null,
+      compatibility: manifest.compatibility,
       configSchema,
       secretsSchema,
     };
   }
 
-  async updateModule(id: string): Promise<{ updated: boolean }> {
+  async listAutoUpdateModules(): Promise<AutoUpdateTarget[]> {
+    const rows = await db
+      .select({
+        id: modulesTable.id,
+        source: modulesTable.source,
+        version: modulesTable.version,
+        constraint: modulesTable.autoUpdateConstraint,
+      })
+      .from(modulesTable)
+      .where(
+        and(eq(modulesTable.autoUpdate, true), isNotNull(modulesTable.source)),
+      )
+      .catch(() => {
+        throw new HttpError(500, "Failed to list auto-update modules.");
+      });
+    return rows.map((row) => ({
+      id: row.id,
+      kind: "module" as const,
+      source: row.source as string,
+      version: row.version,
+      constraint: row.constraint,
+    }));
+  }
+
+  async updateModule(
+    id: string,
+    constraint?: string | null,
+  ): Promise<{ updated: boolean }> {
     if (!this.modulesPath) {
       throw new HttpError(503, "ModuleService has not been initialized.");
     }
@@ -864,6 +1121,7 @@ export class ModuleService {
         version: modulesTable.version,
         source: modulesTable.source,
         type: modulesTable.type,
+        iconHash: modulesTable.iconHash,
       })
       .from(modulesTable)
       .where(eq(modulesTable.id, id))
@@ -883,11 +1141,15 @@ export class ModuleService {
       version: string;
       downloadUrl: string;
       hash?: string;
+      icon?: { url: string; hash: string };
       engines?: { cyrnel?: string };
     };
     try {
       const { resolveModuleRegistry } = await import("@/utils/registry.util");
-      registry = await resolveModuleRegistry(row.source);
+      registry = await resolveModuleRegistry(
+        row.source,
+        constraint ?? undefined,
+      );
       this.assertEngineCompatibility(registry.engines, `Module '${id}'`);
     } catch (err) {
       if (err instanceof HttpError) {
@@ -902,11 +1164,19 @@ export class ModuleService {
       );
     }
 
+    const iconColumns = await resolveIconUpdate(
+      registry.icon,
+      row.iconHash,
+      "module",
+      id,
+    );
+
     if (
       registry.hash &&
       registry.hash === row.hash &&
       registry.version === row.version
     ) {
+      await this.persistModuleIcon(id, iconColumns);
       return { updated: false };
     }
 
@@ -917,6 +1187,7 @@ export class ModuleService {
     const newHash = computeBinaryHash(buffer);
 
     if (newHash === row.hash) {
+      await this.persistModuleIcon(id, iconColumns);
       return { updated: false };
     }
 
@@ -1001,10 +1272,12 @@ export class ModuleService {
       this.manifests.set(manifest.id, {
         id: manifest.id,
         name: manifest.name,
+        summary: normalizeSummary(manifest.summary),
         description: manifest.description,
         type: manifest.type,
         version: manifest.version,
         isBuiltin: false,
+        compatibility: manifest.compatibility,
         configSchema: def.configSchema,
         secretsSchema: def.secretsSchema,
       });
@@ -1026,9 +1299,11 @@ export class ModuleService {
         .update(modulesTable)
         .set({
           name: manifest.name,
+          summary: normalizeSummary(manifest.summary),
           description: manifest.description,
           hash: newHash,
           version: manifest.version,
+          ...(iconColumns ?? {}),
         })
         .where(eq(modulesTable.id, id));
     } catch {
@@ -1047,14 +1322,19 @@ export class ModuleService {
     try {
       const { updated, failed } = await this.regenerateAdapterServices(id);
       if (failed > 0) {
-        logger.warn(
-          { moduleId: id, updated, failed },
+        this.moduleLogger(id).warn(
+          {
+            event: "services-regeneration-partial",
+            moduleId: id,
+            updated,
+            failed,
+          },
           "Some services failed to regenerate after module update and have been marked stale",
         );
       }
     } catch (err) {
-      logger.warn(
-        { err, moduleId: id },
+      this.moduleLogger(id).warn(
+        { event: "services-regeneration-failed", err, moduleId: id },
         "Failed to regenerate services after module update",
       );
     }
@@ -1064,8 +1344,8 @@ export class ModuleService {
     try {
       await this.reloadIfActive(id);
     } catch (err) {
-      logger.warn(
-        { err, moduleId: id },
+      this.moduleLogger(id).warn(
+        { event: "module-reload-failed", err, moduleId: id },
         "Failed to reload active module after update",
       );
     }
@@ -1173,10 +1453,12 @@ export class ModuleService {
       this.manifests.set(manifest.id, {
         id: manifest.id,
         name: manifest.name,
+        summary: normalizeSummary(manifest.summary),
         description: manifest.description,
         type: manifest.type,
         version: manifest.version,
         isBuiltin: false,
+        compatibility: manifest.compatibility,
         configSchema: def.configSchema,
         secretsSchema: def.secretsSchema,
       });
@@ -1198,10 +1480,14 @@ export class ModuleService {
         .update(modulesTable)
         .set({
           name: manifest.name,
+          summary: normalizeSummary(manifest.summary),
           description: manifest.description,
           hash: newHash,
           version: manifest.version,
           source: "",
+          iconData: null,
+          iconMime: null,
+          iconHash: null,
         })
         .where(eq(modulesTable.id, id));
     } catch {
@@ -1220,14 +1506,19 @@ export class ModuleService {
     try {
       const { updated, failed } = await this.regenerateAdapterServices(id);
       if (failed > 0) {
-        logger.warn(
-          { moduleId: id, updated, failed },
+        this.moduleLogger(id).warn(
+          {
+            event: "services-regeneration-partial",
+            moduleId: id,
+            updated,
+            failed,
+          },
           "Some services failed to regenerate after module patch and have been marked stale",
         );
       }
     } catch (err) {
-      logger.warn(
-        { err, moduleId: id },
+      this.moduleLogger(id).warn(
+        { event: "services-regeneration-failed", err, moduleId: id },
         "Failed to regenerate services after module patch",
       );
     }
@@ -1237,8 +1528,8 @@ export class ModuleService {
     try {
       await this.reloadIfActive(id);
     } catch (err) {
-      logger.warn(
-        { err, moduleId: id },
+      this.moduleLogger(id).warn(
+        { event: "module-reload-failed", err, moduleId: id },
         "Failed to reload active module after patch",
       );
     }
@@ -1285,7 +1576,7 @@ export class ModuleService {
         await fs.rm(moduleDir, { recursive: true, force: true });
       } catch (err) {
         logger.warn(
-          { err, moduleId: id },
+          { event: "module-directory-remove-failed", err, moduleId: id },
           "Failed to remove module filesystem directory",
         );
       }
@@ -1309,6 +1600,7 @@ export class ModuleService {
       if (!manifest) return false;
       return (
         manifest.name !== r.name ||
+        manifest.summary !== r.summary ||
         manifest.description !== r.description ||
         manifest.version !== r.version
       );
@@ -1321,7 +1613,9 @@ export class ModuleService {
           if (!manifest) throw new Error(`Manifest '${id}' is not registered.`);
           return {
             id,
+            createdAt: new Date().toISOString(),
             name: manifest.name,
+            summary: normalizeSummary(manifest.summary),
             description: manifest.description,
             type: manifest.type,
             version: manifest.version,
@@ -1355,6 +1649,7 @@ export class ModuleService {
             .update(modulesTable)
             .set({
               name: manifest.name,
+              summary: normalizeSummary(manifest.summary),
               description: manifest.description,
               version: manifest.version,
             })
@@ -1381,7 +1676,10 @@ export class ModuleService {
     try {
       await instance.teardown();
     } catch (err) {
-      logger.warn({ err, adapterId: id }, "Adapter teardown failed");
+      this.moduleLogger(id).warn(
+        { event: "adapter-teardown-failed", err, adapterId: id },
+        "Adapter teardown failed",
+      );
     }
   }
 
@@ -1472,6 +1770,7 @@ export class ModuleService {
               .update(servicesTable)
               .set({
                 ...def,
+                summary: normalizeSummary(def.summary),
                 stale: false,
               })
               .where(eq(servicesTable.id, service.id));
@@ -1484,6 +1783,7 @@ export class ModuleService {
               await tx.insert(toolsTable).values(
                 def.tools.map((tool) => ({
                   ...tool,
+                  summary: normalizeSummary(tool.summary),
                   serviceId: service.id,
                   enabled: enabledMap.get(tool.id) ?? false,
                 })),
@@ -1498,8 +1798,12 @@ export class ModuleService {
             .set({ stale: true })
             .where(eq(servicesTable.id, service.id))
             .catch(() => {});
-          logger.warn(
-            { err, serviceId: service.id },
+          this.moduleLogger(id).warn(
+            {
+              event: "service-regeneration-failed",
+              err,
+              serviceId: service.id,
+            },
             "Failed to regenerate service after module update",
           );
           failed++;
@@ -1509,8 +1813,13 @@ export class ModuleService {
       await adapter.teardown().catch(() => {});
     }
 
-    logger.info(
-      { moduleId: id, updated, failed },
+    this.moduleLogger(id).info(
+      {
+        event: "service-regeneration-complete",
+        moduleId: id,
+        updated,
+        failed,
+      },
       "Adapter service regeneration complete",
     );
     return { updated, failed };
@@ -1535,8 +1844,12 @@ export class ModuleService {
         try {
           await next.teardown();
         } catch (teardownErr) {
-          logger.warn(
-            { err: teardownErr, adapterId: id },
+          this.moduleLogger(id).warn(
+            {
+              event: "adapter-teardown-failed",
+              err: teardownErr,
+              adapterId: id,
+            },
             "Adapter teardown failed",
           );
         }
@@ -1545,7 +1858,10 @@ export class ModuleService {
       try {
         await previous.teardown();
       } catch (err) {
-        logger.warn({ err, adapterId: id }, "Adapter teardown failed");
+        this.moduleLogger(id).warn(
+          { event: "adapter-teardown-failed", err, adapterId: id },
+          "Adapter teardown failed",
+        );
       }
       return;
     }
@@ -1569,9 +1885,20 @@ export class ModuleService {
     if (previous) this.markDraining(previous);
   }
 
-  private async buildSetupContext(id: string): Promise<ModuleSetupContext> {
+  private async buildSetupContext(id: string): Promise<SetupValues> {
     const { config, secrets } = await this.assertConfigAndSecretsValid(id);
-    return { config, secrets };
+    const manifest = this.requireRegistered(id);
+    const moduleLogger = createModuleLogger(logger, {
+      category: "module",
+      moduleId: id,
+      moduleType: manifest.type,
+      moduleName: manifest.name,
+      moduleVersion: manifest.version,
+      ...(manifest.type === "adapter"
+        ? { adapterId: id }
+        : { environmentId: id }),
+    });
+    return { config, secrets, logger: moduleLogger };
   }
 
   private async loadSecrets(id: string): Promise<Record<string, unknown>> {
@@ -1614,7 +1941,12 @@ export class ModuleService {
       ? config
       : applyJsonSchemaDefaults(
           manifest.configSchema,
-          config,
+          // Conformant projection: validates identically to the
+          // declared-only projection (permitted keys are unconstrained)
+          // while delivering schema-permitted keys to the module.
+          filterPayloadToSchema(manifest.configSchema, config, {
+            keepPermitted: true,
+          }),
           `Invalid configuration for module '${id}'.`,
         );
 
@@ -1622,7 +1954,9 @@ export class ModuleService {
       ? secrets
       : applyJsonSchemaDefaults(
           manifest.secretsSchema,
-          secrets,
+          filterPayloadToSchema(manifest.secretsSchema, secrets, {
+            keepPermitted: true,
+          }),
           `Invalid secrets for module '${id}'.`,
         );
 
@@ -1638,6 +1972,25 @@ export class ModuleService {
       throw new HttpError(404, `Module '${id}' is not registered.`);
     }
     return manifest;
+  }
+
+  private moduleLogger(id: string) {
+    const manifest = this.manifests.get(id);
+    const context = {
+      category: "module",
+      moduleId: id,
+      ...(manifest
+        ? {
+            moduleType: manifest.type,
+            moduleName: manifest.name,
+            moduleVersion: manifest.version,
+            ...(manifest.type === "adapter"
+              ? { adapterId: id }
+              : { environmentId: id }),
+          }
+        : {}),
+    } as ModuleLoggerContext;
+    return createModuleLogger(logger, context);
   }
 
   private deactivateEnvironment(id: string): void {
@@ -1670,8 +2023,12 @@ export class ModuleService {
     try {
       await instance.module.teardown();
     } catch (err) {
-      logger.warn(
-        { err, environmentId: instance.id },
+      this.moduleLogger(instance.id).warn(
+        {
+          event: "environment-teardown-failed",
+          err,
+          environmentId: instance.id,
+        },
         "Environment teardown failed",
       );
     }
@@ -1815,9 +2172,11 @@ export class ModuleService {
     const builtins: {
       id: string;
       name: string;
+      summary: string;
       description: string;
       type: ModuleType;
       version: string;
+      compatibility?: { identifier: string; version: string }[];
       configSchema: JSONSchema;
       secretsSchema: JSONSchema;
       instantiate: () => Module;
@@ -1825,14 +2184,17 @@ export class ModuleService {
       {
         id: "openapi",
         name: "OpenAPI Adapter",
+        summary: "Import HTTP APIs from OpenAPI documents",
         description: "Adapter for interacting with OpenAPI services",
         type: "adapter",
         version: "1.0.0",
+        compatibility: [{ identifier: "openapi", version: ">=3.0 <4.0" }],
         ...oapi,
       },
       {
         id: "typescript-ivm",
         name: "Typescript Isolated VM",
+        summary: "Run self-contained TypeScript code",
         description: "TypeScript environment powered by isolated-vm",
         type: "environment",
         version: "1.0.0",
@@ -1843,9 +2205,11 @@ export class ModuleService {
     for (const {
       id,
       name,
+      summary,
       description,
       type,
       version,
+      compatibility,
       configSchema,
       secretsSchema,
       instantiate,
@@ -1859,10 +2223,12 @@ export class ModuleService {
       this.manifests.set(id, {
         id,
         name,
+        summary,
         description,
         type,
         version,
         isBuiltin: true,
+        compatibility,
         configSchema,
         secretsSchema,
       });
@@ -1909,8 +2275,17 @@ export class ModuleService {
         );
       }
 
-      const { id, name, description, type, version, main, engines } =
-        parsed.data;
+      const {
+        id,
+        name,
+        summary,
+        description,
+        type,
+        version,
+        main,
+        engines,
+        compatibility,
+      } = parsed.data;
       this.assertEngineCompatibility(engines, `Module '${id}'`);
 
       if (this.factories.has(id)) {
@@ -1947,10 +2322,12 @@ export class ModuleService {
       this.manifests.set(id, {
         id,
         name,
+        summary: normalizeSummary(summary),
         description,
         type,
         version,
         isBuiltin: false,
+        compatibility,
         configSchema,
         secretsSchema,
       });
@@ -1986,20 +2363,42 @@ export class ModuleService {
     return this.manifests.get(id)?.isBuiltin ?? false;
   }
 
-  private toListRecord(row: ModuleRecord): ListModuleManifestResult {
+  private async persistModuleIcon(
+    id: string,
+    iconColumns: IconColumns | undefined,
+  ): Promise<void> {
+    if (!iconColumns) return;
+    await db
+      .update(modulesTable)
+      .set(iconColumns)
+      .where(eq(modulesTable.id, id))
+      .catch(() => {
+        throw new HttpError(500, `Failed to update icon for module '${id}'.`);
+      });
+  }
+
+  private toListRecord(
+    row: Omit<ModuleRecord, "iconData" | "iconMime">,
+  ): ListModuleManifestResult {
     return {
       id: row.id,
+      createdAt: row.createdAt,
       name: row.name,
       type: row.type,
+      summary: row.summary,
       description: row.description,
       version: row.version,
       isBuiltin: this.isBuiltin(row.id),
       enabled: row.enabled,
       missing: row.missing,
+      hasIcon: row.iconHash !== null,
+      compatibility: this.manifests.get(row.id)?.compatibility,
     };
   }
 
-  private toManifestRecord(row: ModuleRecord): GetModuleManifestResult {
+  private toManifestRecord(
+    row: Omit<ModuleRecord, "iconData" | "iconMime">,
+  ): GetModuleManifestResult {
     const manifest = this.manifests.get(row.id);
     return {
       ...this.toListRecord(row),
@@ -2010,11 +2409,4 @@ export class ModuleService {
       secretsSchema: manifest?.secretsSchema ?? EMPTY_OBJECT_SCHEMA,
     };
   }
-}
-
-function isNullOnlySchema(schema: Record<string, unknown>): boolean {
-  const t = schema.type;
-  return (
-    t === "null" || (Array.isArray(t) && t.length === 1 && t[0] === "null")
-  );
 }

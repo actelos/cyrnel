@@ -7,6 +7,7 @@ import {
   getModule,
   getModuleConfiguration,
   getModuleConfigurationSchema,
+  getModuleIcon,
   getModuleSecrets,
   getModuleSecretsSchema,
   installModule,
@@ -26,6 +27,7 @@ const moduleService = {
   setEnabled: vi.fn(),
   reload: vi.fn(),
   getConfig: vi.fn(),
+  getConfigView: vi.fn(),
   getConfigSchema: vi.fn(),
   getSecretsPresence: vi.fn(),
   getSecretsSchema: vi.fn(),
@@ -36,6 +38,7 @@ const moduleService = {
   patchModule: vi.fn(),
   deleteModule: vi.fn(),
   updateModule: vi.fn(),
+  getIcon: vi.fn(),
 };
 
 interface MockResponse {
@@ -44,6 +47,7 @@ interface MockResponse {
   end: ReturnType<typeof vi.fn>;
   type: ReturnType<typeof vi.fn>;
   send: ReturnType<typeof vi.fn>;
+  set: ReturnType<typeof vi.fn>;
 }
 
 const makeRes = (): MockResponse => {
@@ -53,6 +57,7 @@ const makeRes = (): MockResponse => {
   res.end = vi.fn().mockReturnValue(res);
   res.type = vi.fn().mockReturnValue(res);
   res.send = vi.fn().mockReturnValue(res);
+  res.set = vi.fn().mockReturnValue(res);
   return res;
 };
 
@@ -89,9 +94,13 @@ describe("module.controller", () => {
   });
 
   describe("listModules", () => {
-    it("returns modules wrapped under { modules } with empty filters by default", async () => {
+    it("returns the paginated envelope with empty filters by default", async () => {
       const res = makeRes();
-      moduleService.list.mockResolvedValue([]);
+      moduleService.list.mockResolvedValue({
+        items: [],
+        nextCursor: null,
+        hasMore: false,
+      });
 
       await listModules(makeReq(), cast(res));
 
@@ -100,14 +109,25 @@ describe("module.controller", () => {
         type: undefined,
         isBuiltin: undefined,
         enabled: undefined,
+        missing: undefined,
+        limit: 20,
+        cursor: undefined,
       });
       expect(res.status).toHaveBeenCalledWith(200);
-      expect(res.json).toHaveBeenCalledWith({ modules: [] });
+      expect(res.json).toHaveBeenCalledWith({
+        items: [],
+        nextCursor: null,
+        hasMore: false,
+      });
     });
 
     it("forwards all filters at once", async () => {
       const res = makeRes();
-      moduleService.list.mockResolvedValue([{ id: "m1" }]);
+      moduleService.list.mockResolvedValue({
+        items: [{ id: "m1" }],
+        nextCursor: "cursor-1",
+        hasMore: true,
+      });
 
       await listModules(
         makeReq({
@@ -116,6 +136,7 @@ describe("module.controller", () => {
             type: "adapter",
             isBuiltin: "true",
             enabled: "false",
+            limit: "5",
           },
         }),
         cast(res),
@@ -126,12 +147,42 @@ describe("module.controller", () => {
         type: "adapter",
         isBuiltin: true,
         enabled: false,
+        missing: undefined,
+        limit: 5,
+        cursor: undefined,
       });
+      expect(res.json).toHaveBeenCalledWith({
+        items: [{ id: "m1" }],
+        nextCursor: "cursor-1",
+        hasMore: true,
+      });
+    });
+
+    it("forwards a cursor and clamps an oversized limit", async () => {
+      const res = makeRes();
+      moduleService.list.mockResolvedValue({
+        items: [],
+        nextCursor: null,
+        hasMore: false,
+      });
+
+      await listModules(
+        makeReq({ query: { cursor: "token", limit: "1000" } }),
+        cast(res),
+      );
+
+      expect(moduleService.list).toHaveBeenCalledWith(
+        expect.objectContaining({ cursor: "token", limit: 100 }),
+      );
     });
 
     it("trims query and drops it when empty", async () => {
       const res = makeRes();
-      moduleService.list.mockResolvedValue([]);
+      moduleService.list.mockResolvedValue({
+        items: [],
+        nextCursor: null,
+        hasMore: false,
+      });
 
       await listModules(makeReq({ query: { query: "   " } }), cast(res));
 
@@ -140,6 +191,9 @@ describe("module.controller", () => {
         type: undefined,
         isBuiltin: undefined,
         enabled: undefined,
+        missing: undefined,
+        limit: 20,
+        cursor: undefined,
       });
     });
 
@@ -148,7 +202,11 @@ describe("module.controller", () => {
       ["environment", "environment"],
     ])("accepts type=%s", async (raw, expected) => {
       const res = makeRes();
-      moduleService.list.mockResolvedValue([]);
+      moduleService.list.mockResolvedValue({
+        items: [],
+        nextCursor: null,
+        hasMore: false,
+      });
 
       await listModules(makeReq({ query: { type: raw } }), cast(res));
 
@@ -171,7 +229,11 @@ describe("module.controller", () => {
       ["FALSE", false],
     ])("coerces isBuiltin=%s -> %s", async (raw, expected) => {
       const res = makeRes();
-      moduleService.list.mockResolvedValue([]);
+      moduleService.list.mockResolvedValue({
+        items: [],
+        nextCursor: null,
+        hasMore: false,
+      });
 
       await listModules(makeReq({ query: { isBuiltin: raw } }), cast(res));
 
@@ -192,7 +254,11 @@ describe("module.controller", () => {
       ["false", false],
     ])("coerces enabled=%s -> %s", async (raw, expected) => {
       const res = makeRes();
-      moduleService.list.mockResolvedValue([]);
+      moduleService.list.mockResolvedValue({
+        items: [],
+        nextCursor: null,
+        hasMore: false,
+      });
 
       await listModules(makeReq({ query: { enabled: raw } }), cast(res));
 
@@ -258,6 +324,49 @@ describe("module.controller", () => {
       const res = makeRes();
       await expect(
         getModule(makeReq({ params: { moduleId } }), cast(res)),
+      ).rejects.toBeInstanceOf(HttpError);
+    });
+  });
+
+  describe("getModuleIcon", () => {
+    it("returns the icon bytes with cache headers and an ETag", async () => {
+      const res = makeRes();
+      const data = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+      moduleService.getIcon.mockResolvedValue({
+        data,
+        mime: "image/png",
+        hash: "abc123",
+      });
+
+      await getModuleIcon(makeReq({ params: { moduleId: "m1" } }), cast(res));
+
+      expect(moduleService.getIcon).toHaveBeenCalledWith("m1");
+      expect(res.set).toHaveBeenCalledWith("Content-Type", "image/png");
+      expect(res.set).toHaveBeenCalledWith(
+        "Cache-Control",
+        "public, max-age=86400",
+      );
+      expect(res.set).toHaveBeenCalledWith("ETag", '"abc123"');
+      expect(res.send).toHaveBeenCalledWith(data);
+    });
+
+    it("returns 404 without cache when the module has no icon", async () => {
+      const res = makeRes();
+      moduleService.getIcon.mockResolvedValue(null);
+
+      await getModuleIcon(makeReq({ params: { moduleId: "m1" } }), cast(res));
+
+      expect(res.status).toHaveBeenCalledWith(404);
+      expect(res.set).toHaveBeenCalledWith("Cache-Control", "no-cache");
+      expect(res.json).toHaveBeenCalledWith({
+        error: "Module 'm1' has no icon.",
+      });
+    });
+
+    it("rejects an empty moduleId", async () => {
+      const res = makeRes();
+      await expect(
+        getModuleIcon(makeReq({ params: { moduleId: "" } }), cast(res)),
       ).rejects.toBeInstanceOf(HttpError);
     });
   });
@@ -365,17 +474,23 @@ describe("module.controller", () => {
   });
 
   describe("getModuleConfiguration", () => {
-    it("wraps the config under { config }", async () => {
+    it("returns the config view with outdated paths", async () => {
       const res = makeRes();
-      moduleService.getConfig.mockResolvedValue({ foo: "bar" });
+      moduleService.getConfigView.mockResolvedValue({
+        config: { foo: "bar" },
+        outdated: [],
+      });
 
       await getModuleConfiguration(
         makeReq({ params: { moduleId: "m1" } }),
         cast(res),
       );
 
-      expect(moduleService.getConfig).toHaveBeenCalledWith("m1");
-      expect(res.json).toHaveBeenCalledWith({ config: { foo: "bar" } });
+      expect(moduleService.getConfigView).toHaveBeenCalledWith("m1");
+      expect(res.json).toHaveBeenCalledWith({
+        config: { foo: "bar" },
+        outdated: [],
+      });
     });
 
     it("rejects an empty moduleId", async () => {
@@ -454,11 +569,13 @@ describe("module.controller", () => {
   });
 
   describe("patchModuleConfiguration", () => {
-    it("applies a JSON Patch and returns the resulting config", async () => {
+    it("applies a JSON Patch and returns the resulting config view", async () => {
       const res = makeRes();
       const patch = [{ op: "replace", path: "/foo", value: "bar" }] as const;
-      moduleService.patchConfig.mockResolvedValue(undefined);
-      moduleService.getConfig.mockResolvedValue({ foo: "bar" });
+      moduleService.patchConfig.mockResolvedValue({
+        config: { foo: "bar" },
+        outdated: [],
+      });
 
       await patchModuleConfiguration(
         makeReq({ params: { moduleId: "m1" }, body: patch }),
@@ -469,15 +586,19 @@ describe("module.controller", () => {
         id: "m1",
         patch,
       });
-      expect(moduleService.getConfig).toHaveBeenCalledWith("m1");
-      expect(res.json).toHaveBeenCalledWith({ config: { foo: "bar" } });
+      expect(res.json).toHaveBeenCalledWith({
+        config: { foo: "bar" },
+        outdated: [],
+      });
     });
 
     it("accepts a root JSON Pointer path", async () => {
       const res = makeRes();
       const patch = [{ op: "replace", path: "", value: { foo: "bar" } }];
-      moduleService.patchConfig.mockResolvedValue(undefined);
-      moduleService.getConfig.mockResolvedValue({ foo: "bar" });
+      moduleService.patchConfig.mockResolvedValue({
+        config: { foo: "bar" },
+        outdated: [],
+      });
 
       await patchModuleConfiguration(
         makeReq({ params: { moduleId: "m1" }, body: patch }),

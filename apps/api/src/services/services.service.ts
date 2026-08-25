@@ -4,7 +4,17 @@ import type {
   ServiceState,
   ToolDocsInput,
 } from "@cyrnel/sdk";
-import { and, asc, eq, getTableColumns, like, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  getTableColumns,
+  isNotNull,
+  or,
+  type SQL,
+  sql,
+} from "drizzle-orm";
 import jsonpatch from "fast-json-patch";
 
 import { z } from "zod";
@@ -17,9 +27,14 @@ import {
   services,
   tools,
 } from "@/db/schema";
-import { logger } from "@/logger";
+import { logger } from "@/infra/logging";
+import type { HybridToolHit, SearchIndex } from "@/infra/search/search-engine";
+import type { AutoUpdateTarget } from "@/infra/updater/auto-updater";
 import { HttpError } from "@/models/error.model";
-import type { GenerateDefinitionInput } from "@/models/modules.model";
+import type {
+  GenerateDefinitionInput,
+  RankedAdapter,
+} from "@/models/modules.model";
 import type {
   DirectInstallServiceInput,
   GetServiceDefinitionResult,
@@ -31,11 +46,33 @@ import type {
   ListToolsResult,
   PatchInput,
   RegistryInstallServiceInput,
+  SecretsPresence,
+  ServiceConfigView,
   SetServiceEnabledInput,
   SetToolEnablesInput,
 } from "@/models/services.model";
+import { isUniqueConstraintError } from "@/utils/db-errors.util";
 import { downloadText } from "@/utils/download.util";
 import { computeContentHash } from "@/utils/hash.util";
+import type { IconColumns } from "@/utils/icon.util";
+import { fetchAndValidateIcon, resolveIconUpdate } from "@/utils/icon.util";
+import {
+  decodeCursor,
+  escapeLike,
+  invalidCursorError,
+  keysetConditions,
+  PAGINATION_DEFAULT_LIMIT,
+  type PaginatedResult,
+  paginatePage,
+} from "@/utils/pagination.util";
+import {
+  collectOutdatedPaths,
+  filterPayloadToSchema,
+  isNullOnlySchema,
+  mergeStaleKeys,
+  newOutdatedPaths,
+  pathExists,
+} from "@/utils/schema.util";
 import {
   collectPresentPaths,
   decryptAndMaybeReEncrypt,
@@ -43,7 +80,7 @@ import {
 } from "@/utils/secrets.util";
 import {
   applyJsonSchemaDefaults,
-  validateJsonSchema,
+  normalizeSummary,
 } from "@/utils/validation.util";
 
 const DEFINITION_DOWNLOAD_MAX_BYTES = 30 * 1024 * 1024;
@@ -56,6 +93,8 @@ export interface AdapterController {
   hydrateService(adapterId: string, state: ServiceState): Promise<void>;
   dehydrateService(adapterId: string, serviceId: string): Promise<void>;
   generateToolDocs(input: ToolDocsInput): Promise<string>;
+  rankAdapters(kind?: string): Promise<RankedAdapter[]>;
+  resolveDefaultAdapter(kind?: string): Promise<string | undefined>;
 }
 
 const encryptedSecretsSchema = z.object({
@@ -67,12 +106,32 @@ const encryptedSecretsSchema = z.object({
 });
 
 export class ServicesService {
-  constructor(private readonly controller: AdapterController) {}
+  constructor(
+    private readonly controller: AdapterController,
+    private readonly search?: SearchIndex,
+  ) {}
+
+  async initSearch(): Promise<void> {
+    await this.search?.init();
+  }
+
+  startSearchReconciliation(intervalMs: number): void {
+    this.search?.startReconciliation(intervalMs);
+  }
+
+  async reconcileSearchGuarded(): Promise<void> {
+    await this.search?.reconcileGuarded();
+  }
+
+  closeSearch(): void {
+    this.search?.close();
+  }
 
   async listServices(
     input?: ListServicesInput,
-  ): Promise<ListServiceDefinitionResult[]> {
+  ): Promise<PaginatedResult<ListServiceDefinitionResult>> {
     const normalizedQuery = input?.query?.trim();
+    const limit = input?.limit ?? PAGINATION_DEFAULT_LIMIT;
 
     try {
       const {
@@ -82,52 +141,87 @@ export class ServicesService {
         hash,
         source,
         definitionContent,
+        iconData,
+        iconMime,
         ...serviceColumns
       } = getTableColumns(services);
 
-      const query = db
+      const conditions: Array<SQL | undefined> = [];
+      if (input?.enabled !== undefined) {
+        conditions.push(eq(services.enabled, input.enabled));
+      }
+      if (input?.adapter !== undefined) {
+        conditions.push(eq(services.adapter, input.adapter));
+      }
+      if (input?.stale !== undefined) {
+        conditions.push(eq(services.stale, input.stale));
+      }
+      if (normalizedQuery) {
+        const pattern = `%${escapeLike(normalizedQuery)}%`;
+        conditions.push(
+          or(
+            sql`${services.id} LIKE ${pattern} ESCAPE ${"\\"}`,
+            sql`${services.name} LIKE ${pattern} ESCAPE ${"\\"}`,
+            sql`${services.summary} LIKE ${pattern} ESCAPE ${"\\"}`,
+            sql`${services.description} LIKE ${pattern} ESCAPE ${"\\"}`,
+          ),
+        );
+      }
+      if (input?.cursor !== undefined) {
+        const cursor = decodeCursor(input.cursor, 2);
+        const [createdAt, id] = cursor.sortKey;
+        if (typeof createdAt !== "string" || typeof id !== "string") {
+          throw invalidCursorError();
+        }
+        conditions.push(
+          keysetConditions(
+            [
+              [services.createdAt, createdAt],
+              [services.id, id],
+            ],
+            "before",
+          ),
+        );
+      }
+
+      const rows = await db
         .select({
           ...serviceColumns,
+          iconHash: services.iconHash,
           effectivelyEnabled: sql<boolean>`${services.enabled} AND ${modulesTable.enabled} AND NOT ${modulesTable.missing}`,
         })
         .from(services)
         .leftJoin(modulesTable, eq(services.adapter, modulesTable.id))
-        .where(
-          and(
-            input?.enabled !== undefined
-              ? eq(services.enabled, input.enabled)
-              : undefined,
-            input?.adapter !== undefined
-              ? eq(services.adapter, input.adapter)
-              : undefined,
-            input?.stale !== undefined
-              ? eq(services.stale, input.stale)
-              : undefined,
-            normalizedQuery
-              ? or(
-                  like(services.id, `%${normalizedQuery}%`),
-                  like(services.name, `%${normalizedQuery}%`),
-                  like(services.description, `%${normalizedQuery}%`),
-                )
-              : undefined,
-          ),
-        )
-        .orderBy(asc(services.id));
+        .where(and(...conditions))
+        .orderBy(desc(services.createdAt), desc(services.id))
+        .limit(limit + 1);
 
-      return await (input?.limit !== undefined
-        ? query.limit(Number(input.limit))
-        : query);
-    } catch {
+      return paginatePage(
+        rows.map(({ iconHash, ...row }) => ({
+          ...row,
+          hasIcon: iconHash !== null,
+        })),
+        limit,
+        (item) => [item.createdAt, item.id],
+      );
+    } catch (error) {
+      if (error instanceof HttpError) throw error;
       throw new HttpError(500, "Failed to list services.");
     }
   }
 
   async getService(id: string): Promise<GetServiceDefinitionResult> {
-    const { adapterDomain, definitionContent, ...serviceColumns } =
-      getTableColumns(services);
+    const {
+      adapterDomain,
+      definitionContent,
+      iconData,
+      iconMime,
+      ...serviceColumns
+    } = getTableColumns(services);
     const [row] = await db
       .select({
         ...serviceColumns,
+        iconHash: services.iconHash,
         effectivelyEnabled: sql<boolean>`${services.enabled} AND ${modulesTable.enabled} AND NOT ${modulesTable.missing}`,
       })
       .from(services)
@@ -139,10 +233,34 @@ export class ServicesService {
       });
 
     if (!row) throw new HttpError(404, `Service '${id}' not found.`);
-    return row;
+    const { iconHash, ...rest } = row;
+    return { ...rest, hasIcon: iconHash !== null };
   }
 
-  async listTools(input: ListToolsInput): Promise<ListToolsResult[]> {
+  async getServiceIcon(
+    id: string,
+  ): Promise<{ data: Buffer; mime: string; hash: string } | null> {
+    const [row] = await db
+      .select({
+        iconData: services.iconData,
+        iconMime: services.iconMime,
+        iconHash: services.iconHash,
+      })
+      .from(services)
+      .where(eq(services.id, id))
+      .limit(1)
+      .catch(() => {
+        throw new HttpError(500, `Failed to load service '${id}'.`);
+      });
+
+    if (!row) throw new HttpError(404, `Service '${id}' not found.`);
+    if (!row.iconData || !row.iconMime || !row.iconHash) return null;
+    return { data: row.iconData, mime: row.iconMime, hash: row.iconHash };
+  }
+
+  async listTools(
+    input: ListToolsInput,
+  ): Promise<PaginatedResult<ListToolsResult>> {
     let serviceEnabled: boolean | undefined;
 
     if (input.serviceId) {
@@ -163,13 +281,96 @@ export class ServicesService {
       serviceEnabled = service.enabled;
     }
 
+    const limit = input.limit ?? PAGINATION_DEFAULT_LIMIT;
     const normalizedQuery = input.query?.trim();
+    const isSearchRequest =
+      Boolean(normalizedQuery) && this.search !== undefined;
+    const cursor =
+      input.cursor !== undefined
+        ? decodeCursor(input.cursor, isSearchRequest ? 3 : 2)
+        : null;
+    const cursorKey = cursor !== null ? cursor.sortKey : null;
 
-    const query = db
+    const toResult = (hit: HybridToolHit): ListToolsResult => ({
+      serviceId: hit.serviceId,
+      id: hit.toolId,
+      name: hit.name,
+      summary: hit.summary,
+      description: hit.description,
+      enabled: hit.enabled,
+      ...(hit.score !== undefined ? { score: hit.score } : {}),
+      ...(hit.matchType !== undefined ? { matchType: hit.matchType } : {}),
+      ...(hit.ftsRank !== undefined ? { ftsRank: hit.ftsRank } : {}),
+      ...(hit.vectorRank !== undefined ? { vectorRank: hit.vectorRank } : {}),
+      effectivelyEnabled: (serviceEnabled ?? true) && hit.enabled,
+    });
+
+    if (normalizedQuery && this.search) {
+      let afterKey: [number, string, string] | undefined;
+      if (cursorKey !== null) {
+        const [score, serviceId, toolId] = cursorKey;
+        if (
+          typeof score !== "number" ||
+          typeof serviceId !== "string" ||
+          typeof toolId !== "string"
+        ) {
+          throw invalidCursorError();
+        }
+        afterKey = [score, serviceId, toolId];
+      }
+      try {
+        const hits = await this.search.searchTools(normalizedQuery, {
+          serviceId: input.serviceId,
+          enabled: input.enabled,
+          limit: limit + 1,
+          afterKey,
+        });
+        return paginatePage(hits.map(toResult), limit, (item) => [
+          item.score ?? 0,
+          item.serviceId,
+          item.id,
+        ]);
+      } catch (err) {
+        if (cursorKey !== null) {
+          throw new HttpError(
+            503,
+            "Search index is unavailable; restart pagination from the first page.",
+            "search_unavailable",
+          );
+        }
+        logger.warn(
+          {
+            event: "search-index-fallback",
+            err,
+            serviceId: input.serviceId,
+            query: normalizedQuery,
+          },
+          "Search index lookup failed; falling back to LIKE query",
+        );
+      }
+    }
+
+    let cursorPredicate: SQL | undefined;
+    if (cursorKey !== null) {
+      const [serviceIdKey, toolIdKey] = cursorKey;
+      if (typeof serviceIdKey !== "string" || typeof toolIdKey !== "string") {
+        throw invalidCursorError();
+      }
+      cursorPredicate = keysetConditions(
+        [
+          [tools.serviceId, serviceIdKey],
+          [tools.id, toolIdKey],
+        ],
+        "after",
+      );
+    }
+
+    const rows = await db
       .select({
         serviceId: tools.serviceId,
         id: tools.id,
         name: tools.name,
+        summary: tools.summary,
         description: tools.description,
         enabled: tools.enabled,
       })
@@ -182,25 +383,28 @@ export class ServicesService {
             : undefined,
           normalizedQuery
             ? or(
-                like(tools.name, `%${normalizedQuery}%`),
-                like(tools.description, `%${normalizedQuery}%`),
+                sql`${tools.name} LIKE ${`%${escapeLike(normalizedQuery)}%`} ESCAPE ${"\\"}`,
+                sql`${tools.summary} LIKE ${`%${escapeLike(normalizedQuery)}%`} ESCAPE ${"\\"}`,
+                sql`${tools.description} LIKE ${`%${escapeLike(normalizedQuery)}%`} ESCAPE ${"\\"}`,
               )
             : undefined,
+          cursorPredicate,
         ),
       )
-      .orderBy(asc(tools.name));
+      .orderBy(asc(tools.serviceId), asc(tools.id))
+      .limit(limit + 1)
+      .catch(() => {
+        throw new HttpError(500, `Failed to load tools.`);
+      });
 
-    const rows = await (input.limit !== undefined
-      ? query.limit(input.limit)
-      : query
-    ).catch(() => {
-      throw new HttpError(500, `Failed to load tools.`);
-    });
-
-    return rows.map((row) => ({
-      ...row,
-      effectivelyEnabled: (serviceEnabled ?? true) && row.enabled,
-    }));
+    return paginatePage(
+      rows.map((row) => ({
+        ...row,
+        effectivelyEnabled: (serviceEnabled ?? true) && row.enabled,
+      })),
+      limit,
+      (item) => [item.serviceId, item.id],
+    );
   }
 
   async getTool(input: GetToolInput): Promise<GetToolsResult> {
@@ -238,6 +442,7 @@ export class ServicesService {
   async getToolDocs(input: GetToolInput): Promise<string> {
     const [tool] = await db
       .select({
+        summary: tools.summary,
         description: tools.description,
         inputSchema: tools.inputSchema,
         outputSchema: tools.outputSchema,
@@ -263,6 +468,7 @@ export class ServicesService {
     const docsInput: ToolDocsInput = {
       serviceId: input.serviceId,
       toolId: input.toolId,
+      summary: tool.summary,
       description: tool.description,
       inputSchema: tool.inputSchema,
       outputSchema: tool.outputSchema,
@@ -299,7 +505,9 @@ export class ServicesService {
       await db.transaction(async (tx) => {
         await tx.insert(services).values({
           ...generatedDefinition,
+          summary: normalizeSummary(generatedDefinition.summary),
           id: input.id,
+          createdAt: new Date().toISOString(),
           hash,
           version: "0.0.0",
           source: "",
@@ -310,6 +518,7 @@ export class ServicesService {
         await tx.insert(tools).values(
           generatedDefinition.tools.map((tool) => ({
             ...tool,
+            summary: normalizeSummary(tool.summary),
             serviceId: input.id,
             enabled: true,
           })),
@@ -321,6 +530,20 @@ export class ServicesService {
       }
       throw new HttpError(500, `Failed to create service '${input.id}'.`);
     }
+
+    await this.reindexServiceSearch(input.id);
+  }
+
+  async listInstallAdapters(
+    kind?: string,
+  ): Promise<{ default: string | null; adapters: RankedAdapter[] }> {
+    const adapters = await this.controller.rankAdapters(kind);
+    return {
+      default:
+        adapters.find((adapter) => adapter.compatible && adapter.active)?.id ??
+        null,
+      adapters,
+    };
   }
 
   async createServiceFromRegistry(
@@ -330,7 +553,9 @@ export class ServicesService {
     const registry = await resolveServiceRegistry(input.source, input.version);
 
     const effectiveId = input.id ?? registry.id;
-    const effectiveAdapter = input.adapter ?? registry.adapter;
+    const effectiveAdapter =
+      input.adapter ??
+      (await this.controller.resolveDefaultAdapter(registry.kind));
 
     if (!effectiveId) {
       throw new HttpError(
@@ -342,7 +567,9 @@ export class ServicesService {
     if (!effectiveAdapter) {
       throw new HttpError(
         400,
-        "Adapter must be provided either in the request body or by the registry.",
+        `No adapter is available for definition kind '${
+          registry.kind ?? "(unknown)"
+        }'. Install a compatible adapter module or provide an adapter explicitly.`,
       );
     }
 
@@ -353,9 +580,12 @@ export class ServicesService {
       );
     }
 
-    const definitionContent = await this.downloadDefinition(
-      registry.downloadUrl,
-    );
+    const [definitionContent, icon] = await Promise.all([
+      this.downloadDefinition(registry.downloadUrl),
+      registry.icon
+        ? fetchAndValidateIcon(registry.icon, "service", effectiveId)
+        : Promise.resolve(null),
+    ]);
     const contentHash = computeContentHash(definitionContent);
 
     if (registry.hash && contentHash !== registry.hash) {
@@ -383,17 +613,23 @@ export class ServicesService {
       await db.transaction(async (tx) => {
         await tx.insert(services).values({
           ...generatedDefinition,
+          summary: normalizeSummary(generatedDefinition.summary),
           id: effectiveId,
+          createdAt: new Date().toISOString(),
           hash: contentHash,
           version: registry.version,
           source: input.source,
           adapter: effectiveAdapter,
           enabled: false,
           definitionContent,
+          iconData: icon?.data ?? null,
+          iconMime: icon?.mime ?? null,
+          iconHash: icon?.hash ?? null,
         });
         await tx.insert(tools).values(
           generatedDefinition.tools.map((tool) => ({
             ...tool,
+            summary: normalizeSummary(tool.summary),
             serviceId: effectiveId,
             enabled: true,
           })),
@@ -405,6 +641,8 @@ export class ServicesService {
       }
       throw new HttpError(500, `Failed to create service '${effectiveId}'.`);
     }
+
+    await this.reindexServiceSearch(effectiveId);
 
     return effectiveId;
   }
@@ -456,6 +694,7 @@ export class ServicesService {
           .update(services)
           .set({
             ...generatedDefinition,
+            summary: normalizeSummary(generatedDefinition.summary),
             enabled: false,
             stale: false,
           })
@@ -467,6 +706,7 @@ export class ServicesService {
           await tx.insert(tools).values(
             generatedDefinition.tools.map((tool) => ({
               ...tool,
+              summary: normalizeSummary(tool.summary),
               serviceId: id,
               enabled: enabledMap.get(tool.id) ?? false,
             })),
@@ -477,23 +717,56 @@ export class ServicesService {
       throw new HttpError(500, `Failed to sync service '${id}'.`);
     }
 
+    await this.reindexServiceSearch(id);
+
     try {
       await this.controller.dehydrateService(service.adapter, id);
     } catch (err) {
       logger.warn(
-        { err, adapterId: service.adapter, serviceId: id },
+        {
+          event: "dehydrate-failed-sync",
+          err,
+          adapterId: service.adapter,
+          serviceId: id,
+        },
         "Failed to dehydrate service on sync",
       );
     }
   }
 
-  async updateService(id: string): Promise<void> {
+  async listAutoUpdateServices(): Promise<AutoUpdateTarget[]> {
+    const rows = await db
+      .select({
+        id: services.id,
+        source: services.source,
+        version: services.version,
+        constraint: services.autoUpdateConstraint,
+      })
+      .from(services)
+      .where(and(eq(services.autoUpdate, true), isNotNull(services.source)))
+      .catch(() => {
+        throw new HttpError(500, "Failed to list auto-update services.");
+      });
+    return rows.map((row) => ({
+      id: row.id,
+      kind: "service" as const,
+      source: row.source as string,
+      version: row.version,
+      constraint: row.constraint,
+    }));
+  }
+
+  async updateService(
+    id: string,
+    constraint?: string | null,
+  ): Promise<boolean> {
     const [service] = await db
       .select({
         adapter: services.adapter,
         source: services.source,
         hash: services.hash,
         version: services.version,
+        iconHash: services.iconHash,
       })
       .from(services)
       .where(eq(services.id, id))
@@ -509,10 +782,18 @@ export class ServicesService {
         `Service '${id}' has no stored install source and cannot be updated automatically. Only registry-installed services can be updated.`,
       );
 
-    let registry: { version: string; downloadUrl: string; hash?: string };
+    let registry: {
+      version: string;
+      downloadUrl: string;
+      hash?: string;
+      icon?: { url: string; hash: string };
+    };
     try {
       const { resolveServiceRegistry } = await import("@/utils/registry.util");
-      registry = await resolveServiceRegistry(service.source);
+      registry = await resolveServiceRegistry(
+        service.source,
+        constraint ?? undefined,
+      );
     } catch (err) {
       if (err instanceof HttpError) {
         throw new HttpError(
@@ -526,19 +807,31 @@ export class ServicesService {
       );
     }
 
+    const iconColumns = await resolveIconUpdate(
+      registry.icon,
+      service.iconHash,
+      "service",
+      id,
+    );
+
     if (
       registry.hash &&
       registry.hash === service.hash &&
       registry.version === service.version
-    )
-      return;
+    ) {
+      await this.persistServiceIcon(id, iconColumns);
+      return false;
+    }
 
     const definitionContent = await this.downloadDefinition(
       registry.downloadUrl,
     );
     const hash = computeContentHash(definitionContent);
 
-    if (hash === service.hash && registry.version === service.version) return;
+    if (hash === service.hash && registry.version === service.version) {
+      await this.persistServiceIcon(id, iconColumns);
+      return false;
+    }
 
     const parsedDefinition = await this.controller.generateDefinition({
       definition: definitionContent,
@@ -567,11 +860,13 @@ export class ServicesService {
           .update(services)
           .set({
             ...parsedDefinition,
+            summary: normalizeSummary(parsedDefinition.summary),
             hash,
             version: registry.version,
             enabled: false,
             definitionContent,
             stale: false,
+            ...(iconColumns ?? {}),
           })
           .where(eq(services.id, id));
 
@@ -581,6 +876,7 @@ export class ServicesService {
           await tx.insert(tools).values(
             parsedDefinition.tools.map((tool) => ({
               ...tool,
+              summary: normalizeSummary(tool.summary),
               serviceId: id,
               enabled: enabledMap.get(tool.id) ?? false,
             })),
@@ -591,14 +887,37 @@ export class ServicesService {
       throw new HttpError(500, `Failed to update service '${id}'.`);
     }
 
+    await this.reindexServiceSearch(id);
+
     try {
       await this.controller.dehydrateService(service.adapter, id);
     } catch (err) {
       logger.warn(
-        { err, adapterId: service.adapter, serviceId: id },
+        {
+          event: "dehydrate-failed-update",
+          err,
+          adapterId: service.adapter,
+          serviceId: id,
+        },
         "Failed to dehydrate service on update",
       );
     }
+
+    return true;
+  }
+
+  private async persistServiceIcon(
+    id: string,
+    iconColumns: IconColumns | undefined,
+  ): Promise<void> {
+    if (!iconColumns) return;
+    await db
+      .update(services)
+      .set(iconColumns)
+      .where(eq(services.id, id))
+      .catch(() => {
+        throw new HttpError(500, `Failed to update icon for service '${id}'.`);
+      });
   }
 
   async patchService(id: string, url: string): Promise<{ updated: boolean }> {
@@ -650,12 +969,16 @@ export class ServicesService {
           .update(services)
           .set({
             ...generatedDefinition,
+            summary: normalizeSummary(generatedDefinition.summary),
             hash,
             version: "0.0.0",
             source: "",
             enabled: false,
             definitionContent,
             stale: false,
+            iconData: null,
+            iconMime: null,
+            iconHash: null,
           })
           .where(eq(services.id, id));
 
@@ -665,6 +988,7 @@ export class ServicesService {
           await tx.insert(tools).values(
             generatedDefinition.tools.map((tool) => ({
               ...tool,
+              summary: normalizeSummary(tool.summary),
               serviceId: id,
               enabled: enabledMap.get(tool.id) ?? false,
             })),
@@ -675,11 +999,18 @@ export class ServicesService {
       throw new HttpError(500, `Failed to patch service '${id}'.`);
     }
 
+    await this.reindexServiceSearch(id);
+
     try {
       await this.controller.dehydrateService(service.adapter, id);
     } catch (err) {
       logger.warn(
-        { err, adapterId: service.adapter, serviceId: id },
+        {
+          event: "dehydrate-failed-patch",
+          err,
+          adapterId: service.adapter,
+          serviceId: id,
+        },
         "Failed to dehydrate service on patch",
       );
     }
@@ -698,11 +1029,18 @@ export class ServicesService {
 
     if (!deleted) throw new HttpError(404, `Service '${id}' not found.`);
 
+    await this.deleteServiceSearch(id);
+
     try {
       await this.controller.dehydrateService(deleted.adapter, id);
     } catch (err) {
       logger.warn(
-        { err, adapterId: deleted.adapter, serviceId: id },
+        {
+          event: "dehydrate-failed-delete",
+          err,
+          adapterId: deleted.adapter,
+          serviceId: id,
+        },
         "Failed to dehydrate service on delete",
       );
     }
@@ -760,7 +1098,7 @@ export class ServicesService {
       if (!isNullOnlySchema(schema)) {
         applyJsonSchemaDefaults(
           schema,
-          config,
+          filterPayloadToSchema(schema, config),
           `Invalid configuration for service '${input.id}'.`,
         );
       }
@@ -772,7 +1110,7 @@ export class ServicesService {
       if (!isNullOnlySchema(secretsSchema)) {
         applyJsonSchemaDefaults(
           secretsSchema,
-          secrets,
+          filterPayloadToSchema(secretsSchema, secrets),
           `Invalid secrets for service '${input.id}'.`,
         );
       }
@@ -804,7 +1142,11 @@ export class ServicesService {
           .where(eq(services.id, input.id))
           .catch((rollbackErr) => {
             logger.error(
-              { err: rollbackErr, serviceId: input.id },
+              {
+                event: "rollback-enabled-flag-failed",
+                err: rollbackErr,
+                serviceId: input.id,
+              },
               "Failed to roll back enabled flag after hydrate failure",
             );
           });
@@ -820,7 +1162,12 @@ export class ServicesService {
         await this.controller.dehydrateService(updated.adapter, input.id);
       } catch (err) {
         logger.warn(
-          { err, adapterId: updated.adapter, serviceId: input.id },
+          {
+            event: "dehydrate-failed-disable",
+            err,
+            adapterId: updated.adapter,
+            serviceId: input.id,
+          },
           "Failed to dehydrate service on disable",
         );
       }
@@ -865,9 +1212,34 @@ export class ServicesService {
       : {};
   }
 
-  async getServiceSecretsPresence(id: string): Promise<{ present: string[] }> {
-    const payload = await this.loadServiceSecrets(id);
-    return { present: collectPresentPaths(payload) };
+  async getServiceConfigView(id: string): Promise<ServiceConfigView> {
+    const [schema, config] = await Promise.all([
+      this.getServiceConfigSchema(id),
+      this.getServiceConfig(id),
+    ]);
+    if (isNullOnlySchema(schema)) {
+      return { config, outdated: [] };
+    }
+    return {
+      config: filterPayloadToSchema(schema, config),
+      outdated: collectOutdatedPaths(schema, config),
+    };
+  }
+
+  async getServiceSecretsPresence(id: string): Promise<SecretsPresence> {
+    const [schema, payload] = await Promise.all([
+      this.getServiceSecretsSchema(id),
+      this.loadServiceSecrets(id),
+    ]);
+    if (isNullOnlySchema(schema)) {
+      return { present: collectPresentPaths(payload), outdated: [] };
+    }
+    return {
+      present: collectPresentPaths(
+        filterPayloadToSchema(schema, payload, { keepPermitted: true }),
+      ),
+      outdated: collectOutdatedPaths(schema, payload),
+    };
   }
 
   async getServiceConfigSchema(id: string): Promise<JSONSchema> {
@@ -884,17 +1256,21 @@ export class ServicesService {
     return row.configSchema;
   }
 
-  async patchServiceConfig(input: PatchInput): Promise<void> {
+  async patchServiceConfig(input: PatchInput): Promise<ServiceConfigView> {
     const [current, schema] = await Promise.all([
       this.getServiceConfig(input.id),
       this.getServiceConfigSchema(input.id),
     ]);
 
+    const patch = input.patch.filter(
+      (op) => !(op.op === "remove" && !pathExists(current, op.path)),
+    );
+
     let updated: Record<string, unknown>;
     try {
       const result = jsonpatch.applyPatch(
         current,
-        input.patch,
+        patch,
         true,
         false,
       ).newDocument;
@@ -915,19 +1291,27 @@ export class ServicesService {
 
     const nullOnly = isNullOnlySchema(schema);
     if (!nullOnly) {
-      validateJsonSchema(
-        schema,
-        updated,
-        `Invalid configuration for service '${input.id}'.`,
+      const added = newOutdatedPaths(
+        collectOutdatedPaths(schema, current),
+        collectOutdatedPaths(schema, updated),
       );
+      if (added.length > 0) {
+        throw new HttpError(
+          400,
+          `Invalid configuration for service '${input.id}': schema-disallowed keys ${added.join(", ")} cannot be added.`,
+        );
+      }
     }
 
     const payload = nullOnly
       ? updated
-      : applyJsonSchemaDefaults(
-          schema,
+      : mergeStaleKeys(
+          applyJsonSchemaDefaults(
+            schema,
+            filterPayloadToSchema(schema, updated),
+            `Invalid configuration for service '${input.id}'.`,
+          ),
           updated,
-          `Invalid configuration for service '${input.id}'.`,
         );
 
     await db
@@ -945,6 +1329,11 @@ export class ServicesService {
       });
 
     await this.hydrateIfEnabled(input.id);
+
+    return {
+      config: nullOnly ? payload : filterPayloadToSchema(schema, payload),
+      outdated: collectOutdatedPaths(schema, payload),
+    };
   }
 
   async getServiceSecretsSchema(id: string): Promise<JSONSchema> {
@@ -967,12 +1356,16 @@ export class ServicesService {
       this.loadServiceSecrets(input.id),
     ]);
 
+    const patch = input.patch.filter(
+      (op) => !(op.op === "remove" && !pathExists(current, op.path)),
+    );
+
     let updated: Record<string, unknown>;
     try {
       updated = (() => {
         const result = jsonpatch.applyPatch(
           current,
-          input.patch,
+          patch,
           true,
           false,
         ).newDocument;
@@ -989,18 +1382,29 @@ export class ServicesService {
       );
     }
 
-    validateJsonSchema(
-      schema,
-      updated,
-      `Invalid secrets for service '${input.id}'.`,
-    );
+    const nullOnly = isNullOnlySchema(schema);
+    if (!nullOnly) {
+      const added = newOutdatedPaths(
+        collectOutdatedPaths(schema, current),
+        collectOutdatedPaths(schema, updated),
+      );
+      if (added.length > 0) {
+        throw new HttpError(
+          400,
+          `Invalid secrets for service '${input.id}': schema-disallowed keys ${added.join(", ")} cannot be added.`,
+        );
+      }
+    }
 
-    const payload = isNullOnlySchema(schema)
+    const payload = nullOnly
       ? updated
-      : applyJsonSchemaDefaults(
-          schema,
+      : mergeStaleKeys(
+          applyJsonSchemaDefaults(
+            schema,
+            filterPayloadToSchema(schema, updated),
+            `Invalid secrets for service '${input.id}'.`,
+          ),
           updated,
-          `Invalid secrets for service '${input.id}'.`,
         );
 
     const encrypted = encryptSecrets(payload);
@@ -1039,7 +1443,7 @@ export class ServicesService {
       )
       .catch((err) => {
         logger.warn(
-          { err, adapterId },
+          { event: "adapter-load-services-failed", err, adapterId },
           "Failed to load services for adapter activation",
         );
         return [] as { id: string }[];
@@ -1052,7 +1456,12 @@ export class ServicesService {
           await this.controller.hydrateService(adapterId, state);
         } catch (err) {
           logger.warn(
-            { err, adapterId, serviceId: row.id },
+            {
+              event: "adapter-hydrate-service-failed",
+              err,
+              adapterId,
+              serviceId: row.id,
+            },
             "Failed to hydrate service on adapter activation",
           );
         }
@@ -1092,17 +1501,23 @@ export class ServicesService {
 
     if (!serviceRow) throw new HttpError(404, `Service '${id}' not found.`);
 
-    const [toolRows, config, secrets] = await Promise.all([
-      db
-        .select({ id: tools.id, adapterDomain: tools.adapterDomain })
-        .from(tools)
-        .where(eq(tools.serviceId, id))
-        .catch(() => {
-          throw new HttpError(500, `Failed to load tools for service '${id}'.`);
-        }),
-      this.getServiceConfig(id),
-      this.loadServiceSecrets(id),
-    ]);
+    const [toolRows, config, secrets, configSchema, secretsSchema] =
+      await Promise.all([
+        db
+          .select({ id: tools.id, adapterDomain: tools.adapterDomain })
+          .from(tools)
+          .where(eq(tools.serviceId, id))
+          .catch(() => {
+            throw new HttpError(
+              500,
+              `Failed to load tools for service '${id}'.`,
+            );
+          }),
+        this.getServiceConfig(id),
+        this.loadServiceSecrets(id),
+        this.getServiceConfigSchema(id),
+        this.getServiceSecretsSchema(id),
+      ]);
 
     return {
       id,
@@ -1110,8 +1525,27 @@ export class ServicesService {
       tools: Object.fromEntries(
         toolRows.map((t) => [t.id, { adapterDomain: t.adapterDomain }]),
       ),
-      config,
-      secrets,
+      config: isNullOnlySchema(configSchema)
+        ? config
+        : applyJsonSchemaDefaults(
+            configSchema,
+            // Conformant projection: validates identically to the
+            // declared-only projection (permitted keys are unconstrained)
+            // while delivering schema-permitted keys to the adapter.
+            filterPayloadToSchema(configSchema, config, {
+              keepPermitted: true,
+            }),
+            `Invalid configuration for service '${id}'.`,
+          ),
+      secrets: isNullOnlySchema(secretsSchema)
+        ? secrets
+        : applyJsonSchemaDefaults(
+            secretsSchema,
+            filterPayloadToSchema(secretsSchema, secrets, {
+              keepPermitted: true,
+            }),
+            `Invalid secrets for service '${id}'.`,
+          ),
     };
   }
 
@@ -1148,32 +1582,32 @@ export class ServicesService {
   private async downloadDefinition(fileUrl: string): Promise<string> {
     return downloadText(fileUrl, DEFINITION_DOWNLOAD_MAX_BYTES, "definition");
   }
-}
 
-function isNullOnlySchema(schema: Record<string, unknown>): boolean {
-  const t = schema.type;
-  return (
-    t === "null" || (Array.isArray(t) && t.length === 1 && t[0] === "null")
-  );
-}
-
-function isUniqueConstraintError(
-  err: unknown,
-  seen = new Set<unknown>(),
-): boolean {
-  if (!err || typeof err !== "object" || seen.has(err)) return false;
-  seen.add(err);
-  const { code, message } = err as { code?: unknown; message?: unknown };
-  const c = typeof code === "string" ? code : "";
-  const m = typeof message === "string" ? message : "";
-  if (
-    c === "23505" ||
-    /^SQLITE_CONSTRAINT_(UNIQUE|PRIMARYKEY)$/i.test(c) ||
-    /UNIQUE constraint failed:|duplicate key value|\bduplicate key\b|violates unique constraint/i.test(
-      m,
-    )
-  ) {
-    return true;
+  private async reindexServiceSearch(serviceId: string): Promise<void> {
+    if (!this.search) return;
+    try {
+      await this.search.reindexService(serviceId);
+    } catch (err) {
+      logger.warn(
+        {
+          event: "reindex-embeddings-failed",
+          err,
+          serviceId,
+        },
+        "Failed to regenerate tool embeddings; reconciliation will retry",
+      );
+    }
   }
-  return isUniqueConstraintError((err as { cause?: unknown }).cause, seen);
+
+  private async deleteServiceSearch(serviceId: string): Promise<void> {
+    if (!this.search) return;
+    try {
+      await this.search.deleteEmbeddings(serviceId);
+    } catch (err) {
+      logger.warn(
+        { event: "delete-embeddings-failed", err, serviceId },
+        "Failed to delete tool embeddings; reconciliation will retry",
+      );
+    }
+  }
 }

@@ -22,26 +22,35 @@ sources:
 2. **Custom modules**, loaded from `$CYRNEL_DATA_DIR/modules/<name>/`. Each
    directory must contain a `module.json`:
 
-   ```json
-   {
-     "id": "my-adapter",
-     "version": "1.2.3",
-     "type": "adapter",
-     "name": "My Adapter",
-     "description": "this is my my adapter",
-     "main": "./index.js",
-     "engines": { "cyrnel": "^x.x.x" }
-   }
-   ```
+    ```json
+    {
+      "id": "my-adapter",
+      "version": "1.2.3",
+      "type": "adapter",
+      "name": "My Adapter",
+      "description": "this is my my adapter",
+      "main": "./index.js",
+      "engines": { "cyrnel": "^x.x.x" },
+      "compatibility": [
+        { "identifier": "openapi", "version": ">=3.0 <4.0" }
+      ]
+    }
+    ```
 
-   `version` is a required semver string. `engines` is optional, but when
-   present its `cyrnel` field is **required**: a semver range the Cyrnel core
-   version (`CYRNEL_CORE_VERSION`) must satisfy, or the module is rejected with
-   a 400 error. Omitting `engines` entirely means "no core version constraint".
+    `version` is a required semver string. `engines` is optional, but when
+    present its `cyrnel` field is **required**: a semver range the Cyrnel core
+    version (`CYRNEL_CORE_VERSION`) must satisfy, or the module is rejected with
+    a 400 error. Omitting `engines` entirely means "no core version constraint".
+
+    `compatibility` is optional and only meaningful for `adapter` modules.
+    Each entry declares an `<identifier>` and a semver `version` range that the
+    adapter can consume (see [Definition kinds & adapter
+    compatibility](/cyrnel/module-specs/definition-kinds)). When a service definition
+    carries a matching kind, the adapter is offered as an install target for it.
 
    `main` is an ES module exporting `instantiate(): AdapterModule` or
    `EnvironmentModule`. See
-   [Writing a custom module](/cyrnel/specs/writing-custom-modules).
+   [Writing a custom module](/cyrnel/module-specs/writing-custom-modules).
 
 The registry is reflected to the `modules` table. Three things can happen
 during reconciliation:
@@ -92,6 +101,10 @@ interface RegistryDescriptor {
     downloadUrl: string;                              // URL to the .tar.zst archive
     hash?: string;                                    // SHA-256 of the archive
     engines?: { cyrnel?: string };                    // optional engine constraint
+    icon?: {                                          // optional module icon
+      url: string;                                    //   raster image URL (png/webp only)
+      hash: string;                                   //   SHA-256 of the image bytes
+    };
   }>;
 }
 ```
@@ -106,6 +119,21 @@ version/range when `version` is provided in the request body:
 If the response includes a `hash`, the server verifies the downloaded archive
 content matches it. The `source` URL is persisted in the database so the module
 can be re-resolved later for updates. The module starts disabled.
+
+If a version entry declares an `icon`, the server downloads the image bytes
+through the same SSRF-guarded egress path as archives, verifies the SHA-256
+`hash`, and only accepts png/webp content sniffed from the file magic.
+The icon is stored server-side and served from
+`GET /modules/:moduleId/icon` with an `ETag` for caching. Icon failures are
+non-fatal: the module installs without an icon. Direct installs and direct
+updates (`PATCH`) never carry an icon. On registry updates the icon is
+re-fetched when its `hash` changes and cleared when the registry no longer
+declares one; a failed re-fetch is non-fatal and preserves the previously
+stored icon.
+
+Recommended icon properties: a square 256×256 px image (png or webp, with
+transparency if needed) no larger than 256 KB. Icons are displayed at 40×40 px
+in the web UI.
 
 ## Update
 
@@ -186,18 +214,23 @@ Configuration is readable and patchable:
 
 - `GET /modules/:moduleId/config/schema` returns the module's configuration
   JSON Schema.
-- `GET /modules/:moduleId/config` returns the currently stored configuration.
-- `PATCH /modules/:moduleId/config` accepts a JSON Patch array, validates the
-  resulting object against `configSchema`, persists it, and reloads the active
-  module instance when required.
+- `GET /modules/:moduleId/config` returns `{ config, outdated }`: the stored
+  configuration projected to keys defined by the schema, plus RFC 6901
+  pointers of stored values that no longer match the schema.
+- `PATCH /modules/:moduleId/config` accepts a JSON Patch array, persists the
+  result, and reloads the active module instance when required. Stored values
+  that are no longer defined by the schema are preserved; adding new
+  schema-disallowed keys is rejected; `remove` operations on missing paths
+  are ignored.
 
 Secrets are write-only:
 
 - `GET /modules/:moduleId/secrets/schema` returns the module's secrets JSON
   Schema.
 - `PATCH /modules/:moduleId/secrets` accepts a JSON Patch array, applies it to
-  the decrypted secret document, validates against `secretsSchema`, then
-  re-encrypts and persists the result.
+  the decrypted secret document, re-encrypts and persists the result. Stored
+  values that are no longer defined by the schema are preserved; adding new
+  schema-disallowed keys is rejected.
 
 There is no endpoint that returns plaintext module secrets. Use configuration
 for non-sensitive values only; put credentials and tokens in secrets.
@@ -206,7 +239,7 @@ for non-sensitive values only; put credentials and tokens in secrets.
 
 | Method | Path | Mode | Notes |
 | --- | --- | --- | --- |
-| `GET` | `/modules` | -- | Filterable by `query`, `type`, `isBuiltin`, `enabled` |
+| `GET` | `/modules` | -- | Filterable by `query`, `type`, `isBuiltin`, `enabled`, `limit`, `cursor` |
 | `GET` | `/modules/:moduleId` | -- | Single module |
 | `POST` | `/modules` | Direct | Install from a `.tar.zst` URL, stores `source = ""` |
 | `POST` | `/modules/install` | Registry | Resolve registry metadata URL, stores `source` |
@@ -215,7 +248,7 @@ for non-sensitive values only; put credentials and tokens in secrets.
 | `POST` | `/modules/:moduleId/enabled` | -- | Toggle `{ enabled: boolean }` |
 | `POST` | `/modules/reload` | -- | Re-scan custom modules from disk |
 | `GET` | `/modules/:moduleId/config/schema` | -- | Module configuration schema |
-| `GET` | `/modules/:moduleId/config` | -- | Current module configuration |
+| `GET` | `/modules/:moduleId/config` | -- | `{ config, outdated }` |
 | `PATCH` | `/modules/:moduleId/config` | -- | Patch module configuration |
 | `GET` | `/modules/:moduleId/secrets/schema` | -- | Module secrets schema |
 | `PATCH` | `/modules/:moduleId/secrets` | -- | Patch encrypted module secrets |
@@ -223,6 +256,8 @@ for non-sensitive values only; put credentials and tokens in secrets.
 
 Enabling a missing module returns `409`. Direct-installed items (`source = ""`)
 cannot use `POST /modules/:moduleId/update` -- they return `409`.
+
+`GET /modules` returns the paginated envelope `{ items, nextCursor, hasMore }`; see [Pagination](/docs/pagination) for the cursor rules, `limit` semantics, and error codes.
 
 A module record:
 

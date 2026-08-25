@@ -66,7 +66,7 @@ export function assertPlainJsonSchema(
       for (let i = 0; i < v.length; i++) check(v[i], `${path}/${i}`);
       return;
     }
-    if (typeof v === "object" && v !== null) {
+    if (typeof v === "object") {
       if (seen.has(v))
         throw new HttpError(
           400,
@@ -126,4 +126,12 @@ export function applyJsonSchemaDefaults<T extends Record<string, unknown>>(
     throw new HttpError(400, `${message} ${formatAjvErrors(validate)}`.trim());
   }
   return normalized;
+}
+
+/**
+ * Normalizes a summary for persistence: trims surrounding whitespace and
+ * falls back to an empty string when absent.
+ */
+export function normalizeSummary(value: string | undefined): string {
+  return value?.trim() ?? "";
 }

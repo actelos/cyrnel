@@ -1,0 +1,73 @@
+---
+title: "Registries"
+description: "Browse, install, and update services and modules from external registries"
+---
+
+Registries are remote servers that distribute **service definitions** and
+**modules**. Cyrnel discovers them via a well-known document, browses their
+catalogs, and installs/hash-verifies artifacts - it never writes back to a
+registry. Registries are the equivalent of a package repository for Cyrnel:
+they make new services and adapter/environment modules installable without
+shipping code yourself.
+
+## Managing registries
+
+The **Registries** page (`/registries`) lists the registries this server
+knows about:
+
+| Column | Meaning |
+| --- | --- |
+| id / base URL | The stored registry identity and origin |
+| Auth | Configured auth method (`apiKey`, `oauth2`, or none) + token expiry for oauth2 |
+| Last synced | When the well-known document was last re-fetched |
+
+### Add a registry
+
+Click **Add registry** and provide:
+
+- **Base URL**: any absolute `http(s)` URL. Cyrnel fetches
+  `/.well-known/registry.json` from it, validates the advertisement, and
+  stores the registry. An **Id** may be used to override the advertised
+  identifier.
+- **Auth** (optional): API key (header) or OAuth2 client credentials.
+  Auth is only usable when the registry advertises it; see the
+  [Registry Specification](/cyrnel/registry-specs/registry-overview).
+
+### Update & remove
+
+- **Refresh** re-fetches the well-known document (stamps "last synced")
+  and detects auth drift.
+- **Delete** removes the registry and cascades to any stored credentials.
+
+## Using a registry
+
+Installs flow through the **Registry** tab of the Install Service and
+Install Module dialogs (`/services` and `/modules`):
+
+- Pick a registry and browse its definitions or modules (search box,
+  type/kind filters, infinite scroll).
+- **Services**: choose an adapter (auto-selected as the best compatible,
+  active one) and install - Cyrnel downloads the definition, verifies its
+  content hash, and generates tools through the adapter.
+- **Modules**: install the module archive (hash-verified, `engines`
+  checked against the running Cyrnel version).
+- Both dialogs offer an **autoUpdate** checkbox, on by default, so
+  registry-sourced items re-check for newer versions on the configured
+  sweep interval.
+
+See [Install & update](/cyrnel/registry-specs/install-and-update) for the
+full flows.
+
+## Security posture
+
+Registries are treated as untrusted network input:
+
+- Every fetch (well-known, browse pages, descriptors, downloads, token
+  endpoints) is subject to 10-second timeouts, size caps, and an SSRF
+  guard with CIDR allow/block controls.
+- Artifacts are verified against the hashes their descriptors advertise.
+- Credentials are only sent to registries over https (or loopback /
+  explicitly allowlisted CIDRs).
+
+See [Registry security](/cyrnel/registry-specs/security) for the complete
+guards and the operator-side control variables.

@@ -11,6 +11,7 @@ import {
   killProcess,
   listProcesses,
   runProcess,
+  unloadProcess,
 } from "@/controllers/process.controller";
 import { createRateLimiter } from "@/middleware/rate-limit.middleware";
 
@@ -39,4 +40,9 @@ processRouter.post(
   "/:id/signals/kill",
   createRateLimiter(10, 60_000, "POST /processes/:id/signals/kill"),
   killProcess,
+);
+processRouter.post(
+  "/:id/signals/unload",
+  createRateLimiter(10, 60_000, "POST /processes/:id/signals/unload"),
+  unloadProcess,
 );

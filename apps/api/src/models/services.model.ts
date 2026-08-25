@@ -4,6 +4,7 @@ import type { Operation } from "fast-json-patch";
 export interface ToolDefinitionRecord extends ToolDefinition {
   serviceId: string;
   enabled: boolean;
+  summary: string;
 }
 
 export interface ServiceDefinitionRecord extends ServiceDefinition {
@@ -15,11 +16,13 @@ export interface ServiceDefinitionRecord extends ServiceDefinition {
   enabled: boolean;
   stale: boolean;
   tools: ToolDefinitionRecord[];
+  summary: string;
 }
 
 export interface ListServicesInput {
   query?: string;
   limit?: number;
+  cursor?: string;
   enabled?: boolean;
   adapter?: string;
   stale?: boolean;
@@ -34,12 +37,13 @@ export type ListServiceDefinitionResult = Omit<
   | "secretsSchema"
   | "adapterDomain"
   | "definitionContent"
-> & { effectivelyEnabled: boolean };
+> & { createdAt: string; effectivelyEnabled: boolean; hasIcon: boolean };
 
 export interface ListToolsInput {
   serviceId?: string;
   query?: string;
   limit?: number;
+  cursor?: string;
   enabled?: boolean;
 }
 
@@ -49,12 +53,16 @@ export interface ListToolsResult
     "inputSchema" | "outputSchema" | "adapterDomain"
   > {
   effectivelyEnabled: boolean;
+  score?: number;
+  matchType?: "fts" | "vector" | "both";
+  ftsRank?: number;
+  vectorRank?: number;
 }
 
 export type GetServiceDefinitionResult = Omit<
   ServiceDefinitionRecord,
   "tools" | "adapterDomain" | "definitionContent"
-> & { effectivelyEnabled: boolean };
+> & { effectivelyEnabled: boolean; hasIcon: boolean };
 
 export interface GetToolInput {
   serviceId: string;
@@ -98,4 +106,14 @@ export interface SetToolEnablesInput {
 export interface PatchInput {
   id: string;
   patch: Operation[];
+}
+
+export interface ServiceConfigView {
+  config: Record<string, unknown>;
+  outdated: string[];
+}
+
+export interface SecretsPresence {
+  present: string[];
+  outdated: string[];
 }

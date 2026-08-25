@@ -135,6 +135,14 @@
           "autoincrement": false,
           "default": "''"
         },
+        "version": {
+          "name": "version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'0.0.0'"
+        },
         "source": {
           "name": "source",
           "type": "text",
@@ -158,6 +166,27 @@
           "notNull": true,
           "autoincrement": false,
           "default": false
+        },
+        "icon_data": {
+          "name": "icon_data",
+          "type": "blob",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "icon_mime": {
+          "name": "icon_mime",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "icon_hash": {
+          "name": "icon_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {
@@ -272,8 +301,15 @@
           "notNull": true,
           "autoincrement": false
         },
-        "options": {
-          "name": "options",
+        "timeout_ms": {
+          "name": "timeout_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "env_config": {
+          "name": "env_config",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -425,6 +461,14 @@
           "notNull": true,
           "autoincrement": false
         },
+        "version": {
+          "name": "version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'0.0.0'"
+        },
         "source": {
           "name": "source",
           "type": "text",
@@ -484,6 +528,27 @@
           "notNull": true,
           "autoincrement": false,
           "default": false
+        },
+        "icon_data": {
+          "name": "icon_data",
+          "type": "blob",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "icon_mime": {
+          "name": "icon_mime",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "icon_hash": {
+          "name": "icon_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {},

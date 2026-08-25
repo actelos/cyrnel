@@ -412,6 +412,7 @@ export async function generateDefinition(
 
       const id = normalizeIdentifier(operation.operationId);
       const name = operation.summary ?? id;
+      const summary = operation.summary ?? "";
       const description = extractToolDescription(operation);
 
       const inputSchema = buildInputSchema(doc, operation);
@@ -421,6 +422,7 @@ export async function generateDefinition(
       tools.push({
         id,
         name,
+        summary,
         description,
         inputSchema,
         outputSchema,
@@ -447,9 +449,8 @@ export async function generateDefinition(
 
   return {
     name: doc.info.title,
-    description: `${doc.info.summary ?? ""}${
-      doc.info.summary && doc.info.description ? "\n" : ""
-    }${doc.info.description ?? ""}`,
+    summary: doc.info.summary ?? "",
+    description: doc.info.description ?? "",
     tools,
     configSchema: buildConfigSchema(doc),
     secretsSchema: buildSecretsSchema(doc),

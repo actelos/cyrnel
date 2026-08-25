@@ -1,3 +1,4 @@
+import { randomBytes, randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
@@ -12,6 +13,7 @@ import type {
   JSONSchema,
   ToolDocsInput,
 } from "@cyrnel/sdk";
+import { build } from "esbuild";
 import ivm from "isolated-vm";
 import ts from "typescript";
 
@@ -23,12 +25,57 @@ const DEFAULT_QUEUE_TTL_MS = 60_000;
 const DEFAULT_MAX_CODE_SIZE = 100 * 1024;
 const TRANSPILE_TIMEOUT_MS = 10_000;
 
-const ENVIRONMENT_DOCS = `
+const MAX_TIMER_DELAY_MS = 60_000;
+const MAX_CONCURRENT_TIMERS = 16;
+const MAX_RANDOM_BYTES = 65_536;
+
+const BINDINGS_KEYS = [
+  "base64",
+  "textCodecs",
+  "url",
+  "timers",
+  "randomValues",
+  "fullConsole",
+] as const;
+
+type BindingsKey = (typeof BINDINGS_KEYS)[number];
+
+type BindingsConfig = Record<BindingsKey, boolean>;
+
+const BINDINGS_DEFAULTS: BindingsConfig = {
+  base64: false,
+  textCodecs: false,
+  url: false,
+  timers: false,
+  randomValues: false,
+  fullConsole: false,
+};
+
+function parseBindingsConfig(config: Record<string, unknown>): BindingsConfig {
+  const raw = config.bindings;
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    return { ...BINDINGS_DEFAULTS };
+  }
+  const out = { ...BINDINGS_DEFAULTS };
+  for (const key of BINDINGS_KEYS) {
+    const value = (raw as Record<string, unknown>)[key];
+    if (typeof value === "boolean") {
+      out[key] = value;
+    }
+  }
+  if (out.url) {
+    out.textCodecs = true;
+  }
+  return out;
+}
+
+const ENVIRONMENT_DOCS_CORE = `
 Code runs as transpiled TypeScript/JavaScript (ES2022) inside an isolated
 \`ivm\` sandbox. Each execution is wrapped in an async function, so top-level
 \`await\` is supported. No module loading, filesystem access, networking,
-Node.js APIs, or other host capabilities are available. Use only the provided
-globals and write fully self-contained code.
+Node.js APIs, or other host capabilities are available unless explicitly
+listed as an enabled binding below. Use only the provided globals and write
+fully self-contained code.
 
 ## Globals
 
@@ -72,6 +119,98 @@ const result = await cyrnel.services.weather.tools.forecast.invoke({
 cyrnel.output({ result });
 \`\`\`
 `;
+
+const BINDING_DOCS: Record<
+  BindingsKey,
+  { apis: string; description: string; risk: string }
+> = {
+  base64: {
+    apis: "btoa(str), atob(str)",
+    description:
+      "Base64 encode/decode of Latin-1 strings. btoa throws on characters above U+00FF.",
+    risk: "Low. Can obfuscate data in output; exposes no host capability.",
+  },
+  textCodecs: {
+    apis: "TextEncoder, TextDecoder",
+    description:
+      "UTF-8 encoding/decoding between strings and Uint8Array (encode/decode only; no encodeInto or stream support).",
+    risk: "Low. Enables binary payload construction; nothing can leave the sandbox beyond the normal output channel.",
+  },
+  url: {
+    apis: "URL, URLSearchParams",
+    description:
+      "WHATWG-compliant URL parsing and search-parameter handling. Implies the textCodecs binding (WHATWG URL internally needs TextEncoder/TextDecoder).",
+    risk: "Low. Pure string parsing; only becomes sensitive if a networking binding is ever added.",
+  },
+  timers: {
+    apis: "setTimeout(cb, ms), setInterval(cb, ms), clearTimeout(id), clearInterval(id), queueMicrotask(cb)",
+    description:
+      "Schedule callbacks. Host-supervised: max delay 60000ms, max 16 concurrent per execution. Timers are cleared when the execution function returns or is terminated - only awaited timers keep the execution alive.",
+    risk: "Moderate. Sleep/busy patterns occupy pool slots until the host timeout kills the isolate; runaway intervals can flood output. Caps are enforced by the host.",
+  },
+  randomValues: {
+    apis: "crypto.getRandomValues(typedArray), crypto.randomUUID()",
+    description:
+      "Cryptographically secure random bytes and UUIDs sourced from the host.",
+    risk: "Low. Consumes host entropy; enables random state that can be fed into tool calls.",
+  },
+  fullConsole: {
+    apis: "console.warn/info/debug/table/trace/time/count/group/assert and other methods",
+    description:
+      "Routes all remaining console methods to stdout, prefixed with the method name.",
+    risk: "Low. Log flooding can bloat output buffers.",
+  },
+};
+
+function renderBindingSection(
+  config: BindingsConfig,
+  enabled: boolean,
+): string {
+  const keys = BINDINGS_KEYS.filter((key) => config[key] === enabled);
+  if (keys.length === 0) return "";
+
+  const title = enabled
+    ? "## Enabled optional bindings (operator-configured)"
+    : "## Optional bindings (currently disabled)";
+
+  const lines = keys.map((key) => {
+    const doc = BINDING_DOCS[key];
+    if (enabled) {
+      return `- **${key}**: \`${doc.apis}\`. ${doc.description} Risk if misused: ${doc.risk}`;
+    }
+    return `- **${key}**: \`${doc.apis}\`. Not enabled; calling these will fail.`;
+  });
+
+  return `${title}
+
+${lines.join("\n")}
+`;
+}
+
+function buildEnvironmentDocs(config: BindingsConfig): string {
+  const disabledKeys = BINDINGS_KEYS.filter((key) => !config[key]);
+
+  const unavailable = [
+    "Node.js APIs: process, Buffer, require, module, exports, __dirname, __filename",
+    "Networking: fetch, WebSocket, XMLHttpRequest, Headers, Request, Response, Blob, FormData, EventSource",
+    "Filesystem access, environment variables, and all other host capabilities",
+    ...disabledKeys.map((key) => {
+      const doc = BINDING_DOCS[key];
+      return `${doc.apis} (${key} binding disabled)`;
+    }),
+  ];
+
+  return `${ENVIRONMENT_DOCS_CORE}
+
+${renderBindingSection(config, true)}
+${renderBindingSection(config, false)}
+## Unavailable APIs
+
+The following are NOT available in this environment:
+
+${unavailable.map((line) => `- ${line}`).join("\n")}
+`;
+}
 
 type Interrupt = {
   promise: Promise<ExecutionExitState>;
@@ -183,6 +322,29 @@ function getTypescriptUrl(): string {
   return _tsUrl;
 }
 
+let _urlBundlePromise: Promise<string> | null = null;
+function getUrlPolyfillBundle(): Promise<string> {
+  _urlBundlePromise ??= (async () => {
+    const _require = createRequire(import.meta.url);
+    const result = await build({
+      entryPoints: [_require.resolve("whatwg-url")],
+      bundle: true,
+      format: "iife",
+      globalName: "__cyrnelUrlModule",
+      platform: "neutral",
+      mainFields: ["main"],
+      target: ["es2022"],
+      write: false,
+      logLevel: "silent",
+      footer: {
+        js: `if (typeof globalThis !== "undefined") { globalThis.URL = __cyrnelUrlModule.URL; globalThis.URLSearchParams = __cyrnelUrlModule.URLSearchParams; }`,
+      },
+    });
+    return result.outputFiles[0].text;
+  })();
+  return _urlBundlePromise;
+}
+
 function transpileTypeScriptSync(code: string): string {
   const result = ts.transpileModule(code, {
     compilerOptions: {
@@ -263,7 +425,7 @@ export function toBuffer(data: unknown): Buffer {
   const MAX_BUFFER_SIZE = 4 * 1024 * 1024;
 
   if (Buffer.isBuffer(data)) {
-    assertSize(data.byteLength, 4 * 1024 * 1024);
+    assertSize(data.byteLength, MAX_BUFFER_SIZE);
     return data;
   }
 
@@ -390,13 +552,20 @@ function renderProperties(schema: JSONSchema | undefined): string {
     .join("\n");
 }
 
+function escapePlainText(text: string): string {
+  return text.replace(/\s+/g, " ").replace(/[\\*_`[\]<>#]/g, "\\$&");
+}
+
 function renderToolDocs(input: ToolDocsInput): string {
   const exampleInput = exampleValue(input.inputSchema) ?? {};
   const exampleJson = JSON.stringify(exampleInput, null, 2);
   const description = input.description.trim() || "_(no description)_";
+  const summary = input.summary?.trim();
 
   return `
   # Tool: \`${input.serviceId}.${input.toolId}\`
+
+  ${summary ? `_${escapePlainText(summary)}_` : ""}
 
   ${description}
 
@@ -431,6 +600,7 @@ function errorMessage(err: unknown): string {
 
 class TypescriptIvmEnvironment implements EnvironmentModule {
   private bindings: EnvironmentBindings | null = null;
+  private logger: EnvironmentSetupContext["logger"] | null = null;
   private workers: WorkerSlot[] = [];
   private queue: BoundedQueue<ExecutionJob> = new BoundedQueue(
     DEFAULT_MAX_QUEUE_SIZE,
@@ -439,6 +609,8 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
   private pumping = false;
   private shuttingDown = false;
   private isolatePreludeJs: string | null = null;
+  private preludeCache = new Map<string, string>();
+  private bindingsConfig: BindingsConfig = { ...BINDINGS_DEFAULTS };
   private defaultTimeoutMs: number = DEFAULT_TIMEOUT_MS;
   private memoryLimitMb: number = DEFAULT_MEMORY_LIMIT_MB;
   private maxQueueSize: number = DEFAULT_MAX_QUEUE_SIZE;
@@ -447,8 +619,16 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
 
   async setup(context: EnvironmentSetupContext): Promise<void> {
     this.bindings = context.bindings;
+    const patterns =
+      (context.config.redactionPatterns as string[] | undefined) ?? [];
+    this.logger = context.logger?.redact(patterns).child({
+      phase: "environment-setup",
+    });
     this.shuttingDown = false;
-    this.isolatePreludeJs ??= await this.loadIsolatePreludeJs();
+    this.bindingsConfig = parseBindingsConfig(context.config);
+    this.isolatePreludeJs = await this.loadIsolatePreludeJs(
+      this.bindingsConfig,
+    );
 
     this.defaultTimeoutMs =
       typeof context.config.timeoutMs === "number" &&
@@ -502,8 +682,13 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
   }
 
   async teardown(): Promise<void> {
+    this.logger?.info(
+      { event: "environment-teardown-started" },
+      "Tearing down environment",
+    );
     this.shuttingDown = true;
     this.isolatePreludeJs = null;
+    this.preludeCache.clear();
 
     for (const job of this.queue.drain()) {
       job.resolve("canceled");
@@ -527,6 +712,10 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
     this.runningByEid.clear();
     this.queue = new BoundedQueue(DEFAULT_MAX_QUEUE_SIZE);
     this.bindings = null;
+    this.logger?.info(
+      { event: "environment-teardown-complete" },
+      "Environment teardown complete",
+    );
   }
 
   async execute(input: ExecutionInput): Promise<ExecutionExitState> {
@@ -579,7 +768,7 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
   }
 
   async generateDocs(): Promise<string> {
-    return ENVIRONMENT_DOCS;
+    return buildEnvironmentDocs(this.bindingsConfig);
   }
 
   async generateToolDocs(input: ToolDocsInput): Promise<string> {
@@ -637,8 +826,12 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
   }
 
   private async runJob(worker: WorkerSlot, job: ExecutionJob): Promise<void> {
-    let result: ExecutionExitState = "failed";
+    let result: ExecutionExitState;
     const interrupt = createInterrupt();
+    const executionLogger = this.logger?.child({
+      executionId: job.input.eid,
+      phase: "execution",
+    });
     const running: RunningExecution = {
       eid: job.input.eid,
       interrupt,
@@ -652,6 +845,10 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
 
     try {
       this.bindings?.setState(job.input.eid, "running");
+      executionLogger?.info(
+        { event: "execution-started" },
+        "Starting environment execution",
+      );
 
       const rawTimeoutMs = job.input.envConfig?.timeoutMs as number | undefined;
       const effectiveTimeoutMs: number =
@@ -676,7 +873,11 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
         }) as TerminableIsolate;
         _isolateOverridden = true;
       }
-      const executionPromise = this.executeInIsolate(worker, job)
+      const executionPromise = this.executeInIsolate(
+        worker,
+        job,
+        executionLogger,
+      )
         .then(() => "success" as const)
         .catch((err) => {
           this.bindings?.setError(job.input.eid, errorMessage(err));
@@ -697,30 +898,35 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
       ]);
     } catch {
       result = "failed";
-    } finally {
-      if (running.timeoutHandle) {
-        clearTimeout(running.timeoutHandle);
-      }
-
-      if (_isolateOverridden) {
-        worker.isolate.dispose();
-        worker.isolate = new ivm.Isolate({
-          memoryLimit: this.memoryLimitMb,
-        }) as TerminableIsolate;
-      }
-
-      worker.running = null;
-      worker.busy = false;
-      this.runningByEid.delete(job.input.eid);
-      job.resolve(result);
-
-      void this.pumpQueue();
     }
+
+    if (running.timeoutHandle) {
+      clearTimeout(running.timeoutHandle);
+    }
+
+    if (_isolateOverridden) {
+      worker.isolate.dispose();
+      worker.isolate = new ivm.Isolate({
+        memoryLimit: this.memoryLimitMb,
+      }) as TerminableIsolate;
+    }
+
+    worker.running = null;
+    worker.busy = false;
+    this.runningByEid.delete(job.input.eid);
+    executionLogger?.info(
+      { event: "execution-complete", exitState: result },
+      "Environment execution complete",
+    );
+    job.resolve(result);
+
+    void this.pumpQueue();
   }
 
   private async executeInIsolate(
     worker: WorkerSlot,
     job: ExecutionJob,
+    executionLogger?: EnvironmentSetupContext["logger"],
   ): Promise<void> {
     if (!this.bindings) {
       throw new Error("Environment module is not setup");
@@ -733,8 +939,10 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
 
     const eid = job.input.eid;
     const bindings = this.bindings;
+    const config = this.bindingsConfig;
 
     const refs: ivm.Reference[] = [];
+    let clearTimers: (() => void) | null = null;
 
     try {
       const refStdout = new ivm.Reference((data: string) => {
@@ -764,10 +972,28 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
             __cyrnel_error: "Invalid invoke input JSON",
           });
         }
+        const dispatchLogger = executionLogger?.child({
+          dispatchId: randomUUID(),
+          serviceId: input.serviceId,
+          toolId: input.toolId,
+          phase: "dispatch",
+        });
+        dispatchLogger?.info(
+          { event: "dispatch-started" },
+          "Dispatching tool invocation",
+        );
         try {
           const result = await bindings.invokeTool(input);
+          dispatchLogger?.info(
+            { event: "dispatch-complete" },
+            "Tool invocation complete",
+          );
           return JSON.stringify(result);
         } catch (err) {
+          dispatchLogger?.error(
+            { event: "dispatch-failed", err },
+            "Tool invocation failed",
+          );
           return JSON.stringify({
             __ivmError: String(err),
             __ivmStack: err instanceof Error ? err.stack : undefined,
@@ -777,14 +1003,102 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
       refs.push(refInvoke);
       await jail.set("__cyrnel_invokeTool", refInvoke);
 
+      if (config.randomValues) {
+        const refRandomBytes = new ivm.Reference((json: string) => {
+          const input = JSON.parse(json) as {
+            kind: "bytes" | "uuid";
+            length?: number;
+          };
+          if (input.kind === "uuid") {
+            return JSON.stringify(randomUUID());
+          }
+          const length = Math.min(
+            Math.max(0, Math.floor(Number(input.length) || 0)),
+            MAX_RANDOM_BYTES,
+          );
+          return JSON.stringify(Array.from(randomBytes(length)));
+        });
+        refs.push(refRandomBytes);
+        await jail.set("__cyrnel_randomBytes", refRandomBytes);
+      }
+
+      if (config.timers) {
+        const timerRegistry = new Map<
+          number,
+          { timer: NodeJS.Timeout; repeat: boolean }
+        >();
+        let nextTimerId = 1;
+
+        const refSetTimer = new ivm.Reference((json: string) => {
+          const input = JSON.parse(json) as {
+            delay: number;
+            repeat: boolean;
+          };
+          const delay = Math.floor(Number(input.delay) || 0);
+          if (!Number.isFinite(delay) || delay < 0) {
+            throw new Error("Invalid timer delay");
+          }
+          if (delay > MAX_TIMER_DELAY_MS) {
+            throw new RangeError(
+              `Timer delay exceeds maximum (${delay} > ${MAX_TIMER_DELAY_MS}ms)`,
+            );
+          }
+          if (timerRegistry.size >= MAX_CONCURRENT_TIMERS) {
+            throw new Error(
+              `Timer limit reached (max ${MAX_CONCURRENT_TIMERS} per execution)`,
+            );
+          }
+
+          const id = nextTimerId++;
+          const fire = (): void => {
+            void context
+              .eval(`globalThis.__cyrnel_timerDispatch(${id})`)
+              .catch(() => {});
+            const entry = timerRegistry.get(id);
+            if (entry?.repeat) {
+              entry.timer = setTimeout(fire, delay);
+            } else {
+              timerRegistry.delete(id);
+            }
+          };
+          timerRegistry.set(id, {
+            timer: setTimeout(fire, delay),
+            repeat: input.repeat,
+          });
+          return id;
+        });
+        refs.push(refSetTimer);
+        await jail.set("__cyrnel_setTimer", refSetTimer);
+
+        const refClearTimer = new ivm.Reference((json: string) => {
+          const id = Number(json);
+          const entry = timerRegistry.get(id);
+          if (entry) {
+            clearTimeout(entry.timer);
+            timerRegistry.delete(id);
+          }
+        });
+        refs.push(refClearTimer);
+        await jail.set("__cyrnel_clearTimer", refClearTimer);
+
+        clearTimers = () => {
+          for (const entry of timerRegistry.values()) {
+            clearTimeout(entry.timer);
+          }
+          timerRegistry.clear();
+        };
+      }
+
       const prelude = this.isolatePreludeJs ? `${this.isolatePreludeJs}\n` : "";
       const script = await worker.isolate.compileScript(
         buildWrappedCode(`${prelude}${job.code}`),
       );
-      const result = await script.run(context);
+      const result = await script.run(context, { promise: true });
 
       await Promise.resolve(result);
     } finally {
+      clearTimers?.();
+
       for (const ref of refs) {
         try {
           ref.release();
@@ -797,14 +1111,49 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
     }
   }
 
-  private async loadIsolatePreludeJs(): Promise<string | null> {
-    try {
-      const url = new URL("../src/bindings.ts", import.meta.url);
-      const source = await fs.readFile(url, "utf8");
-      return await transpileTypeScript(source);
-    } catch {
-      return null;
+  private async loadIsolatePreludeJs(config: BindingsConfig): Promise<string> {
+    const key = JSON.stringify(config);
+    const cached = this.preludeCache.get(key);
+    if (cached) return cached;
+
+    const parts: string[] = [await this.loadPreludeSource("bindings.ts")];
+    if (config.base64) {
+      parts.push(await this.loadPreludeSource("polyfills/base64.ts"));
     }
+    if (config.textCodecs) {
+      parts.push(await this.loadPreludeSource("polyfills/text-codecs.ts"));
+    }
+    if (config.fullConsole) {
+      parts.push(await this.loadPreludeSource("polyfills/console.ts"));
+    }
+    if (config.timers) {
+      parts.push(await this.loadPreludeSource("polyfills/queue-microtask.ts"));
+      parts.push(await this.loadPreludeSource("polyfills/timers.ts"));
+    }
+    if (config.randomValues) {
+      parts.push(await this.loadPreludeSource("polyfills/random-values.ts"));
+    }
+    if (config.url) {
+      parts.push(await getUrlPolyfillBundle());
+    }
+
+    const prelude = parts.join("\n");
+    this.preludeCache.set(key, prelude);
+    return prelude;
+  }
+
+  private async loadPreludeSource(relative: string): Promise<string> {
+    const candidates = [
+      new URL(`../src/${relative}`, import.meta.url),
+      new URL(relative.replace(/\.ts$/, ".js"), import.meta.url),
+    ];
+    for (const url of candidates) {
+      try {
+        const source = await fs.readFile(url, "utf8");
+        return await transpileTypeScript(source);
+      } catch {}
+    }
+    throw new Error(`Failed to load prelude source: ${relative}`);
   }
 
   private async terminateExecution(worker: WorkerSlot): Promise<void> {
@@ -826,6 +1175,50 @@ export default {
       queueTtlMs: { type: "integer", minimum: 1 },
       maxCodeSizeBytes: { type: "integer", minimum: 1024 },
       memoryLimitMb: { type: "integer", minimum: 16 },
+      redactionPatterns: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "Additional redaction path patterns merged with the host-enforced baseline for this module's logs",
+      },
+      bindings: {
+        type: "object",
+        description:
+          "Opt-in sandbox bindings that expose extra Web/Browser-standard globals. All bindings are disabled by default; enabling url also implies textCodecs.",
+        properties: {
+          base64: {
+            type: "boolean",
+            description:
+              "Expose btoa(str)/atob(str) for Base64 encode/decode of Latin-1 strings. Low risk; obfuscates data in output only.",
+          },
+          textCodecs: {
+            type: "boolean",
+            description:
+              "Expose TextEncoder/TextDecoder for UTF-8 encode/decode between strings and Uint8Array. Low risk.",
+          },
+          url: {
+            type: "boolean",
+            description:
+              "Expose URL/URLSearchParams for WHATWG URL parsing. Implies textCodecs. Low risk; pure string parsing.",
+          },
+          timers: {
+            type: "boolean",
+            description:
+              "Expose setTimeout/setInterval/clearTimeout/clearInterval/queueMicrotask, host-supervised (max 60000ms delay, 16 concurrent). Moderate risk; occupies pool slots until timeout.",
+          },
+          randomValues: {
+            type: "boolean",
+            description:
+              "Expose crypto.getRandomValues()/crypto.randomUUID() sourced from the host. Low risk; consumes host entropy.",
+          },
+          fullConsole: {
+            type: "boolean",
+            description:
+              "Route all remaining console methods (warn/info/debug/table/trace/time/count/group/assert) to stdout. Low risk; log flooding.",
+          },
+        },
+        additionalProperties: false,
+      },
     },
     additionalProperties: false,
   },

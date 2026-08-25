@@ -3,11 +3,14 @@ import dns from "node:dns/promises";
 import ipaddr from "ipaddr.js";
 
 import { HttpError } from "@/models/error.model";
+import { fetchWithRegistryAuth } from "@/utils/registry-auth.util";
 
 export const MAX_REDIRECTS = 5;
 export const DOWNLOAD_TIMEOUT_MS = 10_000;
 
 type ParsedCIDR = [ipaddr.IPv4 | ipaddr.IPv6, number];
+
+export type { ParsedCIDR };
 
 let cachedAllowedIPs: string | undefined;
 let cachedAllowedCIDRs: ParsedCIDR[] = [];
@@ -19,7 +22,7 @@ function isTruthy(value?: string): boolean {
   return value === "1" || value?.toLowerCase() === "true";
 }
 
-function parseCIDRList(value?: string): ParsedCIDR[] {
+export function parseCIDRList(value?: string): ParsedCIDR[] {
   if (!value?.trim()) return [];
 
   return value
@@ -54,7 +57,7 @@ function getBlockedCIDRs(): ParsedCIDR[] {
 function isBlockAllRegistriesEnabled(): boolean {
   return isTruthy(process.env.CYRNEL_BLOCK_ALL_REGISTRIES);
 }
-function matchesCIDRs(address: string, cidrs: ParsedCIDR[]): boolean {
+export function matchesCIDRs(address: string, cidrs: ParsedCIDR[]): boolean {
   const parsed = ipaddr.process(address);
 
   return cidrs.some(
@@ -139,12 +142,11 @@ async function fetchStream(
 
     let hopResponse: Response;
     try {
-      hopResponse = await fetch(currentUrl, {
+      ({ response: hopResponse } = await fetchWithRegistryAuth(currentUrl, {
         method: "GET",
         headers,
         signal,
-        redirect: "manual",
-      });
+      }));
     } catch {
       if (signal?.aborted)
         throw new HttpError(502, `${label} download timed out.`);

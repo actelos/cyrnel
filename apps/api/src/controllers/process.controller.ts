@@ -8,6 +8,7 @@ import {
   type ProcessState,
 } from "@/models/process.model";
 import type { ProcessService } from "@/services/process.service";
+import { paginationQuerySchema } from "@/utils/pagination.util";
 import { parseOrHttpError } from "@/utils/validation.util";
 
 const createProcessBodySchema = z
@@ -122,14 +123,19 @@ export async function listProcesses(
   req: Request,
   res: Response,
 ): Promise<void> {
+  const pagination = parseOrHttpError(
+    paginationQuerySchema,
+    req.query ?? {},
+    "Query parameters must be an object.",
+  );
   const filters: FilterProcessInput = {
     ref: parseOptional(refSchema("query"), req.query.ref),
     state: parseOptional(stateSchema, req.query.state),
     exitState: parseOptional(statusSchema, req.query.status),
+    limit: pagination.limit,
+    cursor: pagination.cursor,
   };
-  res
-    .status(200)
-    .json({ processes: await getProcessService(req).list(filters) });
+  res.status(200).json(await getProcessService(req).list(filters));
 }
 
 export async function createProcess(
@@ -195,6 +201,13 @@ export async function getProcessStderr(
 
 export async function killProcess(req: Request, res: Response): Promise<void> {
   res.status(200).json(await getProcessService(req).kill(parseId(req)));
+}
+
+export async function unloadProcess(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  res.status(200).json(await getProcessService(req).unload(parseId(req)));
 }
 
 export async function deleteProcess(

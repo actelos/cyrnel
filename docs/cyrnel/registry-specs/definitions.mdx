@@ -1,0 +1,112 @@
+---
+title: "Definitions"
+description: "The definitions.v1 capability: service definitions, browse pages, version descriptors"
+sidebarTitle: "Definitions"
+---
+
+The `definitions.v1` capability distributes **service definitions**.
+Today a definition is an OpenAPI 3.0 document; an adapter generates a
+service (with tools) from it. See [Definition kinds](/cyrnel/module-specs/definition-kinds)
+and [Adapter modules](/cyrnel/docs/adapters-modules) for what Cyrnel can
+ingest.
+
+## Browse page
+
+`GET <capability URL>` (e.g. `/definitions/v1`) returns a catalog page:
+
+```json
+{
+  "definitions": [
+    {
+      "id": "github",
+      "name": "GitHub",
+      "description": "GitHub issues, PRs and repository tooling",
+      "kind": "openapi@3.0",
+      "source": "/definitions/github",
+      "icon": { "url": "/definitions/github/icon", "hash": "9f86d081..." }
+    }
+  ],
+  "nextCursor": "Mg"
+}
+```
+
+Pagination is covered in [Pagination](/cyrnel/registry-specs/pagination).
+
+### Entry schema
+
+| Field | Type | Rules |
+| --- | --- | --- |
+| `id` | string | **Required.** Slug matching `^[A-Za-z0-9_-]+$`. |
+| `source` | string | **Required.** URL of the version descriptor; must resolve (after trimming) to the registry's origin. |
+| `kind` | string | Optional but strongly recommended: `<identifier>@<semver-version>`, e.g. `openapi@3.0`. Used for adapter selection and `GET /services/install/adapters?kind=...`. |
+| `name`, `description` | string | Optional; non-empty if present. |
+| `icon` | object `{url, hash}` | Optional; both `url` and `hash` must be non-empty strings. |
+
+An invalid entry (bad slug, missing/mis-scoped `source`, malformed
+`icon`) fails the **whole page** with a `400`.
+
+### Query parameters
+
+Cyrnel forwards the browse request with `query`, `kind`, `cursor` and
+`limit`. All filtering is **advisory**: the registry decides how to apply
+it, and Cyrnel never filters results client-side (that would break
+pagination). The runtime forwards `kind` (the `adapter` hint historically
+documented in the OpenAPI spec is **not** used at runtime).
+
+## Version descriptor
+
+`GET <entry.source>`: no pagination, returns the item's version matrix:
+
+```json
+{
+  "latestVersion": "1.0.0",
+  "versions": {
+    "1.0.0": {
+      "downloadUrl": "https://static.example/openapi/github-1.0.0.json",
+      "hash": "9f86d081...",
+      "id": "github",
+      "kind": "openapi@3.0",
+      "engines": { "cyrnel": "^3.0.0" }
+    }
+  }
+}
+```
+
+| Field | Type | Rules |
+| --- | --- | --- |
+| `latestVersion` | string | **Required.** Valid semver; must reference a key in `versions`. |
+| `versions` | object | **Required.** Keys are valid semver versions. |
+| `downloadUrl` | string | **Required** per version. May be off-origin (no same-origin rule). |
+| `hash` | string | Optional. Hex digest Cyrnel verifies against the downloaded bytes. |
+| `id` | string | Optional. Default service id when the install request doesn't supply one. It must be a valid JavaScript identifier (`^[A-Za-z_$][A-Za-z0-9_$]*$`) since it becomes the service id. |
+| `kind` | string | Optional. `<identifier>@<version>` hint (validator allowed). |
+| `icon` | object | Optional `{url, hash}`, both non-empty strings. |
+| `engines` | object | Optional `{cyrnel: "<semver-range>"}`. Validated structurally for services but **not enforced** (it is enforced for modules). |
+
+### Version selection
+
+- No `version` / `version: "latest"` → the `latestVersion` entry.
+- A semver range → the best matching `versions` key via `semver.maxSatisfying`.
+- No matching version → `404 Service registry has no version satisfying '<constraint>'.`
+
+## Installing a definition
+
+1. Cyrnel GETs the descriptor, picks the version, and (unless the request
+   names an adapter) selects the best compatible **active** adapter via
+   the [compatibility ranking](/cyrnel/registry-specs/install-and-update).
+2. In parallel it downloads `downloadUrl` (30 MiB cap) and the optional
+   icon (256 KiB cap).
+3. The downloaded bytes are sha-256 hashed and compared to `hash`:
+   `400 Definition content hash does not match registry metadata hash.`
+4. The adapter parses the OpenAPI document and generates the service +
+   tools.
+
+If only `engines` changed across versions, services are unaffected - but
+you should still advertise hashes; without one, Cyrnel cannot detect
+mutable downloads.
+
+## Icons
+
+Icons are optional, PNG/WebP only, capped at 256 KiB, and hash-verified
+against the entry. Serve them from the registry's origin (the entry `icon`
+URL and the browse page are subject to the same-origin rule).

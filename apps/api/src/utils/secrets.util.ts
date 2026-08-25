@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { logger } from "@/logger";
+import { logger } from "@/infra/logging";
 import { HttpError } from "@/models/error.model";
 import type { EncryptedSecretsPayload } from "@/models/secrets.model";
 
@@ -50,17 +50,20 @@ function getAllKeys(): Array<{ id: string; key: Buffer }> {
   if (previous.some((k) => k.id === primary.id))
     throw new HttpError(
       500,
-      "Primary secrets key collides with a previous key — check CYRNEL_SECRETS_KEY and CYRNEL_SECRETS_PREVIOUS_KEYS.",
+      "Primary secrets key collides with a previous key - check CYRNEL_SECRETS_KEY and CYRNEL_SECRETS_PREVIOUS_KEYS.",
     );
 
   return [primary, ...previous];
 }
 
 let cachedPrimaryKeyId: string | null = null;
+let cachedPrimaryKeyRaw: string | null = null;
 
 export function getPrimaryKeyId(): string {
-  if (!cachedPrimaryKeyId) {
+  const currentRaw = process.env.CYRNEL_SECRETS_KEY ?? null;
+  if (!cachedPrimaryKeyId || cachedPrimaryKeyRaw !== currentRaw) {
     cachedPrimaryKeyId = getPrimaryKey().id;
+    cachedPrimaryKeyRaw = currentRaw;
   }
   return cachedPrimaryKeyId;
 }
@@ -103,10 +106,13 @@ export async function decryptAndMaybeReEncrypt(
     try {
       const reEncrypted = encryptSecrets(secrets);
       await persist(reEncrypted);
-      logger.debug(logMeta, "Re-encrypted secrets with primary key");
+      logger.debug(
+        { event: "secrets-reencrypted", ...logMeta },
+        "Re-encrypted secrets with primary key",
+      );
     } catch (err) {
       logger.warn(
-        { err, ...logMeta },
+        { event: "secrets-reencrypt-persist-failed", err, ...logMeta },
         "Failed to persist re-encrypted secrets",
       );
     }

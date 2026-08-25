@@ -65,25 +65,31 @@ describe("tool.controller", () => {
   });
 
   describe("listTools", () => {
-    it("returns tools wrapped under { tools } with no filters by default", async () => {
+    it("returns the paginated envelope with no filters by default", async () => {
       const res = makeRes();
-      servicesService.listTools.mockResolvedValue([]);
+      const envelope = { items: [], nextCursor: null, hasMore: false };
+      servicesService.listTools.mockResolvedValue(envelope);
 
       await listTools(makeReq(), cast(res));
 
       expect(servicesService.listTools).toHaveBeenCalledWith({
         serviceId: undefined,
         query: undefined,
-        limit: undefined,
+        limit: 20,
         enabled: undefined,
       });
       expect(res.status).toHaveBeenCalledWith(200);
-      expect(res.json).toHaveBeenCalledWith({ tools: [] });
+      expect(res.json).toHaveBeenCalledWith(envelope);
     });
 
     it("forwards serviceId, query, limit, and enabled", async () => {
       const res = makeRes();
-      servicesService.listTools.mockResolvedValue([{ id: "t1" }]);
+      const envelope = {
+        items: [{ id: "t1" }],
+        nextCursor: null,
+        hasMore: false,
+      };
+      servicesService.listTools.mockResolvedValue(envelope);
 
       await listTools(
         makeReq({
@@ -103,12 +109,16 @@ describe("tool.controller", () => {
         limit: 10,
         enabled: true,
       });
-      expect(res.json).toHaveBeenCalledWith({ tools: [{ id: "t1" }] });
+      expect(res.json).toHaveBeenCalledWith(envelope);
     });
 
     it("trims serviceId and query, and drops them when empty after trim", async () => {
       const res = makeRes();
-      servicesService.listTools.mockResolvedValue([]);
+      servicesService.listTools.mockResolvedValue({
+        items: [],
+        nextCursor: null,
+        hasMore: false,
+      });
 
       await listTools(
         makeReq({
@@ -120,7 +130,7 @@ describe("tool.controller", () => {
       expect(servicesService.listTools).toHaveBeenCalledWith({
         serviceId: undefined,
         query: undefined,
-        limit: undefined,
+        limit: 20,
         enabled: undefined,
       });
     });
@@ -153,14 +163,18 @@ describe("tool.controller", () => {
       ).rejects.toBeInstanceOf(HttpError);
     });
 
-    it("accepts a large positive limit", async () => {
+    it("clamps an oversized limit to 100", async () => {
       const res = makeRes();
-      servicesService.listTools.mockResolvedValue([]);
+      servicesService.listTools.mockResolvedValue({
+        items: [],
+        nextCursor: null,
+        hasMore: false,
+      });
 
       await listTools(makeReq({ query: { limit: "1000" } }), cast(res));
 
       expect(servicesService.listTools).toHaveBeenCalledWith(
-        expect.objectContaining({ limit: 1000 }),
+        expect.objectContaining({ limit: 100 }),
       );
     });
   });

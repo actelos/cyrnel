@@ -123,6 +123,8 @@ what each one does. The two most important ones beyond the secrets key are:
 - `CYRNEL_API_KEY`: If set, every request to the API must include
   `Authorization: Bearer <key>`. Leave it unset for unauthenticated local
   development on `127.0.0.1`.
+- `CYRNEL_EMBEDDING_MODEL`: Local ONNX embedding model (defaults to `Xenova/bge-small-en-v1.5`)
+- `CYRNEL_RECONCILE_INTERVAL_MS`: Background search vector reconciliation sweep interval in ms. `0` disables the recurring interval, and valid values are integers from `0` through `2147483647` (defaults to `1800000`)
 
 ### Initialise the database
 
@@ -212,6 +214,11 @@ cyrnel/
 ├── docs/                       # In-repo documentation
 ```
 
+### Local Dev Quirks & Native Dependencies
+
+- `@xenova/transformers`: Used for running local ONNX embeddings in `apps/api`.
+- `sqlite-vec`: Loaded as a native extension inside `apps/api` for high-performance vector similarity search alongside SQLite FTS5. Ensure your local environment has standard build tools available if native modules compile from source.
+
 ## Testing
 
 Cyrnel uses [Vitest](https://vitest.dev/) across all workspaces. Unit tests
@@ -282,6 +289,14 @@ When your PR includes a user-visible change to a publishable package
 ```sh
 pnpm changeset
 ```
+
+> **`CYRNEL_CORE_VERSION` must mirror the SDK version.** The API's
+> `apps/api/src/constants.ts` advertises the engine version that custom
+> modules are validated against (`engines.cyrnel` in `module.json`), and it
+> represents the `@cyrnel/sdk` version the engine bundles. Bump it in the
+> same commit that releases a new SDK version (e.g. `3.0.0` → `3.1.0`).
+> `apps/api/src/constants.test.ts` enforces the match and fails CI if they
+> drift.
 
 ## Create a pull request
 

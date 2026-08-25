@@ -1,5 +1,5 @@
+import type { ModuleLogBindings, ModuleLogger } from "@cyrnel/sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
-
 import { makeRequest } from "./client";
 
 vi.mock("./client", async (importOriginal) => {
@@ -24,8 +24,30 @@ describe("openapi module default export", () => {
 
   it("instantiates an adapter that accepts the new setup context", async () => {
     const adapter = oapi.instantiate();
+    const mockLogger: ModuleLogger<ModuleLogBindings> = {
+      context: {},
+      child: <Next extends ModuleLogBindings>(
+        bindings: Next,
+      ): ModuleLogger<ModuleLogBindings & Next> =>
+        ({
+          ...mockLogger,
+          context: { ...mockLogger.context, ...bindings },
+        }) as ModuleLogger<ModuleLogBindings & Next>,
+      redact: () => mockLogger,
+      isLevelEnabled: () => true,
+      trace: () => {},
+      debug: () => {},
+      info: () => {},
+      warn: () => {},
+      error: () => {},
+      fatal: () => {},
+    };
     await expect(
-      adapter.setup({ config: {}, secrets: {} }),
+      adapter.setup({
+        config: {},
+        secrets: {},
+        logger: mockLogger,
+      }),
     ).resolves.toBeUndefined();
     await adapter.teardown();
   });

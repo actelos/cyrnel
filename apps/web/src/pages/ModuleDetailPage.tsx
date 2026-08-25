@@ -5,6 +5,7 @@ import { useNavigate, useParams } from "react-router";
 import remarkGfm from "remark-gfm";
 import useSWR, { useSWRConfig } from "swr";
 import { z } from "zod";
+import { EntityIcon } from "@/components/entity-icon";
 import JsonSchemaForm from "@/components/JsonSchemaForm";
 import {
   AlertDialog,
@@ -41,6 +42,7 @@ const moduleDetailSchema = z.object({
   id: z.string(),
   name: z.string(),
   type: moduleTypeSchema,
+  summary: z.string(),
   description: z.string(),
   version: z.string(),
   hash: z.string(),
@@ -48,12 +50,14 @@ const moduleDetailSchema = z.object({
   isBuiltin: z.boolean(),
   enabled: z.boolean(),
   missing: z.boolean(),
+  hasIcon: z.boolean(),
   configSchema: z.record(z.string(), z.unknown()),
   secretsSchema: z.record(z.string(), z.unknown()),
 });
 
 const moduleConfigSchema = z.object({
-  config: z.record(z.string(), z.unknown()),
+  config: z.record(z.string(), z.unknown()).nullable(),
+  outdated: z.array(z.string()).default([]),
 });
 
 const moduleConfigSchemaSchema = z.object({
@@ -66,6 +70,7 @@ const moduleSecretsSchemaSchema = z.object({
 
 const secretsPresenceSchema = z.object({
   present: z.array(z.string()),
+  outdated: z.array(z.string()).default([]),
 });
 
 function buildFormSkeleton(
@@ -204,13 +209,20 @@ export default function ModuleDetailPage() {
     [moduleSecretsSchemaPayload, presentSet],
   );
 
+  const refreshModuleLists = async () => {
+    await mutate(
+      (key) =>
+        typeof key === "string" && key.startsWith(`${buildUrl("/modules")}?`),
+    );
+  };
+
   const handleRefetchAll = async () => {
     if (configUrl) await mutate(configUrl);
     if (secretsUrl) await mutate(secretsUrl);
     if (secretsSchemaUrl) await mutate(secretsSchemaUrl);
     if (configSchemaUrl) await mutate(configSchemaUrl);
     if (moduleDetailUrl) await mutate(moduleDetailUrl);
-    await mutate(buildUrl("/modules"));
+    await refreshModuleLists();
   };
 
   const handleSetEnabled = async (id: string, enabled: boolean) => {
@@ -222,7 +234,7 @@ export default function ModuleDetailPage() {
         body: JSON.stringify({ enabled }),
       });
 
-      await mutate(buildUrl("/modules"));
+      await refreshModuleLists();
       if (moduleDetailUrl) {
         await mutate(moduleDetailUrl);
       }
@@ -291,7 +303,7 @@ export default function ModuleDetailPage() {
       if (moduleDetailUrl) {
         await mutate(moduleDetailUrl);
       }
-      await mutate(buildUrl("/modules"));
+      await refreshModuleLists();
       addNotification({
         type: "success",
         title: "Success",
@@ -330,7 +342,7 @@ export default function ModuleDetailPage() {
       if (moduleDetailUrl) {
         await mutate(moduleDetailUrl);
       }
-      await mutate(buildUrl("/modules"));
+      await refreshModuleLists();
       addNotification({
         type: "success",
         title: "Success",
@@ -353,7 +365,7 @@ export default function ModuleDetailPage() {
       await apiFetch(buildUrl(`/modules/${id}`), {
         method: "DELETE",
       });
-      await mutate(buildUrl("/modules"));
+      await refreshModuleLists();
       addNotification({
         type: "success",
         title: "Success",
@@ -415,15 +427,23 @@ export default function ModuleDetailPage() {
         <Card>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-lg font-semibold">{moduleDetail.name}</h2>
-                <Badge variant="secondary">{moduleDetail.type}</Badge>
-                {moduleDetail.isBuiltin ? (
-                  <Badge variant="outline">built-in</Badge>
-                ) : null}
-                {moduleDetail.missing ? (
-                  <Badge variant="destructive">missing</Badge>
-                ) : null}
+              <div className="flex items-center gap-3">
+                <EntityIcon
+                  kind="module"
+                  id={moduleDetail.id}
+                  label={moduleDetail.name}
+                  hasIcon={moduleDetail.hasIcon}
+                />
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-lg font-semibold">{moduleDetail.name}</h2>
+                  <Badge variant="secondary">{moduleDetail.type}</Badge>
+                  {moduleDetail.isBuiltin ? (
+                    <Badge variant="outline">built-in</Badge>
+                  ) : null}
+                  {moduleDetail.missing ? (
+                    <Badge variant="destructive">missing</Badge>
+                  ) : null}
+                </div>
               </div>
               <p className="text-muted-foreground text-xs font-mono">
                 {moduleDetail.id}
@@ -574,6 +594,11 @@ export default function ModuleDetailPage() {
                   </>
                 ) : null}
               </div>
+              {moduleDetail.summary ? (
+                <p className="text-muted-foreground text-sm">
+                  {moduleDetail.summary}
+                </p>
+              ) : null}
               {moduleDetail.description ? (
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
@@ -602,6 +627,7 @@ export default function ModuleDetailPage() {
               (moduleConfig?.config ?? {}) as Record<string, unknown>
             }
             patchUrl={buildUrl(`/modules/${moduleDetail.id}/config`)}
+            outdatedPaths={moduleConfig?.outdated}
             onSaved={handleRefetchAll}
           />
           <JsonSchemaForm
@@ -610,6 +636,7 @@ export default function ModuleDetailPage() {
             currentValues={currentSecretsValues}
             presentSet={presentSet}
             patchUrl={buildUrl(`/modules/${moduleDetail.id}/secrets`)}
+            outdatedPaths={moduleSecretsPresence?.outdated}
             onSaved={handleRefetchAll}
           />
         </div>

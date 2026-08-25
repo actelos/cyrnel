@@ -1,6 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
-
-import { logger } from "@/logger";
+import { logger } from "@/infra/logging";
 import { HttpError } from "@/models/error.model";
 
 export function errorMiddleware(
@@ -12,21 +11,34 @@ export function errorMiddleware(
   (req as Request & { err?: unknown }).err = error;
 
   const isHttpError = error instanceof HttpError;
-  const { statusCode, message } = isHttpError
+  const { statusCode, message, code } = isHttpError
     ? error
-    : { statusCode: 500, message: "Internal server error." };
+    : { statusCode: 500, message: "Internal server error.", code: undefined };
 
   if (isHttpError) {
     logger.debug(
-      { err: error, method: req.method, url: req.originalUrl, statusCode },
+      {
+        event: "http-error-rejected",
+        err: error,
+        method: req.method,
+        url: req.originalUrl,
+        statusCode,
+      },
       "Request rejected with HttpError",
     );
   } else {
     logger.error(
-      { err: error, method: req.method, url: req.originalUrl },
+      {
+        event: "unhandled-error",
+        err: error,
+        method: req.method,
+        url: req.originalUrl,
+      },
       "Unhandled error in request pipeline",
     );
   }
 
-  res.status(statusCode).json({ error: message });
+  res
+    .status(statusCode)
+    .json(code !== undefined ? { error: message, code } : { error: message });
 }

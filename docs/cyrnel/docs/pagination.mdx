@@ -1,0 +1,42 @@
+# Pagination
+
+Most list endpoints in the API (`GET /modules`, `GET /services`,
+`GET /tools`, `GET /processes`, `GET /logs`) return the same paginated
+envelope:
+
+```json
+{
+  "items": [],
+  "nextCursor": null,
+  "hasMore": false
+}
+```
+
+## Paging
+
+- Pass the previous response's `nextCursor` back as the `cursor` query
+  parameter to fetch the next page.
+- `nextCursor` is `null` when there are no more items; stop paging then.
+- `limit` is a positive integer, 1–100, defaulting to 20. Values above 100
+  are silently clamped to 100.
+- Items are ordered by a stable, unique sort key per endpoint (newest-first
+  for modules, services, processes, and logs; `(serviceId, id)` ascending for
+  tools). Cursors encode a position in that ordering, **not** the filters —
+  restart from the first page (omit `cursor`) whenever the filters change.
+
+> **Note:** registry browse endpoints (`GET /registries/:id/definitions`,
+> `GET /registries/:id/modules`) return `{ definitions | modules, nextCursor }`
+> rather than the `{ items, nextCursor, hasMore }` envelope above, but use the
+> same `cursor`/`limit` query parameters (`limit` clamped to 100, default 20).
+
+## Errors
+
+A malformed, re-encoded, or expired cursor returns `400` with a stable error
+code on the body:
+
+| Code | Meaning |
+| --- | --- |
+| `invalid_cursor` | Cursor shape, key types, or arity do not match the endpoint |
+| `cursor_expired` | Cursor was issued by an unsupported pagination version |
+
+On either error, drop the cursor and restart from the first page.

@@ -1,0 +1,151 @@
+---
+title: "Modules"
+description: "The modules.v1 capability: module archives, manifests, browse pages, descriptors"
+sidebarTitle: "Modules"
+---
+
+The `modules.v1` capability distributes **modules**: the adapter and
+environment modules Cyrnel loads at runtime. Modules travel as
+zstd-compressed tar archives and are verified by hash and manifest before
+registration.
+
+## Module types
+
+| Type | Role |
+| --- | --- |
+| `adapter` | Generates services from definitions and translates tool invocations into calls to end services (e.g. an OpenAPI adapter). |
+| `environment` | Executes submitted code and exposes bindings to the sandbox (e.g. the bundled `typescript-ivm`). |
+
+See [Module interfaces](/cyrnel/module-specs/module) and the Module Specification
+tab for the module runtime contracts - a registry only affects their
+*distribution*, not their implementation.
+
+## Browse page
+
+`GET <capability URL>` (e.g. `/modules/v1`):
+
+```json
+{
+  "modules": [
+    {
+      "id": "github",
+      "name": "GitHub",
+      "description": "GitHub issues, PRs and repository tooling",
+      "type": "adapter",
+      "compatibility": [{ "identifier": "openapi", "version": ">=3.0 <4.0" }],
+      "source": "/modules/github",
+      "icon": { "url": "/modules/github/icon", "hash": "9f86d081..." }
+    }
+  ],
+  "nextCursor": "Mg"
+}
+```
+
+### Entry schema
+
+| Field | Type | Rules |
+| --- | --- | --- |
+| `id` | string | **Required.** Slug matching `^[A-Za-z0-9_-]+$`. |
+| `source` | string | **Required.** Version descriptor URL; must resolve to the registry's origin. |
+| `type` | string | **Required.** Exactly `"adapter"` or `"environment"`. |
+| `compatibility` | array | Optional list of `{identifier, version}`: describes which definition kinds this **adapter** can consume (e.g. `openapi` `>=3.0 <4.0`). Ignored for environments; used for install-time adapter ranking. |
+| `name`, `description` | string | Optional; non-empty if present. |
+| `icon` | object | Optional `{url, hash}`, both non-empty strings. |
+
+An invalid entry fails the **whole page** with `400`.
+
+### Query parameters
+
+Cyrnel forwards `query`, `type` (`adapter` | `environment`), `cursor`, and
+`limit`. Filtering is advisory; Cyrnel never filters client-side.
+
+## Version descriptor
+
+`GET <entry.source>`:
+
+```json
+{
+  "latestVersion": "1.0.0",
+  "versions": {
+    "1.0.0": {
+      "downloadUrl": "https://static.example/modules/github-1.0.0.tar.zst",
+      "hash": "9f86d081...",
+      "engines": { "cyrnel": "^3.0.0" }
+    }
+  }
+}
+```
+
+| Field | Type | Rules |
+| --- | --- | --- |
+| `latestVersion` | string | **Required.** Valid semver key of `versions`. |
+| `versions` | object | **Required.** Keys are valid semver. |
+| `downloadUrl` | string | **Required** per version; no same-origin rule (may be off-origin). |
+| `hash` | string | Optional; verified against the downloaded archive bytes. |
+| `engines` | object | Optional `{cyrnel: "<semver-range>"}`. **Enforced for modules**: a module whose `engines.cyrnel` range does not match the running Cyrnel core version (`3.0.0`) refuses to install. |
+| `icon` | object | Optional `{url, hash}` in descriptors (like definitions). |
+
+Version selection matches the
+[definitions semantics](/cyrnel/registry-specs/definitions#version-selection):
+latest by default, `maxSatisfying` for a range, `404 ... no version
+satisfying '<constraint>'.` on no match.
+
+## Archive format
+
+The artifact is a **zstd-compressed tar** (conventionally `.tar.zst`) of at
+most **10 MiB**, containing at least a `module.json` manifest and the
+module's entry file(s):
+
+```text
+module.json
+main.js
+```
+
+`module.json`:
+
+```json
+{
+  "id": "github",
+  "name": "GitHub",
+  "version": "1.0.0",
+  "description": "GitHub issues, PRs and repository tooling",
+  "type": "adapter",
+  "main": "main.js",
+  "engines": { "cyrnel": "^3.0.0" },
+  "compatibility": [{ "identifier": "openapi", "version": ">=3.0 <4.0" }]
+}
+```
+
+Required fields: `id`, `name`, `version`, `description`, `type`, `main`.
+Optional: `engines`, `compatibility`, `summary`. `main` must exist inside
+the archive.
+
+## Install & integrity checks
+
+Cyrnel verifies, in order:
+
+1. **Engine compatibility**: `engines.cyrnel` must satisfy the running
+   core version.
+2. **Archive hash**: downloaded bytes sha-256'd and compared to the
+   descriptor `hash`: `400 Archive content hash does not match registry
+   metadata hash.`
+3. **Manifest equality**: `manifest.version` must equal the resolved
+   descriptor version, and later `manifest.id`/`manifest.type` must match
+   the stored record on updates.
+4. **Id collision**: installing an already-registered module id yields
+   `409`.
+
+## Updates
+
+Updates re-resolve the **stored `source` URL** with the stored constraint
+(or latest for a manual update). The descriptor URL must therefore stay
+stable and serve an accurate `latestVersion` for the module's lifetime on
+a server. On update Cyrnel re-downloads, re-verifies, swaps the module
+directory (keeping a `.bak` and rolling back on failure), and regenerates
+any adapter-generated services. Failed regenerations mark affected
+services **stale**: stale services can't be enabled or invoked until
+re-synced. Modules that disappear can be marked `missing`; services from
+them become effectively disabled.
+
+See [Install & update](/cyrnel/registry-specs/install-and-update) for the
+full behavior.

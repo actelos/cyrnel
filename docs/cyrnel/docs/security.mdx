@@ -20,8 +20,12 @@ web UI) is a tool the operator chooses to trust.
 
 - **Authentication is one static bearer token** (`CYRNEL_API_KEY`). No scopes,
   no expiry. Anonymous mode is intended for `127.0.0.1` only.
-- **No rate limiting** is enforced by the API. A noisy or hostile caller
-  will be felt directly by adapters and end services.
+- **Rate limiting** is enforced per route (e.g. `POST /processes` 20/min,
+  `POST /registries/:id/auth` 5/min, `POST /modules/install` 5/min,
+  `POST /services/install` 10/min) plus an optional global limiter via
+  `CYRNEL_RATE_LIMIT_MAX` / `CYRNEL_RATE_LIMIT_WINDOW_MS`. A caller that
+  exceeds a limit receives `429`. Run behind your own gateway if you need
+  stricter controls.
 - **Error envelopes** are intentionally terse (`{ "error": "..." }`). They
   do not leak stack traces, but `5xx` messages occasionally include
   exception text. Don't proxy them to untrusted users verbatim.
@@ -184,6 +188,41 @@ redirect targets, every hop is validated before the request proceeds.
 If the db leaks, the encrypted secrets are protected by the key only.
 Configuration is not, operators must avoid storing credentials in
 `config` blocks. The `secretsSchema` exists for that exact reason; use it.
+
+## Logging & Scrubbing
+
+The API persists log entries to a JSONL file (default
+`<CYRNEL_DATA_DIR>/logs/app.log`, `CYRNEL_LOG_FILE`, `false` disables)
+and keeps an in-memory ring buffer (`CYRNEL_LOG_RING_BUFFER`, default
+10000 entries) served by `GET /logs` (paginated envelope `{ items,
+  nextCursor, hasMore }`, same cursor rules as the other list endpoints —
+  cursors require `sort=timestamp:desc`, any other `sort` returns `400
+invalid_cursor`) and streamed via `GET /logs/stream`.
+
+- **Full request/response bodies are persisted**, not just request lines,
+  making this the observability source for debugging service calls.
+- **Secrets are scrubbed on write.** Every entry is scanned before
+  persistence: object keys matching `secret`/`token`/`passw`/`api key`/
+  `authorization`/`cookie` are replaced with `***REDACTED***`, as are
+  bearer tokens, `key=value`/`key: value` pairs for those keys, long
+  base64 or `sk-…` tokens, and 48+ character strings that look like keys.
+  Scrubbing happens at write time, so the ring buffer already holds
+  redacted entries and a leak of the log file never exposes those values.
+- **Modules add their own reduction on top.** A module may declare its own
+  `redact()` patterns (e.g. a `redactionPatterns` field in its `configSchema`)
+  that apply additively to the host baseline above, so a module can scrub
+  values specific to its own upstream responses without the operator editing
+  server config. A module can never disable the host baseline.
+- **The live SSE stream carries the same redacted entries.**
+- Logs do not include the operator's own `CYRNEL_API_KEY` or
+  `CYRNEL_SECRETS_KEY`.
+
+Operators should treat the log file as sensitive data and protect it at
+rest the same way as the database: values that are not covered by the
+built-in patterns (for example secrets returned inside a service response
+body in an unusual shape) can still appear in logs. Review
+`CYRNEL_LOG_MAX_FILES` / `CYRNEL_LOG_ROTATION_MB` for disk hygiene
+(defaults keep up to 5 rotated files of 10 MB each).
 
 ## Key Rotation Procedure
 

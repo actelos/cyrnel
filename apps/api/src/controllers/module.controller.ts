@@ -1,15 +1,16 @@
 import type { Request, Response } from "express";
 import type { Operation } from "fast-json-patch";
 import { z } from "zod";
+import { sendIconResponse } from "@/controllers/icon-response.util";
 import { HttpError } from "@/models/error.model";
 import {
   type FilterModuleManifestInput,
-  type ListModuleManifestResult,
   MODULE_TYPES,
   type ModuleManifestRecord,
   type ModuleType,
 } from "@/models/modules.model";
 import type { ModuleService } from "@/services/modules.service";
+import { paginationQuerySchema } from "@/utils/pagination.util";
 import { parseOrHttpError } from "@/utils/validation.util";
 
 const nonEmptyTrimmedString = (fieldName: string) =>
@@ -179,6 +180,11 @@ export async function updateModule(req: Request, res: Response): Promise<void> {
 }
 
 export async function listModules(req: Request, res: Response): Promise<void> {
+  const pagination = parseOrHttpError(
+    paginationQuerySchema,
+    req.query,
+    "Invalid query parameters.",
+  );
   const filters: FilterModuleManifestInput = {
     query: parseOptional(
       z
@@ -200,11 +206,12 @@ export async function listModules(req: Request, res: Response): Promise<void> {
     isBuiltin: parseOptional(booleanSchema("isBuiltin"), req.query?.isBuiltin),
     enabled: parseOptional(enabledSchema, req.query?.enabled),
     missing: parseOptional(booleanSchema("missing"), req.query?.missing),
+    limit: pagination.limit,
+    cursor: pagination.cursor,
   };
 
-  const modules: ListModuleManifestResult[] =
-    await getModuleService(req).list(filters);
-  res.status(200).json({ modules });
+  const result = await getModuleService(req).list(filters);
+  res.status(200).json(result);
 }
 
 export async function getModule(req: Request, res: Response): Promise<void> {
@@ -215,6 +222,17 @@ export async function getModule(req: Request, res: Response): Promise<void> {
   if (!module) throw new HttpError(404, `Module '${moduleId}' not found.`);
 
   res.status(200).json(module);
+}
+
+export async function getModuleIcon(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const moduleService = getModuleService(req);
+  const moduleId = parseOrHttpError(moduleIdSchema, req.params.moduleId);
+  const icon = await moduleService.getIcon(moduleId);
+
+  sendIconResponse(res, icon, `Module '${moduleId}'`);
 }
 
 export async function setModuleEnabled(
@@ -247,8 +265,8 @@ export async function getModuleConfiguration(
 ): Promise<void> {
   const moduleService = getModuleService(req);
   const moduleId = parseOrHttpError(moduleIdSchema, req.params.moduleId);
-  const config = await moduleService.getConfig(moduleId);
-  res.status(200).json({ config });
+  const view = await moduleService.getConfigView(moduleId);
+  res.status(200).json(view);
 }
 
 export async function getModuleConfigurationSchema(
@@ -294,9 +312,8 @@ export async function patchModuleConfiguration(
     "Request body must be a JSON Patch array.",
   );
 
-  await moduleService.patchConfig({ id: moduleId, patch });
-  const config = await moduleService.getConfig(moduleId);
-  res.status(200).json({ config });
+  const view = await moduleService.patchConfig({ id: moduleId, patch });
+  res.status(200).json(view);
 }
 
 export async function patchModuleSecrets(

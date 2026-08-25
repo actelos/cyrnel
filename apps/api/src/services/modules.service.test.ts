@@ -119,6 +119,12 @@ const { downloadBinaryMock, decompressMock } = vi.hoisted(() => ({
   decompressMock: vi.fn(),
 }));
 
+const ICON_URL = "https://icons.example.com/m.png";
+const PNG_ICON = Buffer.concat([
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+  Buffer.alloc(16),
+]);
+
 vi.mock("@cyrnel/openapi", () => ({
   default: {
     configSchema: {
@@ -434,7 +440,7 @@ describe("ModuleService", () => {
         const service = new ModuleService(makeBindings(), makeLifecycle());
         await service.initialize(dir);
 
-        const records = await service.list();
+        const records = (await service.list()).items;
         const map = new Map(records.map((r) => [r.id, r]));
         expect(map.get("customMod")).toMatchObject({
           isBuiltin: false,
@@ -895,12 +901,18 @@ describe("ModuleService", () => {
       const service = new ModuleService(makeBindings(), makeLifecycle());
       await service.initialize(MISSING_PATH);
 
-      const rows = await service.list();
+      const rows = (await service.list()).items;
       expect(rows.map((r) => r.id).sort()).toEqual([
         "openapi",
         "typescript-ivm",
       ]);
       for (const row of rows) expect(row.isBuiltin).toBe(true);
+      expect(rows.find((r) => r.id === "openapi")?.summary).toBe(
+        "Import HTTP APIs from OpenAPI documents",
+      );
+      expect(rows.find((r) => r.id === "typescript-ivm")?.summary).toBe(
+        "Run self-contained TypeScript code",
+      );
     });
 
     it("filters by type, enabled, isBuiltin, and query", async () => {
@@ -908,18 +920,30 @@ describe("ModuleService", () => {
       await service.initialize(MISSING_PATH);
 
       expect(
-        (await service.list({ type: "adapter" })).map((r) => r.id),
+        (await service.list({ type: "adapter" })).items.map((r) => r.id),
       ).toEqual(["openapi"]);
       expect(
-        (await service.list({ type: "environment" })).map((r) => r.id),
+        (await service.list({ type: "environment" })).items.map((r) => r.id),
       ).toEqual(["typescript-ivm"]);
       expect(
-        (await service.list({ query: "openapi" })).map((r) => r.id),
+        (await service.list({ query: "openapi" })).items.map((r) => r.id),
       ).toEqual(["openapi"]);
       expect(
-        (await service.list({ query: "openapi adapter" })).map((r) => r.id),
+        (await service.list({ query: "openapi adapter" })).items.map(
+          (r) => r.id,
+        ),
       ).toEqual(["openapi"]);
-      expect(await service.list({ isBuiltin: false })).toHaveLength(0);
+      expect(
+        (await service.list({ query: "import http apis" })).items.map(
+          (r) => r.id,
+        ),
+      ).toEqual(["openapi"]);
+      expect(
+        (await service.list({ query: "self-contained" })).items.map(
+          (r) => r.id,
+        ),
+      ).toEqual(["typescript-ivm"]);
+      expect((await service.list({ isBuiltin: false })).items).toHaveLength(0);
     });
 
     it("get() returns undefined for unknown ids", async () => {
@@ -947,10 +971,34 @@ describe("ModuleService", () => {
       const service = new ModuleService(makeBindings(), makeLifecycle());
       await service.initialize(MISSING_PATH);
 
-      for (const row of await service.list()) {
+      for (const row of (await service.list()).items) {
         expect(row).not.toHaveProperty("configSchema");
         expect(row).not.toHaveProperty("secretsSchema");
       }
+    });
+
+    it("list() pages with keyset cursors across both sort-key columns", async () => {
+      const service = new ModuleService(makeBindings(), makeLifecycle());
+      await service.initialize(MISSING_PATH);
+
+      const first = await service.list({ limit: 1 });
+      expect(first.items).toHaveLength(1);
+      expect(first.hasMore).toBe(true);
+      expect(first.nextCursor).not.toBeNull();
+
+      const second = await service.list({
+        limit: 1,
+        cursor: first.nextCursor ?? undefined,
+      });
+      expect(second.items).toHaveLength(1);
+      expect(second.hasMore).toBe(false);
+      expect(second.nextCursor).toBeNull();
+
+      const seen = new Set([
+        ...first.items.map((r) => r.id),
+        ...second.items.map((r) => r.id),
+      ]);
+      expect(seen).toEqual(new Set(["openapi", "typescript-ivm"]));
     });
   });
 
@@ -1072,7 +1120,7 @@ describe("ModuleService", () => {
       try {
         const service = new ModuleService(makeBindings(), makeLifecycle());
         await service.initialize(dir);
-        let rows = await service.list();
+        let rows = (await service.list()).items;
         expect(rows.map((r) => r.id).sort()).toEqual([
           "openapi",
           "typescript-ivm",
@@ -1111,7 +1159,7 @@ describe("ModuleService", () => {
 
         await service.reload();
 
-        rows = await service.list();
+        rows = (await service.list()).items;
         expect(rows.map((r) => r.id).sort()).toEqual(
           ["freshMod", "openapi", "typescript-ivm"].sort(),
         );
@@ -1356,7 +1404,7 @@ describe("ModuleService", () => {
             id: "nullConfig",
             patch: [{ op: "replace", path: "", value: null }],
           }),
-        ).resolves.toBeUndefined();
+        ).resolves.toEqual({ config: null, outdated: [] });
 
         const stored = await db.run(
           sql`SELECT payload FROM module_configurations WHERE module_id = 'nullConfig'`,
@@ -1515,7 +1563,7 @@ describe("ModuleService", () => {
       ).rejects.toBeInstanceOf(HttpError);
     });
 
-    it("setEnabled refuses to enable when config is invalid", async () => {
+    it("setEnabled tolerates schema-outdated keys in stored config", async () => {
       const service = new ModuleService(makeBindings(), makeLifecycle());
       await db.run(
         sql`INSERT INTO modules (id, name, type, description, enabled, missing)
@@ -1523,7 +1571,7 @@ describe("ModuleService", () => {
       );
       await service.initialize(MISSING_PATH);
 
-      // the validation in setEnabled rejects it.
+      // stored under a looser schema: 'unknown' is now schema-disallowed
       await db.run(
         sql`INSERT INTO module_configurations (module_id, payload, updated_at)
             VALUES ('openapi', '{"unknown":1}', 0)`,
@@ -1531,8 +1579,10 @@ describe("ModuleService", () => {
 
       await expect(
         service.setEnabled({ id: "openapi", enabled: true }),
-      ).rejects.toBeInstanceOf(HttpError);
-      expect(adapterInstances).toHaveLength(0);
+      ).resolves.toBeUndefined();
+
+      const adapter = unwrap(adapterInstances[0], "adapter");
+      expect(adapter.setupCalls[0]).toMatchObject({ config: { timeout: 30 } });
     });
 
     it("config/secrets survive reload() and are still applied on next enable", async () => {
@@ -1559,7 +1609,7 @@ describe("ModuleService", () => {
       await service.initialize(MISSING_PATH);
 
       const result = await service.getSecretsPresence("openapi");
-      expect(result).toEqual({ present: [] });
+      expect(result).toEqual({ present: [], outdated: [] });
     });
 
     it("getSecretsPresence returns paths after secrets are set", async () => {
@@ -1572,7 +1622,137 @@ describe("ModuleService", () => {
       });
 
       const result = await service.getSecretsPresence("openapi");
-      expect(result).toEqual({ present: ["/apiKey"] });
+      expect(result).toEqual({ present: ["/apiKey"], outdated: [] });
+    });
+
+    it("getConfigView filters outdated keys and reports them", async () => {
+      const service = new ModuleService(makeBindings(), makeLifecycle());
+      await service.initialize(MISSING_PATH);
+
+      await db.run(
+        sql`INSERT INTO module_configurations (module_id, payload, updated_at)
+            VALUES ('openapi', '{"stale":1}', 0)`,
+      );
+
+      const view = await service.getConfigView("openapi");
+      expect(view).toEqual({ config: {}, outdated: ["/stale"] });
+    });
+
+    it("patchConfig tolerates pre-existing outdated keys and preserves them", async () => {
+      const service = new ModuleService(makeBindings(), makeLifecycle());
+      await service.initialize(MISSING_PATH);
+
+      await db.run(
+        sql`INSERT INTO module_configurations (module_id, payload, updated_at)
+            VALUES ('openapi', '{"stale":1}', 0)`,
+      );
+
+      const view = await service.patchConfig({
+        id: "openapi",
+        patch: [{ op: "add", path: "/baseUrl", value: "https://x" }],
+      });
+
+      expect(view).toEqual({
+        config: { baseUrl: "https://x", timeout: 30 },
+        outdated: ["/stale"],
+      });
+      expect(await service.getConfig("openapi")).toEqual({
+        baseUrl: "https://x",
+        timeout: 30,
+        stale: 1,
+      });
+    });
+
+    it("patchConfig rejects adding new schema-disallowed keys", async () => {
+      const service = new ModuleService(makeBindings(), makeLifecycle());
+      await service.initialize(MISSING_PATH);
+
+      await expect(
+        service.patchConfig({
+          id: "openapi",
+          patch: [{ op: "add", path: "/freshStale", value: 1 }],
+        }),
+      ).rejects.toBeInstanceOf(HttpError);
+    });
+
+    it("patchConfig treats removes of missing paths as no-ops", async () => {
+      const service = new ModuleService(makeBindings(), makeLifecycle());
+      await service.initialize(MISSING_PATH);
+
+      await db.run(
+        sql`INSERT INTO module_configurations (module_id, payload, updated_at)
+            VALUES ('openapi', '{"baseUrl":"https://x","stale":1}', 0)`,
+      );
+
+      const view = await service.patchConfig({
+        id: "openapi",
+        patch: [
+          { op: "remove", path: "/baseUrl" },
+          { op: "remove", path: "/missing" },
+        ],
+      });
+
+      expect(view).toEqual({ config: { timeout: 30 }, outdated: ["/stale"] });
+      expect(await service.getConfig("openapi")).toEqual({
+        timeout: 30,
+        stale: 1,
+      });
+    });
+
+    it("setEnabled delivers permissive secrets keys to module setup", async () => {
+      const customSetupCalls: Record<string, unknown>[] = [];
+      (globalThis as Record<string, unknown>).__cyrnelTestSetupCalls =
+        customSetupCalls;
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-mod-"));
+      try {
+        const moduleDir = path.join(dir, "permissiveSecrets");
+        await fs.mkdir(moduleDir);
+        await fs.writeFile(
+          path.join(moduleDir, "module.json"),
+          JSON.stringify({
+            id: "permissiveSecrets",
+            name: "Permissive Secrets Module",
+            description: "permissive secrets",
+            type: "adapter",
+            version: "1.0.0",
+            main: "index.mjs",
+          }),
+        );
+        await fs.writeFile(
+          path.join(moduleDir, "index.mjs"),
+          `export default {
+            configSchema: { type: "object", additionalProperties: true },
+            secretsSchema: { type: "object", additionalProperties: true },
+            instantiate() {
+              return {
+                async setup(ctx) { globalThis.__cyrnelTestSetupCalls.push(ctx); },
+                async teardown() {},
+                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async hydrateService() {},
+                async dehydrateService() {},
+                async invoke() { return null; },
+              };
+            },
+          }`,
+        );
+
+        const service = new ModuleService(makeBindings(), makeLifecycle());
+        await service.initialize(dir);
+        await service.setEnabled({ id: "permissiveSecrets", enabled: false });
+        customSetupCalls.length = 0;
+
+        await service.patchSecrets({
+          id: "permissiveSecrets",
+          patch: [{ op: "add", path: "/anyKey", value: "x" }],
+        });
+        await service.setEnabled({ id: "permissiveSecrets", enabled: true });
+
+        expect(customSetupCalls[0]).toMatchObject({
+          secrets: { anyKey: "x" },
+        });
+      } finally {
+        await fs.rm(dir, { recursive: true, force: true });
+      }
     });
   });
 
@@ -1971,6 +2151,231 @@ describe("ModuleService", () => {
     });
   });
 
+  describe("installModuleFromRegistry() (icon)", () => {
+    function stubRegistryWithIcon(icon?: { url: string; hash: string }) {
+      const registryResponse = {
+        latestVersion: "1.0.0",
+        versions: {
+          "1.0.0": {
+            downloadUrl: "https://example.com/download/mod.tar.zst",
+            ...(icon ? { icon } : {}),
+          },
+        },
+      };
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          async () =>
+            new Response(JSON.stringify(registryResponse), {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            }),
+        ),
+      );
+    }
+
+    function mockDownloads(png: Buffer) {
+      downloadBinaryMock.mockImplementation((url: string) =>
+        Promise.resolve(url === ICON_URL ? png : Buffer.from("mocked")),
+      );
+    }
+
+    it("stores the registry icon on install", async () => {
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-icn-"));
+      try {
+        const tarData = await createTestTar(dir, {
+          "module.json": JSON.stringify({
+            id: "iconMod",
+            version: "1.0.0",
+            name: "Icon Module",
+            description: "icon",
+            type: "adapter",
+            main: "index.mjs",
+          }),
+          "index.mjs": `export default {
+            configSchema: { type: "object", properties: {}, additionalProperties: false },
+            secretsSchema: { type: "null" },
+            instantiate() {
+              return {
+                async setup() {},
+                async teardown() {},
+                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async hydrateService() {},
+                async dehydrateService() {},
+                async invoke() { return null; },
+              };
+            },
+          }`,
+        });
+
+        const { computeBinaryHash } = await import("@/utils/hash.util");
+        const iconHash = computeBinaryHash(PNG_ICON);
+        const tarUint8 = new Uint8Array(tarData);
+        mockDownloads(PNG_ICON);
+        decompressMock.mockReturnValue(tarUint8);
+        stubRegistryWithIcon({ url: ICON_URL, hash: iconHash });
+
+        const service = new ModuleService(makeBindings(), makeLifecycle());
+        await service.initialize(dir);
+
+        const result = await service.installModuleFromRegistry(
+          "https://registry.example.com/icon",
+        );
+        expect(result.hasIcon).toBe(true);
+
+        const icon = await service.getIcon("iconMod");
+        expect(icon).not.toBeNull();
+        expect(icon?.data.equals(PNG_ICON)).toBe(true);
+        expect(icon?.mime).toBe("image/png");
+        expect(icon?.hash).toBe(iconHash);
+      } finally {
+        await fs.rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("installs without an icon when the icon hash does not match", async () => {
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-icn-"));
+      try {
+        const tarData = await createTestTar(dir, {
+          "module.json": JSON.stringify({
+            id: "iconBadMod",
+            version: "1.0.0",
+            name: "Bad Icon",
+            description: "bad icon",
+            type: "adapter",
+            main: "index.mjs",
+          }),
+          "index.mjs": `export default {
+            configSchema: { type: "object", properties: {}, additionalProperties: false },
+            secretsSchema: { type: "null" },
+            instantiate() {
+              return {
+                async setup() {},
+                async teardown() {},
+                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async hydrateService() {},
+                async dehydrateService() {},
+                async invoke() { return null; },
+              };
+            },
+          }`,
+        });
+
+        const tarUint8 = new Uint8Array(tarData);
+        mockDownloads(PNG_ICON);
+        decompressMock.mockReturnValue(tarUint8);
+        stubRegistryWithIcon({ url: ICON_URL, hash: "wrong-hash" });
+
+        const service = new ModuleService(makeBindings(), makeLifecycle());
+        await service.initialize(dir);
+
+        const result = await service.installModuleFromRegistry(
+          "https://registry.example.com/badicon",
+        );
+        expect(result.hasIcon).toBe(false);
+        expect(await service.getIcon("iconBadMod")).toBeNull();
+      } finally {
+        await fs.rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("installs without an icon when the icon download fails", async () => {
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-icn-"));
+      try {
+        const tarData = await createTestTar(dir, {
+          "module.json": JSON.stringify({
+            id: "iconNetMod",
+            version: "1.0.0",
+            name: "Net Fail",
+            description: "net fail",
+            type: "adapter",
+            main: "index.mjs",
+          }),
+          "index.mjs": `export default {
+            configSchema: { type: "object", properties: {}, additionalProperties: false },
+            secretsSchema: { type: "null" },
+            instantiate() {
+              return {
+                async setup() {},
+                async teardown() {},
+                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async hydrateService() {},
+                async dehydrateService() {},
+                async invoke() { return null; },
+              };
+            },
+          }`,
+        });
+
+        const { computeBinaryHash } = await import("@/utils/hash.util");
+        const iconHash = computeBinaryHash(PNG_ICON);
+        const tarUint8 = new Uint8Array(tarData);
+        downloadBinaryMock.mockImplementation((url: string) => {
+          if (url === ICON_URL) return Promise.reject(new Error("down"));
+          return Promise.resolve(Buffer.from("mocked"));
+        });
+        decompressMock.mockReturnValue(tarUint8);
+        stubRegistryWithIcon({ url: ICON_URL, hash: iconHash });
+
+        const service = new ModuleService(makeBindings(), makeLifecycle());
+        await service.initialize(dir);
+
+        const result = await service.installModuleFromRegistry(
+          "https://registry.example.com/netfail",
+        );
+        expect(result.hasIcon).toBe(false);
+        expect(await service.getIcon("iconNetMod")).toBeNull();
+      } finally {
+        await fs.rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("reports no icon for direct installs", async () => {
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-icn-"));
+      try {
+        const tarData = await createTestTar(dir, {
+          "module.json": JSON.stringify({
+            id: "directIconMod",
+            version: "1.0.0",
+            name: "Direct",
+            description: "direct",
+            type: "adapter",
+            main: "index.mjs",
+          }),
+          "index.mjs": `export default {
+            configSchema: { type: "object", properties: {}, additionalProperties: false },
+            secretsSchema: { type: "null" },
+            instantiate() {
+              return {
+                async setup() {},
+                async teardown() {},
+                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async hydrateService() {},
+                async dehydrateService() {},
+                async invoke() { return null; },
+              };
+            },
+          }`,
+        });
+
+        const tarUint8 = new Uint8Array(tarData);
+        downloadBinaryMock.mockResolvedValue(Buffer.from("mocked"));
+        decompressMock.mockReturnValue(tarUint8);
+
+        const service = new ModuleService(makeBindings(), makeLifecycle());
+        await service.initialize(dir);
+
+        const result = await service.installModuleDirect(
+          "https://example.com/direct.tar.zst",
+        );
+        expect(result.hasIcon).toBe(false);
+        expect(await service.getIcon("directIconMod")).toBeNull();
+      } finally {
+        await fs.rm(dir, { recursive: true, force: true });
+      }
+    });
+  });
+
   describe("updateModule()", () => {
     it("throws 404 when the module does not exist", async () => {
       const service = new ModuleService(makeBindings(), makeLifecycle());
@@ -2309,6 +2714,429 @@ describe("ModuleService", () => {
         await expect(
           fs.access(path.join(dir, "mismatchedId")),
         ).rejects.toThrow();
+      } finally {
+        await fs.rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("updates the icon when the registry icon hash changes", async () => {
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-upd-"));
+      try {
+        const tarData = await createTestTar(dir, {
+          "module.json": JSON.stringify({
+            id: "iconUpdateMod",
+            version: "1.0.0",
+            name: "Icon Update",
+            description: "update",
+            type: "adapter",
+            main: "index.mjs",
+          }),
+          "index.mjs": `export default {
+            configSchema: { type: "object", properties: {}, additionalProperties: false },
+            secretsSchema: { type: "null" },
+            instantiate() {
+              return {
+                async setup() {},
+                async teardown() {},
+                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async hydrateService() {},
+                async dehydrateService() {},
+                async invoke() { return null; },
+              };
+            },
+          }`,
+        });
+
+        const { computeBinaryHash } = await import("@/utils/hash.util");
+        const newHash = computeBinaryHash(PNG_ICON);
+        const tarUint8 = new Uint8Array(tarData);
+        downloadBinaryMock.mockResolvedValue(Buffer.from("mocked"));
+        decompressMock.mockReturnValue(tarUint8);
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(
+            async () =>
+              new Response(
+                JSON.stringify({
+                  latestVersion: "1.0.0",
+                  versions: {
+                    "1.0.0": {
+                      downloadUrl: "https://example.com/download/mod.tar.zst",
+                    },
+                  },
+                }),
+                {
+                  status: 200,
+                  headers: { "content-type": "application/json" },
+                },
+              ),
+          ),
+        );
+
+        const service = new ModuleService(makeBindings(), makeLifecycle());
+        await service.initialize(dir);
+        await service.installModuleFromRegistry(
+          "https://registry.example.com/iconupdate",
+        );
+        await db.run(
+          sql`UPDATE modules SET icon_hash = 'old-hash' WHERE id = 'iconUpdateMod'`,
+        );
+
+        downloadBinaryMock.mockImplementation((url: string) =>
+          Promise.resolve(url === ICON_URL ? PNG_ICON : Buffer.from("mocked")),
+        );
+        decompressMock.mockReturnValue(tarUint8);
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(
+            async () =>
+              new Response(
+                JSON.stringify({
+                  latestVersion: "1.0.0",
+                  versions: {
+                    "1.0.0": {
+                      downloadUrl: "https://example.com/download/mod.tar.zst",
+                      icon: { url: ICON_URL, hash: newHash },
+                    },
+                  },
+                }),
+                {
+                  status: 200,
+                  headers: { "content-type": "application/json" },
+                },
+              ),
+          ),
+        );
+
+        const result = await service.updateModule("iconUpdateMod");
+        expect(result).toEqual({ updated: false });
+
+        const icon = await service.getIcon("iconUpdateMod");
+        expect(icon).not.toBeNull();
+        expect(icon?.data.equals(PNG_ICON)).toBe(true);
+        expect(icon?.mime).toBe("image/png");
+        expect(icon?.hash).toBe(newHash);
+        expect(await service.get("iconUpdateMod")).toMatchObject({
+          hasIcon: true,
+        });
+      } finally {
+        await fs.rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("keeps the stored icon when the icon re-fetch fails", async () => {
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-upd-"));
+      try {
+        const tarData = await createTestTar(dir, {
+          "module.json": JSON.stringify({
+            id: "iconKeepMod",
+            version: "1.0.0",
+            name: "Icon Keep",
+            description: "keep",
+            type: "adapter",
+            main: "index.mjs",
+          }),
+          "index.mjs": `export default {
+            configSchema: { type: "object", properties: {}, additionalProperties: false },
+            secretsSchema: { type: "null" },
+            instantiate() {
+              return {
+                async setup() {},
+                async teardown() {},
+                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async hydrateService() {},
+                async dehydrateService() {},
+                async invoke() { return null; },
+              };
+            },
+          }`,
+        });
+
+        const { computeBinaryHash } = await import("@/utils/hash.util");
+        const storedHash = computeBinaryHash(PNG_ICON);
+        const tarUint8 = new Uint8Array(tarData);
+        downloadBinaryMock.mockResolvedValue(Buffer.from("mocked"));
+        decompressMock.mockReturnValue(tarUint8);
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(
+            async () =>
+              new Response(
+                JSON.stringify({
+                  latestVersion: "1.0.0",
+                  versions: {
+                    "1.0.0": {
+                      downloadUrl: "https://example.com/download/mod.tar.zst",
+                    },
+                  },
+                }),
+                {
+                  status: 200,
+                  headers: { "content-type": "application/json" },
+                },
+              ),
+          ),
+        );
+
+        const service = new ModuleService(makeBindings(), makeLifecycle());
+        await service.initialize(dir);
+        await service.installModuleFromRegistry(
+          "https://registry.example.com/iconkeep",
+        );
+        await db.run(
+          sql`UPDATE modules SET icon_hash = ${storedHash}, icon_data = ${PNG_ICON}, icon_mime = 'image/png' WHERE id = 'iconKeepMod'`,
+        );
+
+        downloadBinaryMock.mockImplementation((url: string) =>
+          url === ICON_URL
+            ? Promise.reject(new Error("icon network failure"))
+            : Promise.resolve(Buffer.from("mocked")),
+        );
+        decompressMock.mockReturnValue(tarUint8);
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(
+            async () =>
+              new Response(
+                JSON.stringify({
+                  latestVersion: "1.0.0",
+                  versions: {
+                    "1.0.0": {
+                      downloadUrl: "https://example.com/download/mod.tar.zst",
+                      icon: { url: ICON_URL, hash: "new-hash" },
+                    },
+                  },
+                }),
+                {
+                  status: 200,
+                  headers: { "content-type": "application/json" },
+                },
+              ),
+          ),
+        );
+
+        const result = await service.updateModule("iconKeepMod");
+        expect(result).toEqual({ updated: false });
+
+        const icon = await service.getIcon("iconKeepMod");
+        expect(icon).not.toBeNull();
+        expect(icon?.data.equals(PNG_ICON)).toBe(true);
+        expect(icon?.mime).toBe("image/png");
+        expect(icon?.hash).toBe(storedHash);
+        expect(await service.get("iconKeepMod")).toMatchObject({
+          hasIcon: true,
+        });
+      } finally {
+        await fs.rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("clears the stored icon when the registry no longer declares one", async () => {
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-upd-"));
+      try {
+        const tarData = await createTestTar(dir, {
+          "module.json": JSON.stringify({
+            id: "iconClearMod",
+            version: "1.0.0",
+            name: "Icon Clear",
+            description: "clear",
+            type: "adapter",
+            main: "index.mjs",
+          }),
+          "index.mjs": `export default {
+            configSchema: { type: "object", properties: {}, additionalProperties: false },
+            secretsSchema: { type: "null" },
+            instantiate() {
+              return {
+                async setup() {},
+                async teardown() {},
+                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async hydrateService() {},
+                async dehydrateService() {},
+                async invoke() { return null; },
+              };
+            },
+          }`,
+        });
+
+        const { computeBinaryHash } = await import("@/utils/hash.util");
+        const oldHash = computeBinaryHash(PNG_ICON);
+        const tarUint8 = new Uint8Array(tarData);
+        downloadBinaryMock.mockResolvedValue(Buffer.from("mocked"));
+        decompressMock.mockReturnValue(tarUint8);
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(
+            async () =>
+              new Response(
+                JSON.stringify({
+                  latestVersion: "1.0.0",
+                  versions: {
+                    "1.0.0": {
+                      downloadUrl: "https://example.com/download/mod.tar.zst",
+                    },
+                  },
+                }),
+                {
+                  status: 200,
+                  headers: { "content-type": "application/json" },
+                },
+              ),
+          ),
+        );
+
+        const service = new ModuleService(makeBindings(), makeLifecycle());
+        await service.initialize(dir);
+        await service.installModuleFromRegistry(
+          "https://registry.example.com/iconclear",
+        );
+        await db.run(
+          sql`UPDATE modules SET icon_hash = ${oldHash}, icon_data = ${PNG_ICON}, icon_mime = 'image/png' WHERE id = 'iconClearMod'`,
+        );
+
+        downloadBinaryMock.mockResolvedValue(Buffer.from("mocked"));
+        decompressMock.mockReturnValue(tarUint8);
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(
+            async () =>
+              new Response(
+                JSON.stringify({
+                  latestVersion: "1.0.0",
+                  versions: {
+                    "1.0.0": {
+                      downloadUrl: "https://example.com/download/mod.tar.zst",
+                    },
+                  },
+                }),
+                {
+                  status: 200,
+                  headers: { "content-type": "application/json" },
+                },
+              ),
+          ),
+        );
+
+        const result = await service.updateModule("iconClearMod");
+        expect(result).toEqual({ updated: false });
+
+        expect(await service.getIcon("iconClearMod")).toBeNull();
+        expect(await service.get("iconClearMod")).toMatchObject({
+          hasIcon: false,
+        });
+      } finally {
+        await fs.rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("updates the icon without re-downloading the archive when the registry hash matches", async () => {
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-upd-"));
+      const ARCHIVE_URL = "https://example.com/download/mod.tar.zst";
+      try {
+        const tarData = await createTestTar(dir, {
+          "module.json": JSON.stringify({
+            id: "iconHashMod",
+            version: "1.0.0",
+            name: "Icon Hash",
+            description: "hash",
+            type: "adapter",
+            main: "index.mjs",
+          }),
+          "index.mjs": `export default {
+            configSchema: { type: "object", properties: {}, additionalProperties: false },
+            secretsSchema: { type: "null" },
+            instantiate() {
+              return {
+                async setup() {},
+                async teardown() {},
+                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async hydrateService() {},
+                async dehydrateService() {},
+                async invoke() { return null; },
+              };
+            },
+          }`,
+        });
+
+        const { computeBinaryHash } = await import("@/utils/hash.util");
+        const newHash = computeBinaryHash(PNG_ICON);
+        const storedHash = computeBinaryHash(Buffer.from("mocked"));
+        const tarUint8 = new Uint8Array(tarData);
+        downloadBinaryMock.mockResolvedValue(Buffer.from("mocked"));
+        decompressMock.mockReturnValue(tarUint8);
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(
+            async () =>
+              new Response(
+                JSON.stringify({
+                  latestVersion: "1.0.0",
+                  versions: {
+                    "1.0.0": {
+                      downloadUrl: ARCHIVE_URL,
+                    },
+                  },
+                }),
+                {
+                  status: 200,
+                  headers: { "content-type": "application/json" },
+                },
+              ),
+          ),
+        );
+
+        const service = new ModuleService(makeBindings(), makeLifecycle());
+        await service.initialize(dir);
+        await service.installModuleFromRegistry(
+          "https://registry.example.com/iconhash",
+        );
+        await db.run(
+          sql`UPDATE modules SET icon_hash = 'old-hash' WHERE id = 'iconHashMod'`,
+        );
+
+        downloadBinaryMock.mockClear();
+        downloadBinaryMock.mockImplementation((url: string) =>
+          url === ICON_URL
+            ? Promise.resolve(PNG_ICON)
+            : Promise.reject(new Error("unexpected download")),
+        );
+        decompressMock.mockReturnValue(tarUint8);
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(
+            async () =>
+              new Response(
+                JSON.stringify({
+                  latestVersion: "1.0.0",
+                  versions: {
+                    "1.0.0": {
+                      downloadUrl: ARCHIVE_URL,
+                      hash: storedHash,
+                      icon: { url: ICON_URL, hash: newHash },
+                    },
+                  },
+                }),
+                {
+                  status: 200,
+                  headers: { "content-type": "application/json" },
+                },
+              ),
+          ),
+        );
+
+        const result = await service.updateModule("iconHashMod");
+        expect(result).toEqual({ updated: false });
+
+        const icon = await service.getIcon("iconHashMod");
+        expect(icon).not.toBeNull();
+        expect(icon?.data.equals(PNG_ICON)).toBe(true);
+        expect(icon?.mime).toBe("image/png");
+        expect(icon?.hash).toBe(newHash);
+
+        const archiveCalls = downloadBinaryMock.mock.calls.filter(
+          ([url]) => url === ARCHIVE_URL,
+        );
+        expect(archiveCalls).toHaveLength(0);
       } finally {
         await fs.rm(dir, { recursive: true, force: true });
       }

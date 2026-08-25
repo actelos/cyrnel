@@ -1,0 +1,116 @@
+---
+title: "Definition kinds & adapter compatibility"
+description: "How service definitions declare their kind and how adapter modules advertise compatibility"
+sidebarTitle: "Kinds & compatibility"
+---
+
+# Definition kinds
+
+A service definition carried by a registry advertises what *family* and
+*version* of definition it is via a **kind**: a string of the form
+`<identifier>@<version>`.
+
+| Field        | Meaning                                          |
+|--------------|--------------------------------------------------|
+| `identifier` | Lowercase slug matching `/^[A-Za-z0-9][A-Za-z0-9_-]*$/` |
+| `version`    | A dotted numeric version with **1–3** parts (e.g. `3`, `3.0`, `3.0.1`) |
+
+Examples: `openapi@3.0`, `openapi@3.1`, `asyncapi@2`.
+
+Kinds live on the definition side only:
+
+- In a registry **definitions** browse entry, as the optional `kind` field.
+- In a registry **definition descriptor** (the versioned JSON the entry's
+  `source` resolves to), as the optional `kind` field on each version entry.
+
+Kinds are advisory metadata - the server never rejects an entry solely because
+its kind is missing - but they are what the compatibility resolver uses to pick
+an adapter.
+
+> Version ranges in this document follow [semver](https://github.com/npm/node-semver)
+> notation as implemented by the `semver` package used by the host.
+
+# Adapter compatibility
+
+An **adapter module** may declare a `compatibility` list in its `module.json`
+manifest (see [Modules](/cyrnel/docs/modules)):
+
+```json
+{
+  "id": "github",
+  "type": "adapter",
+  "compatibility": [
+    { "identifier": "openapi", "version": ">=3.0 <4.0" }
+  ]
+}
+```
+
+Each entry has:
+
+| Field        | Meaning                                                        |
+|--------------|----------------------------------------------------------------|
+| `identifier` | The definition-family identifier the adapter can consume.      |
+| `version`    | A semver **range** the definition's kind version must satisfy. |
+
+`compatibility` is optional and only meaningful for `adapter` modules
+(environment modules ignore it). An empty or absent list means "declares no
+kinds": the adapter is still installable, it just won't be offered as a
+default for any kind.
+
+## How compatibility is checked
+
+1. The definition's `kind` is parsed into `{ identifier, version }`.
+2. The kind version is normalized to full semver: a `k`-part version is padded
+   to three parts (`3` → `3.0.0`, `3.1` → `3.1.0`).
+3. The adapter is **compatible** if any compatibility entry matches the
+   identifier **and** `satisfies(normalizedVersion, entry.version)` is true.
+
+For example, a definition with kind `openapi@3.0` (normalized to `3.0.0`) is
+accepted by an adapter declaring `openapi` with `>=3.0 <4.0`, but **not** by
+one declaring `>=3.1 <4.0`.
+
+# Resolving an adapter for install
+
+`GET /services/install/adapters?kind=<kind>` returns every installed adapter
+module, **ranked** so compatible adapters sort ahead of incompatible ones, and
+within each compatibility group active adapters (and then built-in / canonical
+adapters) sort ahead of inactive / third-party ones (ties broken by name). The
+`default` field is the top-ranked adapter that is both compatible and active
+(or `null` when none qualifies).
+
+```json
+{
+  "default": "openapi",
+  "adapters": [
+    { "id": "openapi", "name": "OpenAPI Adapter", "compatible": true,  "active": true,  "isBuiltin": true  },
+    { "id": "github",  "name": "GitHub",          "compatible": true,  "active": true,  "isBuiltin": false },
+    { "id": "ical",    "name": "ICal",            "compatible": false, "active": true,  "isBuiltin": false }
+  ]
+}
+```
+
+Omit the `kind` query parameter to receive every adapter unranked (the `default`
+field is `null`); this is how a client discovers what is installed before the
+user has chosen a definition.
+
+# Install behavior
+
+`POST /services/install` resolves the adapter as follows:
+
+1. An explicit `adapter` in the request body **always wins**: even an adapter
+   whose `compatibility` does not match the definition `kind`. This lets users
+   force an install with an unconventional adapter.
+2. Otherwise, the server looks up the definition's `kind` (from the registry
+   descriptor) and selects the **default** ranked adapter - the compatible and
+   active one; built-in (canonical) adapters win ties.
+3. If neither yields an adapter and no compatible+active adapter exists, the
+   request fails with `400`.
+
+The selected adapter id is the one recorded on the resulting service row and
+used to call `adapter.generateDefinition`. It is unrelated to the definition
+`kind`: `kind` describes the *definition*, `adapter` selects the *module*.
+
+## Built-in adapters
+
+The built-in `openapi` adapter accepts the `openapi` family for the `3.x`
+range (`>=3.0 <4.0`), since the generator supports OpenAPI 3.0.x and 3.1.x.

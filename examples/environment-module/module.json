@@ -4,6 +4,7 @@
   "name": "Shell Environment",
   "type": "environment",
   "version": "1.0.0",
+  "summary": "Execute shell commands via sh",
   "description": "Run shell commands",
   "main": "./index.js",
   "engines": {

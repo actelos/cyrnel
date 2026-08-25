@@ -7,13 +7,15 @@ A process is a stateful execution unit in cyrnel. When a client submits code,
 cyrnel creates a process record with a stable identifier (`id`), runs it on the
 active [environment module](/cyrnel/docs/environments-modules), captures its
 output, and persists the result to the database. Process execution does not
-block the client request unless `block: true` is set.
+block the client request; the API responds immediately and the process runs
+asynchronously.
 
 ## Process Model
 
 Each process has the following fields:
 
 - `id`: stable database identifier (auto-incrementing integer, persists across restarts)
+- `pid`: ephemeral in-memory process identifier, or `null` when the process is not in active memory (see [Unload a Process](/cyrnel/docs/processes#unload-a-process))
 - `ref`: optional reference label (trimmed; must be non-empty if present, unique)
 - `state`: lifecycle phase (see below)
 - `exitState`: execution outcome (see below)
@@ -88,21 +90,24 @@ Response (`201`):
 { "id": 1 }
 ```
 
-If `block: true` and `autorun: true`, cyrnel polls until `state === "idle"`
-before responding. The HTTP status is still `201`.
-
 ## Run an Existing Process
 
 `POST /processes/:id/signals/run`
 
 ```json
-{ "force": false, "block": false }
+{ "force": false }
 ```
 
 - The process must currently be `idle`.
 - If the process has stored outputs (any of `exitState`, `output`, `stdout`,
   `stderr` is non-empty), `force: true` is required to overwrite them.
-- `block: true` waits until the run completes.
+
+The run signal also works on **historical processes** that only exist in the
+database (for example after an API restart, or after an
+[unload](/cyrnel/docs/processes#unload-a-process)). The process is revived
+into active memory under the same `id` with a fresh `pid` and executes again.
+If the historical record has stored outputs, `force: true` is required;
+re-running overwrites the stored outputs.
 
 Response (`200`): the process record.
 
@@ -114,15 +119,50 @@ Response (`200`): the process record.
   `exitState = "canceled"`.
 - If `running`, it moves to `terminating` first, then to `idle` with
   `exitState = "canceled"` once the environment confirms.
-- If already `idle`, the call returns `409`.
+- If already `idle`: including historical processes that only exist in the
+  database - the call returns `409`.
 
 Response (`200`): the process record.
+
+## Unload a Process
+
+`POST /processes/:id/signals/unload`
+
+Removes an **idle** process from active memory while keeping its database
+record and outputs intact. The process id remains valid, and a subsequent
+[run signal](/cyrnel/docs/processes#run-an-existing-process) revives it under
+the same id with a fresh `pid`. This is useful for releasing memory while
+preserving history.
+
+Rules:
+
+- The process must be `idle`. Queued, running, and terminating processes
+  return `409` (unloading would orphan the execution).
+- If the process is already outside active memory, the call returns `409`.
+- Unknown ids return `404`.
+
+After unloading, the process reports `pid: null` and `state: "idle"` and is
+listed among historical database processes. Unloading is **not** destructive:
+the code, outputs, stdout, and stderr remain available.
+
+Response (`200`): the process record.
+
+### Automatic unloading
+
+When `CYRNEL_MAX_IDLE_PROCESSES` is set, idle processes are unloaded
+automatically (least recently executed first) once the in-memory idle pool
+exceeds the cap. The behavior is identical to an explicit unload - the
+database record and outputs are preserved, and the process can be revived
+with a [run signal](/cyrnel/docs/processes#run-an-existing-process). The cap
+is checked whenever a process becomes idle or is created without
+`autorun`; queued and running processes are never unloaded. The cap is
+unlimited when the variable is unset.
 
 ## Inspect a Process
 
 | Method | Path | Returns |
 | --- | --- | --- |
-| `GET` | `/processes` | `{ processes: ProcessRecord[] }` (filterable) |
+| `GET` | `/processes` | `{ items, nextCursor, hasMore }` (filterable, paginated) |
 | `GET` | `/processes/:id` | the process record |
 | `GET` | `/processes/:id/code` | submitted source as `text/plain` |
 | `GET` | `/processes/:id/output` | structured output as JSON |
@@ -141,11 +181,21 @@ Query parameters:
 - `ref`: Exact match (trimmed, non-empty)
 
 Results include both active in-memory processes and historical processes
-from the database.
+from the database, ordered newest-first by creation time.
+
+### Pagination
+
+`GET /processes` returns the paginated envelope `{ items, nextCursor,
+hasMore }`; see [Pagination](/docs/pagination) for the cursor rules,
+`limit` semantics, and error codes.
 
 ## Delete a Process
 
 `DELETE /processes/:id`
 
 The process must be `idle`. The record is permanently removed from the
-database.
+database (including code, outputs, stdout, and stderr). Historical processes
+that only exist in the database can be deleted directly; they are always
+`idle`.
+
+The response is `200` with the deleted process record in the body.

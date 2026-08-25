@@ -12,6 +12,7 @@ that knows how to talk to the underlying end service.
 ```ts
 interface ServiceDefinition {
   name: string;
+  summary?: string;
   description: string;
   configSchema: JSONSchema;
   secretsSchema: JSONSchema;
@@ -80,8 +81,8 @@ Response (`201`):
 ```json
 {
   "source": "https://registry.example.com/services/petstore",
-  "adapter": "openapi",
-  "id": "petstore"
+  "adapter": "openapi",   // optional; overrides the resolver default
+  "id": "petstore"        // optional; overrides the registry default
 }
 ```
 
@@ -95,17 +96,44 @@ interface RegistryDescriptor {
     downloadUrl: string;   // URL to the definition file
     hash?: string;         // SHA-256 of the definition text (skip + integrity)
     id?: string;           // default service id (client can override)
-    adapter?: string;      // default adapter module id (client can override)
+    kind?: string;         // definition kind, e.g. "openapi@3.0" (see Definition kinds)
+    icon?: {               // optional service icon
+      url: string;         //   raster image URL (png/webp only)
+      hash: string;        //   SHA-256 of the image bytes
+    };
   }>;
 }
 ```
 
 The `version` request field (optional) selects a semver range; omitted or
 `"latest"` resolves to `latestVersion`. If the response includes a `hash`, the server verifies the downloaded content
-matches it. The effective `id` and `adapter` are merged from the request body
-and registry response (body wins over registry default). The `source` URL is
-persisted in the database so the service can be re-resolved later for updates.
-The service starts disabled.
+matches it. The effective `id` is merged from the request body and the registry
+response (body wins over registry default). The `adapter` is resolved as follows:
+an explicit `adapter` in the body wins; otherwise the server ranks installed
+adapter modules against the definition `kind` (see [Definition kinds &
+adapter compatibility](/cyrnel/module-specs/definition-kinds)) and selects the best
+compatible and active adapter. The `source` URL is persisted in the database so
+the service can be re-resolved later for updates. The service starts disabled.
+
+`400` when the descriptor has no `kind` or when no installed adapter is
+compatible and active for the resolved `kind` (and the body did not provide an
+explicit `adapter` override). Resolve candidates first with
+`GET /services/install/adapters?kind=<kind>`.
+
+If a version entry declares an `icon`, the server downloads the image bytes
+through the same SSRF-guarded egress path as definitions, verifies the
+SHA-256 `hash`, and only accepts png/webp content sniffed from the file magic.
+The icon is stored server-side and served from
+`GET /services/:serviceId/icon` with an `ETag` for caching. Icon failures are
+non-fatal: the service installs without an icon. Direct installs and direct
+updates (`PATCH`) never carry an icon. On registry updates the icon is
+re-fetched when its `hash` changes and cleared when the registry no longer
+declares one; a failed re-fetch is non-fatal and preserves the previously
+stored icon.
+
+Recommended icon properties: a square 256×256 px image (png or webp, with
+transparency if needed) no larger than 256 KB. Icons are displayed at 40×40 px
+in the web UI.
 
 Response (`201`):
 
@@ -114,7 +142,9 @@ Response (`201`):
 ```
 
 `409` on duplicate `id`. Either the request body or the registry must provide
-an `id` and `adapter` or the server returns `400`.
+an `id`; an `adapter` must be provided explicitly or resolvable from the
+definition `kind` with a compatible, active adapter module, otherwise the server
+returns `400`.
 
 ## Update a Service
 
@@ -180,9 +210,12 @@ syncing, only a service with no stored definition content returns `409`.
 ```
 
 Enable validates configuration and secrets against their schemas (applying
-defaults), then calls `adapter.hydrateService(state)`. If hydration throws,
-the `enabled` flag is rolled back. Stale services (`stale = true`) cannot
-be enabled, use `POST /services/:id/sync` to sync the service first.
+defaults), then calls `adapter.hydrateService(state)`. Keys stored from an
+older schema version that are no longer defined by the current schema are
+tolerated: they are excluded from validation and not passed to the adapter.
+If hydration throws, the `enabled` flag is rolled back. Stale services
+(`stale = true`) cannot be enabled, use `POST /services/:id/sync` to sync
+the service first.
 
 Disable calls `adapter.dehydrateService(serviceId)` and best-efforts logs
 any failure.
@@ -198,11 +231,15 @@ Deletes the row (cascading to tools, configuration, secrets) and calls
 
 | Method | Path | Notes |
 | --- | --- | --- |
-| `GET` | `/services` | Filterable by `query`, `limit`, `enabled`, `stale` |
+| `GET` | `/services` | Filterable by `query`, `limit`, `cursor`, `enabled`, `stale` |
 | `GET` | `/services/:serviceId` | Full record (minus `adapterDomain`) |
 
 The list response strips `configSchema`, `secretsSchema`, `tools`, and
 `adapterDomain`, fetch a single service for those.
+
+All list endpoints return the paginated envelope `{ items, nextCursor,
+hasMore }`. Pass `nextCursor` back as `cursor` for the next page; see
+[Pagination](/docs/pagination) for `limit` semantics and error codes.
 
 ## Configuration
 
@@ -212,8 +249,8 @@ the service) and stored as a JSON blob.
 | Method | Path | Returns |
 | --- | --- | --- |
 | `GET` | `/services/:serviceId/config/schema` | `{ configSchema }` |
-| `GET` | `/services/:serviceId/config` | `{ config }` |
-| `PATCH` | `/services/:serviceId/config` | Apply an RFC 6902 JSON Patch |
+| `GET` | `/services/:serviceId/config` | `{ config, outdated }` |
+| `PATCH` | `/services/:serviceId/config` | `{ config, outdated }` |
 
 `PATCH` body is an array of JSON Patch operations:
 
@@ -224,10 +261,20 @@ the service) and stored as a JSON blob.
 ]
 ```
 
-The server applies the patch, validates the result against `configSchema`,
-fills in any missing defaults from the schema, and persists the merged
-object. If the service is currently enabled, cyrnel re-hydrates it on the
-adapter so the change takes effect immediately.
+The server applies the patch, persists the merged object, and returns the
+stored payload plus any `outdated` pointers. Stored values that are no
+longer defined by the schema are preserved; adding new schema-disallowed
+keys is rejected, and `remove` operations targeting paths that do not
+exist are ignored. If the service is currently enabled, cyrnel
+re-hydrates it on the adapter so the change takes effect immediately.
+
+`outdated` lists RFC 6901 pointers of stored values that are not part of
+the current schema (for example a key renamed in a newer service version).
+These values are excluded from the `config` payload and from adapter
+hydration, but they remain stored and are only removed through an explicit
+`remove` operation. Pointers into array items include the item index and
+key (for example `/list/items/0/extra`); removing the whole array via its
+pointer (for example `/list`) also clears any outdated items it contains.
 
 ## Secrets
 
@@ -244,14 +291,16 @@ won't match any key in the ring, and the fallback has nowhere to go.
 
 | Method | Path | Returns |
 | --- | --- | --- |
-| `GET` | `/services/:serviceId/secrets` | `{ present: string[] }` |
+| `GET` | `/services/:serviceId/secrets` | `{ present, outdated }` |
 | `GET` | `/services/:serviceId/secrets/schema` | `{ secretsSchema }` |
 | `PATCH` | `/services/:serviceId/secrets` | Apply an RFC 6902 JSON Patch |
 
 Secret values never leave the server in plaintext through the API. The
 presence endpoint only exposes which paths have values set (without
-revealing the values themselves). Patches operate against the decrypted
-document in memory; the result is re-encrypted before being written back.
+revealing the values themselves), plus `outdated` pointers for stored
+values no longer defined by the schema. Patches operate against the
+decrypted document in memory; the result is re-encrypted before being
+written back.
 
 <Warning>
   If `CYRNEL_SECRETS_KEY` is missing or the wrong size, both reading and

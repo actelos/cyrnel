@@ -22,7 +22,10 @@ import {
 
 import { db } from "@/db/client";
 import { HttpError } from "@/models/error.model";
-import type { GenerateDefinitionInput } from "@/models/modules.model";
+import type {
+  GenerateDefinitionInput,
+  RankedAdapter,
+} from "@/models/modules.model";
 import {
   type AdapterController,
   ServicesService,
@@ -91,6 +94,12 @@ function makeController(overrides: Partial<ControllerSpy> = {}): ControllerSpy {
     generateToolDocs: vi.fn<AdapterController["generateToolDocs"]>(
       async (_input: ToolDocsInput): Promise<string> => "# docs",
     ),
+    rankAdapters: vi.fn<AdapterController["rankAdapters"]>(
+      async (): Promise<RankedAdapter[]> => [],
+    ),
+    resolveDefaultAdapter: vi.fn<AdapterController["resolveDefaultAdapter"]>(
+      async (): Promise<string | undefined> => undefined,
+    ),
     ...overrides,
   };
 }
@@ -132,6 +141,7 @@ async function seedService(
     source?: string;
     hash?: string;
     name?: string;
+    summary?: string;
     description?: string;
     configSchema?: JSONSchema;
     secretsSchema?: JSONSchema;
@@ -141,9 +151,10 @@ async function seedService(
 ): Promise<void> {
   const adapter = options.adapter ?? "test-adapter";
   await db.run(
-    sql`INSERT INTO services (id, name, description, hash, version, source, adapter, enabled, config_schema, secrets_schema, adapter_domain)
+    sql`INSERT INTO services (id, name, summary, description, hash, version, source, adapter, enabled, config_schema, secrets_schema, adapter_domain)
         VALUES (${id},
                 ${options.name ?? id},
+                ${options.summary ?? ""},
                 ${options.description ?? ""},
                 ${options.hash ?? "hash"},
                 ${options.version ?? "1.0.0"},
@@ -210,6 +221,51 @@ function mockFetchRegistryThen(
   );
 }
 
+function mockFetchRegistryWithIcon(opts: {
+  registryUrl?: string;
+  registryHash?: string;
+  downloadUrl: string;
+  definitionContent: string;
+  icon?: { url: string; hash: string; data?: Buffer; error?: boolean };
+}) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: string | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (opts.icon && url === opts.icon.url) {
+        if (opts.icon.error) throw new Error("icon network failure");
+        return new Response(opts.icon.data ?? PNG_ICON, { status: 200 });
+      }
+      if (url === (opts.registryUrl ?? "https://registry.example.com/svc")) {
+        return new Response(
+          JSON.stringify({
+            latestVersion: "1.0.0",
+            versions: {
+              "1.0.0": {
+                downloadUrl: opts.downloadUrl,
+                hash: opts.registryHash,
+                ...(opts.icon
+                  ? { icon: { url: opts.icon.url, hash: opts.icon.hash } }
+                  : {}),
+              },
+            },
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      }
+      return new Response(opts.definitionContent, { status: 200 });
+    }),
+  );
+}
+
+const PNG_ICON = Buffer.concat([
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+  Buffer.alloc(16),
+]);
+
 describe("ServicesService", () => {
   beforeAll(async () => {
     process.env.CYRNEL_SECRETS_KEY = SECRETS_KEY;
@@ -254,7 +310,7 @@ describe("ServicesService", () => {
       await seedService("beta");
       const svc = new ServicesService(makeController());
 
-      const rows = await svc.listServices();
+      const rows = (await svc.listServices()).items;
       expect(rows.map((r) => r.id).sort()).toEqual(["alpha", "beta"]);
     });
 
@@ -264,10 +320,10 @@ describe("ServicesService", () => {
       const svc = new ServicesService(makeController());
 
       expect(
-        (await svc.listServices({ enabled: true })).map((r) => r.id),
+        (await svc.listServices({ enabled: true })).items.map((r) => r.id),
       ).toEqual(["on"]);
       expect(
-        (await svc.listServices({ enabled: false })).map((r) => r.id),
+        (await svc.listServices({ enabled: false })).items.map((r) => r.id),
       ).toEqual(["off"]);
     });
 
@@ -277,13 +333,29 @@ describe("ServicesService", () => {
       const svc = new ServicesService(makeController());
 
       expect(
-        (await svc.listServices({ query: "alpha" })).map((r) => r.id),
+        (await svc.listServices({ query: "alpha" })).items.map((r) => r.id),
       ).toEqual(["alpha"]);
       expect(
-        (await svc.listServices({ query: "demo" })).map((r) => r.id),
+        (await svc.listServices({ query: "demo" })).items.map((r) => r.id),
       ).toEqual(["alpha"]);
       expect(
-        (await svc.listServices({ query: "weather" })).map((r) => r.id),
+        (await svc.listServices({ query: "weather" })).items.map((r) => r.id),
+      ).toEqual(["beta"]);
+    });
+
+    it("matches against the summary with the query filter", async () => {
+      await seedService("alpha", {
+        name: "Demo One",
+        summary: "creates stuff",
+      });
+      await seedService("beta", { name: "Other", description: "weather" });
+      const svc = new ServicesService(makeController());
+
+      expect(
+        (await svc.listServices({ query: "creates" })).items.map((r) => r.id),
+      ).toEqual(["alpha"]);
+      expect(
+        (await svc.listServices({ query: "weather" })).items.map((r) => r.id),
       ).toEqual(["beta"]);
     });
 
@@ -292,10 +364,10 @@ describe("ServicesService", () => {
       const svc = new ServicesService(makeController());
 
       expect(
-        (await svc.listServices({ query: "DEMO" })).map((r) => r.id),
+        (await svc.listServices({ query: "DEMO" })).items.map((r) => r.id),
       ).toEqual(["alpha"]);
       expect(
-        (await svc.listServices({ query: "first" })).map((r) => r.id),
+        (await svc.listServices({ query: "first" })).items.map((r) => r.id),
       ).toEqual(["alpha"]);
     });
 
@@ -303,7 +375,7 @@ describe("ServicesService", () => {
       for (const id of ["a", "b", "c", "d"]) await seedService(id);
       const svc = new ServicesService(makeController());
 
-      const rows = await svc.listServices({ limit: 2 });
+      const rows = (await svc.listServices({ limit: 2 })).items;
       expect(rows).toHaveLength(2);
     });
 
@@ -311,7 +383,7 @@ describe("ServicesService", () => {
       await seedService("alpha");
       const svc = new ServicesService(makeController());
 
-      const [row] = await svc.listServices();
+      const [row] = (await svc.listServices()).items;
       expect(row).toBeDefined();
       expect("configSchema" in (row as object)).toBe(false);
       expect("secretsSchema" in (row as object)).toBe(false);
@@ -353,7 +425,7 @@ describe("ServicesService", () => {
       await seedService("beta", { tools: [{ id: "y", name: "y" }] });
       const svc = new ServicesService(makeController());
 
-      const rows = await svc.listTools({});
+      const rows = (await svc.listTools({})).items;
       expect(rows.map((r) => r.name).sort()).toEqual(["x", "y"]);
       for (const r of rows) {
         expect("inputSchema" in r).toBe(false);
@@ -376,12 +448,12 @@ describe("ServicesService", () => {
       });
       const svc = new ServicesService(makeController());
 
-      const alphaRows = await svc.listTools({ serviceId: "alpha" });
+      const alphaRows = (await svc.listTools({ serviceId: "alpha" })).items;
       const map = new Map(alphaRows.map((r) => [r.name, r.effectivelyEnabled]));
       expect(map.get("on")).toBe(true);
       expect(map.get("off")).toBe(false);
 
-      const betaRows = await svc.listTools({ serviceId: "beta" });
+      const betaRows = (await svc.listTools({ serviceId: "beta" })).items;
       expect(betaRows[0]?.effectivelyEnabled).toBe(false);
     });
 
@@ -396,9 +468,9 @@ describe("ServicesService", () => {
       const svc = new ServicesService(makeController());
 
       expect(
-        (await svc.listTools({ enabled: false })).map((r) => r.name),
+        (await svc.listTools({ enabled: false })).items.map((r) => r.name),
       ).toEqual(["two"]);
-      expect(await svc.listTools({ limit: 1 })).toHaveLength(1);
+      expect((await svc.listTools({ limit: 1 })).items).toHaveLength(1);
     });
 
     it("query filter for tools (fails on libsql because drizzle `ilike` emits unsupported SQL)", async () => {
@@ -411,8 +483,186 @@ describe("ServicesService", () => {
       const svc = new ServicesService(makeController());
 
       expect(
-        (await svc.listTools({ query: "thr" })).map((r) => r.name),
+        (await svc.listTools({ query: "thr" })).items.map((r) => r.name),
       ).toEqual(["three"]);
+    });
+
+    it("pages past the 100-item limit with keyset cursors", {
+      timeout: 15000,
+    }, async () => {
+      await seedService("alpha", {
+        tools: Array.from({ length: 150 }, (_, i) => ({
+          id: `tool-${String(i).padStart(3, "0")}`,
+          name: `tool-${String(i).padStart(3, "0")}`,
+        })),
+      });
+      const svc = new ServicesService(makeController());
+
+      const first = await svc.listTools({ serviceId: "alpha", limit: 100 });
+      expect(first.items).toHaveLength(100);
+      expect(first.hasMore).toBe(true);
+      expect(first.nextCursor).not.toBeNull();
+
+      const second = await svc.listTools({
+        serviceId: "alpha",
+        limit: 100,
+        cursor: first.nextCursor ?? undefined,
+      });
+      expect(second.items).toHaveLength(50);
+      expect(second.hasMore).toBe(false);
+      expect(second.nextCursor).toBeNull();
+
+      const seen = new Set([
+        ...first.items.map((r) => r.id),
+        ...second.items.map((r) => r.id),
+      ]);
+      expect(seen.size).toBe(150);
+      const allIds = [...first.items, ...second.items].map((r) => r.id);
+      expect([...allIds].sort()).toEqual(allIds);
+    });
+
+    it("resumes across services without a serviceId filter", async () => {
+      await seedService("alpha", {
+        tools: Array.from({ length: 5 }, (_, i) => ({
+          id: `a-${i}`,
+          name: `a-${i}`,
+        })),
+      });
+      await seedService("beta", {
+        tools: Array.from({ length: 5 }, (_, i) => ({
+          id: `b-${i}`,
+          name: `b-${i}`,
+        })),
+      });
+      const svc = new ServicesService(makeController());
+
+      const first = await svc.listTools({ limit: 3 });
+      expect(first.items.map((r) => r.id)).toEqual(["a-0", "a-1", "a-2"]);
+      expect(first.hasMore).toBe(true);
+
+      const second = await svc.listTools({
+        limit: 3,
+        cursor: first.nextCursor ?? undefined,
+      });
+      expect(second.items.map((r) => r.id)).toEqual(["a-3", "a-4", "b-0"]);
+      expect(second.hasMore).toBe(true);
+
+      const third = await svc.listTools({
+        limit: 3,
+        cursor: second.nextCursor ?? undefined,
+      });
+      expect(third.items.map((r) => r.id)).toEqual(["b-1", "b-2", "b-3"]);
+      expect(third.hasMore).toBe(true);
+
+      const fourth = await svc.listTools({
+        limit: 3,
+        cursor: third.nextCursor ?? undefined,
+      });
+      expect(fourth.items.map((r) => r.id)).toEqual(["b-4"]);
+      expect(fourth.hasMore).toBe(false);
+      expect(fourth.nextCursor).toBeNull();
+    });
+
+    it("forwards a score-keyed cursor to the search index and returns score-bound cursors", async () => {
+      await seedService("alpha", { tools: [] });
+      const allHits = [
+        {
+          serviceId: "alpha",
+          toolId: "one",
+          name: "one",
+          summary: "",
+          description: "",
+          enabled: true,
+          score: 0.02,
+          matchType: "both" as const,
+          ftsRank: 1,
+          vectorRank: 1,
+        },
+        {
+          serviceId: "alpha",
+          toolId: "two",
+          name: "two",
+          summary: "",
+          description: "",
+          enabled: true,
+          score: 0.019,
+          matchType: "fts" as const,
+          ftsRank: 2,
+        },
+        {
+          serviceId: "alpha",
+          toolId: "three",
+          name: "three",
+          summary: "",
+          description: "",
+          enabled: true,
+          score: 0.018,
+          matchType: "vector" as const,
+          vectorRank: 2,
+        },
+      ];
+      const searchTools = vi
+        .fn()
+        .mockImplementation(
+          (
+            _query: string,
+            options: { limit: number; afterKey?: [number, string, string] },
+          ) => {
+            let hits = allHits;
+            if (options.afterKey !== undefined) {
+              const [afterScore, afterServiceId, afterToolId] =
+                options.afterKey;
+              hits = hits.filter(
+                (hit) =>
+                  hit.score < afterScore ||
+                  (hit.score === afterScore &&
+                    (hit.serviceId > afterServiceId ||
+                      (hit.serviceId === afterServiceId &&
+                        hit.toolId > afterToolId))),
+              );
+            }
+            return hits.slice(0, options.limit);
+          },
+        );
+      const svc = new ServicesService(makeController(), {
+        vectorAvailable: true,
+        searchTools,
+      } as never);
+
+      const first = await svc.listTools({ query: "mail", limit: 1 });
+      expect(first.items.map((r) => r.id)).toEqual(["one"]);
+      expect(first.hasMore).toBe(true);
+      expect(searchTools).toHaveBeenCalledWith(
+        "mail",
+        expect.objectContaining({ limit: 2, afterKey: undefined }),
+      );
+
+      const second = await svc.listTools({
+        query: "mail",
+        limit: 1,
+        cursor: first.nextCursor ?? undefined,
+      });
+      expect(second.items.map((r) => r.id)).toEqual(["two"]);
+      expect(second.hasMore).toBe(true);
+      const [, secondOptions] = searchTools.mock.calls[1] as [
+        string,
+        { afterKey: [number, string, string] | undefined },
+      ];
+      expect(secondOptions.afterKey).toEqual([0.02, "alpha", "one"]);
+
+      const third = await svc.listTools({
+        query: "mail",
+        limit: 1,
+        cursor: second.nextCursor ?? undefined,
+      });
+      expect(third.items.map((r) => r.id)).toEqual(["three"]);
+      expect(third.hasMore).toBe(false);
+      expect(third.nextCursor).toBeNull();
+      const [, thirdOptions] = searchTools.mock.calls[2] as [
+        string,
+        { afterKey: [number, string, string] | undefined },
+      ];
+      expect(thirdOptions.afterKey).toEqual([0.019, "alpha", "two"]);
     });
   });
 
@@ -549,9 +799,61 @@ describe("ServicesService", () => {
         adapter: "test-adapter",
       });
 
-      const tools = await svc.listTools({ serviceId: "alpha" });
+      const tools = (await svc.listTools({ serviceId: "alpha" })).items;
       expect(tools.map((t) => t.name)).toEqual(["doStuff"]);
       expect(tools[0]?.enabled).toBe(true);
+    });
+
+    it("persists and trims the summary for the service and its tools", async () => {
+      mockFetchOnce("payload");
+      const controller = makeController({
+        generateDefinition: vi.fn(async () =>
+          sampleDefinition({
+            summary: "  Pet store API  ",
+            tools: [
+              {
+                id: "doStuff",
+                name: "doStuff",
+                summary: "  Does the stuff  ",
+                description: "does stuff",
+                inputSchema: EMPTY_OBJECT_SCHEMA,
+                outputSchema: EMPTY_OBJECT_SCHEMA,
+                adapterDomain: {},
+              },
+            ],
+          }),
+        ),
+      });
+      const svc = new ServicesService(controller);
+
+      await svc.createServiceDirect({
+        id: "alpha",
+        url: "https://example.com/def.json",
+        adapter: "test-adapter",
+      });
+
+      const row = await svc.getService("alpha");
+      expect(row.summary).toBe("Pet store API");
+
+      const tools = (await svc.listTools({ serviceId: "alpha" })).items;
+      expect(tools[0]?.summary).toBe("Does the stuff");
+    });
+
+    it("defaults the summary to an empty string when the definition omits it", async () => {
+      mockFetchOnce("payload");
+      const svc = new ServicesService(makeController());
+
+      await svc.createServiceDirect({
+        id: "alpha",
+        url: "https://example.com/def.json",
+        adapter: "test-adapter",
+      });
+
+      const row = await svc.getService("alpha");
+      expect(row.summary).toBe("");
+
+      const tools = (await svc.listTools({ serviceId: "alpha" })).items;
+      expect(tools[0]?.summary).toBe("");
     });
 
     it('rejects definitions whose tool id is not a valid identifier (createService says "Tool name" instead of the intended "Tool id")', async () => {
@@ -602,6 +904,121 @@ describe("ServicesService", () => {
           adapter: "test-adapter",
         }),
       ).rejects.toMatchObject({ statusCode: 409 });
+    });
+  });
+
+  describe("createServiceFromRegistry() (icon)", () => {
+    it("stores the icon when the registry declares one", async () => {
+      const { computeBinaryHash } = await import("@/utils/hash.util");
+      const iconHash = computeBinaryHash(PNG_ICON);
+
+      mockFetchRegistryWithIcon({
+        registryUrl: "https://registry.example.com/svc",
+        downloadUrl: "https://example.com/download",
+        definitionContent: "payload",
+        icon: { url: "https://icons.example.com/a.png", hash: iconHash },
+      });
+
+      const svc = new ServicesService(makeController());
+      await svc.createServiceFromRegistry({
+        id: "alpha",
+        source: "https://registry.example.com/svc",
+        adapter: "test-adapter",
+      });
+
+      const row = await svc.getService("alpha");
+      expect(row.hasIcon).toBe(true);
+
+      const icon = await svc.getServiceIcon("alpha");
+      expect(icon).not.toBeNull();
+      expect(icon?.data.equals(PNG_ICON)).toBe(true);
+      expect(icon?.mime).toBe("image/png");
+      expect(icon?.hash).toBe(iconHash);
+    });
+
+    it("installs without an icon when the icon download fails", async () => {
+      const { computeBinaryHash } = await import("@/utils/hash.util");
+
+      mockFetchRegistryWithIcon({
+        registryUrl: "https://registry.example.com/svc",
+        downloadUrl: "https://example.com/download",
+        definitionContent: "payload",
+        icon: {
+          url: "https://icons.example.com/a.png",
+          hash: computeBinaryHash(PNG_ICON),
+          error: true,
+        },
+      });
+
+      const svc = new ServicesService(makeController());
+      await svc.createServiceFromRegistry({
+        id: "alpha",
+        source: "https://registry.example.com/svc",
+        adapter: "test-adapter",
+      });
+
+      const row = await svc.getService("alpha");
+      expect(row.hasIcon).toBe(false);
+      expect(await svc.getServiceIcon("alpha")).toBeNull();
+    });
+
+    it("installs without an icon when the icon hash does not match", async () => {
+      mockFetchRegistryWithIcon({
+        registryUrl: "https://registry.example.com/svc",
+        downloadUrl: "https://example.com/download",
+        definitionContent: "payload",
+        icon: { url: "https://icons.example.com/a.png", hash: "wrong-hash" },
+      });
+
+      const svc = new ServicesService(makeController());
+      await svc.createServiceFromRegistry({
+        id: "alpha",
+        source: "https://registry.example.com/svc",
+        adapter: "test-adapter",
+      });
+
+      const row = await svc.getService("alpha");
+      expect(row.hasIcon).toBe(false);
+    });
+
+    it("installs without an icon when the content is not a supported raster", async () => {
+      const { computeBinaryHash } = await import("@/utils/hash.util");
+      const svg = Buffer.from("<svg xmlns='http://www.w3.org/2000/svg'/>");
+
+      mockFetchRegistryWithIcon({
+        registryUrl: "https://registry.example.com/svc",
+        downloadUrl: "https://example.com/download",
+        definitionContent: "payload",
+        icon: {
+          url: "https://icons.example.com/a.svg",
+          hash: computeBinaryHash(svg),
+          data: svg,
+        },
+      });
+
+      const svc = new ServicesService(makeController());
+      await svc.createServiceFromRegistry({
+        id: "alpha",
+        source: "https://registry.example.com/svc",
+        adapter: "test-adapter",
+      });
+
+      const row = await svc.getService("alpha");
+      expect(row.hasIcon).toBe(false);
+    });
+
+    it("reports no icon for manual installs", async () => {
+      mockFetchOnce("payload");
+      const svc = new ServicesService(makeController());
+      await svc.createServiceDirect({
+        id: "alpha",
+        url: "https://example.com/def.json",
+        adapter: "test-adapter",
+      });
+
+      const row = await svc.getService("alpha");
+      expect(row.hasIcon).toBe(false);
+      expect(await svc.getServiceIcon("alpha")).toBeNull();
     });
   });
 
@@ -662,7 +1079,7 @@ describe("ServicesService", () => {
       const svc = new ServicesService(controller);
       await svc.updateService("alpha");
 
-      const tools = await svc.listTools({ serviceId: "alpha" });
+      const tools = (await svc.listTools({ serviceId: "alpha" })).items;
       const map = new Map(tools.map((t) => [t.name, t.enabled]));
       expect(map.get("keep")).toBe(true);
       expect(map.get("fresh")).toBe(false);
@@ -726,6 +1143,167 @@ describe("ServicesService", () => {
         "test-adapter",
         "alpha",
       );
+    });
+
+    it("skips the definition download when nothing changed", async () => {
+      const { computeBinaryHash } = await import("@/utils/hash.util");
+      const iconHash = computeBinaryHash(PNG_ICON);
+      await seedService("alpha");
+      await db.run(
+        sql`UPDATE services SET icon_hash = ${iconHash} WHERE id = 'alpha'`,
+      );
+
+      mockFetchRegistryWithIcon({
+        registryUrl: "https://example.com/def.json",
+        registryHash: "hash",
+        downloadUrl: "https://example.com/download",
+        definitionContent: "unused",
+        icon: { url: "https://icons.example.com/a.png", hash: iconHash },
+      });
+
+      const svc = new ServicesService(makeController());
+      await svc.updateService("alpha");
+
+      const calls = vi.mocked(fetch).mock.calls.map(([input]) => String(input));
+      expect(calls).toEqual(["https://example.com/def.json"]);
+    });
+
+    it("re-fetches and stores the icon when the registry icon hash changes", async () => {
+      const { computeBinaryHash } = await import("@/utils/hash.util");
+      const newHash = computeBinaryHash(PNG_ICON);
+      await seedService("alpha");
+      await db.run(
+        sql`UPDATE services SET icon_hash = 'old-hash' WHERE id = 'alpha'`,
+      );
+
+      mockFetchRegistryWithIcon({
+        registryUrl: "https://example.com/def.json",
+        downloadUrl: "https://example.com/download",
+        definitionContent: "payload",
+        icon: { url: "https://icons.example.com/a.png", hash: newHash },
+      });
+
+      const svc = new ServicesService(makeController());
+      await svc.updateService("alpha");
+
+      const icon = await svc.getServiceIcon("alpha");
+      expect(icon).not.toBeNull();
+      expect(icon?.data.equals(PNG_ICON)).toBe(true);
+      expect(icon?.mime).toBe("image/png");
+      expect(icon?.hash).toBe(newHash);
+      expect(await svc.getService("alpha")).toMatchObject({ hasIcon: true });
+    });
+
+    it("keeps the stored icon when the icon re-fetch fails", async () => {
+      const { computeBinaryHash } = await import("@/utils/hash.util");
+      const storedHash = computeBinaryHash(PNG_ICON);
+      await seedService("alpha");
+      await db.run(
+        sql`UPDATE services SET icon_hash = ${storedHash}, icon_data = ${PNG_ICON}, icon_mime = 'image/png' WHERE id = 'alpha'`,
+      );
+
+      mockFetchRegistryWithIcon({
+        registryUrl: "https://example.com/def.json",
+        downloadUrl: "https://example.com/download",
+        definitionContent: "payload",
+        icon: {
+          url: "https://icons.example.com/a.png",
+          hash: "new-hash",
+          error: true,
+        },
+      });
+
+      const svc = new ServicesService(makeController());
+      await svc.updateService("alpha");
+
+      const icon = await svc.getServiceIcon("alpha");
+      expect(icon).not.toBeNull();
+      expect(icon?.data.equals(PNG_ICON)).toBe(true);
+      expect(icon?.mime).toBe("image/png");
+      expect(icon?.hash).toBe(storedHash);
+      expect(await svc.getService("alpha")).toMatchObject({ hasIcon: true });
+    });
+
+    it("skips the definition download when only the icon changed and the registry hash matches", async () => {
+      const { computeBinaryHash, computeContentHash } = await import(
+        "@/utils/hash.util"
+      );
+      const contentHash = computeContentHash("payload");
+      const newHash = computeBinaryHash(PNG_ICON);
+      await seedService("alpha", { hash: contentHash });
+      await db.run(
+        sql`UPDATE services SET icon_hash = 'old-hash' WHERE id = 'alpha'`,
+      );
+
+      mockFetchRegistryWithIcon({
+        registryUrl: "https://example.com/def.json",
+        registryHash: contentHash,
+        downloadUrl: "https://example.com/download",
+        definitionContent: "unused",
+        icon: { url: "https://icons.example.com/a.png", hash: newHash },
+      });
+
+      const svc = new ServicesService(makeController());
+      await svc.updateService("alpha");
+
+      const icon = await svc.getServiceIcon("alpha");
+      expect(icon).not.toBeNull();
+      expect(icon?.hash).toBe(newHash);
+
+      const calls = vi.mocked(fetch).mock.calls.map(([input]) => String(input));
+      expect(calls).toEqual([
+        "https://example.com/def.json",
+        "https://icons.example.com/a.png",
+      ]);
+    });
+
+    it("clears the stored icon when the registry no longer declares one", async () => {
+      const { computeBinaryHash } = await import("@/utils/hash.util");
+      const oldHash = computeBinaryHash(PNG_ICON);
+      await seedService("alpha");
+      await db.run(
+        sql`UPDATE services SET icon_hash = ${oldHash}, icon_data = ${PNG_ICON}, icon_mime = 'image/png' WHERE id = 'alpha'`,
+      );
+
+      mockFetchRegistryWithIcon({
+        registryUrl: "https://example.com/def.json",
+        downloadUrl: "https://example.com/download",
+        definitionContent: "payload",
+      });
+
+      const svc = new ServicesService(makeController());
+      await svc.updateService("alpha");
+
+      expect(await svc.getServiceIcon("alpha")).toBeNull();
+      expect(await svc.getService("alpha")).toMatchObject({ hasIcon: false });
+    });
+
+    it("keeps the stored icon untouched when the icon hash matches and content is unchanged", async () => {
+      const { computeBinaryHash, computeContentHash } = await import(
+        "@/utils/hash.util"
+      );
+      const iconHash = computeBinaryHash(PNG_ICON);
+      const contentHash = computeContentHash("payload");
+      await seedService("alpha", { hash: contentHash });
+      await db.run(
+        sql`UPDATE services SET icon_hash = ${iconHash}, icon_data = ${PNG_ICON}, icon_mime = 'image/png' WHERE id = 'alpha'`,
+      );
+
+      mockFetchRegistryWithIcon({
+        registryUrl: "https://example.com/def.json",
+        downloadUrl: "https://example.com/download",
+        definitionContent: "payload",
+        icon: { url: "https://icons.example.com/a.png", hash: iconHash },
+      });
+
+      const svc = new ServicesService(makeController());
+      await svc.updateService("alpha");
+
+      expect(await svc.getServiceIcon("alpha")).toMatchObject({
+        mime: "image/png",
+        hash: iconHash,
+      });
+      expect(await svc.getService("alpha")).toMatchObject({ hasIcon: true });
     });
   });
 
@@ -846,7 +1424,7 @@ describe("ServicesService", () => {
         enabled: false,
       });
 
-      const tools = await svc.listTools({ serviceId: "alpha" });
+      const tools = (await svc.listTools({ serviceId: "alpha" })).items;
       expect(tools[0]?.enabled).toBe(false);
     });
 
@@ -865,7 +1443,7 @@ describe("ServicesService", () => {
         enabled: false,
       });
 
-      const rows = await svc.listTools({ serviceId: "alpha" });
+      const rows = (await svc.listTools({ serviceId: "alpha" })).items;
       const byId = Object.fromEntries(rows.map((r) => [r.id, r.enabled]));
       expect(byId).toEqual({ do_stuff: false, other: true });
 
@@ -978,7 +1556,7 @@ describe("ServicesService", () => {
 
       await expect(
         svc.patchServiceConfig({ id: "alpha", patch: [] }),
-      ).resolves.toBeUndefined();
+      ).resolves.toEqual({ config: {}, outdated: [] });
     });
 
     it("patchServiceConfig rejects a patch that turns the payload into a non-object", async () => {
@@ -1084,12 +1662,12 @@ describe("ServicesService", () => {
       );
     });
 
-    it("getServiceSecretsPresence returns empty array when no secrets are stored", async () => {
+    it("getServiceSecretsPresence returns empty present and outdated arrays when no secrets are stored", async () => {
       await seedService("alpha");
       const svc = new ServicesService(makeController());
 
       const result = await svc.getServiceSecretsPresence("alpha");
-      expect(result).toEqual({ present: [] });
+      expect(result).toEqual({ present: [], outdated: [] });
     });
 
     it("getServiceSecretsPresence returns paths for flat string secrets", async () => {
@@ -1108,6 +1686,7 @@ describe("ServicesService", () => {
 
       const result = await svc.getServiceSecretsPresence("alpha");
       expect(result.present.sort()).toEqual(["/apiKey", "/endpoint"]);
+      expect(result.outdated).toEqual([]);
     });
 
     it("getServiceSecretsPresence returns paths for nested object secrets", async () => {
@@ -1143,6 +1722,203 @@ describe("ServicesService", () => {
 
       const result = await svc.getServiceSecretsPresence("alpha");
       expect(result.present).toEqual(["/apiKeys"]);
+    });
+  });
+
+  describe("schema-outdated stored payloads", () => {
+    const strictConfigSchema: JSONSchema = {
+      type: "object",
+      properties: { host: { type: "string" } },
+      additionalProperties: false,
+    };
+    const strictSecretsSchema: JSONSchema = {
+      type: "object",
+      properties: { token: { type: "string" } },
+      additionalProperties: false,
+    };
+
+    async function seedStaleConfig(
+      id: string,
+      configSchema: JSONSchema = strictConfigSchema,
+    ): Promise<void> {
+      await seedService(id, { configSchema, enabled: false });
+      await db.run(
+        sql`INSERT INTO service_configurations (service_id, payload, updated_at)
+            VALUES (${id}, ${JSON.stringify({
+              host: "example.com",
+              stalePort: 9999,
+            })}, ${Date.now()})`,
+      );
+    }
+
+    async function seedStaleSecrets(id: string): Promise<void> {
+      await seedService(id, { secretsSchema: strictSecretsSchema });
+      const encrypted = encryptSecrets({ token: "abc", oldKey: "x" });
+      await db.run(
+        sql`INSERT INTO service_secrets (service_id, payload, updated_at)
+            VALUES (${id}, ${JSON.stringify(encrypted)}, ${Date.now()})`,
+      );
+    }
+
+    it("getServiceConfigView filters outdated keys and reports them", async () => {
+      await seedStaleConfig("alpha");
+      const svc = new ServicesService(makeController());
+
+      const view = await svc.getServiceConfigView("alpha");
+      expect(view).toEqual({
+        config: { host: "example.com" },
+        outdated: ["/stalePort"],
+      });
+    });
+
+    it("getServiceSecretsPresence reports outdated secrets keys", async () => {
+      await seedStaleSecrets("alpha");
+      const svc = new ServicesService(makeController());
+
+      const result = await svc.getServiceSecretsPresence("alpha");
+      expect(result).toEqual({ present: ["/token"], outdated: ["/oldKey"] });
+    });
+
+    it("setServiceEnabled succeeds with outdated stored keys and hydrates a conformant state", async () => {
+      await seedStaleConfig("alpha");
+      const controller = makeController();
+      const svc = new ServicesService(controller);
+
+      await svc.setServiceEnabled({ id: "alpha", enabled: true });
+
+      const state = controller.hydrateService.mock.calls[0][1] as ServiceState;
+      expect(state.config).toEqual({ host: "example.com" });
+    });
+
+    it("setServiceEnabled keeps permissive keys in the hydrated state", async () => {
+      await seedService("alpha", {
+        enabled: false,
+        configSchema: { type: "object", additionalProperties: true },
+      });
+      await db.run(
+        sql`INSERT INTO service_configurations (service_id, payload, updated_at)
+            VALUES ('alpha', ${JSON.stringify({ anyKey: 1 })}, ${Date.now()})`,
+      );
+      const controller = makeController();
+      const svc = new ServicesService(controller);
+
+      await svc.setServiceEnabled({ id: "alpha", enabled: true });
+
+      const state = controller.hydrateService.mock.calls[0][1] as ServiceState;
+      expect(state.config).toEqual({ anyKey: 1 });
+    });
+
+    it("patchServiceConfig tolerates pre-existing outdated keys and preserves them", async () => {
+      await seedStaleConfig("alpha");
+      const svc = new ServicesService(makeController());
+
+      const view = await svc.patchServiceConfig({
+        id: "alpha",
+        patch: [{ op: "replace", path: "/host", value: "new.example.com" }],
+      });
+
+      expect(view).toEqual({
+        config: { host: "new.example.com" },
+        outdated: ["/stalePort"],
+      });
+      expect(await svc.getServiceConfig("alpha")).toEqual({
+        host: "new.example.com",
+        stalePort: 9999,
+      });
+    });
+
+    it("patchServiceConfig on a null-only schema keeps the updated non-empty config and reports no outdated paths", async () => {
+      await seedStaleConfig("alpha", { type: "null" });
+      const svc = new ServicesService(makeController());
+
+      const view = await svc.patchServiceConfig({
+        id: "alpha",
+        patch: [{ op: "replace", path: "/host", value: "new.example.com" }],
+      });
+
+      expect(view).toEqual({
+        config: { host: "new.example.com", stalePort: 9999 },
+        outdated: [],
+      });
+      expect(await svc.getServiceConfig("alpha")).toEqual({
+        host: "new.example.com",
+        stalePort: 9999,
+      });
+    });
+
+    it("patchServiceConfig rejects adding new schema-disallowed keys", async () => {
+      await seedStaleConfig("alpha");
+      const svc = new ServicesService(makeController());
+
+      await expect(
+        svc.patchServiceConfig({
+          id: "alpha",
+          patch: [{ op: "add", path: "/freshStale", value: 1 }],
+        }),
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it("patchServiceConfig treats removes of missing paths as no-ops", async () => {
+      await seedStaleConfig("alpha");
+      const svc = new ServicesService(makeController());
+
+      const view = await svc.patchServiceConfig({
+        id: "alpha",
+        patch: [
+          { op: "remove", path: "/host" },
+          { op: "remove", path: "/missing" },
+        ],
+      });
+
+      expect(view).toEqual({ config: {}, outdated: ["/stalePort"] });
+      expect(await svc.getServiceConfig("alpha")).toEqual({
+        stalePort: 9999,
+      });
+    });
+
+    it("patchServiceSecrets tolerates and preserves pre-existing outdated secrets keys", async () => {
+      await seedStaleSecrets("alpha");
+      const svc = new ServicesService(makeController());
+
+      await svc.patchServiceSecrets({
+        id: "alpha",
+        patch: [{ op: "replace", path: "/token", value: "def" }],
+      });
+
+      expect(await svc.getServiceSecretsPresence("alpha")).toEqual({
+        present: ["/token"],
+        outdated: ["/oldKey"],
+      });
+    });
+
+    it("patchServiceSecrets rejects adding new schema-disallowed keys", async () => {
+      await seedStaleSecrets("alpha");
+      const svc = new ServicesService(makeController());
+
+      await expect(
+        svc.patchServiceSecrets({
+          id: "alpha",
+          patch: [{ op: "add", path: "/freshStale", value: 1 }],
+        }),
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it("patchServiceSecrets treats removes of missing paths as no-ops", async () => {
+      await seedStaleSecrets("alpha");
+      const svc = new ServicesService(makeController());
+
+      await svc.patchServiceSecrets({
+        id: "alpha",
+        patch: [
+          { op: "remove", path: "/token" },
+          { op: "remove", path: "/missing" },
+        ],
+      });
+
+      expect(await svc.getServiceSecretsPresence("alpha")).toEqual({
+        present: [],
+        outdated: ["/oldKey"],
+      });
     });
   });
 
@@ -1495,6 +2271,44 @@ describe("ServicesService", () => {
       const svc = new ServicesService(controller);
 
       await expect(svc.hydrateAdapter("test-adapter")).resolves.toBeUndefined();
+    });
+  });
+
+  describe("search index lifecycle passthroughs", () => {
+    const makeSearchMock = () => ({
+      init: vi.fn(async () => {}),
+      vectorAvailable: true,
+      searchTools: vi.fn(),
+      reindexService: vi.fn(),
+      deleteEmbeddings: vi.fn(),
+      reconcile: vi.fn(),
+      reconcileGuarded: vi.fn(async () => {}),
+      startReconciliation: vi.fn(),
+      close: vi.fn(),
+    });
+
+    it("forwards lifecycle calls to the search index", async () => {
+      const search = makeSearchMock();
+      const svc = new ServicesService(makeController(), search);
+
+      await svc.initSearch();
+      svc.startSearchReconciliation(2500);
+      await svc.reconcileSearchGuarded();
+      svc.closeSearch();
+
+      expect(search.init).toHaveBeenCalledTimes(1);
+      expect(search.startReconciliation).toHaveBeenCalledWith(2500);
+      expect(search.reconcileGuarded).toHaveBeenCalledTimes(1);
+      expect(search.close).toHaveBeenCalledTimes(1);
+    });
+
+    it("no-ops when no search index is configured", async () => {
+      const svc = new ServicesService(makeController());
+
+      await expect(svc.initSearch()).resolves.toBeUndefined();
+      svc.startSearchReconciliation(0);
+      await expect(svc.reconcileSearchGuarded()).resolves.toBeUndefined();
+      expect(() => svc.closeSearch()).not.toThrow();
     });
   });
 });

@@ -1,0 +1,100 @@
+---
+title: "Building a registry"
+description: "What it takes to host a registry and the reference implementation"
+sidebarTitle: "Building a registry"
+---
+
+Any HTTP/1.1 server can host a registry. Because Cyrnel fetches everything
+as plain GET requests and verifies content by hash, a registry can even be
+a static file tree served by a CDN or object-storage bucket.
+
+## Layout
+
+A registry must expose these URLs (see the linked pages for exact shapes):
+
+| URL | Purpose | See |
+| --- | --- | --- |
+| `GET /.well-known/registry.json` | Discovery + capability advertisement | [Well-known](/cyrnel/registry-specs/well-known) |
+| `GET <capability URL>` | Browse page for definitions or modules | [Definitions](/cyrnel/registry-specs/definitions), [Modules](/cyrnel/registry-specs/modules) |
+| `GET <entry.source>` | Version descriptor for one item | [Definitions](/cyrnel/registry-specs/definitions) / [Modules](/cyrnel/registry-specs/modules) |
+| `GET <version.downloadUrl>` | The artifact (definition document or module archive) | [Definitions](/cyrnel/registry-specs/definitions) / [Modules](/cyrnel/registry-specs/modules) |
+| `POST <tokenEndpoint>` | Optional OAuth2 token exchange | [Authentication](/cyrnel/registry-specs/authentication) |
+
+## Rules that govern you as a host
+
+- **Same-origin catalog.** Capability URLs and entry `source` URLs must
+  resolve to the **same origin** as the well-known document (after
+  redirects are followed). You cannot point catalog URLs at a different
+  CDN host.
+- **Artifacts may be off-origin.** Version descriptor `downloadUrl` URLs
+  face no same-origin rule - you may host archives on separate storage as
+  long as they remain reachable under Cyrnel's egress guard (public
+  unicast addresses by default).
+- **Redirects are fine but limited.** Cyrnel follows up to 5 redirect hops
+  and re-validates the address on **every** hop. `304 Not Modified` is not
+  supported - it is treated as a download error.
+- **Honor `limit`.** Cyrnel always sends `limit` on browse requests
+  (default 50, server caps at 200). Clamp it as you like within that
+  range.
+- **No persistence of state.** Cyrnel never POSTs catalog data to you.
+  OAuth2 token endpoints are the only write-ish endpoint Cyrnel calls.
+
+## Integrity matters
+
+Advertise a `hash` for every versioned artifact (and for icons). Cyrnel
+downloads the bytes, hashes them, and refuses to install on mismatch.
+Missing hashes are allowed but make installs less safe - and updates
+repeatedly re-download mutable URLs. Keep artifact URLs **immutable per
+version** and keep descriptor URLs stable forever (updates re-resolve the
+stored `source` URL).
+
+## Reference implementation
+
+The repository ships a self-contained reference registry under
+`apps/api/scripts/dev-registry.ts` (the "dev fixture"), used by local
+development and the API test suite. It demonstrates every mechanism in
+this specification - including auth, scopes, drift, and pagination.
+
+```bash
+pnpm -C apps/api registry:dev     # serves http://127.0.0.1:9372
+```
+
+The fixture's advertisement and behavior are controlled by environment
+variables:
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `CYRNEL_DEV_REGISTRY_AUTH_MODE` | `none` | `none`, `apiKey` or `oauth2`. `none` advertises no auth key. |
+| `CYRNEL_DEV_REGISTRY_API_KEY` | `dev-registry-key` | apiKey mode: expected `x-dev-registry-key` header value |
+| `CYRNEL_DEV_REGISTRY_TOKEN` | `dev-registry-token` | oauth2 mode: issued bearer token |
+| `CYRNEL_DEV_REGISTRY_CLIENT_ID` | `dev-client` | oauth2 mode: accepted `client_id` |
+| `CYRNEL_DEV_REGISTRY_CLIENT_SECRET` | `dev-secret` | oauth2 mode: accepted `client_secret` |
+| `CYRNEL_DEV_REGISTRY_TOKEN_EXPIRES_IN` | `3600` | oauth2 mode: tokens' `expires_in` |
+| `CYRNEL_DEV_REGISTRY_DRIFT_AUTH` | `0` | `1` advertises auth values that differ from what the server enforces ("drift") to demonstrate Cyrnel's pinning behavior |
+
+### Fixture gotchas
+
+<Warning>
+  The fixture's **definitions** entries use a bare hash *string* for
+  `icon` (not the required `{url, hash}` object) whenever an icon file
+  exists in `~/.cache/cyrnel-dev-registry-icons/`: that shape is invalid
+  and makes the whole definitions browse page fail with a `400`. Delete
+  the cached icon files (or serve icons that match the
+  [entry schema](/cyrnel/registry-specs/definitions)) to browse
+  definitions cleanly.
+</Warning>
+
+- The fixture's browse `limit` defaults to 10 internally and clamps to
+  `[1, 200]`: Cyrnel sends `limit=50` by default, so expect 50 rows in
+  practice, but pass an explicit `limit` to be sure.
+- Unknown fixture paths return `404 {"error": "Not found: <path>"}` and
+  unauthorized requests (when auth is on) return `401 {"error":"unauthorized"}`.
+
+## Missing capabilities
+
+Registering a registry whose well-known document offers no supported
+capability fails with a `400`:
+
+```
+Registry at '<baseUrl>' does not advertise a supported 'definitions' or 'modules' capability.
+```

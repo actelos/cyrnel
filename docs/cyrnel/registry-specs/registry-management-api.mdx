@@ -1,0 +1,95 @@
+---
+title: "Registry management API"
+description: "Cyrnel's /registries endpoints, rate limits, and errors"
+sidebarTitle: "Management API"
+---
+
+Cyrnel exposes the registries it knows about under `/registries`. All
+endpoints require the API key (`Authorization: Bearer <key>`) when one is
+configured and are documented interactively in the
+[API Reference](/api-reference) tab.
+
+## Endpoints
+
+| Method | Path | Rate limit | Purpose |
+| --- | --- | --- | --- |
+| `POST` | `/registries` | 10/min | Add a registry (fetches the well-known document, validates, stores). Optional `auth` in body. |
+| `GET` | `/registries` | - | List registries (`{items, nextCursor, hasMore}`; `limit` ≤ 100, default 20). Each item includes `authType` and `tokenExpiresAt`. |
+| `POST` | `/registries/:id/refresh` | 10/min | Re-fetch the well-known document, stamp `lastSyncedAt`, detect auth drift. |
+| `POST` | `/registries/:id/auth` | 5/min | Configure/upsert auth (see [Authentication](/cyrnel/registry-specs/authentication)). |
+| `GET` | `/registries/:id/auth` | - | Auth state + live advertised scopes + decrypted configured scopes. |
+| `DELETE` | `/registries/:id/auth` | - | Remove configured auth. `204`, or `404` if none. |
+| `GET` | `/registries/:id/definitions` | - | Browse definitions (passthrough). |
+| `GET` | `/registries/:id/modules` | - | Browse modules (passthrough). |
+| `GET` | `/registries/:id/definitions/:defId/icon` | - | Proxy an entry icon (bytes for the web UI). |
+| `GET` | `/registries/:id/modules/:modId/icon` | - | Proxy an entry icon (bytes for the web UI). |
+| `DELETE` | `/registries/:id` | - | Remove a registry (cascades stored credentials). `204`. |
+
+Related install/update endpoints (same API, same auth):
+
+| Method | Path | Rate limit |
+| --- | --- | --- |
+| `POST` | `/services/install` | 10/min |
+| `GET` | `/services/install/adapters` | 20/min |
+| `POST` | `/services/:id/update` | 10/min |
+| `POST` | `/services/:id/sync` | 10/min |
+| `POST` | `/services/:id/auto-update` | 10/min |
+| `PATCH` | `/services/:serviceId` | 10/min |
+| `POST` | `/modules/install` | 5/min |
+| `POST` | `/modules/:moduleId/update` | 5/min |
+| `POST` | `/modules/:moduleId/auto-update` | 5/min |
+| `PATCH` | `/modules/:moduleId` | 5/min |
+| `POST` | `/modules/reload` | 2/min |
+
+Browse passthrough query params:
+
+| Endpoint | Params |
+| --- | --- |
+| `GET /registries/:id/definitions` | `query`, `kind`, `cursor`, `limit` (≤ 200) |
+| `GET /registries/:id/modules` | `query`, `type` (`adapter`/`environment`), `cursor`, `limit` (≤ 200) |
+
+Browsing a registry that offers no supported capability returns `404
+Registry '<id>' does not support definitions.` / `... modules.`. The icon
+proxy endpoints exist in the router but are **not** in the OpenAPI spec.
+
+## Add a registry
+
+`POST /registries`
+
+```json
+{ "baseUrl": "https://registry.example", "id": "my-registry" }
+```
+
+- `baseUrl` must be an absolute `http(s)` URL; it is normalized (trailing
+  slash) before storage.
+- `id` is optional; defaults to the advertised well-known `id`.
+- Discovery happens first: a registry with no supported capability fails
+  `400`; a bad upstream yields `400`/`502`.
+- A conflicting id or base URL yields `409`.
+- Optional `auth` body: `{ "type": "apiKey", "apiKey": "..." }` or
+  `{ "type": "oauth2", "clientId": "...", "clientSecret": "...", "scopes": [...] }`.
+  Auth is validated against the live advertisement before anything is
+  stored.
+
+## Errors
+
+| Status | Typical causes |
+| --- | --- |
+| `400` | Invalid body, malformed well-known, unsupported capability, auth safety refusals, content-hash mismatch, oversized pages/downloads |
+| `401` | Missing/invalid `CYRNEL_API_KEY` |
+| `404` | Unknown registry id, capability not supported, no auth configured, icon absent |
+| `409` | Duplicate registry / service / module id, update without stored source |
+| `413` | Download exceeds its size cap |
+| `429` | Rate limited |
+| `502` | Upstream registry errors: non-2xx, DNS/SSRF block, timeout, redirect loop, invalid JSON, auth transport refusal |
+| `500` | Local storage failures |
+
+Rate-limit responses carry a machine-readable body:
+
+```json
+{
+  "error": "rate_limit_exceeded",
+  "message": "Too many requests. Try again in 12 seconds.",
+  "retryAfter": 12
+}
+```

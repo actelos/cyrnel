@@ -1,5 +1,6 @@
 import type { JSONSchema } from "@cyrnel/sdk";
 import {
+  blob,
   index,
   integer,
   primaryKey,
@@ -10,29 +11,42 @@ import {
 import type { ModuleType } from "@/models/modules.model";
 import type { EncryptedSecretsPayload } from "@/models/secrets.model";
 
-export const services = sqliteTable("services", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  description: text("description").notNull().default(""),
-  hash: text("hash").notNull(),
-  version: text("version").notNull().default("0.0.0"),
-  source: text("source").notNull().default(""),
-  adapter: text("adapter")
-    .notNull()
-    .references(() => modules.id, { onDelete: "cascade" }),
-  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
-  configSchema: text("config_schema", { mode: "json" })
-    .$type<JSONSchema>()
-    .notNull(),
-  secretsSchema: text("secrets_schema", { mode: "json" })
-    .$type<JSONSchema>()
-    .notNull(),
-  adapterDomain: text("adapter_domain", { mode: "json" })
-    .$type<Record<string, unknown>>()
-    .notNull(),
-  definitionContent: text("definition_content").notNull().default(""),
-  stale: integer("stale", { mode: "boolean" }).notNull().default(false),
-});
+export const services = sqliteTable(
+  "services",
+  {
+    id: text("id").primaryKey(),
+    createdAt: text("created_at").notNull().default("1970-01-01T00:00:00.000Z"),
+    name: text("name").notNull(),
+    summary: text("summary").notNull().default(""),
+    description: text("description").notNull().default(""),
+    hash: text("hash").notNull(),
+    version: text("version").notNull().default("0.0.0"),
+    source: text("source").notNull().default(""),
+    adapter: text("adapter")
+      .notNull()
+      .references(() => modules.id, { onDelete: "cascade" }),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    configSchema: text("config_schema", { mode: "json" })
+      .$type<JSONSchema>()
+      .notNull(),
+    secretsSchema: text("secrets_schema", { mode: "json" })
+      .$type<JSONSchema>()
+      .notNull(),
+    adapterDomain: text("adapter_domain", { mode: "json" })
+      .$type<Record<string, unknown>>()
+      .notNull(),
+    definitionContent: text("definition_content").notNull().default(""),
+    stale: integer("stale", { mode: "boolean" }).notNull().default(false),
+    autoUpdate: integer("auto_update", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    autoUpdateConstraint: text("auto_update_constraint"),
+    iconData: blob("icon_data", { mode: "buffer" }),
+    iconMime: text("icon_mime"),
+    iconHash: text("icon_hash"),
+  },
+  (table) => [index("services_created_at_idx").on(table.createdAt, table.id)],
+);
 
 export const serviceConfigurations = sqliteTable("service_configurations", {
   serviceId: text("service_id")
@@ -63,6 +77,7 @@ export const tools = sqliteTable(
       .references(() => services.id, { onDelete: "cascade" }),
     id: text("id").notNull(),
     name: text("name").notNull(),
+    summary: text("summary").notNull().default(""),
     description: text("description").notNull().default(""),
     enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
     inputSchema: text("input_schema", { mode: "json" })
@@ -85,16 +100,28 @@ export const modules = sqliteTable(
   "modules",
   {
     id: text("id").primaryKey(),
+    createdAt: text("created_at").notNull().default("1970-01-01T00:00:00.000Z"),
     name: text("name").notNull(),
     type: text("type").$type<ModuleType>().notNull(),
+    summary: text("summary").notNull().default(""),
     description: text("description").notNull().default(""),
     hash: text("hash").notNull().default(""),
     version: text("version").notNull().default("0.0.0"),
     source: text("source").notNull().default(""),
     enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
     missing: integer("missing", { mode: "boolean" }).notNull().default(false),
+    autoUpdate: integer("auto_update", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    autoUpdateConstraint: text("auto_update_constraint"),
+    iconData: blob("icon_data", { mode: "buffer" }),
+    iconMime: text("icon_mime"),
+    iconHash: text("icon_hash"),
   },
-  (table) => [index("modules_type_idx").on(table.type)],
+  (table) => [
+    index("modules_type_idx").on(table.type),
+    index("modules_created_at_idx").on(table.createdAt, table.id),
+  ],
 );
 
 export const moduleConfigurations = sqliteTable("module_configurations", {
@@ -142,6 +169,34 @@ export type NewModuleConfigurationRecord =
 
 export type ModuleSecretsRecord = typeof moduleSecrets.$inferSelect;
 export type NewModuleSecretsRecord = typeof moduleSecrets.$inferInsert;
+
+export const registries = sqliteTable("registries", {
+  id: text("id").primaryKey(),
+  baseUrl: text("base_url").notNull().unique(),
+  lastSyncedAt: text("last_synced_at"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const registryAuth = sqliteTable("registry_auth", {
+  registryId: text("registry_id")
+    .primaryKey()
+    .references(() => registries.id, { onDelete: "cascade" }),
+  authType: text("auth_type").$type<"apiKey" | "oauth2">().notNull(),
+  config: text("config", { mode: "json" })
+    .$type<EncryptedSecretsPayload>()
+    .notNull(),
+  token: text("token", { mode: "json" }).$type<EncryptedSecretsPayload>(),
+  tokenEndpoint: text("token_endpoint"),
+  headerName: text("header_name"),
+  tokenExpiresAt: integer("token_expires_at"),
+  updatedAt: integer("updated_at").notNull(),
+});
+
+export type RegistryRecord = typeof registries.$inferSelect;
+export type NewRegistryRecord = typeof registries.$inferInsert;
+export type RegistryAuthRecord = typeof registryAuth.$inferSelect;
+export type NewRegistryAuthRecord = typeof registryAuth.$inferInsert;
 
 export const processes = sqliteTable("processes", {
   id: integer("id").primaryKey({ autoIncrement: true }),

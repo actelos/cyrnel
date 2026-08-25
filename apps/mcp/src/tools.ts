@@ -28,8 +28,9 @@ const tools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
     name: "list_tools",
     description: `
     List and filter tools across services. Use to find candidate tools
-    across one or all services. If you know the tool and service id, use
-    \`get_tool_docs\` for detailed parameter information.
+    across one or all services using hybrid FTS5 and vector semantic search.
+    Results are returned in relevance-ranked order. If you know the tool and
+    service id, use \`get_tool_docs\` for detailed parameter information.
     `
       .replace(/\s+/g, " ")
       .trim(),
@@ -47,7 +48,9 @@ const tools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
       query: z
         .string()
         .optional()
-        .describe('Optional search string. Example: "issues".'),
+        .describe(
+          'Optional natural-language capability-oriented search query. Natural-language phrases (e.g., "find tools for creating GitHub issues") are preferred over literal substring or keyword lookups. Results are returned in relevance-ranked order.',
+        ),
       limit: z
         .number()
         .int()
@@ -56,8 +59,14 @@ const tools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
         .optional()
         .describe("Optional maximum number of results to return. Example: 10."),
       enabled: z.boolean().optional().describe("Optional enabled filter."),
+      cursor: z
+        .string()
+        .optional()
+        .describe(
+          "Opaque pagination token returned as nextCursor by a previous response. Pass it back unchanged to fetch the next page; omit to fetch the first page.",
+        ),
     }),
-    execute: async ({ service_id, query, limit, enabled }) =>
+    execute: async ({ service_id, query, limit, enabled, cursor }) =>
       JSON.stringify(
         await api
           .get("tools", {
@@ -66,6 +75,7 @@ const tools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
               query,
               limit,
               enabled,
+              cursor,
             }),
           })
           .json(),
@@ -346,6 +356,20 @@ const tools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
     execute: async ({ id }) =>
       JSON.stringify(
         await api.post(`processes/${id}/signals/kill`, { json: {} }).json(),
+      ),
+  },
+  {
+    name: "unload_process",
+    description: `
+    Remove an idle process from active memory, keeping its database record and
+    outputs intact. The process id remains valid and can be revived later via
+    \`run_process\`. Only accepts an unload signal for idle in-memory processes.
+    `,
+    annotations: { idempotentHint: false, openWorldHint: true },
+    parameters: z.object({ id: ProcessId }),
+    execute: async ({ id }) =>
+      JSON.stringify(
+        await api.post(`processes/${id}/signals/unload`, { json: {} }).json(),
       ),
   },
 ];

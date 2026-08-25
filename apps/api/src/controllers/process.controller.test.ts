@@ -12,6 +12,7 @@ import {
   killProcess,
   listProcesses,
   runProcess,
+  unloadProcess,
 } from "@/controllers/process.controller";
 import { HttpError } from "@/models/error.model";
 
@@ -27,6 +28,7 @@ const processService = {
   kill: vi.fn(),
   delete: vi.fn(),
   run: vi.fn(),
+  unload: vi.fn(),
 };
 
 interface MockResponse {
@@ -80,7 +82,11 @@ describe("process.controller", () => {
   describe("listProcesses", () => {
     it("forwards an empty filter when no query params are supplied", async () => {
       const res = makeRes();
-      processService.list.mockResolvedValue([]);
+      processService.list.mockResolvedValue({
+        items: [],
+        nextCursor: null,
+        hasMore: false,
+      });
 
       await listProcesses(makeReq(), cast(res));
 
@@ -88,14 +94,23 @@ describe("process.controller", () => {
         ref: undefined,
         state: undefined,
         exitState: undefined,
+        limit: 20,
       });
       expect(res.status).toHaveBeenCalledWith(200);
-      expect(res.json).toHaveBeenCalledWith({ processes: [] });
+      expect(res.json).toHaveBeenCalledWith({
+        items: [],
+        nextCursor: null,
+        hasMore: false,
+      });
     });
 
     it("parses state, status, and ref query params", async () => {
       const res = makeRes();
-      processService.list.mockResolvedValue([{ id: 1 }]);
+      processService.list.mockResolvedValue({
+        items: [{ id: 1 }],
+        nextCursor: null,
+        hasMore: false,
+      });
 
       await listProcesses(
         makeReq({
@@ -108,8 +123,13 @@ describe("process.controller", () => {
         ref: "hello",
         state: "queued",
         exitState: "success",
+        limit: 20,
       });
-      expect(res.json).toHaveBeenCalledWith({ processes: [{ id: 1 }] });
+      expect(res.json).toHaveBeenCalledWith({
+        items: [{ id: 1 }],
+        nextCursor: null,
+        hasMore: false,
+      });
     });
 
     it("maps status='null' to exitState=null", async () => {
@@ -122,6 +142,7 @@ describe("process.controller", () => {
         ref: undefined,
         state: undefined,
         exitState: null,
+        limit: 20,
       });
     });
 
@@ -410,6 +431,22 @@ describe("process.controller", () => {
       await deleteProcess(makeReq({ params: { id: "7" } }), cast(res));
 
       expect(processService.delete).toHaveBeenCalledWith(7);
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith({ id: 7, state: "idle" });
+    });
+  });
+
+  describe("unloadProcess", () => {
+    it("returns the unloaded process record", async () => {
+      const res = makeRes();
+      processService.unload.mockResolvedValue({ id: 7, state: "idle" });
+
+      await unloadProcess(
+        makeReq({ params: { id: "7" }, body: {} }),
+        cast(res),
+      );
+
+      expect(processService.unload).toHaveBeenCalledWith(7);
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith({ id: 7, state: "idle" });
     });

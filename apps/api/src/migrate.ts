@@ -5,8 +5,12 @@ import path from "node:path";
 import { migrate } from "drizzle-orm/libsql/migrator";
 
 import { db } from "@/db/client";
-import { logger } from "@/logger";
+import { initLogger, logger } from "@/infra/logging";
 
 const migrationsFolder = path.join(import.meta.dirname, "..", "drizzle");
+initLogger();
 await migrate(db, { migrationsFolder });
-logger.info({ migrationsFolder }, "Database migrations applied");
+logger.info(
+  { event: "migrations-applied", migrationsFolder },
+  "Database migrations applied",
+);

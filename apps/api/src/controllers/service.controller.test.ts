@@ -7,9 +7,11 @@ import {
   getService,
   getServiceConfiguration,
   getServiceConfigurationSchema,
+  getServiceIcon,
   getServiceSecrets,
   getServiceSecretsSchema,
   installServiceRegistry,
+  listInstallAdapters,
   listServices,
   patchService,
   patchServiceConfiguration,
@@ -23,6 +25,7 @@ const servicesService = {
   listServices: vi.fn(),
   getService: vi.fn(),
   getServiceConfig: vi.fn(),
+  getServiceConfigView: vi.fn(),
   getServiceConfigSchema: vi.fn(),
   getServiceSecretsPresence: vi.fn(),
   getServiceSecretsSchema: vi.fn(),
@@ -30,10 +33,12 @@ const servicesService = {
   patchServiceSecrets: vi.fn(),
   createServiceDirect: vi.fn(),
   createServiceFromRegistry: vi.fn(),
+  listInstallAdapters: vi.fn(),
   patchService: vi.fn(),
   updateService: vi.fn(),
   setServiceEnabled: vi.fn(),
   deleteService: vi.fn(),
+  getServiceIcon: vi.fn(),
 };
 
 interface MockResponse {
@@ -41,6 +46,7 @@ interface MockResponse {
   json: ReturnType<typeof vi.fn>;
   send: ReturnType<typeof vi.fn>;
   type: ReturnType<typeof vi.fn>;
+  set: ReturnType<typeof vi.fn>;
 }
 
 const makeRes = (): MockResponse => {
@@ -49,6 +55,7 @@ const makeRes = (): MockResponse => {
   res.json = vi.fn().mockReturnValue(res);
   res.send = vi.fn().mockReturnValue(res);
   res.type = vi.fn().mockReturnValue(res);
+  res.set = vi.fn().mockReturnValue(res);
   return res;
 };
 
@@ -87,7 +94,8 @@ describe("service.controller", () => {
   describe("listServices", () => {
     it("calls listServices with undefined filters by default", async () => {
       const res = makeRes();
-      servicesService.listServices.mockResolvedValue([]);
+      const envelope = { items: [], nextCursor: null, hasMore: false };
+      servicesService.listServices.mockResolvedValue(envelope);
 
       await listServices(makeReq(), cast(res));
 
@@ -95,9 +103,10 @@ describe("service.controller", () => {
         query: undefined,
         enabled: undefined,
         stale: undefined,
+        limit: 20,
       });
       expect(res.status).toHaveBeenCalledWith(200);
-      expect(res.json).toHaveBeenCalledWith({ services: [] });
+      expect(res.json).toHaveBeenCalledWith(envelope);
     });
 
     it("trims the query param", async () => {
@@ -110,6 +119,7 @@ describe("service.controller", () => {
         query: "svc",
         enabled: undefined,
         stale: undefined,
+        limit: 20,
       });
     });
 
@@ -123,6 +133,7 @@ describe("service.controller", () => {
         query: undefined,
         enabled: undefined,
         stale: undefined,
+        limit: 20,
       });
     });
 
@@ -141,6 +152,7 @@ describe("service.controller", () => {
         query: undefined,
         enabled: expected,
         stale: undefined,
+        limit: 20,
       });
     });
 
@@ -175,18 +187,73 @@ describe("service.controller", () => {
     });
   });
 
-  describe("getServiceConfiguration", () => {
-    it("wraps the config under { config }", async () => {
+  describe("getServiceIcon", () => {
+    it("returns the icon bytes with cache headers and an ETag", async () => {
       const res = makeRes();
-      servicesService.getServiceConfig.mockResolvedValue({ foo: "bar" });
+      const data = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+      servicesService.getServiceIcon.mockResolvedValue({
+        data,
+        mime: "image/png",
+        hash: "abc123",
+      });
+
+      await getServiceIcon(
+        makeReq({ params: { serviceId: "svc" } }),
+        cast(res),
+      );
+
+      expect(servicesService.getServiceIcon).toHaveBeenCalledWith("svc");
+      expect(res.set).toHaveBeenCalledWith("Content-Type", "image/png");
+      expect(res.set).toHaveBeenCalledWith(
+        "Cache-Control",
+        "public, max-age=86400",
+      );
+      expect(res.set).toHaveBeenCalledWith("ETag", '"abc123"');
+      expect(res.send).toHaveBeenCalledWith(data);
+    });
+
+    it("returns 404 without cache when the service has no icon", async () => {
+      const res = makeRes();
+      servicesService.getServiceIcon.mockResolvedValue(null);
+
+      await getServiceIcon(
+        makeReq({ params: { serviceId: "svc" } }),
+        cast(res),
+      );
+
+      expect(res.status).toHaveBeenCalledWith(404);
+      expect(res.set).toHaveBeenCalledWith("Cache-Control", "no-cache");
+      expect(res.json).toHaveBeenCalledWith({
+        error: "Service 'svc' has no icon.",
+      });
+    });
+
+    it("rejects when serviceId is missing", async () => {
+      const res = makeRes();
+      await expect(
+        getServiceIcon(makeReq({ params: {} }), cast(res)),
+      ).rejects.toBeInstanceOf(HttpError);
+    });
+  });
+
+  describe("getServiceConfiguration", () => {
+    it("returns the config view with outdated paths", async () => {
+      const res = makeRes();
+      servicesService.getServiceConfigView.mockResolvedValue({
+        config: { foo: "bar" },
+        outdated: ["/stale"],
+      });
 
       await getServiceConfiguration(
         makeReq({ params: { serviceId: "svc" } }),
         cast(res),
       );
 
-      expect(servicesService.getServiceConfig).toHaveBeenCalledWith("svc");
-      expect(res.json).toHaveBeenCalledWith({ config: { foo: "bar" } });
+      expect(servicesService.getServiceConfigView).toHaveBeenCalledWith("svc");
+      expect(res.json).toHaveBeenCalledWith({
+        config: { foo: "bar" },
+        outdated: ["/stale"],
+      });
     });
   });
 
@@ -245,11 +312,13 @@ describe("service.controller", () => {
   });
 
   describe("patchServiceConfiguration", () => {
-    it("applies a JSON Patch and returns the resulting config", async () => {
+    it("applies a JSON Patch and returns the resulting config view", async () => {
       const res = makeRes();
       const patch = [{ op: "replace", path: "/foo", value: "bar" }] as const;
-      servicesService.patchServiceConfig.mockResolvedValue(undefined);
-      servicesService.getServiceConfig.mockResolvedValue({ foo: "bar" });
+      servicesService.patchServiceConfig.mockResolvedValue({
+        config: { foo: "bar" },
+        outdated: [],
+      });
 
       await patchServiceConfiguration(
         makeReq({ params: { serviceId: "svc" }, body: patch }),
@@ -260,8 +329,10 @@ describe("service.controller", () => {
         id: "svc",
         patch,
       });
-      expect(servicesService.getServiceConfig).toHaveBeenCalledWith("svc");
-      expect(res.json).toHaveBeenCalledWith({ config: { foo: "bar" } });
+      expect(res.json).toHaveBeenCalledWith({
+        config: { foo: "bar" },
+        outdated: [],
+      });
     });
 
     it.each([
@@ -273,8 +344,10 @@ describe("service.controller", () => {
       [{ op: "test", path: "/x", value: 3 }],
     ])("accepts %j operation", async (operation) => {
       const res = makeRes();
-      servicesService.patchServiceConfig.mockResolvedValue(undefined);
-      servicesService.getServiceConfig.mockResolvedValue({});
+      servicesService.patchServiceConfig.mockResolvedValue({
+        config: {},
+        outdated: [],
+      });
 
       await patchServiceConfiguration(
         makeReq({ params: { serviceId: "svc" }, body: [operation] }),
@@ -432,6 +505,69 @@ describe("service.controller", () => {
         installServiceRegistry(makeReq({ body: { source: "" } }), cast(res)),
       ).rejects.toBeInstanceOf(HttpError);
       expect(servicesService.createServiceFromRegistry).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("listInstallAdapters", () => {
+    it("returns the ranked adapter list for the requested kind", async () => {
+      const res = makeRes();
+      const ranked = {
+        default: "openapi",
+        adapters: [
+          {
+            id: "openapi",
+            name: "OpenAPI Adapter",
+            compatible: true,
+            active: true,
+            isBuiltin: true,
+          },
+          {
+            id: "amqp",
+            name: "AMQP",
+            compatible: false,
+            active: true,
+            isBuiltin: false,
+          },
+        ],
+      };
+      servicesService.listInstallAdapters.mockResolvedValue(ranked);
+
+      await listInstallAdapters(
+        makeReq({ query: { kind: "openapi@3.0" } }),
+        cast(res),
+      );
+
+      expect(servicesService.listInstallAdapters).toHaveBeenCalledWith(
+        "openapi@3.0",
+      );
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith(ranked);
+    });
+
+    it("omits kind when the query parameter is absent", async () => {
+      const res = makeRes();
+      servicesService.listInstallAdapters.mockResolvedValue({
+        default: null,
+        adapters: [],
+      });
+
+      await listInstallAdapters(makeReq(), cast(res));
+
+      expect(servicesService.listInstallAdapters).toHaveBeenCalledWith(
+        undefined,
+      );
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    it("rejects a malformed kind", async () => {
+      const res = makeRes();
+      await expect(
+        listInstallAdapters(
+          makeReq({ query: { kind: "not-a-kind" } }),
+          cast(res),
+        ),
+      ).rejects.toBeInstanceOf(HttpError);
+      expect(servicesService.listInstallAdapters).not.toHaveBeenCalled();
     });
   });
 

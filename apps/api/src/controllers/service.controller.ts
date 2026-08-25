@@ -2,7 +2,10 @@ import type { Request, Response } from "express";
 import type { Operation } from "fast-json-patch";
 import { z } from "zod";
 
+import { sendIconResponse } from "@/controllers/icon-response.util";
 import type { ServicesService } from "@/services/services.service";
+import { KIND_PATTERN } from "@/utils/compatibility.util";
+import { paginationQuerySchema } from "@/utils/pagination.util";
 import { parseOrHttpError } from "@/utils/validation.util";
 
 const nonEmptyTrimmedString = (fieldName: string) =>
@@ -73,6 +76,14 @@ const enabledBodySchema = z.object({
   enabled: z.boolean({ error: "Field 'enabled' must be a boolean." }),
 });
 
+const installAdaptersKindQuerySchema = querySchema.refine(
+  (value) => value === undefined || KIND_PATTERN.test(value),
+  {
+    message:
+      "Field 'kind' must match <identifier>@<version>, e.g. 'openapi@3.0'.",
+  },
+);
+
 const jsonPatchOperationSchema = z.union([
   z.object({
     op: z.literal("add"),
@@ -115,14 +126,21 @@ export async function listServices(req: Request, res: Response): Promise<void> {
   const enabled = parseEnabledQueryParam(req.query?.enabled);
   const adapter = parseAdapterQueryParam(req.query?.adapter);
   const stale = parseStaleQueryParam(req.query?.stale);
-  const services = await servicesService.listServices({
+  const pagination = parseOrHttpError(
+    paginationQuerySchema,
+    req.query,
+    "Invalid query parameters.",
+  );
+  const result = await servicesService.listServices({
     query,
     enabled,
     adapter,
     stale,
+    limit: pagination.limit,
+    cursor: pagination.cursor,
   });
 
-  res.status(200).json({ services });
+  res.status(200).json(result);
 }
 
 export async function getService(req: Request, res: Response): Promise<void> {
@@ -133,15 +151,26 @@ export async function getService(req: Request, res: Response): Promise<void> {
   res.status(200).json(service);
 }
 
+export async function getServiceIcon(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const servicesService = getServicesService(req);
+  const serviceId = parseServiceId(req.params.serviceId);
+  const icon = await servicesService.getServiceIcon(serviceId);
+
+  sendIconResponse(res, icon, `Service '${serviceId}'`);
+}
+
 export async function getServiceConfiguration(
   req: Request,
   res: Response,
 ): Promise<void> {
   const servicesService = getServicesService(req);
   const serviceId = parseServiceId(req.params.serviceId);
-  const config = await servicesService.getServiceConfig(serviceId);
+  const view = await servicesService.getServiceConfigView(serviceId);
 
-  res.status(200).json({ config });
+  res.status(200).json(view);
 }
 
 export async function getServiceConfigurationSchema(
@@ -190,10 +219,12 @@ export async function patchServiceConfiguration(
     "Request body must be a JSON Patch array.",
   );
 
-  await servicesService.patchServiceConfig({ id: serviceId, patch });
-  const config = await servicesService.getServiceConfig(serviceId);
+  const view = await servicesService.patchServiceConfig({
+    id: serviceId,
+    patch,
+  });
 
-  res.status(200).json({ config });
+  res.status(200).json(view);
 }
 
 export async function patchServiceSecrets(
@@ -243,6 +274,25 @@ export async function installServiceRegistry(
   const id = await servicesService.createServiceFromRegistry(payload);
 
   res.status(201).json({ id });
+}
+
+export async function listInstallAdapters(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const servicesService = getServicesService(req);
+  const kind =
+    req.query?.kind === undefined
+      ? undefined
+      : parseOrHttpError(
+          installAdaptersKindQuerySchema,
+          req.query.kind,
+          "Invalid query parameters.",
+        );
+
+  const result = await servicesService.listInstallAdapters(kind);
+
+  res.status(200).json(result);
 }
 
 export async function patchService(req: Request, res: Response): Promise<void> {

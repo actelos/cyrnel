@@ -49,7 +49,27 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Build ${{ matrix.app }} image
+      - name: Build ${{ matrix.app }} image (attempt 1/3)
+        id: build1
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/${{ matrix.app }}/Dockerfile
+          push: false
+          tags: cyrnel-${{ matrix.app }}:ci
+
+      - name: Build ${{ matrix.app }} image (attempt 2/3)
+        id: build2
+        if: steps.build1.outcome == 'failure'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/${{ matrix.app }}/Dockerfile
+          push: false
+          tags: cyrnel-${{ matrix.app }}:ci
+
+      - name: Build ${{ matrix.app }} image (attempt 3/3)
+        if: steps.build1.outcome == 'failure' && steps.build2.outcome == 'failure'
         uses: docker/build-push-action@v6
         with:
           context: .

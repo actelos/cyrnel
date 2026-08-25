@@ -1,0 +1,45 @@
+---
+title: "Specification Overview"
+description: "What the cyrnel sdk is and how to use it"
+sidebarTitle: "Overview"
+---
+
+`@cyrnel/sdk` is the TypeScript package every cyrnel module is written against.
+It defines the data shapes cyrnel exchanges (services, tools, execution
+state) and the interfaces that adapter and environment modules implement.
+
+## Who implements what
+
+- **Adapter authors** implement [`AdapterModule`](/cyrnel/module-specs/adapter-module).
+- **Environment authors** implement
+  [`EnvironmentModule`](/cyrnel/module-specs/environment-module).
+- **Cyrnel itself** implements [`EnvironmentBindings`](/cyrnel/module-specs/environment-bindings),
+  which is what an environment module *calls into*.
+
+## Module Manifests
+
+Every module exposes metadata (id, name, type, description) via a
+`module.json` file on disk, plus schemas and a factory via a default
+code export.
+
+- **Built-in modules** use a default export that bundles both schemas
+  and `instantiate`:
+  
+  ```ts
+  export default {
+    configSchema: { type: "object", properties: {} },
+    secretsSchema: { type: "null" },
+    instantiate(): AdapterModule {
+      return new MyAdapter();
+    },
+  };
+  ```
+
+- **Custom modules** declare basic metadata in `module.json` and the
+  schemas + factory in a default export from their entry file.  See
+  [Writing a custom module](/cyrnel/module-specs/writing-custom-modules) for
+  the full layout.
+
+Config and secrets schemas are **not** part of `module.json`; they come
+from the code export instead. This ensures schemas are kept close to the
+logic that consumes them.

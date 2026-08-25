@@ -10,10 +10,15 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.4",
-    "@changesets/cli": "^2.31.0",
-    "turbo": "^2.10.5"
+    "@changesets/cli": "^2.31.1",
+    "turbo": "^2.10.8"
   },
   "pnpm": {
+    "onlyBuiltDependencies": [
+      "sharp",
+      "sqlite-vec",
+      "libsql"
+    ],
     "overrides": {
       "@hono/node-server": ">=2.0.5",
       "axios": ">=1.18.0",
@@ -22,15 +27,19 @@
       "esbuild": ">=0.28.1",
       "fast-uri": "^3.1.4",
       "form-data": "4.0.6",
-      "hono": ">=4.12.27",
+      "hono": ">=4.12.34",
+      "ip-address": ">=10.3.1",
       "js-yaml": ">=4.3.0 <5",
       "postcss": ">=8.5.18",
+      "protobufjs": ">=7.6.1 <8",
       "read-yaml-file": ">=2.0.1 <3",
-      "undici": "^7.28.0"
+      "sharp": ">=0.35.0",
+      "undici": "^7.29.0",
+      "nanoid": ">=3.3.18 <4"
     }
   },
   "packageManager": "pnpm@10.30.3",
   "engines": {
-    "node": ">=22.22.0"
+    "node": ">=24.0.0"
   }
 }

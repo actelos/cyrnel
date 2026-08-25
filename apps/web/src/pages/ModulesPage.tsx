@@ -1,20 +1,25 @@
-import { Plus, RefreshCw, RotateCcw } from "lucide-react";
-import { useMemo, useState } from "react";
+import { ChevronDown, Plus, RefreshCw, RotateCcw } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import { Link } from "react-router";
 import remarkGfm from "remark-gfm";
 import useSWR, { useSWRConfig } from "swr";
 import { z } from "zod";
+import { EntityIcon } from "@/components/entity-icon";
+import { RegistryBrowser } from "@/components/RegistryBrowser";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
@@ -34,18 +39,23 @@ const moduleSchema = z.object({
   id: z.string(),
   name: z.string(),
   type: moduleTypeSchema,
+  summary: z.string(),
   description: z.string(),
   version: z.string(),
   isBuiltin: z.boolean(),
   enabled: z.boolean(),
   missing: z.boolean(),
+  hasIcon: z.boolean(),
 });
 
 const moduleListSchema = z.object({
-  modules: z.array(moduleSchema),
+  items: z.array(moduleSchema),
+  nextCursor: z.string().nullable(),
+  hasMore: z.boolean(),
 });
 
 type ModuleType = z.infer<typeof moduleTypeSchema>;
+type Module = z.infer<typeof moduleSchema>;
 
 export default function ModulesPage() {
   const { mutate } = useSWRConfig();
@@ -64,8 +74,6 @@ export default function ModulesPage() {
     "registry",
   );
   const [manualUrl, setManualUrl] = useState("");
-  const [registrySource, setRegistrySource] = useState("");
-  const [registryVersion, setRegistryVersion] = useState("");
   const [isInstalling, setIsInstalling] = useState(false);
 
   const normalizedQuery = queryFilter.trim();
@@ -86,6 +94,7 @@ export default function ModulesPage() {
           : builtinFilter === "builtin"
             ? "true"
             : "false",
+      limit: "100",
     });
   }, [normalizedQuery, typeFilter, enabledFilter, builtinFilter]);
 
@@ -93,11 +102,91 @@ export default function ModulesPage() {
     data: moduleList,
     error: modulesError,
     isLoading: isLoadingModules,
+    isValidating: isModuleListValidating,
   } = useSWR(modulesUrl, (url) => apiFetchJson(url, moduleListSchema), {
     refreshInterval: 8000,
   });
 
-  const modules = moduleList?.modules ?? [];
+  const [extraModules, setExtraModules] = useState<Module[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
+  const paginationVersionRef = useRef(0);
+
+  useEffect(() => {
+    if (modulesUrl === "") return;
+    paginationVersionRef.current += 1;
+    setExtraModules([]);
+    setNextCursor(null);
+    setLoadMoreError(null);
+  }, [modulesUrl]);
+
+  useEffect(() => {
+    if (
+      extraModules.length === 0 &&
+      moduleList !== undefined &&
+      !isModuleListValidating
+    ) {
+      setNextCursor(moduleList.nextCursor);
+    }
+  }, [moduleList, extraModules.length, isModuleListValidating]);
+
+  const modules = useMemo(() => {
+    const seen = new Set<string>();
+    const merged: Module[] = [];
+    for (const module of [...(moduleList?.items ?? []), ...extraModules]) {
+      if (seen.has(module.id)) continue;
+      seen.add(module.id);
+      merged.push(module);
+    }
+    return merged;
+  }, [moduleList, extraModules]);
+
+  const refreshModules = async () => {
+    paginationVersionRef.current += 1;
+    setExtraModules([]);
+    setNextCursor(null);
+    setLoadMoreError(null);
+    await mutate(modulesUrl);
+  };
+
+  const loadMoreModules = async () => {
+    if (nextCursor === null || isLoadingMore) return;
+    const startedVersion = paginationVersionRef.current;
+    setIsLoadingMore(true);
+    setLoadMoreError(null);
+    try {
+      const data = await apiFetchJson(
+        buildUrl("/modules", {
+          query: normalizedQuery.length > 0 ? normalizedQuery : undefined,
+          type: typeFilter === "all" ? undefined : typeFilter,
+          enabled:
+            enabledFilter === "all"
+              ? undefined
+              : enabledFilter === "enabled"
+                ? "true"
+                : "false",
+          isBuiltin:
+            builtinFilter === "all"
+              ? undefined
+              : builtinFilter === "builtin"
+                ? "true"
+                : "false",
+          limit: "100",
+          cursor: nextCursor,
+        }),
+        moduleListSchema,
+      );
+      if (paginationVersionRef.current !== startedVersion) return;
+      setExtraModules((previous) => [...previous, ...data.items]);
+      setNextCursor(data.nextCursor);
+    } catch (error) {
+      if (paginationVersionRef.current !== startedVersion) return;
+      setLoadMoreError(errorMessageFrom(error, "Failed to load more modules."));
+    } finally {
+      setIsLoadingMore(false);
+    }
+  };
 
   const handleReloadModules = async () => {
     setIsReloading(true);
@@ -107,7 +196,7 @@ export default function ModulesPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
       });
-      await mutate(modulesUrl);
+      await refreshModules();
       addNotification({
         type: "success",
         title: "Success",
@@ -143,47 +232,7 @@ export default function ModulesPage() {
       });
       setManualUrl("");
       setIsInstallOpen(false);
-      await mutate(modulesUrl);
-      addNotification({
-        type: "success",
-        title: "Success",
-        message: "Module installed.",
-      });
-    } catch (error) {
-      addNotification({
-        type: "error",
-        title: "Error",
-        message: errorMessageFrom(error, "Unable to install module."),
-      });
-    } finally {
-      setIsInstalling(false);
-    }
-  };
-
-  const handleRegistryInstall = async () => {
-    const trimmed = registrySource.trim();
-    if (!trimmed) {
-      addNotification({
-        type: "error",
-        title: "Error",
-        message: "Source URL is required.",
-      });
-      return;
-    }
-    setIsInstalling(true);
-    try {
-      await apiFetch(buildUrl("/modules/install"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          registryVersion.trim()
-            ? { source: trimmed, version: registryVersion.trim() }
-            : { source: trimmed },
-        ),
-      });
-      setRegistrySource("");
-      setIsInstallOpen(false);
-      await mutate(modulesUrl);
+      await refreshModules();
       addNotification({
         type: "success",
         title: "Success",
@@ -207,7 +256,7 @@ export default function ModulesPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ enabled: !enabled }),
       });
-      await mutate(modulesUrl);
+      await refreshModules();
       addNotification({
         type: "success",
         title: "Success",
@@ -233,119 +282,79 @@ export default function ModulesPage() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Popover open={isInstallOpen} onOpenChange={setIsInstallOpen}>
-              <PopoverTrigger asChild>
+            <Dialog open={isInstallOpen} onOpenChange={setIsInstallOpen}>
+              <DialogTrigger asChild>
                 <Button className="gap-2" type="button">
                   <Plus />
                   Install module
                 </Button>
-              </PopoverTrigger>
-              <PopoverContent align="end" className="w-md">
-                <div className="space-y-4">
-                  <div className="space-y-1">
-                    <h3 className="text-sm font-medium">Install module</h3>
-                    <p className="text-muted-foreground text-xs">
-                      Install from a registry or provide a direct URL.
-                    </p>
-                  </div>
-                  <Tabs
-                    value={installTab}
-                    onValueChange={(v) =>
-                      setInstallTab(v as "manual" | "registry")
-                    }
+              </DialogTrigger>
+              <DialogContent className="flex max-w-3xl h-[min(85vh,46rem)] flex-col lg:max-w-4xl">
+                <DialogHeader>
+                  <DialogTitle>Install module</DialogTitle>
+                  <DialogDescription>
+                    Install from a registry or provide a direct URL.
+                  </DialogDescription>
+                </DialogHeader>
+                <Tabs
+                  value={installTab}
+                  onValueChange={(v) =>
+                    setInstallTab(v as "manual" | "registry")
+                  }
+                  className="flex min-h-0 flex-1 flex-col gap-2"
+                >
+                  <TabsList className="w-full">
+                    <TabsTrigger className="flex-1" value="registry">
+                      Registry
+                    </TabsTrigger>
+                    <TabsTrigger className="flex-1" value="manual">
+                      Manual
+                    </TabsTrigger>
+                  </TabsList>
+                  <TabsContent
+                    value="registry"
+                    className="min-h-0 flex-1 overflow-hidden"
                   >
-                    <TabsList className="w-full">
-                      <TabsTrigger className="flex-1" value="registry">
-                        Registry
-                      </TabsTrigger>
-                      <TabsTrigger className="flex-1" value="manual">
-                        Manual
-                      </TabsTrigger>
-                    </TabsList>
-                    <TabsContent value="registry">
-                      <div className="space-y-3 pt-2">
-                        <div className="space-y-2">
-                          <Label htmlFor="module-registry-source">
-                            Source URL
-                          </Label>
-                          <Input
-                            id="module-registry-source"
-                            onChange={(event) =>
-                              setRegistrySource(event.target.value)
-                            }
-                            placeholder="https://registry.example.com/module"
-                            value={registrySource}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="module-registry-version">
-                            Version{" "}
-                            <span className="text-muted-foreground">
-                              (optional, default: latest)
-                            </span>
-                          </Label>
-                          <Input
-                            id="module-registry-version"
-                            onChange={(event) =>
-                              setRegistryVersion(event.target.value)
-                            }
-                            placeholder="^1.0.0"
-                            value={registryVersion}
-                          />
-                        </div>
-                        <div className="flex items-center justify-end gap-2">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => setIsInstallOpen(false)}
-                          >
-                            Cancel
-                          </Button>
-                          <Button
-                            type="button"
-                            disabled={isInstalling || !registrySource.trim()}
-                            onClick={() => void handleRegistryInstall()}
-                          >
-                            {isInstalling ? "Installing" : "Install"}
-                          </Button>
-                        </div>
+                    <RegistryBrowser
+                      kind="module"
+                      onInstalled={refreshModules}
+                    />
+                  </TabsContent>
+                  <TabsContent
+                    value="manual"
+                    className="min-h-0 flex-1 overflow-y-auto"
+                  >
+                    <div className="space-y-3 pt-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="module-manual-url">Archive URL</Label>
+                        <Input
+                          id="module-manual-url"
+                          onChange={(event) => setManualUrl(event.target.value)}
+                          placeholder="https://example.com/module.tar.zst"
+                          value={manualUrl}
+                        />
                       </div>
-                    </TabsContent>
-                    <TabsContent value="manual">
-                      <div className="space-y-3 pt-2">
-                        <div className="space-y-2">
-                          <Label htmlFor="module-manual-url">Archive URL</Label>
-                          <Input
-                            id="module-manual-url"
-                            onChange={(event) =>
-                              setManualUrl(event.target.value)
-                            }
-                            placeholder="https://example.com/module.tar.zst"
-                            value={manualUrl}
-                          />
-                        </div>
-                        <div className="flex items-center justify-end gap-2">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => setIsInstallOpen(false)}
-                          >
-                            Cancel
-                          </Button>
-                          <Button
-                            type="button"
-                            disabled={isInstalling || !manualUrl.trim()}
-                            onClick={() => void handleManualInstall()}
-                          >
-                            {isInstalling ? "Installing" : "Install"}
-                          </Button>
-                        </div>
+                      <div className="flex items-center justify-end gap-2 pt-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => setIsInstallOpen(false)}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          type="button"
+                          disabled={isInstalling || !manualUrl.trim()}
+                          onClick={() => void handleManualInstall()}
+                        >
+                          {isInstalling ? "Installing" : "Install"}
+                        </Button>
                       </div>
-                    </TabsContent>
-                  </Tabs>
-                </div>
-              </PopoverContent>
-            </Popover>
+                    </div>
+                  </TabsContent>
+                </Tabs>
+              </DialogContent>
+            </Dialog>
             <Button
               type="button"
               variant="secondary"
@@ -417,7 +426,7 @@ export default function ModulesPage() {
               variant="outline"
               className="gap-2"
               onClick={() => {
-                mutate(modulesUrl)
+                refreshModules()
                   .then(() => {
                     addNotification({
                       type: "success",
@@ -463,7 +472,13 @@ export default function ModulesPage() {
                       to={`/modules/${module.id}`}
                       className="block -mx-4 -mt-4 -mr-4 mb-3 p-4"
                     >
-                      <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-3">
+                        <EntityIcon
+                          kind="module"
+                          id={module.id}
+                          label={module.name}
+                          hasIcon={module.hasIcon}
+                        />
                         <div className="space-y-2 min-w-0">
                           <div className="flex items-center justify-between flex-wrap gap-2">
                             <h3 className="text-sm font-semibold">
@@ -483,7 +498,9 @@ export default function ModulesPage() {
                             {module.id}
                           </p>
                           <div className="text-muted-foreground text-xs line-clamp-3">
-                            {module.description ? (
+                            {module.summary ? (
+                              module.summary
+                            ) : module.description ? (
                               <Markdown
                                 components={{
                                   p: ({ children }) => <>{children}</>,
@@ -545,6 +562,23 @@ export default function ModulesPage() {
                 <p className="p-4 text-sm text-muted-foreground">
                   No modules match the current filters.
                 </p>
+              ) : null}
+              {nextCursor !== null ? (
+                <div className="flex justify-center p-4">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="gap-2"
+                    disabled={isLoadingMore}
+                    onClick={() => void loadMoreModules()}
+                  >
+                    <ChevronDown />
+                    {isLoadingMore ? "Loading more…" : "Load more"}
+                  </Button>
+                </div>
+              ) : null}
+              {loadMoreError !== null ? (
+                <p className="p-4 text-sm text-destructive">{loadMoreError}</p>
               ) : null}
             </ScrollArea>
           </CardContent>

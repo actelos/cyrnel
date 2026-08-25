@@ -11,7 +11,7 @@
     "url": "https://github.com/actelos/cyrnel.git",
     "directory": "packages/libs/sdk"
   },
-  "homepage": "https://actelos.mintlify.app/cyrnel/specs",
+  "homepage": "https://actelos.mintlify.app/cyrnel/module-specs",
   "author": "0x15ba88ff",
   "license": "MIT",
   "type": "module",
@@ -32,8 +32,11 @@
     "prepublishOnly": "pnpm run build"
   },
   "devDependencies": {
-    "@types/node": "^25.9.3",
+    "@types/node": "^26.2.0",
     "typescript": "^6.0.3"
   },
-  "packageManager": "pnpm@10.30.3"
+  "packageManager": "pnpm@10.30.3",
+  "dependencies": {
+    "zod": "^4.4.3"
+  }
 }

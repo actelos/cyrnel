@@ -78,5 +78,5 @@ Thank you to everyone who has contributed to cyrnel. Every contribution moves
 the project forward and is genuinely appreciated.
 
 <a href="https://github.com/actelos/cyrnel/graphs/contributors">
-  <img src="https://contributors.deno.dev/actelos/cyrnel?height=400&width=800" width="800" height="400" alt="cyrnel contributors" />
+  <img src="https://contrib.rocks/image?repo=actelos/cyrnel" alt="cyrnel contributors" />
 </a>

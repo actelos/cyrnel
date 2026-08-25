@@ -1,0 +1,75 @@
+---
+title: "Module"
+description: "The base module interface"
+sidebarTitle: "Module"
+---
+
+`Module` is the contract every adapter and environment module
+extends.
+
+```ts
+interface ModuleSetupContext {
+  config: Record<string, unknown>;
+  secrets: Record<string, unknown>;
+  logger: ModuleLogger;
+}
+
+interface Module {
+  setup(context: ModuleSetupContext): Promise<void>;
+  teardown(): Promise<void>;
+}
+```
+
+## `setup(context)`
+
+Called once when the module is activated.
+
+- `config`: The module's resolved configuration (defaults applied).
+- `secrets`: The module's decrypted secrets (defaults applied).
+- `logger`: The host-owned [`ModuleLogger`](/cyrnel/module-specs/types#modulelogger).
+  Every entry a module emits through it is automatically tagged with
+  `type: "module"`, `moduleId`, `moduleType`, and the owning
+  `adapterId`/`environmentId`. The module configures its own reduction via
+  `logger.redact()` and cannot forge host-managed correlation fields.
+
+For adapter modules, `context` carries the module-level config and
+secrets from the `modules` database row. Service-level config and secrets
+are delivered separately through
+[`hydrateService`](/cyrnel/module-specs/adapter-module#hydrateservicestate).
+
+For environment modules, `context` is an
+[`EnvironmentSetupContext`](/cyrnel/module-specs/environment-module#setup) that adds
+`bindings`, the host's callback surface.
+
+The host awaits `setup` before declaring the module ready. Throw to abort
+activation, the corresponding `modules` row keeps its `enabled` flag, but
+the module is not registered as active until the next attempt succeeds.
+
+`setup` may be called more than once over the life of a process if the
+module is disabled and re-enabled. Implementations should be idempotent
+on internal state.
+
+## `teardown()`
+
+Called when the module is deactivated or the host is shutting down.
+
+Adapters: release pooled resources, flush any in-flight outbound calls,
+forget secrets.
+
+Environments: terminate isolates / workers / sub-processes. The host
+considers the environment retired once `teardown` resolves; if `teardown`
+hangs, the host's shutdown timeout (`SHUTDOWN_TIMEOUT_MS`) will eventually
+force-exit.
+
+Errors thrown from `teardown` are caught and logged at `warn` level. They
+do not propagate to the caller.
+
+## Lifecycle Notes
+
+- The host **never calls `setup` twice in a row without an intervening
+  `teardown`** for the same module instance. Module instances are not
+  reused after teardown, the host calls `instantiate()` again if it
+  needs the module back.
+- For environment modules, `teardown` may be deferred while the module
+  drains in-flight executions. See
+  [`EnvironmentModule`](/cyrnel/module-specs/environment-module#draining).
