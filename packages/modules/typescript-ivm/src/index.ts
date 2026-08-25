@@ -826,7 +826,7 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
   }
 
   private async runJob(worker: WorkerSlot, job: ExecutionJob): Promise<void> {
-    let result: ExecutionExitState = "failed";
+    let result: ExecutionExitState;
     const interrupt = createInterrupt();
     const executionLogger = this.logger?.child({
       executionId: job.input.eid,
@@ -898,29 +898,29 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
       ]);
     } catch {
       result = "failed";
-    } finally {
-      if (running.timeoutHandle) {
-        clearTimeout(running.timeoutHandle);
-      }
-
-      if (_isolateOverridden) {
-        worker.isolate.dispose();
-        worker.isolate = new ivm.Isolate({
-          memoryLimit: this.memoryLimitMb,
-        }) as TerminableIsolate;
-      }
-
-      worker.running = null;
-      worker.busy = false;
-      this.runningByEid.delete(job.input.eid);
-      executionLogger?.info(
-        { event: "execution-complete", exitState: result },
-        "Environment execution complete",
-      );
-      job.resolve(result);
-
-      void this.pumpQueue();
     }
+
+    if (running.timeoutHandle) {
+      clearTimeout(running.timeoutHandle);
+    }
+
+    if (_isolateOverridden) {
+      worker.isolate.dispose();
+      worker.isolate = new ivm.Isolate({
+        memoryLimit: this.memoryLimitMb,
+      }) as TerminableIsolate;
+    }
+
+    worker.running = null;
+    worker.busy = false;
+    this.runningByEid.delete(job.input.eid);
+    executionLogger?.info(
+      { event: "execution-complete", exitState: result },
+      "Environment execution complete",
+    );
+    job.resolve(result);
+
+    void this.pumpQueue();
   }
 
   private async executeInIsolate(
