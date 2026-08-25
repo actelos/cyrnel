@@ -57,10 +57,13 @@ function getAllKeys(): Array<{ id: string; key: Buffer }> {
 }
 
 let cachedPrimaryKeyId: string | null = null;
+let cachedPrimaryKeyRaw: string | null = null;
 
 export function getPrimaryKeyId(): string {
-  if (!cachedPrimaryKeyId) {
+  const currentRaw = process.env.CYRNEL_SECRETS_KEY ?? null;
+  if (!cachedPrimaryKeyId || cachedPrimaryKeyRaw !== currentRaw) {
     cachedPrimaryKeyId = getPrimaryKey().id;
+    cachedPrimaryKeyRaw = currentRaw;
   }
   return cachedPrimaryKeyId;
 }

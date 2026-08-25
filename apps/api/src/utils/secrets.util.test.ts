@@ -27,6 +27,32 @@ describe("secrets.util", () => {
     }
   });
 
+  describe("getPrimaryKeyId", () => {
+    it("returns a stable id while the key is unchanged", () => {
+      expect(getPrimaryKeyId()).toBe(getPrimaryKeyId());
+    });
+
+    it("recomputes the id when CYRNEL_SECRETS_KEY changes at runtime", () => {
+      const first = getPrimaryKeyId();
+
+      process.env.CYRNEL_SECRETS_KEY = crypto
+        .randomBytes(32)
+        .toString("base64");
+      const second = getPrimaryKeyId();
+
+      expect(second).not.toBe(first);
+      expect(encryptSecrets({ token: "abc" }).kid).toBe(second);
+    });
+
+    it("throws once the key is removed after being cached", () => {
+      getPrimaryKeyId();
+
+      delete process.env.CYRNEL_SECRETS_KEY;
+
+      expect(() => getPrimaryKeyId()).toThrow(HttpError);
+    });
+  });
+
   describe("encryptSecrets", () => {
     it("produces a payload with the expected shape", () => {
       const payload = encryptSecrets({ token: "abc" });
