@@ -61,30 +61,30 @@
                 "groups": [
                   {
                     "group": "Overview",
-                    "pages": ["cyrnel/specs/overview", "cyrnel/specs/types"]
+                    "pages": ["cyrnel/module-specs/overview", "cyrnel/module-specs/types"]
                   },
                   {
                     "group": "Module Interfaces",
                     "pages": [
-                      "cyrnel/specs/module",
-                      "cyrnel/specs/adapter-module",
-                      "cyrnel/specs/environment-module",
-                      "cyrnel/specs/definition-kinds"
+                      "cyrnel/module-specs/module",
+                      "cyrnel/module-specs/adapter-module",
+                      "cyrnel/module-specs/environment-module",
+                      "cyrnel/module-specs/definition-kinds"
                     ]
                   },
                   {
                     "group": "Runtime Contracts",
                     "pages": [
-                      "cyrnel/specs/environment-bindings",
-                      "cyrnel/specs/environment-execution"
+                      "cyrnel/module-specs/environment-bindings",
+                      "cyrnel/module-specs/environment-execution"
                     ]
                   },
                   {
                     "group": "Authoring",
                     "pages": [
-                      "cyrnel/specs/writing-custom-modules",
-                      "cyrnel/specs/writing-custom-adapter-module",
-                      "cyrnel/specs/writing-custom-environment-module"
+                      "cyrnel/module-specs/writing-custom-modules",
+                      "cyrnel/module-specs/writing-custom-adapter-module",
+                      "cyrnel/module-specs/writing-custom-environment-module"
                     ]
                   }
                 ]
@@ -169,5 +169,11 @@
   },
   "icons": {
     "library": "lucide"
-  }
+  },
+  "redirects": [
+    {
+      "source": "/cyrnel/specs/:slug*",
+      "destination": "/cyrnel/module-specs/:slug*"
+    }
+  ]
 }

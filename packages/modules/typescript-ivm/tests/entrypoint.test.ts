@@ -1,7 +1,31 @@
-import type { EnvironmentBindings, ExecutionInput } from "@cyrnel/sdk";
+import type {
+  EnvironmentBindings,
+  ExecutionInput,
+  ModuleLogBindings,
+  ModuleLogger,
+} from "@cyrnel/sdk";
 import { describe, expect, it, vi } from "vitest";
 
 import mod from "@/index";
+
+const stubLogger: ModuleLogger<ModuleLogBindings> = {
+  context: {},
+  child: <Next extends ModuleLogBindings>(
+    bindings: Next,
+  ): ModuleLogger<ModuleLogBindings & Next> =>
+    ({
+      ...stubLogger,
+      context: { ...stubLogger.context, ...bindings },
+    }) as ModuleLogger<ModuleLogBindings & Next>,
+  redact: () => stubLogger,
+  isLevelEnabled: () => true,
+  trace: () => {},
+  debug: () => {},
+  info: () => {},
+  warn: () => {},
+  error: () => {},
+  fatal: () => {},
+};
 
 const infiniteCode = "while (true) {}";
 const tick = () => new Promise((resolve) => setTimeout(resolve, 10));
@@ -21,7 +45,12 @@ describe("typescript-ivm integration", () => {
     const environment = mod.instantiate();
     const bindings = createBindings();
 
-    await environment.setup({ bindings, config: {}, secrets: {} });
+    await environment.setup({
+      bindings,
+      config: {},
+      secrets: {},
+      logger: stubLogger,
+    });
 
     const result = await environment.execute({
       eid: 100,
@@ -38,7 +67,12 @@ describe("typescript-ivm integration", () => {
     const environment = mod.instantiate();
     const bindings = createBindings();
 
-    await environment.setup({ bindings, config: {}, secrets: {} });
+    await environment.setup({
+      bindings,
+      config: {},
+      secrets: {},
+      logger: stubLogger,
+    });
 
     const promise = environment.execute({
       eid: 101,

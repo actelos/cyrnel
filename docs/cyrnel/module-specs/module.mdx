@@ -26,7 +26,7 @@ Called once when the module is activated.
 
 - `config`: The module's resolved configuration (defaults applied).
 - `secrets`: The module's decrypted secrets (defaults applied).
-- `logger`: The host-owned [`ModuleLogger`](/cyrnel/specs/types#modulelogger).
+- `logger`: The host-owned [`ModuleLogger`](/cyrnel/module-specs/types#modulelogger).
   Every entry a module emits through it is automatically tagged with
   `type: "module"`, `moduleId`, `moduleType`, and the owning
   `adapterId`/`environmentId`. The module configures its own reduction via
@@ -35,10 +35,10 @@ Called once when the module is activated.
 For adapter modules, `context` carries the module-level config and
 secrets from the `modules` database row. Service-level config and secrets
 are delivered separately through
-[`hydrateService`](/cyrnel/specs/adapter-module#hydrateservicestate).
+[`hydrateService`](/cyrnel/module-specs/adapter-module#hydrateservicestate).
 
 For environment modules, `context` is an
-[`EnvironmentSetupContext`](/cyrnel/specs/environment-module#setup) that adds
+[`EnvironmentSetupContext`](/cyrnel/module-specs/environment-module#setup) that adds
 `bindings`, the host's callback surface.
 
 The host awaits `setup` before declaring the module ready. Throw to abort
@@ -72,4 +72,4 @@ do not propagate to the caller.
   needs the module back.
 - For environment modules, `teardown` may be deferred while the module
   drains in-flight executions. See
-  [`EnvironmentModule`](/cyrnel/specs/environment-module#draining).
+  [`EnvironmentModule`](/cyrnel/module-specs/environment-module#draining).

@@ -6,8 +6,8 @@ sidebarTitle: "Writing a custom adapter"
 
 This page covers the adapter-specific parts of writing a custom module.
 For the shared mechanics (file layout, registration, lifecycle) see
-[Writing a custom module](/cyrnel/specs/writing-custom-modules). For the full
-interface reference see [`AdapterModule`](/cyrnel/specs/adapter-module).
+[Writing a custom module](/cyrnel/module-specs/writing-custom-modules). For the full
+interface reference see [`AdapterModule`](/cyrnel/module-specs/adapter-module).
 
 ## Minimal Skeleton
 
@@ -114,6 +114,6 @@ definition describing REST endpoints and calls them over HTTP. It stores
 per-service base URLs in `adapterDomain`, reads secrets for
 `Authorization`, and routes each invocation to the correct endpoint.
 
-See [`ServiceState`](/cyrnel/specs/types#servicestate-and-toolstate) for the shape
+See [`ServiceState`](/cyrnel/module-specs/types#servicestate-and-toolstate) for the shape
 of the snapshot the host delivers to `hydrateService`, and
-[`AdapterModule`](/cyrnel/specs/adapter-module) for the full interface contract.
+[`AdapterModule`](/cyrnel/module-specs/adapter-module) for the full interface contract.

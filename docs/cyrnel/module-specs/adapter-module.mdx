@@ -22,7 +22,7 @@ description.
 
 Convert a raw definition string (an OpenAPI document, a custom schema, a
 URL to fetch and parse, whatever this adapter understands) into a
-[`ServiceDefinition`](/cyrnel/specs/types#servicedefinition).
+[`ServiceDefinition`](/cyrnel/module-specs/types#servicedefinition).
 
 - Called from `POST /services` (direct install), `POST /services/install`
   (registry install), `PATCH /services/:serviceId` (direct update),
@@ -168,5 +168,5 @@ export function instantiate(): AdapterModule {
 > **Note:** The manifest metadata (name, version, type, etc.) goes in
 > `module.json` for custom modules. Only built-in modules ship `export
 > const manifest` from code. The skeleton above omits it, see
-> [Writing a custom adapter module](/cyrnel/specs/writing-custom-adapter-module)
+> [Writing a custom adapter module](/cyrnel/module-specs/writing-custom-adapter-module)
 > for a step-by-step walkthrough and a full working example.
