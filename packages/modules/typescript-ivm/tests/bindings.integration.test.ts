@@ -1,7 +1,31 @@
-import type { EnvironmentBindings, ExecutionInput } from "@cyrnel/sdk";
+import type {
+  EnvironmentBindings,
+  ExecutionInput,
+  ModuleLogBindings,
+  ModuleLogger,
+} from "@cyrnel/sdk";
 import { describe, expect, it, vi } from "vitest";
 
 import mod from "@/index";
+
+const stubLogger: ModuleLogger<ModuleLogBindings> = {
+  context: {},
+  child: <Next extends ModuleLogBindings>(
+    bindings: Next,
+  ): ModuleLogger<ModuleLogBindings & Next> =>
+    ({
+      ...stubLogger,
+      context: { ...stubLogger.context, ...bindings },
+    }) as ModuleLogger<ModuleLogBindings & Next>,
+  redact: () => stubLogger,
+  isLevelEnabled: () => true,
+  trace: () => {},
+  debug: () => {},
+  info: () => {},
+  warn: () => {},
+  error: () => {},
+  fatal: () => {},
+};
 
 describe("bindings integration", () => {
   const createBindings = () => {
@@ -24,7 +48,12 @@ describe("bindings integration", () => {
         new Error("Tool invocation failed"),
       );
 
-      await environment.setup({ bindings, config: {}, secrets: {} });
+      await environment.setup({
+        bindings,
+        config: {},
+        secrets: {},
+        logger: stubLogger,
+      });
 
       const result = await environment.execute({
         eid: 1,
@@ -51,7 +80,12 @@ describe("bindings integration", () => {
       const bindings = createBindings();
       const environment = mod.instantiate();
 
-      await environment.setup({ bindings, config: {}, secrets: {} });
+      await environment.setup({
+        bindings,
+        config: {},
+        secrets: {},
+        logger: stubLogger,
+      });
 
       await environment.execute({
         eid: 1,
@@ -78,7 +112,12 @@ describe("bindings integration", () => {
       const bindings = createBindings();
       const environment = mod.instantiate();
 
-      await environment.setup({ bindings, config: {}, secrets: {} });
+      await environment.setup({
+        bindings,
+        config: {},
+        secrets: {},
+        logger: stubLogger,
+      });
 
       await environment.execute({
         eid: 1,
@@ -106,7 +145,12 @@ describe("bindings integration", () => {
       const bindings = createBindings();
       const environment = mod.instantiate();
 
-      await environment.setup({ bindings, config: {}, secrets: {} });
+      await environment.setup({
+        bindings,
+        config: {},
+        secrets: {},
+        logger: stubLogger,
+      });
 
       const result = await environment.execute({
         eid: 1,
@@ -127,7 +171,12 @@ describe("bindings integration", () => {
       const bindings = createBindings();
       const environment = mod.instantiate();
 
-      await environment.setup({ bindings, config: {}, secrets: {} });
+      await environment.setup({
+        bindings,
+        config: {},
+        secrets: {},
+        logger: stubLogger,
+      });
 
       await environment.execute({
         eid: 100,
@@ -173,7 +222,12 @@ describe("bindings integration", () => {
           ),
       );
 
-      await environment.setup({ bindings, config: {}, secrets: {} });
+      await environment.setup({
+        bindings,
+        config: {},
+        secrets: {},
+        logger: stubLogger,
+      });
 
       const result = await environment.execute({
         eid: 1,
@@ -193,7 +247,12 @@ describe("bindings integration", () => {
 
       bindings.invokeTool.mockResolvedValue({ value: 1 });
 
-      await environment.setup({ bindings, config: {}, secrets: {} });
+      await environment.setup({
+        bindings,
+        config: {},
+        secrets: {},
+        logger: stubLogger,
+      });
 
       const result = await environment.execute({
         eid: 1,
@@ -218,7 +277,12 @@ describe("bindings integration", () => {
       const bindings = createBindings();
       const environment = mod.instantiate();
 
-      await environment.setup({ bindings, config: {}, secrets: {} });
+      await environment.setup({
+        bindings,
+        config: {},
+        secrets: {},
+        logger: stubLogger,
+      });
 
       const result = await environment.execute({
         eid: 1,
