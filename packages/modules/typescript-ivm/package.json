@@ -23,7 +23,7 @@
     "whatwg-url": "^17.1.0"
   },
   "devDependencies": {
-    "@types/node": "^25.9.3",
+    "@types/node": "^26.2.0",
     "vitest": "^4.1.11"
   },
   "packageManager": "pnpm@10.30.3"
