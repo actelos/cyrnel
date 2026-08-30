@@ -23,7 +23,7 @@
   "mcp": {
     "cyrnel": {
       "type": "local",
-      "command": ["pnpm", "-C", "apps/mcp", "start"],
+      "command": ["node", "dist/index.js"],
       "cwd": "apps/mcp",
       "enabled": true,
       "environment": {
