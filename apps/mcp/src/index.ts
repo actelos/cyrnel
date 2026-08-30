@@ -1,15 +1,23 @@
 #!/usr/bin/env node
 
-import "dotenv/config";
-
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import dotenv from "dotenv";
 import { z } from "zod";
+import type { Transport } from "@/app.js";
 
-import { App, type Transport } from "@/app.js";
-import { logger } from "@/logger.js";
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+dotenv.config({ quiet: true, path: path.resolve(__dirname, "../.env") });
+dotenv.config({ quiet: true });
+
+const { App } = await import("@/app.js");
+const { logger } = await import("@/logger.js");
 
 const { MCP_TRANSPORT, MCP_HTTP_HOST, MCP_HTTP_PORT } = z
   .object({
-    MCP_TRANSPORT: z.enum(["stdio", "http"]).default("http"),
+    MCP_TRANSPORT: z.enum(["stdio", "http"]).default("stdio"),
     MCP_HTTP_HOST: z.string().min(1).default("127.0.0.1"),
     MCP_HTTP_PORT: z.coerce.number().int().positive().default(9373),
   })
