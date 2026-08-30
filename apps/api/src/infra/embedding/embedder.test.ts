@@ -28,7 +28,7 @@ const EXTRACTOR: FeatureExtractor = vi.fn(async (text) => {
 describe("embedder.util", () => {
   const originalModel = process.env.CYRNEL_EMBEDDING_MODEL;
   const originalDataDir = process.env.CYRNEL_DATA_DIR;
-  let tempDataDir: string | undefined;
+  let tempDataDir = "";
 
   beforeEach(() => {
     delete process.env.CYRNEL_EMBEDDING_MODEL;
@@ -42,7 +42,7 @@ describe("embedder.util", () => {
   afterEach(() => {
     if (tempDataDir) {
       fs.rmSync(tempDataDir, { recursive: true, force: true });
-      tempDataDir = undefined;
+      tempDataDir = "";
     }
     if (originalModel === undefined) {
       delete process.env.CYRNEL_EMBEDDING_MODEL;
@@ -97,7 +97,7 @@ describe("embedder.util", () => {
       await embedder.init();
 
       expect(mocks.env.cacheDir).toBe(
-        path.join(tempDataDir!, ".cache", "transformers"),
+        path.join(tempDataDir, ".cache", "transformers"),
       );
     });
 
@@ -113,7 +113,7 @@ describe("embedder.util", () => {
     });
 
     it("stays unavailable when cache directory creation fails", async () => {
-      const badDir = path.join(tempDataDir!, "file.txt");
+      const badDir = path.join(tempDataDir, "file.txt");
       fs.writeFileSync(badDir, "im a file");
       process.env.CYRNEL_DATA_DIR = badDir;
 
