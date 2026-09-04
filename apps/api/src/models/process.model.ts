@@ -66,6 +66,12 @@ export interface GetProcessResult {
   error: string | null;
   createdAt: string;
   completedAt: string | null;
+  pendingApprovalIds?: string[];
 }
+
+export type SuspendedProcessResult = GetProcessResult & {
+  state: "suspended";
+  pendingApprovalIds: string[];
+};
 
 export type ListProcessResult = GetProcessResult;

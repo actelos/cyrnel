@@ -147,6 +147,8 @@ function embeddingFor(
 }
 
 async function resetDb(): Promise<void> {
+  await db.run(sql.raw("DELETE FROM approval_requests"));
+  await db.run(sql.raw("DELETE FROM tool_policies"));
   await db.run(sql.raw("DELETE FROM tools"));
   await db.run(sql.raw("DELETE FROM service_secrets"));
   await db.run(sql.raw("DELETE FROM service_configurations"));

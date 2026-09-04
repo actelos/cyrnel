@@ -10,6 +10,7 @@ import { apiKeyMiddleware } from "@/middleware/auth.middleware";
 import { errorMiddleware } from "@/middleware/error.middleware";
 import { ipAccessMiddleware } from "@/middleware/ip-access.middleware";
 import { globalRateLimiter } from "@/middleware/rate-limit.middleware";
+import { approvalRouter } from "@/routes/approval.route";
 import { environmentRouter } from "@/routes/environment.route";
 import { logRouter } from "@/routes/log.route";
 import { moduleRouter } from "@/routes/module.route";
@@ -26,6 +27,9 @@ const DEFAULT_RECONCILE_INTERVAL_MS = 1_800_000;
 const MAX_RECONCILE_INTERVAL_MS = 2_147_483_647;
 const DEFAULT_AUTO_UPDATE_INTERVAL_MS = 0;
 const MAX_AUTO_UPDATE_INTERVAL_MS = 2_147_483_647;
+const DEFAULT_APPROVAL_TIMEOUT_MS = 300_000;
+const DEFAULT_APPROVAL_RETENTION_MS = 2_592_000_000;
+const RETENTION_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
 
 export class App {
   readonly express: express.Express;
@@ -36,6 +40,8 @@ export class App {
   readonly servicesService: ServicesService;
 
   private autoUpdater: AutoUpdater | null = null;
+  private approvalExpiryTimer: ReturnType<typeof setInterval> | null = null;
+  private approvalRetentionTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
     this.moduleService = new ModuleService(
@@ -107,11 +113,31 @@ export class App {
         this.servicesService.updateService(id, constraint),
     });
     this.autoUpdater.start(autoUpdateInterval);
+
+    // Approval sweeps + recovery (§G, §C.5)
+    const approvalTimeoutMs = parseApprovalTimeout(
+      process.env.CYRNEL_APPROVAL_TIMEOUT_MS,
+    );
+    const retentionMs = parseApprovalRetention(
+      process.env.CYRNEL_APPROVAL_RETENTION_MS,
+    );
+    // startup recovery for orphaned suspended processes
+    void this.processService.recoverSuspendedProcesses();
+    // startup sweeps
+    void this.startApprovalSweeps(approvalTimeoutMs, retentionMs);
   }
 
   async shutdown(): Promise<void> {
     this.autoUpdater?.stop();
     this.autoUpdater = null;
+    if (this.approvalExpiryTimer) {
+      clearInterval(this.approvalExpiryTimer);
+      this.approvalExpiryTimer = null;
+    }
+    if (this.approvalRetentionTimer) {
+      clearInterval(this.approvalRetentionTimer);
+      this.approvalRetentionTimer = null;
+    }
     this.servicesService.closeSearch();
     await this.processService.shutdown();
     try {
@@ -121,6 +147,52 @@ export class App {
         { event: "module-shutdown-failed", err },
         "Module service shutdown failed",
       );
+    }
+  }
+
+  private async startApprovalSweeps(
+    _timeoutMs: number,
+    retentionMs: number,
+  ): Promise<void> {
+    // Expiry sweep — runs regardless of retention, uses approval timeout (§G)
+    const { sweepExpiredApprovals, sweepRetention } = await import(
+      "@/services/approval.service"
+    );
+    // startup passes
+    void sweepExpiredApprovals().catch((err) =>
+      logger.warn(
+        { event: "approval-expiry-sweep-failed", err },
+        "Expiry sweep failed",
+      ),
+    );
+    if (retentionMs !== 0) {
+      void sweepRetention(retentionMs).catch((err) =>
+        logger.warn(
+          { event: "approval-retention-sweep-failed", err },
+          "Retention sweep failed",
+        ),
+      );
+    }
+    // hourly retention sweep; expiry sweep every minute
+    this.approvalExpiryTimer = setInterval(() => {
+      void sweepExpiredApprovals().catch((err) =>
+        logger.warn(
+          { event: "approval-expiry-sweep-failed", err },
+          "Expiry sweep failed",
+        ),
+      );
+    }, 60_000);
+    this.approvalExpiryTimer.unref?.();
+    if (retentionMs !== 0) {
+      this.approvalRetentionTimer = setInterval(() => {
+        void sweepRetention(retentionMs).catch((err) =>
+          logger.warn(
+            { event: "approval-retention-sweep-failed", err },
+            "Retention sweep failed",
+          ),
+        );
+      }, RETENTION_SWEEP_INTERVAL_MS);
+      this.approvalRetentionTimer.unref?.();
     }
   }
 
@@ -162,6 +234,7 @@ export class App {
     app.use("/services", serviceRouter);
     app.use("/tools", toolRouter);
     app.use("/processes", processRouter);
+    app.use("/approvals", approvalRouter);
     app.use("/environment", environmentRouter);
     app.use("/logs", logRouter);
     app.use("/registries", registryRouter);
@@ -229,6 +302,63 @@ function parseAutoUpdateInterval(raw: string | undefined): number {
       "Invalid CYRNEL_AUTO_UPDATE_INTERVAL_MS; using default (disabled)",
     );
     return DEFAULT_AUTO_UPDATE_INTERVAL_MS;
+  }
+  return parsed;
+}
+
+function parseApprovalTimeout(raw: string | undefined): number {
+  // diverges from parseReconcileInterval: 0 is invalid here — see §C.3
+  if (raw === undefined) return DEFAULT_APPROVAL_TIMEOUT_MS;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    logger.warn(
+      { event: "invalid-approval-timeout", raw },
+      "0 would allow approvals created after startup to wait indefinitely; use a positive value",
+    );
+    return DEFAULT_APPROVAL_TIMEOUT_MS;
+  }
+  if (parsed > MAX_RECONCILE_INTERVAL_MS) {
+    logger.warn(
+      {
+        event: "invalid-approval-timeout",
+        raw,
+        max: MAX_RECONCILE_INTERVAL_MS,
+      },
+      "Invalid CYRNEL_APPROVAL_TIMEOUT_MS; using default",
+    );
+    return DEFAULT_APPROVAL_TIMEOUT_MS;
+  }
+  return parsed;
+}
+
+function parseApprovalRetention(raw: string | undefined): number {
+  // diverges from parseApprovalTimeout: 0 means "keep forever" — see §G
+  if (raw === undefined) return DEFAULT_APPROVAL_RETENTION_MS;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    logger.warn(
+      { event: "invalid-approval-retention", raw },
+      "Invalid CYRNEL_APPROVAL_RETENTION_MS; using default",
+    );
+    return DEFAULT_APPROVAL_RETENTION_MS;
+  }
+  if (parsed > MAX_AUTO_UPDATE_INTERVAL_MS) {
+    logger.warn(
+      {
+        event: "invalid-approval-retention",
+        raw,
+        max: MAX_AUTO_UPDATE_INTERVAL_MS,
+      },
+      "Invalid CYRNEL_APPROVAL_RETENTION_MS; using default",
+    );
+    return DEFAULT_APPROVAL_RETENTION_MS;
+  }
+  if (parsed === 0) {
+    logger.info(
+      { event: "approval-retention-disabled" },
+      "CYRNEL_APPROVAL_RETENTION_MS is 0; retention sweep disabled (keep forever)",
+    );
+    return 0;
   }
   return parsed;
 }

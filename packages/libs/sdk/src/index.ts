@@ -148,7 +148,7 @@ export interface InvokeInput {
 /**
  * Execution states that indicate an execution is still in progress.
  */
-export const EXECUTION_STATES = ["queued", "running"] as const;
+export const EXECUTION_STATES = ["queued", "running", "suspended"] as const;
 
 /**
  * Represents an active execution state.

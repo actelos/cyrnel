@@ -42,6 +42,7 @@ import {
   moduleSecrets,
   modules as modulesTable,
   services as servicesTable,
+  toolPolicies as toolPoliciesTable,
   tools as toolsTable,
 } from "@/db/schema";
 import {
@@ -328,7 +329,9 @@ export class ModuleService {
     await adapter.dehydrateService(serviceId);
   }
 
-  async invoke(input: InvokeInput): Promise<unknown> {
+  async invoke(
+    input: InvokeInput & { processId?: number; eid?: number },
+  ): Promise<unknown> {
     const [row] = await db
       .select({
         adapter: servicesTable.adapter,
@@ -376,6 +379,151 @@ export class ModuleService {
       );
     }
 
+    // Centralized policy gate — exactly one place (§4.2)
+    const policyRow = await db
+      .select({ decision: toolPoliciesTable.decision })
+      .from(toolPoliciesTable)
+      .where(
+        and(
+          eq(toolPoliciesTable.serviceId, input.serviceId),
+          eq(toolPoliciesTable.toolId, input.toolId),
+        ),
+      )
+      .limit(1)
+      .then((rows) => rows[0] ?? null)
+      .catch(() => null);
+    const decision = (policyRow?.decision ?? "ask") as
+      | "allow"
+      | "block"
+      | "ask";
+
+    if (decision === "block") {
+      logger.warn(
+        {
+          event: "tool-permission-blocked",
+          serviceId: input.serviceId,
+          toolId: input.toolId,
+        },
+        "Tool invocation blocked by policy",
+      );
+      throw new HttpError(
+        403,
+        `Tool '${input.toolId}' in service '${input.serviceId}' is blocked by policy.`,
+        "permission_denied",
+      );
+    }
+    if (decision === "ask") {
+      // Create approval request (§C.4) — encrypted parameters, computed expiresAt
+      const { randomUUID } = await import("node:crypto");
+      const { encryptSecrets } = await import("@/utils/secrets.util");
+      const { approvalRequests } = await import("@/db/schema");
+      const { waitForApproval } = await import("@/services/approval-waiter");
+      const approvalId = `apr_${randomUUID().replace(/-/g, "")}`;
+      const now = Date.now();
+      const timeoutMs = (() => {
+        const raw = process.env.CYRNEL_APPROVAL_TIMEOUT_MS;
+        if (raw === undefined) return 300_000;
+        const n = Number(raw);
+        if (!Number.isInteger(n) || n < 1) return 300_000;
+        return n;
+      })();
+      const expiresAt = now + timeoutMs;
+      const createdAt = new Date().toISOString();
+      const processId =
+        (input as unknown as { processId?: number; eid?: number }).processId ??
+        (input as unknown as { eid?: number }).eid ??
+        null;
+      const encrypted = encryptSecrets(
+        input.parameters as Record<string, unknown>,
+      );
+      await db
+        .insert(approvalRequests)
+        .values({
+          id: approvalId,
+          serviceId: input.serviceId,
+          toolId: input.toolId,
+          processId: processId as number | null,
+          parameters: JSON.stringify(encrypted),
+          state: "pending",
+          createdAt,
+          expiresAt,
+          decidedAt: null,
+        })
+        .catch(() => {
+          throw new HttpError(500, "Failed to create approval request.");
+        });
+      logger.info(
+        {
+          event: "approval-requested",
+          serviceId: input.serviceId,
+          toolId: input.toolId,
+          processId,
+          approvalId,
+        },
+        "Tool invocation requires approval",
+      );
+      // Suspend process if we have a processId — §C.2 pause/re-arm
+      if (processId != null) {
+        try {
+          const { db: dbClient } = await import("@/db/client");
+          const { processes } = await import("@/db/schema");
+          const { eq: eq2 } = await import("drizzle-orm");
+          await dbClient
+            .update(processes)
+            .set({ state: "suspended" })
+            .where(eq2(processes.id, processId));
+        } catch {}
+      }
+      // If no processId (direct API call outside sandbox), fail fast with approval_required
+      if (processId == null) {
+        throw new HttpError(
+          403,
+          `Approval required for tool '${input.toolId}' in service '${input.serviceId}'. ApprovalId: ${approvalId}`,
+          "approval_required",
+        );
+      }
+      // Park until approved/denied/expired — keep ivm.Reference alive via waitForApproval
+      const resolvedState = await waitForApproval(
+        approvalId,
+        processId as number,
+      );
+      logger.info(
+        {
+          event: "approval-resolved-waiter",
+          serviceId: input.serviceId,
+          toolId: input.toolId,
+          processId,
+          approvalId,
+          resolvedState,
+        },
+        "Approval waiter resolved",
+      );
+      if (resolvedState === "approved") {
+        if (processId != null) {
+          try {
+            const { db: dbClient } = await import("@/db/client");
+            const { processes } = await import("@/db/schema");
+            const { eq: eq2 } = await import("drizzle-orm");
+            await dbClient
+              .update(processes)
+              .set({ state: "running" })
+              .where(eq2(processes.id, processId));
+          } catch {}
+        }
+        return await this.invokeAdapterWithTimeout(row.adapter, input);
+      }
+      if (resolvedState === "denied") throw new Error("Approval denied");
+      throw new Error("Approval expired");
+    }
+
+    logger.info(
+      {
+        event: "tool-permission-allowed",
+        serviceId: input.serviceId,
+        toolId: input.toolId,
+      },
+      "Tool invocation allowed by policy",
+    );
     return await this.invokeAdapterWithTimeout(row.adapter, input);
   }
 
@@ -1788,6 +1936,38 @@ export class ModuleService {
                   enabled: enabledMap.get(tool.id) ?? false,
                 })),
               );
+            }
+            // sync tool_policies — same helper as ServicesService (§A.2)
+            {
+              const existing = await tx
+                .select({ toolId: toolPoliciesTable.toolId })
+                .from(toolPoliciesTable)
+                .where(eq(toolPoliciesTable.serviceId, service.id));
+              const existingIds = new Set(existing.map((r) => r.toolId));
+              const newIds = new Set(def.tools.map((t) => t.id));
+              const orphaned = [...existingIds].filter((id) => !newIds.has(id));
+              if (orphaned.length > 0) {
+                await tx
+                  .delete(toolPoliciesTable)
+                  .where(
+                    and(
+                      eq(toolPoliciesTable.serviceId, service.id),
+                      inArray(toolPoliciesTable.toolId, orphaned),
+                    ),
+                  );
+              }
+              const toInsert = def.tools.filter((t) => !existingIds.has(t.id));
+              if (toInsert.length > 0) {
+                await tx.insert(toolPoliciesTable).values(
+                  toInsert.map((t) => ({
+                    serviceId: service.id,
+                    toolId: t.id,
+                    decision: "ask" as const,
+                    createdAt: new Date().toISOString(),
+                    updatedAt: Date.now(),
+                  })),
+                );
+              }
             }
           });
 

@@ -55,6 +55,7 @@
             "enum": [
               "queued",
               "running",
+              "suspended",
               "idle",
               "terminating"
             ],
@@ -85,6 +86,13 @@
             "type": "string",
             "nullable": true,
             "description": "ISO-8601 timestamp of when the process completed, or null if still running."
+          },
+          "pendingApprovalIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Pending approval request identifiers when state is suspended; omitted otherwise."
           }
         },
         "required": [
@@ -744,6 +752,30 @@
             "type": "boolean",
             "description": "Whether the tool is callable after accounting for its parent service state."
           },
+          "policy": {
+            "type": "object",
+            "properties": {
+              "decision": {
+                "type": "string",
+                "enum": [
+                  "allow",
+                  "block",
+                  "ask"
+                ],
+                "description": "Policy decision for the tool."
+              },
+              "updatedAt": {
+                "type": "number",
+                "nullable": true,
+                "description": "Last policy update epoch ms, null when default ask."
+              }
+            },
+            "required": [
+              "decision",
+              "updatedAt"
+            ],
+            "description": "Policy decision for the tool; present when listing tools."
+          },
           "score": {
             "type": "number",
             "description": "Relevance score (reciprocal rank fusion of the FTS5 and vector ranks); present only when a query was supplied."
@@ -892,6 +924,135 @@
           "enabled"
         ],
         "description": "Response returned after toggling a tool enabled state."
+      },
+      "Approval": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Approval request identifier."
+          },
+          "serviceId": {
+            "type": "string",
+            "description": "Service identifier."
+          },
+          "toolId": {
+            "type": "string",
+            "description": "Tool identifier."
+          },
+          "processId": {
+            "type": "number",
+            "nullable": true,
+            "description": "Process that triggered the approval, null if outside a process."
+          },
+          "parameters": {
+            "type": "object",
+            "additionalProperties": {
+              "nullable": true
+            },
+            "description": "Decrypted parameters of the original tool invocation."
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "approved",
+              "denied",
+              "expired"
+            ],
+            "description": "Current state of the approval request."
+          },
+          "createdAt": {
+            "type": "string",
+            "description": "ISO-8601 creation time."
+          },
+          "expiresAt": {
+            "type": "number",
+            "description": "Epoch ms expiry time."
+          },
+          "decidedAt": {
+            "type": "number",
+            "nullable": true,
+            "description": "Epoch ms when decided, null while pending."
+          }
+        },
+        "required": [
+          "id",
+          "serviceId",
+          "toolId",
+          "processId",
+          "parameters",
+          "state",
+          "createdAt",
+          "expiresAt",
+          "decidedAt"
+        ],
+        "description": "Approval request returned by the approvals endpoints."
+      },
+      "ApprovalListResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Approval"
+            },
+            "description": "Approval requests that match the supplied filters."
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true,
+            "description": "Opaque cursor for the next page; null when there are no more items. Echo it back as the cursor query parameter to continue paginating."
+          },
+          "hasMore": {
+            "type": "boolean",
+            "description": "Whether additional pages exist. When true, nextCursor is a valid cursor; when false, pagination has reached the end."
+          }
+        },
+        "required": [
+          "items",
+          "nextCursor",
+          "hasMore"
+        ],
+        "description": "Paginated collection envelope."
+      },
+      "ToolPolicy": {
+        "type": "object",
+        "properties": {
+          "serviceId": {
+            "type": "string",
+            "description": "Service identifier."
+          },
+          "toolId": {
+            "type": "string",
+            "description": "Tool identifier."
+          },
+          "decision": {
+            "type": "string",
+            "enum": [
+              "allow",
+              "block",
+              "ask"
+            ],
+            "description": "Policy decision."
+          },
+          "createdAt": {
+            "type": "string",
+            "description": "ISO-8601 creation time."
+          },
+          "updatedAt": {
+            "type": "number",
+            "description": "Last update epoch ms."
+          }
+        },
+        "required": [
+          "serviceId",
+          "toolId",
+          "decision",
+          "createdAt",
+          "updatedAt"
+        ],
+        "description": "Tool policy record."
       },
       "Module": {
         "type": "object",
@@ -1883,6 +2044,7 @@
               "enum": [
                 "queued",
                 "running",
+                "suspended",
                 "idle",
                 "terminating"
               ],
@@ -5626,7 +5788,7 @@
           "Tools"
         ],
         "summary": "List tools",
-        "description": "Returns tools that match the supplied filters. The serviceId, query, cursor, limit, and enabled query parameters are all optional. The enabled filter accepts 'true' or 'false'.",
+        "description": "Returns tools that match the supplied filters. The serviceId, query, cursor, limit, and enabled query parameters are all optional. The enabled filter accepts 'true' or 'false'. The decision filter accepts 'allow', 'block', or 'ask'.",
         "parameters": [
           {
             "schema": {
@@ -5660,6 +5822,21 @@
             "required": false,
             "description": "Enabled-state filter. Omit to return all tools.",
             "name": "enabled",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "allow",
+                "block",
+                "ask"
+              ],
+              "description": "Policy decision filter. Omit to return all tools; 'ask' includes tools with no explicit policy."
+            },
+            "required": false,
+            "description": "Policy decision filter. Omit to return all tools; 'ask' includes tools with no explicit policy.",
+            "name": "decision",
             "in": "query"
           },
           {
@@ -6129,6 +6306,777 @@
           },
           "500": {
             "description": "The tool enabled state could not be updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tools/{serviceId}/{toolId}/policy": {
+      "get": {
+        "tags": [
+          "Tools"
+        ],
+        "summary": "Get tool policy",
+        "description": "Returns the effective policy decision for a tool, including default ask when no explicit policy exists.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Service identifier matching the installed manifest id."
+            },
+            "required": true,
+            "description": "Service identifier matching the installed manifest id.",
+            "name": "serviceId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Tool identifier exposed by the service manifest."
+            },
+            "required": true,
+            "description": "Tool identifier exposed by the service manifest.",
+            "name": "toolId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tool policy.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolPolicy"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The path parameters were invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A bearer token was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The tool could not be found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded. The request was throttled. Check Retry-After header.",
+            "headers": {
+              "X-RateLimit-Limit": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Maximum requests allowed in the current window."
+              },
+              "X-RateLimit-Remaining": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Requests remaining in the current window."
+              },
+              "X-RateLimit-Reset": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Unix timestamp when the window resets."
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The tool policy could not be loaded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Tools"
+        ],
+        "summary": "Set tool policy",
+        "description": "Sets the policy decision for a tool to allow, block, or ask.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Service identifier matching the installed manifest id."
+            },
+            "required": true,
+            "description": "Service identifier matching the installed manifest id.",
+            "name": "serviceId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Tool identifier exposed by the service manifest."
+            },
+            "required": true,
+            "description": "Tool identifier exposed by the service manifest.",
+            "name": "toolId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "decision": {
+                    "type": "string",
+                    "enum": [
+                      "allow",
+                      "block",
+                      "ask"
+                    ],
+                    "description": "Desired policy decision."
+                  }
+                },
+                "required": [
+                  "decision"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated tool policy.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolPolicy"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body or path parameters were invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A bearer token was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The tool could not be found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded. The request was throttled. Check Retry-After header.",
+            "headers": {
+              "X-RateLimit-Limit": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Maximum requests allowed in the current window."
+              },
+              "X-RateLimit-Remaining": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Requests remaining in the current window."
+              },
+              "X-RateLimit-Reset": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Unix timestamp when the window resets."
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The tool policy could not be updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/approvals": {
+      "get": {
+        "tags": [
+          "Approvals"
+        ],
+        "summary": "List approvals",
+        "description": "Returns approval requests filtered by optional state, serviceId, toolId, and processId. Paginated with before cursor on (createdAt desc, id).",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pending",
+                "approved",
+                "denied",
+                "expired"
+              ],
+              "description": "Filter by approval state."
+            },
+            "required": false,
+            "description": "Filter by approval state.",
+            "name": "state",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Filter by service identifier."
+            },
+            "required": false,
+            "description": "Filter by service identifier.",
+            "name": "serviceId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Filter by tool identifier."
+            },
+            "required": false,
+            "description": "Filter by tool identifier.",
+            "name": "toolId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "description": "Filter by process identifier."
+            },
+            "required": false,
+            "description": "Filter by process identifier.",
+            "name": "processId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 2048,
+              "description": "Opaque pagination token returned as nextCursor by the previous response. Pass it back unchanged to fetch the next page; null/omitted fetches the first page. Cursors encode position, not filters, so change filters only between pages when starting over."
+            },
+            "required": false,
+            "description": "Opaque pagination token returned as nextCursor by the previous response. Pass it back unchanged to fetch the next page; null/omitted fetches the first page. Cursors encode position, not filters, so change filters only between pages when starting over.",
+            "name": "cursor",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "description": "Maximum number of items per page. Clamped to a maximum of 100; defaults to 20."
+            },
+            "required": false,
+            "description": "Maximum number of items per page. Clamped to a maximum of 100; defaults to 20.",
+            "name": "limit",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Matching approvals.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApprovalListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "One or more query parameters could not be parsed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A bearer token was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded. The request was throttled. Check Retry-After header.",
+            "headers": {
+              "X-RateLimit-Limit": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Maximum requests allowed in the current window."
+              },
+              "X-RateLimit-Remaining": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Requests remaining in the current window."
+              },
+              "X-RateLimit-Reset": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Unix timestamp when the window resets."
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The approvals could not be loaded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/approvals/{id}": {
+      "get": {
+        "tags": [
+          "Approvals"
+        ],
+        "summary": "Get approval",
+        "description": "Returns a single approval request by identifier.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Approval identifier."
+            },
+            "required": true,
+            "description": "Approval identifier.",
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Approval request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Approval"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The id path parameter was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A bearer token was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The approval could not be found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded. The request was throttled. Check Retry-After header.",
+            "headers": {
+              "X-RateLimit-Limit": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Maximum requests allowed in the current window."
+              },
+              "X-RateLimit-Remaining": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Requests remaining in the current window."
+              },
+              "X-RateLimit-Reset": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Unix timestamp when the window resets."
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The approval could not be loaded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/approvals/{id}/approve": {
+      "post": {
+        "tags": [
+          "Approvals"
+        ],
+        "summary": "Approve approval",
+        "description": "Approves a pending approval request; the suspended invocation resumes and executes.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Approval identifier."
+            },
+            "required": true,
+            "description": "Approval identifier.",
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Approved approval request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Approval"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The id path parameter was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A bearer token was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The approval could not be found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The approval is already decided.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded. The request was throttled. Check Retry-After header.",
+            "headers": {
+              "X-RateLimit-Limit": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Maximum requests allowed in the current window."
+              },
+              "X-RateLimit-Remaining": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Requests remaining in the current window."
+              },
+              "X-RateLimit-Reset": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Unix timestamp when the window resets."
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The approval could not be approved.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/approvals/{id}/deny": {
+      "post": {
+        "tags": [
+          "Approvals"
+        ],
+        "summary": "Deny approval",
+        "description": "Denies a pending approval request; the suspended invocation fails with a catchable error.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Approval identifier."
+            },
+            "required": true,
+            "description": "Approval identifier.",
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Denied approval request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Approval"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The id path parameter was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A bearer token was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The approval could not be found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The approval is already decided.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded. The request was throttled. Check Retry-After header.",
+            "headers": {
+              "X-RateLimit-Limit": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Maximum requests allowed in the current window."
+              },
+              "X-RateLimit-Remaining": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Requests remaining in the current window."
+              },
+              "X-RateLimit-Reset": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Unix timestamp when the window resets."
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The approval could not be denied.",
             "content": {
               "application/json": {
                 "schema": {

@@ -9,6 +9,7 @@ import { and, desc, eq, isNotNull, isNull, type SQL, sql } from "drizzle-orm";
 
 import { db } from "@/db/client";
 import {
+  approvalRequests as approvalRequestsTable,
   processData as processDataTable,
   processes as processesTable,
 } from "@/db/schema";
@@ -85,6 +86,7 @@ export type DbProcessRow = {
   timeoutMs: number | null;
   envConfig: Record<string, unknown>;
   createdAt: string;
+  state?: string;
   exitState: string | null;
   error: string | null;
   completedAt: string | null;
@@ -95,6 +97,11 @@ export class ProcessService {
   private readonly processes = new Map<number, ProcessRecord>();
   private readonly pidIndex = new Map<number, number>();
   private readonly pidPool: number[] = [];
+  private readonly approvalLocks = new Map<number, Promise<void>>();
+  private readonly timeoutHandles = new Map<
+    number,
+    ReturnType<typeof setTimeout>
+  >();
   private isShuttingDown = false;
   private nextId = 1;
 
@@ -167,15 +174,22 @@ export class ProcessService {
       .limit(limit + 1 + this.processes.size)
       .all();
 
-    const inMemory = Array.from(this.processes.values())
-      .filter(
-        (process) =>
-          (!filters.state || process.state === filters.state) &&
-          (filters.exitState === undefined ||
-            process.exitState === filters.exitState) &&
-          (filters.ref === undefined || process.ref === filters.ref),
-      )
-      .map((p) => this.project(p));
+    const inMemoryRecords = Array.from(this.processes.values()).filter(
+      (process) =>
+        (!filters.state || process.state === filters.state) &&
+        (filters.exitState === undefined ||
+          process.exitState === filters.exitState) &&
+        (filters.ref === undefined || process.ref === filters.ref),
+    );
+    const inMemory: GetProcessResult[] = [];
+    for (const p of inMemoryRecords) {
+      if (p.state === "suspended") {
+        const ids = await this.fetchPendingApprovalIds(p.dbId);
+        inMemory.push(this.project(p, ids));
+      } else {
+        inMemory.push(this.project(p));
+      }
+    }
 
     const inMemoryIds = new Set(this.pidIndex.keys());
     const merged: GetProcessResult[] = [...inMemory];
@@ -237,6 +251,7 @@ export class ProcessService {
         : DEFAULT_EXECUTION_TIMEOUT_MS;
     const envConfig = input.envConfig ?? {};
 
+    const stateValue = autorun ? "queued" : "idle";
     const [{ id }] = await db
       .insert(processesTable)
       .values({
@@ -245,6 +260,7 @@ export class ProcessService {
         timeoutMs: timeoutMs,
         envConfig,
         createdAt,
+        state: stateValue,
       })
       .returning({ id: processesTable.id });
 
@@ -255,7 +271,7 @@ export class ProcessService {
       dbId: id,
       pid,
       ref: input.ref,
-      state: autorun ? "queued" : "idle",
+      state: stateValue as ProcessState,
       exitState: null,
       error: null,
       code: input.code,
@@ -281,7 +297,12 @@ export class ProcessService {
   async get(id: number): Promise<GetProcessResult> {
     const pid = this.pidIndex.get(id);
     if (pid !== undefined) {
-      return this.project(this.getStored(pid));
+      const stored = this.getStored(pid);
+      if (stored.state === "suspended") {
+        const ids = await this.fetchPendingApprovalIds(id);
+        return this.project(stored, ids);
+      }
+      return this.project(stored);
     }
 
     const row = await this.loadDbProcess(id);
@@ -530,7 +551,12 @@ export class ProcessService {
   recordState(eid: number, state: ExecutionState): void {
     const stored = this.processes.get(eid);
 
-    if (!stored || stored.state === "terminating" || stored.state === "idle")
+    if (
+      !stored ||
+      stored.state === "terminating" ||
+      stored.state === "idle" ||
+      stored.state === "suspended"
+    )
       return;
 
     stored.state = state === "running" ? "running" : "queued";
@@ -837,8 +863,11 @@ export class ProcessService {
     return row;
   }
 
-  private project(record: ProcessRecord): GetProcessResult {
-    return {
+  private project(
+    record: ProcessRecord,
+    pendingApprovalIds?: string[],
+  ): GetProcessResult {
+    const base: GetProcessResult = {
       id: record.dbId,
       pid: record.pid,
       ref: record.ref,
@@ -848,6 +877,107 @@ export class ProcessService {
       createdAt: record.createdAt,
       completedAt: null,
     };
+    if (record.state === "suspended" && pendingApprovalIds) {
+      return { ...base, pendingApprovalIds };
+    }
+    if (record.state === "suspended") {
+      // best-effort: return without ids if not provided (caller should fetch)
+      return { ...base, pendingApprovalIds: [] };
+    }
+    return base;
+  }
+
+  private async fetchPendingApprovalIds(processId: number): Promise<string[]> {
+    try {
+      const rows = await db
+        .select({ id: approvalRequestsTable.id })
+        .from(approvalRequestsTable)
+        .where(
+          and(
+            eq(approvalRequestsTable.processId, processId),
+            eq(approvalRequestsTable.state, "pending"),
+          ),
+        )
+        .all();
+      return rows.map((r) => r.id);
+    } catch {
+      return [];
+    }
+  }
+
+  async notifyApprovalResolved(
+    processId: number,
+    pendingCount: number,
+    _targetState: string,
+  ): Promise<void> {
+    const existing = this.approvalLocks.get(processId);
+    if (existing) await existing;
+    let resolveLock!: () => void;
+    const lock = new Promise<void>((r) => (resolveLock = r));
+    this.approvalLocks.set(processId, lock);
+    try {
+      const pid = this.pidIndex.get(processId);
+      if (pid === undefined) return;
+      const stored = this.processes.get(pid);
+      if (!stored) return;
+      if (pendingCount === 0 && stored.state === "suspended") {
+        stored.state = "running";
+        // Re-arm timeout with remaining time — clear old handle and set new if timeoutMs is set
+        const handle = this.timeoutHandles.get(pid);
+        if (handle) clearTimeout(handle);
+        if (stored.timeoutMs !== null) {
+          const remaining = Math.max(
+            0,
+            stored.timeoutMs - (Date.now() - stored.lastExecutedAt),
+          );
+          const h = setTimeout(() => {
+            this.controller.kill(pid).catch(() => {});
+            const s = this.processes.get(pid);
+            if (s && s.state !== "idle") {
+              s.state = "idle";
+              s.exitState = "timeout";
+            }
+          }, remaining);
+          this.timeoutHandles.set(pid, h);
+        }
+        try {
+          await db
+            .update(processesTable)
+            .set({ state: "running" })
+            .where(eq(processesTable.id, processId));
+        } catch {}
+      }
+    } finally {
+      this.approvalLocks.delete(processId);
+      resolveLock();
+    }
+  }
+
+  async recoverSuspendedProcesses(): Promise<void> {
+    try {
+      const rows = await db
+        .select({ id: processesTable.id })
+        .from(processesTable)
+        .where(eq(processesTable.state, "suspended"))
+        .all();
+      for (const row of rows) {
+        if (!this.pidIndex.has(row.id)) {
+          await db
+            .update(processesTable)
+            .set({ state: "terminated" })
+            .where(eq(processesTable.id, row.id));
+          logger.warn(
+            { event: "process-recovery-suspended", processId: row.id },
+            "Recovered orphaned suspended process as terminated",
+          );
+        }
+      }
+    } catch (err) {
+      logger.warn(
+        { event: "process-recovery-failed", err },
+        "Failed to recover suspended processes",
+      );
+    }
   }
 
   private assertIdle(state: ProcessState): void {

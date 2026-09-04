@@ -45,6 +45,7 @@ export interface ListToolsInput {
   limit?: number;
   cursor?: string;
   enabled?: boolean;
+  decision?: "allow" | "block" | "ask";
 }
 
 export interface ListToolsResult
@@ -53,6 +54,7 @@ export interface ListToolsResult
     "inputSchema" | "outputSchema" | "adapterDomain"
   > {
   effectivelyEnabled: boolean;
+  policy?: { decision: "allow" | "block" | "ask"; updatedAt: number | null };
   score?: number;
   matchType?: "fts" | "vector" | "both";
   ftsRank?: number;
@@ -72,6 +74,7 @@ export interface GetToolInput {
 export interface GetToolsResult
   extends Omit<ToolDefinitionRecord, "adapterDomain" | "serviceId"> {
   effectivelyEnabled: boolean;
+  policy?: { decision: "allow" | "block" | "ask"; updatedAt: number | null };
 }
 
 export interface DirectInstallServiceInput {
