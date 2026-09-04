@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { Dirent } from "node:fs";
 import fs from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
@@ -37,10 +38,12 @@ import { z } from "zod";
 import { CYRNEL_CORE_VERSION } from "@/constants";
 import { db } from "@/db/client";
 import {
+  approvalRequests as approvalRequestsTable,
   type ModuleRecord,
   moduleConfigurations,
   moduleSecrets,
   modules as modulesTable,
+  processes as processesTable,
   services as servicesTable,
   toolPolicies as toolPoliciesTable,
   tools as toolsTable,
@@ -68,6 +71,8 @@ import {
   type RankedAdapter,
   type SetModuleEnabledInput,
 } from "@/models/modules.model";
+import { waitForApproval } from "@/services/approval-waiter";
+import { getProcessService } from "@/services/process-holder";
 import {
   isKindCompatible,
   parseKind,
@@ -413,32 +418,27 @@ export class ModuleService {
       );
     }
     if (decision === "ask") {
-      // Create approval request (§C.4) — encrypted parameters, computed expiresAt
-      const { randomUUID } = await import("node:crypto");
-      const { encryptSecrets } = await import("@/utils/secrets.util");
-      const { approvalRequests } = await import("@/db/schema");
-      const { waitForApproval } = await import("@/services/approval-waiter");
       const approvalId = `apr_${randomUUID().replace(/-/g, "")}`;
       const now = Date.now();
       const timeoutMs = (() => {
         const raw = process.env.CYRNEL_APPROVAL_TIMEOUT_MS;
+        const MAX = 2_147_483_647;
         if (raw === undefined) return 300_000;
         const n = Number(raw);
-        if (!Number.isInteger(n) || n < 1) return 300_000;
+        if (!Number.isInteger(n) || n < 1 || n > MAX) return 300_000;
         return n;
       })();
       const expiresAt = now + timeoutMs;
       const createdAt = new Date().toISOString();
-      const processId =
-        (input as unknown as { processId?: number; eid?: number }).processId ??
-        (input as unknown as { eid?: number }).eid ??
-        null;
+      const processId = input.processId ?? input.eid ?? null;
       const encrypted = encryptSecrets(
         input.parameters as Record<string, unknown>,
       );
-      await db
-        .insert(approvalRequests)
-        .values({
+      // Register waiter before insert to close race where approver resolves before waiter
+      const waiterPromise =
+        processId != null ? waitForApproval(approvalId, processId) : null;
+      try {
+        await db.insert(approvalRequestsTable).values({
           id: approvalId,
           serviceId: input.serviceId,
           toolId: input.toolId,
@@ -448,10 +448,16 @@ export class ModuleService {
           createdAt,
           expiresAt,
           decidedAt: null,
-        })
-        .catch(() => {
-          throw new HttpError(500, "Failed to create approval request.");
         });
+      } catch {
+        if (waiterPromise) {
+          const { resolveApprovalWaiter } = await import(
+            "@/services/approval-waiter"
+          );
+          resolveApprovalWaiter(approvalId, "expired");
+        }
+        throw new HttpError(500, "Failed to create approval request.");
+      }
       logger.info(
         {
           event: "approval-requested",
@@ -462,17 +468,41 @@ export class ModuleService {
         },
         "Tool invocation requires approval",
       );
-      // Suspend process if we have a processId — §C.2 pause/re-arm
+      // Suspend process via ProcessService to keep in-memory and DB state synchronized
       if (processId != null) {
-        try {
-          const { db: dbClient } = await import("@/db/client");
-          const { processes } = await import("@/db/schema");
-          const { eq: eq2 } = await import("drizzle-orm");
-          await dbClient
-            .update(processes)
-            .set({ state: "suspended" })
-            .where(eq2(processes.id, processId));
-        } catch {}
+        const ps = getProcessService();
+        if (ps) {
+          try {
+            await ps.suspendProcess(processId);
+          } catch (err) {
+            logger.warn(
+              { event: "process-suspend-failed", err, processId, approvalId },
+              "Failed to persist suspended state",
+            );
+            const { resolveApprovalWaiter } = await import(
+              "@/services/approval-waiter"
+            );
+            resolveApprovalWaiter(approvalId, "expired");
+            throw new HttpError(500, "Failed to suspend process for approval.");
+          }
+        } else {
+          try {
+            await db
+              .update(processesTable)
+              .set({ state: "suspended" })
+              .where(eq(processesTable.id, processId));
+          } catch (err) {
+            logger.warn(
+              { event: "process-suspend-failed", err, processId, approvalId },
+              "Failed to persist suspended state",
+            );
+            const { resolveApprovalWaiter } = await import(
+              "@/services/approval-waiter"
+            );
+            resolveApprovalWaiter(approvalId, "expired");
+            throw new HttpError(500, "Failed to suspend process for approval.");
+          }
+        }
       }
       // If no processId (direct API call outside sandbox), fail fast with approval_required
       if (processId == null) {
@@ -500,15 +530,33 @@ export class ModuleService {
       );
       if (resolvedState === "approved") {
         if (processId != null) {
-          try {
-            const { db: dbClient } = await import("@/db/client");
-            const { processes } = await import("@/db/schema");
-            const { eq: eq2 } = await import("drizzle-orm");
-            await dbClient
-              .update(processes)
-              .set({ state: "running" })
-              .where(eq2(processes.id, processId));
-          } catch {}
+          const ps = getProcessService();
+          if (ps) {
+            try {
+              // recompute pendingCount for this process
+              const [{ count: pending }] = await db
+                .select({ count: sql<number>`count(*)` })
+                .from(approvalRequestsTable)
+                .where(
+                  and(
+                    eq(approvalRequestsTable.processId, processId),
+                    eq(approvalRequestsTable.state, "pending"),
+                  ),
+                );
+              await ps.notifyApprovalResolved(
+                processId,
+                pending,
+                resolvedState,
+              );
+            } catch {}
+          } else {
+            try {
+              await db
+                .update(processesTable)
+                .set({ state: "running" })
+                .where(eq(processesTable.id, processId));
+            } catch {}
+          }
         }
         return await this.invokeAdapterWithTimeout(row.adapter, input);
       }

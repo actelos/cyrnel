@@ -57,7 +57,8 @@
               "running",
               "suspended",
               "idle",
-              "terminating"
+              "terminating",
+              "terminated"
             ],
             "description": "Current lifecycle state of the process."
           },
@@ -1036,20 +1037,16 @@
             ],
             "description": "Policy decision."
           },
-          "createdAt": {
-            "type": "string",
-            "description": "ISO-8601 creation time."
-          },
           "updatedAt": {
             "type": "number",
-            "description": "Last update epoch ms."
+            "nullable": true,
+            "description": "Last update epoch ms, null when default ask."
           }
         },
         "required": [
           "serviceId",
           "toolId",
           "decision",
-          "createdAt",
           "updatedAt"
         ],
         "description": "Tool policy record."
@@ -2046,7 +2043,8 @@
                 "running",
                 "suspended",
                 "idle",
-                "terminating"
+                "terminating",
+                "terminated"
               ],
               "description": "Current lifecycle state of a process."
             },

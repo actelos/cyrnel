@@ -20,6 +20,7 @@ import { serviceRouter } from "@/routes/service.route";
 import { toolRouter } from "@/routes/tool.route";
 import { ModuleService } from "@/services/modules.service";
 import { ProcessService } from "@/services/process.service";
+import { setProcessService } from "@/services/process-holder";
 import { RegistriesService } from "@/services/registries.service";
 import { ServicesService } from "@/services/services.service";
 
@@ -79,6 +80,7 @@ export class App {
       execute: (input) => this.moduleService.execute(input),
       kill: (eid) => this.moduleService.kill(eid),
     });
+    setProcessService(this.processService);
 
     this.registriesService = new RegistriesService();
 

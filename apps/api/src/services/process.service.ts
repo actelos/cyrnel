@@ -148,7 +148,7 @@ export class ProcessService {
     }
 
     if (filters.state !== undefined) {
-      if (filters.state === "idle") {
+      if (filters.state === "idle" || filters.state === "terminated") {
         conditions.push(isNotNull(processDataTable.exitState));
       } else {
         conditions.push(sql`1 = 0`);
@@ -554,6 +554,7 @@ export class ProcessService {
     if (
       !stored ||
       stored.state === "terminating" ||
+      stored.state === "terminated" ||
       stored.state === "idle" ||
       stored.state === "suspended"
     )
@@ -905,6 +906,33 @@ export class ProcessService {
     }
   }
 
+  async suspendProcess(processId: number): Promise<void> {
+    const pid = this.pidIndex.get(processId);
+    if (pid !== undefined) {
+      const stored = this.processes.get(pid);
+      if (stored) {
+        stored.state = "suspended";
+        const handle = this.timeoutHandles.get(pid);
+        if (handle) {
+          clearTimeout(handle);
+          this.timeoutHandles.delete(pid);
+        }
+      }
+    }
+    try {
+      await db
+        .update(processesTable)
+        .set({ state: "suspended" })
+        .where(eq(processesTable.id, processId));
+    } catch (err) {
+      logger.warn(
+        { event: "process-suspend-failed", err, processId },
+        "Failed to persist suspended state",
+      );
+      throw err;
+    }
+  }
+
   async notifyApprovalResolved(
     processId: number,
     pendingCount: number,
@@ -962,10 +990,34 @@ export class ProcessService {
         .all();
       for (const row of rows) {
         if (!this.pidIndex.has(row.id)) {
+          const nowIso = new Date().toISOString();
           await db
             .update(processesTable)
             .set({ state: "terminated" })
             .where(eq(processesTable.id, row.id));
+          try {
+            await db
+              .insert(processDataTable)
+              .values({
+                processId: row.id,
+                exitState: "failed",
+                error:
+                  "Process terminated while awaiting approval (orphaned suspended state)",
+                output: {},
+                stdout: null,
+                stderr: null,
+                completedAt: nowIso,
+              })
+              .onConflictDoUpdate({
+                target: processDataTable.processId,
+                set: {
+                  exitState: "failed",
+                  error:
+                    "Process terminated while awaiting approval (orphaned suspended state)",
+                  completedAt: nowIso,
+                },
+              });
+          } catch {}
           logger.warn(
             { event: "process-recovery-suspended", processId: row.id },
             "Recovered orphaned suspended process as terminated",

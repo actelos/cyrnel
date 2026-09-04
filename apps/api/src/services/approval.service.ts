@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, lte, sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import { approvalRequests } from "@/db/schema";
 import { logger } from "@/infra/logging";
@@ -183,18 +183,51 @@ export async function resolveApproval(
 }> {
   return await db
     .transaction(async (tx) => {
+      const now = Date.now();
+      // Enforce expiry: approve/deny require not yet expired; expired sweep requires past expiry
+      const expiryPredicate =
+        targetState === "expired"
+          ? lte(approvalRequests.expiresAt, now)
+          : gt(approvalRequests.expiresAt, now);
       const [updated] = await tx
         .update(approvalRequests)
-        .set({ state: targetState, decidedAt: Date.now() })
+        .set({ state: targetState, decidedAt: now })
         .where(
           and(
             eq(approvalRequests.id, id),
             eq(approvalRequests.state, "pending"),
+            expiryPredicate,
           ),
         )
         .returning({ processId: approvalRequests.processId });
 
       if (!updated) {
+        // If approve/deny failed due to expiry, mark as expired instead of leaving pending
+        if (targetState !== "expired") {
+          const [stale] = await tx
+            .select({ id: approvalRequests.id })
+            .from(approvalRequests)
+            .where(
+              and(
+                eq(approvalRequests.id, id),
+                eq(approvalRequests.state, "pending"),
+                lte(approvalRequests.expiresAt, now),
+              ),
+            )
+            .limit(1);
+          if (stale) {
+            await tx
+              .update(approvalRequests)
+              .set({ state: "expired", decidedAt: now })
+              .where(eq(approvalRequests.id, id));
+            try {
+              const { resolveApprovalWaiter } = await import(
+                "@/services/approval-waiter"
+              );
+              resolveApprovalWaiter(id, "expired");
+            } catch {}
+          }
+        }
         return { resolved: false };
       }
 
@@ -225,14 +258,26 @@ export async function resolveApproval(
         } catch {}
         if (outcome.processId != null) {
           try {
-            const { db: dbClient } = await import("@/db/client");
-            const { processes } = await import("@/db/schema");
-            if (outcome.pendingCount === 0) {
-              await dbClient
-                .update(processes)
-                .set({ state: "running" })
-                .where(eq(processes.id, outcome.processId))
-                .catch(() => {});
+            const { getProcessService } = await import(
+              "@/services/process-holder"
+            );
+            const ps = getProcessService();
+            if (ps) {
+              await ps.notifyApprovalResolved(
+                outcome.processId,
+                outcome.pendingCount ?? 0,
+                targetState,
+              );
+            } else {
+              const { db: dbClient } = await import("@/db/client");
+              const { processes } = await import("@/db/schema");
+              if (outcome.pendingCount === 0) {
+                await dbClient
+                  .update(processes)
+                  .set({ state: "running" })
+                  .where(eq(processes.id, outcome.processId))
+                  .catch(() => {});
+              }
             }
             logger.info(
               {
@@ -295,7 +340,11 @@ export async function sweepExpiredApprovals(): Promise<number> {
             ),
           )
           .then((rows) => rows[0].count);
-        if (pending === 0) {
+        const { getProcessService } = await import("@/services/process-holder");
+        const ps = getProcessService();
+        if (ps) {
+          await ps.notifyApprovalResolved(pid, pending, "expired");
+        } else if (pending === 0) {
           const { processes } = await import("@/db/schema");
           await db
             .update(processes)

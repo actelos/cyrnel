@@ -911,8 +911,10 @@ const ToolPolicySchema = registry.register(
       serviceId: z.string().describe("Service identifier."),
       toolId: z.string().describe("Tool identifier."),
       decision: z.enum(["allow", "block", "ask"]).describe("Policy decision."),
-      createdAt: z.string().describe("ISO-8601 creation time."),
-      updatedAt: z.number().describe("Last update epoch ms."),
+      updatedAt: z
+        .number()
+        .nullable()
+        .describe("Last update epoch ms, null when default ask."),
     })
     .describe("Tool policy record."),
 );

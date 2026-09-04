@@ -11,6 +11,27 @@ export function waitForApproval(
 ): Promise<"approved" | "denied" | "expired"> {
   return new Promise((resolve) => {
     waiters.set(approvalId, { resolve, processId });
+    // Race check: if approval was already resolved between insert and waiter registration, settle immediately
+    void (async () => {
+      try {
+        const { db } = await import("@/db/client");
+        const { approvalRequests } = await import("@/db/schema");
+        const { eq } = await import("drizzle-orm");
+        const [row] = await db
+          .select({ state: approvalRequests.state })
+          .from(approvalRequests)
+          .where(eq(approvalRequests.id, approvalId))
+          .limit(1)
+          .all();
+        if (row && row.state !== "pending") {
+          const waiter = waiters.get(approvalId);
+          if (waiter) {
+            waiter.resolve(row.state as "approved" | "denied" | "expired");
+            waiters.delete(approvalId);
+          }
+        }
+      } catch {}
+    })();
   });
 }
 

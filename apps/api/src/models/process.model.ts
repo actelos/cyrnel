@@ -4,6 +4,7 @@ export const PROCESS_STATES = [
   ...EXECUTION_STATES,
   "idle",
   "terminating",
+  "terminated",
 ] as const;
 
 export type ProcessState = (typeof PROCESS_STATES)[number];

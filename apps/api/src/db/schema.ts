@@ -209,7 +209,18 @@ export const processes = sqliteTable("processes", {
     .default({}),
   createdAt: text("created_at").notNull(),
   // intentionally default 'idle' — app code sets state explicitly; DDL default is safety net for paths that forget (§D.0)
-  state: text("state").notNull().default("idle"),
+  state: text("state", {
+    enum: [
+      "idle",
+      "queued",
+      "running",
+      "suspended",
+      "terminating",
+      "terminated",
+    ],
+  })
+    .notNull()
+    .default("idle"),
 });
 
 export const processData = sqliteTable("process_data", {

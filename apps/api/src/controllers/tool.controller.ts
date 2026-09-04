@@ -108,8 +108,17 @@ export async function setToolPolicy(
     req.body,
     "Request body must be an object.",
   );
-  await servicesService.setToolPolicy({ serviceId, toolId, decision });
-  res.status(200).json({ serviceId, toolId, decision });
+  const result = await servicesService.setToolPolicy({
+    serviceId,
+    toolId,
+    decision,
+  });
+  res.status(200).json({
+    serviceId,
+    toolId,
+    decision: result.decision,
+    updatedAt: result.updatedAt,
+  });
 }
 
 export async function getToolPolicy(
