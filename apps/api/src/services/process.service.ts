@@ -864,6 +864,10 @@ export class ProcessService {
     return row;
   }
 
+  getPidForDbId(dbId: number): number | undefined {
+    return this.pidIndex.get(dbId);
+  }
+
   private project(
     record: ProcessRecord,
     pendingApprovalIds?: string[],

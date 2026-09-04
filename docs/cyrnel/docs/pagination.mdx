@@ -1,7 +1,7 @@
 # Pagination
 
 Most list endpoints in the API (`GET /modules`, `GET /services`,
-`GET /tools`, `GET /processes`, `GET /logs`) return the same paginated
+`GET /tools`, `GET /processes`, `GET /logs`, `GET /approvals`) return the same paginated
 envelope:
 
 ```json
@@ -20,8 +20,8 @@ envelope:
 - `limit` is a positive integer, 1–100, defaulting to 20. Values above 100
   are silently clamped to 100.
 - Items are ordered by a stable, unique sort key per endpoint (newest-first
-  for modules, services, processes, and logs; `(serviceId, id)` ascending for
-  tools). Cursors encode a position in that ordering, **not** the filters —
+  for modules, services, processes, logs, and `GET /approvals` (`createdAt` desc, `id`); `(serviceId, id)` ascending for
+  tools and `GET /tool-policies`). Cursors encode a position in that ordering, **not** the filters —
   restart from the first page (omit `cursor`) whenever the filters change.
 
 > **Note:** registry browse endpoints (`GET /registries/:id/definitions`,

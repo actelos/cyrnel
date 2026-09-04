@@ -324,15 +324,16 @@ export type ToolState = Omit<
 /**
  * Persisted state for a hydrated service.
  */
-export interface ServiceState extends Omit<
-  ServiceDefinition,
-  | "name"
-  | "summary"
-  | "description"
-  | "configSchema"
-  | "secretsSchema"
-  | "tools"
-> {
+export interface ServiceState
+  extends Omit<
+    ServiceDefinition,
+    | "name"
+    | "summary"
+    | "description"
+    | "configSchema"
+    | "secretsSchema"
+    | "tools"
+  > {
   id: string;
   tools: Record<string, ToolState>;
   config: Record<string, unknown>;

@@ -30,7 +30,7 @@ What the host hands to `EnvironmentModule.execute`:
 ## Host-side States
 
 The host's `ProcessService` runs the public-facing state machine. From
-the API's perspective, a process is always in one of four states:
+the API's perspective, a process is always in one of six states:
 
 ```mermaid
 stateDiagram-v2
@@ -39,16 +39,23 @@ stateDiagram-v2
     queued --> running
     queued --> idle : canceled before running
 
+    running --> suspended : ask → approval pending
+    suspended --> running : approved (pendingCount 0 → timeout re-arm)
+    suspended --> idle : denied/expired (catchable __ivmError) or kill
+
     running --> idle
     running --> terminating
 
     terminating --> idle : canceled
+    suspended --> terminated : orphaned recovery (startup)
 ```
 
-- `idle`: Not executing. Either pre-run, or post-run with an exit state.
+- `idle`: Not executing. Either pre-run, or post-run with an exit state (`terminated` is idle-like terminal from recovery).
 - `queued`: Accepted, waiting for the environment.
 - `running`: Environment is executing the code.
+- `suspended`: Paused awaiting approval (`ask` policy, `pendingApprovalIds`); excluded from `trimIdleProcesses`, killable, not deletable/unloadable, resume via `notifyApprovalResolved` (pendingCount 0).
 - `terminating`: A kill is in flight.
+- `terminated`: Orphaned `suspended` recovered on startup (persisted `failed` + `terminated`, `run` requires `force`).
 
 ## Environment-reported States
 
@@ -60,8 +67,10 @@ const EXECUTION_STATES = ["queued", "running"] as const;
 type ExecutionState = "queued" | "running";
 ```
 
-The host maps these to its own state machine. `idle` and `terminating`
-are host-only; the environment never reports them.
+The host maps these to its own state machine. `idle`, `suspended`,
+`terminating`, and `terminated` are host-only; the environment never reports them.
+`suspended` is set by the host via `ProcessService.suspendProcess` (approval gating)
+with timeout pausing; resume re-arms the remaining `timeoutMs`.
 
 ## Exit States
 

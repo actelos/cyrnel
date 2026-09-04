@@ -79,7 +79,14 @@ import {
 import { copyToClipboard } from "@/lib/copy";
 import { cn } from "@/lib/utils";
 
-const processStateSchema = z.enum(["idle", "queued", "running", "terminating"]);
+const processStateSchema = z.enum([
+  "idle",
+  "queued",
+  "running",
+  "suspended",
+  "terminating",
+  "terminated",
+]);
 
 const processExitStateSchema = z.union([
   z.null(),
@@ -98,6 +105,7 @@ const processSchema = z.object({
   error: z.string().nullable(),
   createdAt: z.string(),
   completedAt: z.string().nullable(),
+  pendingApprovalIds: z.array(z.string()).optional(),
 });
 
 const processListSchema = z.object({
@@ -159,7 +167,9 @@ type CreateProcessErrors = Partial<
 const stateBadgeVariant = (state: ProcessState) => {
   if (state === "running") return "default";
   if (state === "queued") return "secondary";
+  if (state === "suspended") return "secondary";
   if (state === "terminating") return "destructive";
+  if (state === "terminated") return "outline";
   return "outline";
 };
 
@@ -377,19 +387,26 @@ export default function ProcessesPage() {
   const codeContent = codeData ?? "No code available.";
 
   const canKill = (process: Process) => {
-    return process.state === "queued" || process.state === "running";
+    return (
+      process.state === "queued" ||
+      process.state === "running" ||
+      process.state === "suspended"
+    );
   };
 
   const canRun = (process: Process) => {
-    return process.state === "idle";
+    return process.state === "idle" || process.state === "terminated";
   };
 
   const canDelete = (process: Process) => {
-    return process.state === "idle";
+    return process.state === "idle" || process.state === "terminated";
   };
 
   const canUnload = (process: Process) => {
-    return process.state === "idle" && process.pid !== null;
+    return (
+      (process.state === "idle" || process.state === "terminated") &&
+      process.pid !== null
+    );
   };
 
   const needsRestartConfirmation = (process: Process) => {
@@ -681,7 +698,9 @@ export default function ProcessesPage() {
                   <SelectItem value="idle">Idle</SelectItem>
                   <SelectItem value="queued">Queued</SelectItem>
                   <SelectItem value="running">Running</SelectItem>
+                  <SelectItem value="suspended">Suspended</SelectItem>
                   <SelectItem value="terminating">Terminating</SelectItem>
+                  <SelectItem value="terminated">Terminated</SelectItem>
                 </SelectContent>
               </Select>
               <Select
@@ -784,9 +803,17 @@ export default function ProcessesPage() {
                         </TableCell>
                         <TableCell>{process.ref ?? "-"}</TableCell>
                         <TableCell>
-                          <Badge variant={stateBadgeVariant(process.state)}>
-                            {process.state}
-                          </Badge>
+                          <div className="flex items-center gap-1">
+                            <Badge variant={stateBadgeVariant(process.state)}>
+                              {process.state}
+                            </Badge>
+                            {process.state === "suspended" &&
+                            process.pendingApprovalIds ? (
+                              <Badge variant="outline" className="text-xs">
+                                {process.pendingApprovalIds.length} pending
+                              </Badge>
+                            ) : null}
+                          </div>
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-1.5">

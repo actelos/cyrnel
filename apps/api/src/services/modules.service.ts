@@ -468,12 +468,35 @@ export class ModuleService {
         },
         "Tool invocation requires approval",
       );
-      // Suspend process via ProcessService to keep in-memory and DB state synchronized
+      // Suspend process via ProcessService to keep in-memory and DB state synchronized, and pause both host and isolate timeouts
       if (processId != null) {
         const ps = getProcessService();
         if (ps) {
           try {
             await ps.suspendProcess(processId);
+            const pid = ps.getPidForDbId(processId);
+            if (pid !== undefined && this.activeEnvironment?.module) {
+              const maybeSuspend = (
+                this.activeEnvironment.module as unknown as {
+                  suspend?: (eid: number) => void;
+                }
+              ).suspend;
+              if (typeof maybeSuspend === "function") {
+                try {
+                  maybeSuspend.call(this.activeEnvironment.module, pid);
+                } catch (suspendErr) {
+                  logger.warn(
+                    {
+                      event: "environment-suspend-failed",
+                      err: suspendErr,
+                      processId,
+                      pid,
+                    },
+                    "Failed to suspend isolate timeout",
+                  );
+                }
+              }
+            }
           } catch (err) {
             logger.warn(
               { event: "process-suspend-failed", err, processId, approvalId },
@@ -548,6 +571,29 @@ export class ModuleService {
                 pending,
                 resolvedState,
               );
+              const pid = ps.getPidForDbId(processId);
+              if (pid !== undefined && this.activeEnvironment?.module) {
+                const maybeResume = (
+                  this.activeEnvironment.module as unknown as {
+                    resume?: (eid: number) => void;
+                  }
+                ).resume;
+                if (typeof maybeResume === "function") {
+                  try {
+                    maybeResume.call(this.activeEnvironment.module, pid);
+                  } catch (resumeErr) {
+                    logger.warn(
+                      {
+                        event: "environment-resume-failed",
+                        err: resumeErr,
+                        processId,
+                        pid,
+                      },
+                      "Failed to resume isolate timeout",
+                    );
+                  }
+                }
+              }
             } catch {}
           } else {
             try {
@@ -559,6 +605,25 @@ export class ModuleService {
           }
         }
         return await this.invokeAdapterWithTimeout(row.adapter, input);
+      }
+      // For denied/expired, ensure isolate timeout is resumed before throwing catchable __ivmError
+      if (processId != null) {
+        const ps = getProcessService();
+        if (ps) {
+          const pid = ps.getPidForDbId(processId);
+          if (pid !== undefined && this.activeEnvironment?.module) {
+            const maybeResume = (
+              this.activeEnvironment.module as unknown as {
+                resume?: (eid: number) => void;
+              }
+            ).resume;
+            if (typeof maybeResume === "function") {
+              try {
+                maybeResume.call(this.activeEnvironment.module, pid);
+              } catch {}
+            }
+          }
+        }
       }
       if (resolvedState === "denied") throw new Error("Approval denied");
       throw new Error("Approval expired");
