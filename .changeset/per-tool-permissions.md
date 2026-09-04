@@ -1,9 +1,8 @@
 ---
-"@cyrnel/sdk": minor
+"@cyrnel/sdk": patch
 ---
 
-Add per-tool permissions with allow/block/ask and suspended execution state
+Clarify per-tool permissions: `suspended` is host-only ProcessState
 
-- Add EXECUTION_STATES `suspended` and corresponding PROCESS_STATES handling for approval gating
-- Tool policies and approval requests introduce `allow | block | ask` with default `ask`, centralized gate in ModuleService.invoke, and suspend/resume with expiry and retention sweeps
-- Related OpenAPI and SDK type updates for policy and pendingApprovalIds
+- `suspended` remains a host-only `ProcessState` in `@cyrnel/api` (`processes.state`, `pendingApprovalIds`), not an `ExecutionState` for `EnvironmentBindings.setState`; modules never set it (host manages via `ProcessService.suspendProcess`/`notifyApprovalResolved` with per-process lock and timeout re-arm)
+- Tool policies and approval requests (`allow|block|ask`, default `ask`, `approval_requests` CAS, `expiresAt`, sweeps) are host concerns; SDK only adds a doc comment to `EXECUTION_STATES`

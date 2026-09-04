@@ -2,6 +2,7 @@ import { EXECUTION_EXIT_STATES, EXECUTION_STATES } from "@cyrnel/sdk";
 
 export const PROCESS_STATES = [
   ...EXECUTION_STATES,
+  "suspended",
   "idle",
   "terminating",
   "terminated",

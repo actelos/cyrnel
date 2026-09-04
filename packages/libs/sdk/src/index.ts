@@ -147,8 +147,12 @@ export interface InvokeInput {
 
 /**
  * Execution states that indicate an execution is still in progress.
+ * Note: `suspended` is a host-only ProcessState (approval gating) and is
+ * intentionally not an ExecutionState-modules never set it via
+ * EnvironmentBindings.setState; the host manages it via
+ * ProcessService.suspendProcess / notifyApprovalResolved.
  */
-export const EXECUTION_STATES = ["queued", "running", "suspended"] as const;
+export const EXECUTION_STATES = ["queued", "running"] as const;
 
 /**
  * Represents an active execution state.
@@ -320,16 +324,15 @@ export type ToolState = Omit<
 /**
  * Persisted state for a hydrated service.
  */
-export interface ServiceState
-  extends Omit<
-    ServiceDefinition,
-    | "name"
-    | "summary"
-    | "description"
-    | "configSchema"
-    | "secretsSchema"
-    | "tools"
-  > {
+export interface ServiceState extends Omit<
+  ServiceDefinition,
+  | "name"
+  | "summary"
+  | "description"
+  | "configSchema"
+  | "secretsSchema"
+  | "tools"
+> {
   id: string;
   tools: Record<string, ToolState>;
   config: Record<string, unknown>;
