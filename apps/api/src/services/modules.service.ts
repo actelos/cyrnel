@@ -434,9 +434,7 @@ export class ModuleService {
       const encrypted = encryptSecrets(
         input.parameters as Record<string, unknown>,
       );
-      // Register waiter before insert to close race where approver resolves before waiter
-      const waiterPromise =
-        processId != null ? waitForApproval(approvalId, processId) : null;
+      // Insert approval request first, then register waiter to avoid race condition
       try {
         await db.insert(approvalRequestsTable).values({
           id: approvalId,
@@ -450,14 +448,11 @@ export class ModuleService {
           decidedAt: null,
         });
       } catch {
-        if (waiterPromise) {
-          const { resolveApprovalWaiter } = await import(
-            "@/services/approval-waiter"
-          );
-          resolveApprovalWaiter(approvalId, "expired");
-        }
         throw new HttpError(500, "Failed to create approval request.");
       }
+      // Register waiter after successful insert
+      const _waiterPromise =
+        processId != null ? waitForApproval(approvalId, processId) : null;
       logger.info(
         {
           event: "approval-requested",
@@ -476,25 +471,26 @@ export class ModuleService {
             await ps.suspendProcess(processId);
             const pid = ps.getPidForDbId(processId);
             if (pid !== undefined && this.activeEnvironment?.module) {
-              const maybeSuspend = (
-                this.activeEnvironment.module as unknown as {
-                  suspend?: (eid: number) => void;
-                }
-              ).suspend;
-              if (typeof maybeSuspend === "function") {
-                try {
-                  maybeSuspend.call(this.activeEnvironment.module, pid);
-                } catch (suspendErr) {
-                  logger.warn(
-                    {
-                      event: "environment-suspend-failed",
-                      err: suspendErr,
-                      processId,
-                      pid,
-                    },
-                    "Failed to suspend isolate timeout",
-                  );
-                }
+              try {
+                await this.activeEnvironment.module.suspend(pid);
+              } catch (suspendErr) {
+                logger.error(
+                  {
+                    event: "environment-suspend-failed",
+                    err: suspendErr,
+                    processId,
+                    pid,
+                  },
+                  "Failed to suspend isolate timeout, expiring approval",
+                );
+                const { resolveApprovalWaiter } = await import(
+                  "@/services/approval-waiter"
+                );
+                resolveApprovalWaiter(approvalId, "expired");
+                throw new HttpError(
+                  500,
+                  "Failed to suspend isolate timeout for approval.",
+                );
               }
             }
           } catch (err) {
@@ -527,18 +523,11 @@ export class ModuleService {
           }
         }
       }
-      // If no processId (direct API call outside sandbox), fail fast with approval_required
-      if (processId == null) {
-        throw new HttpError(
-          403,
-          `Approval required for tool '${input.toolId}' in service '${input.serviceId}'. ApprovalId: ${approvalId}`,
-          "approval_required",
-        );
-      }
       // Park until approved/denied/expired — keep ivm.Reference alive via waitForApproval
+      // processId may be null for direct SDK calls; waitForApproval handles null processId
       const resolvedState = await waitForApproval(
         approvalId,
-        processId as number,
+        processId ?? null,
       );
       logger.info(
         {
@@ -573,35 +562,45 @@ export class ModuleService {
               );
               const pid = ps.getPidForDbId(processId);
               if (pid !== undefined && this.activeEnvironment?.module) {
-                const maybeResume = (
-                  this.activeEnvironment.module as unknown as {
-                    resume?: (eid: number) => void;
-                  }
-                ).resume;
-                if (typeof maybeResume === "function") {
-                  try {
-                    maybeResume.call(this.activeEnvironment.module, pid);
-                  } catch (resumeErr) {
-                    logger.warn(
-                      {
-                        event: "environment-resume-failed",
-                        err: resumeErr,
-                        processId,
-                        pid,
-                      },
-                      "Failed to resume isolate timeout",
-                    );
-                  }
+                try {
+                  await this.activeEnvironment.module.resume(pid);
+                } catch (resumeErr) {
+                  logger.error(
+                    {
+                      event: "environment-resume-failed",
+                      err: resumeErr,
+                      processId,
+                      pid,
+                    },
+                    "Failed to resume isolate timeout after approval",
+                  );
+                  throw resumeErr;
                 }
               }
-            } catch {}
+            } catch (err) {
+              logger.error(
+                {
+                  event: "approval-resolved-failed",
+                  err,
+                  processId,
+                  approvalId,
+                },
+                "Failed to handle approval resolution",
+              );
+              throw err;
+            }
           } else {
             try {
               await db
                 .update(processesTable)
                 .set({ state: "running" })
                 .where(eq(processesTable.id, processId));
-            } catch {}
+            } catch (err) {
+              logger.warn(
+                { event: "process-state-update-failed", err, processId },
+                "Failed to update process state after approval",
+              );
+            }
           }
         }
         return await this.invokeAdapterWithTimeout(row.adapter, input);
@@ -612,15 +611,18 @@ export class ModuleService {
         if (ps) {
           const pid = ps.getPidForDbId(processId);
           if (pid !== undefined && this.activeEnvironment?.module) {
-            const maybeResume = (
-              this.activeEnvironment.module as unknown as {
-                resume?: (eid: number) => void;
-              }
-            ).resume;
-            if (typeof maybeResume === "function") {
-              try {
-                maybeResume.call(this.activeEnvironment.module, pid);
-              } catch {}
+            try {
+              await this.activeEnvironment.module.resume(pid);
+            } catch (resumeErr) {
+              logger.error(
+                {
+                  event: "environment-resume-failed",
+                  err: resumeErr,
+                  processId,
+                  pid,
+                },
+                "Failed to resume isolate timeout after denial/expiry",
+              );
             }
           }
         }

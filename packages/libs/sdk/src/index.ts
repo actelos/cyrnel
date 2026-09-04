@@ -236,6 +236,7 @@ export interface ExecutionInput {
   eid: number;
   code: string;
   envConfig?: Record<string, unknown>;
+  processId?: number;
 }
 
 /**
@@ -311,6 +312,23 @@ export interface EnvironmentModule extends Module {
    * @returns Generated tool documentation.
    */
   generateToolDocs(input: ToolDocsInput): Promise<string>;
+
+  /**
+   * Suspends a running execution's timeout.
+   *
+   * @param eid - Execution identifier.
+   * @returns A promise that resolves when suspension completes.
+   */
+  suspend(eid: number): Promise<void>;
+
+  /**
+   * Resumes a suspended execution's timeout.
+   *
+   * @param eid - Execution identifier.
+   * @param remainingMs - Optional remaining time in ms to override.
+   * @returns A promise that resolves when resumption completes.
+   */
+  resume(eid: number, remainingMs?: number): Promise<void>;
 }
 
 /**

@@ -797,9 +797,10 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
     await this.terminateExecution(worker);
   }
 
-  suspend(eid: number): void {
+  async suspend(eid: number): Promise<void> {
     const worker = this.runningByEid.get(eid);
     if (!worker?.running) return;
+    if (this.suspendedEids.has(eid)) return;
     if (worker.running.timeoutHandle) {
       clearTimeout(worker.running.timeoutHandle);
       const elapsed = Date.now() - (worker.running.startTime ?? Date.now());
@@ -817,9 +818,10 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
     this.suspendedEids.add(eid);
   }
 
-  resume(eid: number, remainingMs?: number): void {
+  async resume(eid: number, remainingMs?: number): Promise<void> {
     const worker = this.runningByEid.get(eid);
     if (!worker?.running) return;
+    if (!this.suspendedEids.has(eid)) return;
     this.suspendedEids.delete(eid);
     if (worker.running.timeoutHandle)
       clearTimeout(worker.running.timeoutHandle);
@@ -1032,7 +1034,14 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
           "Dispatching tool invocation",
         );
         try {
-          const result = await bindings.invokeTool(input);
+          const enriched = {
+            ...input,
+            eid: job.input.eid,
+            ...(job.input.processId !== undefined && {
+              processId: job.input.processId,
+            }),
+          } as InvokeInput & { processId?: number; eid: number };
+          const result = await bindings.invokeTool(enriched);
           dispatchLogger?.info(
             { event: "dispatch-complete" },
             "Tool invocation complete",

@@ -1,4 +1,4 @@
-[//]: # (Remove this is you have read the CONTRIBUTING.md and DEVELOPERS.md)
+[//]: # (Remove this if you have read CONTRIBUTING.md and DEVELOPERS.md)
 
 ## What kind of change does this PR introduce?
 

@@ -113,7 +113,6 @@ export async function listApprovals(
     }),
   );
 
-  // Apply cursor filter manually if needed (keyset already)
   let filtered = items;
   if (cursorCreatedAt !== undefined && cursorId !== undefined) {
     const ca = cursorCreatedAt;
@@ -184,7 +183,6 @@ export async function resolveApproval(
   return await db
     .transaction(async (tx) => {
       const now = Date.now();
-      // Enforce expiry: approve/deny require not yet expired; expired sweep requires past expiry
       const expiryPredicate =
         targetState === "expired"
           ? lte(approvalRequests.expiresAt, now)
@@ -202,7 +200,6 @@ export async function resolveApproval(
         .returning({ processId: approvalRequests.processId });
 
       if (!updated) {
-        // If approve/deny failed due to expiry, mark as expired instead of leaving pending
         if (targetState !== "expired") {
           const [stale] = await tx
             .select({ id: approvalRequests.id })

@@ -13,10 +13,6 @@ const toolIdSchema = z.string({
   error: "Field 'toolId' must be a string.",
 });
 
-const enabledBodySchema = z.object({
-  enabled: z.boolean({ error: "Field 'enabled' must be a boolean." }),
-});
-
 const listToolsQuerySchema = paginationQuerySchema.merge(
   z.object({
     serviceId: z
@@ -73,23 +69,6 @@ export async function getToolDocs(req: Request, res: Response): Promise<void> {
   res.status(200).type("text/markdown; charset=utf-8").send(docs);
 }
 
-export async function setToolEnabled(
-  req: Request,
-  res: Response,
-): Promise<void> {
-  const servicesService = getServicesService(req);
-  const serviceId = parseOrHttpError(serviceIdSchema, req.params.serviceId);
-  const toolId = parseOrHttpError(toolIdSchema, req.params.toolId);
-  const { enabled } = parseOrHttpError(
-    enabledBodySchema,
-    req.body,
-    "Request body must be an object.",
-  );
-
-  await servicesService.setToolEnabled({ serviceId, toolId, enabled });
-  res.status(200).json({ id: toolId, serviceId, enabled });
-}
-
 const policyBodySchema = z.object({
   decision: z.enum(["allow", "block", "ask"], {
     error: "Field 'decision' must be 'allow', 'block', or 'ask'.",
@@ -119,17 +98,6 @@ export async function setToolPolicy(
     decision: result.decision,
     updatedAt: result.updatedAt,
   });
-}
-
-export async function getToolPolicy(
-  req: Request,
-  res: Response,
-): Promise<void> {
-  const servicesService = getServicesService(req);
-  const serviceId = parseOrHttpError(serviceIdSchema, req.params.serviceId);
-  const toolId = parseOrHttpError(toolIdSchema, req.params.toolId);
-  const policy = await servicesService.getToolPolicy({ serviceId, toolId });
-  res.status(200).json({ serviceId, toolId, ...policy });
 }
 
 function getServicesService(req: Request): ServicesService {

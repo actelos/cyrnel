@@ -101,12 +101,6 @@ export interface SetServiceEnabledInput {
   enabled: boolean;
 }
 
-export interface SetToolEnablesInput {
-  serviceId: string;
-  toolId: string;
-  enabled: boolean;
-}
-
 export interface PatchInput {
   id: string;
   patch: Operation[];

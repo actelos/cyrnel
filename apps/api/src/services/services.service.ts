@@ -52,7 +52,6 @@ import type {
   SecretsPresence,
   ServiceConfigView,
   SetServiceEnabledInput,
-  SetToolEnablesInput,
 } from "@/models/services.model";
 import { isUniqueConstraintError } from "@/utils/db-errors.util";
 import { downloadText } from "@/utils/download.util";
@@ -1423,28 +1422,6 @@ export class ServicesService {
         );
       }
     }
-  }
-
-  async setToolEnabled(input: SetToolEnablesInput): Promise<void> {
-    const [updated] = await db
-      .update(tools)
-      .set({ enabled: input.enabled })
-      .where(
-        and(eq(tools.serviceId, input.serviceId), eq(tools.id, input.toolId)),
-      )
-      .returning({ id: tools.id })
-      .catch(() => {
-        throw new HttpError(
-          500,
-          `Failed to update enabled status for tool '${input.toolId}' in service '${input.serviceId}'.`,
-        );
-      });
-
-    if (!updated)
-      throw new HttpError(
-        404,
-        `Tool '${input.toolId}' not found in service '${input.serviceId}'.`,
-      );
   }
 
   async setToolPolicy(input: {

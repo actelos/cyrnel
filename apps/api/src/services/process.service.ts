@@ -75,6 +75,7 @@ interface RunExecutionInput {
     pid: number;
     code: string;
     envConfig: Record<string, unknown>;
+    processId: number;
   };
   context: ExecutionContext;
 }
@@ -377,6 +378,8 @@ export class ProcessService {
 
     stored.state = "terminating";
 
+    await this.expireApprovalsForProcess(id);
+
     this.controller.kill(pid).catch((err) => {
       logger.warn(
         { event: "kill-signal-failed", err, processId: id, pid },
@@ -462,6 +465,8 @@ export class ProcessService {
       const row = await this.loadDbProcess(id);
       if (!row) throw new HttpError(404, "Process not found.");
 
+      await this.expireApprovalsForProcess(id);
+
       const result = this.projectDbProcess(row);
 
       try {
@@ -485,6 +490,8 @@ export class ProcessService {
         "Process must be idle before it can be deleted.",
       );
     }
+
+    await this.expireApprovalsForProcess(id);
 
     const result = this.project(stored);
 
@@ -622,6 +629,7 @@ export class ProcessService {
         pid: stored.pid,
         code: stored.code,
         envConfig: stored.envConfig,
+        processId: id,
       },
       context,
     });
@@ -654,12 +662,17 @@ export class ProcessService {
   }
 
   private async runExecution(input: RunExecutionInput): Promise<void> {
-    const { pid, code, envConfig } = input.process;
+    const { pid, code, envConfig, processId } = input.process;
 
     let exitState: ExecutionExitState;
 
     try {
-      exitState = await this.controller.execute({ eid: pid, code, envConfig });
+      exitState = await this.controller.execute({
+        eid: pid,
+        code,
+        envConfig,
+        processId,
+      });
     } catch (err) {
       if (this.processes.get(pid)?.state === "terminating") {
         exitState = "canceled";
@@ -845,6 +858,45 @@ export class ProcessService {
     }
   }
 
+  private async expireApprovalsForProcess(processId: number): Promise<void> {
+    try {
+      const { approvalRequests } = await import("@/db/schema");
+      const { eq, and } = await import("drizzle-orm");
+      const { db } = await import("@/db/client");
+      const { resolveApprovalWaiter } = await import(
+        "@/services/approval-waiter"
+      );
+      const expired = await db
+        .update(approvalRequests)
+        .set({ state: "expired", decidedAt: Date.now() })
+        .where(
+          and(
+            eq(approvalRequests.processId, processId),
+            eq(approvalRequests.state, "pending"),
+          ),
+        )
+        .returning({ id: approvalRequests.id });
+      for (const { id: approvalId } of expired) {
+        resolveApprovalWaiter(approvalId, "expired");
+      }
+      if (expired.length > 0) {
+        logger.info(
+          {
+            event: "approvals-expired-process",
+            processId,
+            count: expired.length,
+          },
+          "Expired approvals due to process state change",
+        );
+      }
+    } catch (err) {
+      logger.warn(
+        { event: "expire-approvals-failed", err, processId },
+        "Failed to expire approvals on process state change",
+      );
+    }
+  }
+
   private async resolveDbData(id: number): Promise<{
     output: Record<string, unknown> | null;
     stdout: string | null;
@@ -886,7 +938,6 @@ export class ProcessService {
       return { ...base, pendingApprovalIds };
     }
     if (record.state === "suspended") {
-      // best-effort: return without ids if not provided (caller should fetch)
       return { ...base, pendingApprovalIds: [] };
     }
     return base;
@@ -954,7 +1005,6 @@ export class ProcessService {
       if (!stored) return;
       if (pendingCount === 0 && stored.state === "suspended") {
         stored.state = "running";
-        // Re-arm timeout with remaining time — clear old handle and set new if timeoutMs is set
         const handle = this.timeoutHandles.get(pid);
         if (handle) clearTimeout(handle);
         if (stored.timeoutMs !== null) {

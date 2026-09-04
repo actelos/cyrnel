@@ -11,7 +11,6 @@ export function waitForApproval(
 ): Promise<"approved" | "denied" | "expired"> {
   return new Promise((resolve) => {
     waiters.set(approvalId, { resolve, processId });
-    // Race check: if approval was already resolved between insert and waiter registration, settle immediately
     void (async () => {
       try {
         const { db } = await import("@/db/client");

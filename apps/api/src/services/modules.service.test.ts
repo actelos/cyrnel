@@ -78,9 +78,14 @@ const { adapterInstances, envInstances, FakeAdapter, FakeEnvironment } =
       readonly teardownCalls: number[] = [];
       readonly executeCalls: ExecutionInput[] = [];
       readonly killCalls: number[] = [];
+      readonly suspendCalls: number[] = [];
+      readonly resumeCalls: number[] = [];
       executeImpl: (input: ExecutionInput) => Promise<ExecutionExitState> =
         async () => "success";
       killImpl: (eid: number) => Promise<void> = async () => {};
+      suspendImpl: (eid: number) => Promise<void> = async () => {};
+      resumeImpl: (eid: number, remainingMs?: number) => Promise<void> =
+        async () => {};
       docs = "# env docs";
       toolDocs = "# tool docs";
 
@@ -97,6 +102,14 @@ const { adapterInstances, envInstances, FakeAdapter, FakeEnvironment } =
       async kill(eid: number): Promise<void> {
         this.killCalls.push(eid);
         return this.killImpl(eid);
+      }
+      async suspend(eid: number): Promise<void> {
+        this.suspendCalls.push(eid);
+        return this.suspendImpl(eid);
+      }
+      async resume(eid: number, remainingMs?: number): Promise<void> {
+        this.resumeCalls.push(eid);
+        return this.resumeImpl(eid, remainingMs);
       }
       async generateDocs(): Promise<string> {
         return this.docs;

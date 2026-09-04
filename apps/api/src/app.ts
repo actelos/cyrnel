@@ -116,16 +116,13 @@ export class App {
     });
     this.autoUpdater.start(autoUpdateInterval);
 
-    // Approval sweeps + recovery (§G, §C.5)
     const approvalTimeoutMs = parseApprovalTimeout(
       process.env.CYRNEL_APPROVAL_TIMEOUT_MS,
     );
     const retentionMs = parseApprovalRetention(
       process.env.CYRNEL_APPROVAL_RETENTION_MS,
     );
-    // startup recovery for orphaned suspended processes
     void this.processService.recoverSuspendedProcesses();
-    // startup sweeps
     void this.startApprovalSweeps(approvalTimeoutMs, retentionMs);
   }
 
@@ -156,11 +153,9 @@ export class App {
     _timeoutMs: number,
     retentionMs: number,
   ): Promise<void> {
-    // Expiry sweep — runs regardless of retention, uses approval timeout (§G)
     const { sweepExpiredApprovals, sweepRetention } = await import(
       "@/services/approval.service"
     );
-    // startup passes
     void sweepExpiredApprovals().catch((err) =>
       logger.warn(
         { event: "approval-expiry-sweep-failed", err },
@@ -175,7 +170,6 @@ export class App {
         ),
       );
     }
-    // hourly retention sweep; expiry sweep every minute
     this.approvalExpiryTimer = setInterval(() => {
       void sweepExpiredApprovals().catch((err) =>
         logger.warn(
@@ -309,7 +303,6 @@ function parseAutoUpdateInterval(raw: string | undefined): number {
 }
 
 function parseApprovalTimeout(raw: string | undefined): number {
-  // diverges from parseReconcileInterval: 0 is invalid here — see §C.3
   if (raw === undefined) return DEFAULT_APPROVAL_TIMEOUT_MS;
   const parsed = Number(raw);
   if (!Number.isInteger(parsed) || parsed < 1) {
@@ -334,7 +327,6 @@ function parseApprovalTimeout(raw: string | undefined): number {
 }
 
 function parseApprovalRetention(raw: string | undefined): number {
-  // diverges from parseApprovalTimeout: 0 means "keep forever" — see §G
   if (raw === undefined) return DEFAULT_APPROVAL_RETENTION_MS;
   const parsed = Number(raw);
   if (!Number.isInteger(parsed) || parsed < 0) {

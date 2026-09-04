@@ -401,7 +401,19 @@ export default function ApprovalsPage() {
             <div className="text-xs text-muted-foreground">
               <div>
                 Service: {selected?.serviceId} · Tool: {selected?.toolId} ·
-                Process: {selected?.processId ?? "-"}
+                Process:{" "}
+                {selected?.processId ? (
+                  <a
+                    href={`/processes/${selected.processId}`}
+                    className="font-mono underline hover:no-underline"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    {selected.processId}
+                  </a>
+                ) : (
+                  "-"
+                )}
               </div>
               <div>
                 State: {selected?.state} · Created:{" "}
