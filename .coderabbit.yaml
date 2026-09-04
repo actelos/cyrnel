@@ -8,9 +8,6 @@ reviews:
     base_branches:
       - main
       - develop
-  # Keep the reviewed file set small enough for CodeRabbit's limit.
-  # Exclude docs, generated SQL/JSON, OpenAPI, lockfiles, and config noise
-  # so the review focuses on source code.
   path_filters:
     - "!docs/**"
     - "!**/drizzle/**"
