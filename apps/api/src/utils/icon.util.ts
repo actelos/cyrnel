@@ -116,7 +116,7 @@ export async function resolveIconUpdate(
   }
 
   const icon = await fetchAndValidateIcon(registryIcon, entityType, entityId);
-  if (!icon) return undefined; // re-fetch failed: keep the stored icon
+  if (!icon) return undefined;
 
   return {
     iconData: icon.data,

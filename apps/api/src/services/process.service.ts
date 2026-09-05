@@ -1118,6 +1118,27 @@ export class ProcessService {
                 },
               });
           } catch {}
+          try {
+            const { approvalRequests } = await import("@/db/schema");
+            const { eq, and } = await import("drizzle-orm");
+            const { db } = await import("@/db/client");
+            const { resolveApprovalWaiter } = await import(
+              "@/services/approval-waiter"
+            );
+            const expired = await db
+              .update(approvalRequests)
+              .set({ state: "expired", decidedAt: Date.now() })
+              .where(
+                and(
+                  eq(approvalRequests.processId, row.id),
+                  eq(approvalRequests.state, "pending"),
+                ),
+              )
+              .returning({ id: approvalRequests.id });
+            for (const { id: approvalId } of expired) {
+              resolveApprovalWaiter(approvalId, "expired");
+            }
+          } catch {}
           logger.warn(
             { event: "process-recovery-suspended", processId: row.id },
             "Recovered orphaned suspended process as terminated",

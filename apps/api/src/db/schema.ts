@@ -208,7 +208,6 @@ export const processes = sqliteTable("processes", {
     .notNull()
     .default({}),
   createdAt: text("created_at").notNull(),
-  // intentionally default 'idle' — app code sets state explicitly; DDL default is safety net for paths that forget (§D.0)
   state: text("state", {
     enum: [
       "idle",
@@ -260,12 +259,12 @@ export const approvalRequests = sqliteTable(
       .notNull()
       .references(() => services.id, { onDelete: "cascade" }),
     toolId: text("tool_id").notNull(),
-    processId: integer("process_id"), // nullable, NOT a FK — §B.1
-    parameters: text("parameters").notNull(), // encrypted payload — §B.5
+    processId: integer("process_id"),
+    parameters: text("parameters").notNull(),
     state: text("state", {
       enum: ["pending", "approved", "denied", "expired"],
     }).notNull(),
-    createdAt: text("created_at").notNull(), // intentionally text ISO vs integer epoch — see §B.3
+    createdAt: text("created_at").notNull(),
     expiresAt: integer("expires_at").notNull(),
     decidedAt: integer("decided_at"),
   },

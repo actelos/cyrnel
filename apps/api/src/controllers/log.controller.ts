@@ -210,9 +210,7 @@ export function streamLogs(req: Request, res: Response): void {
     try {
       const cursor = parseLogCursor(lastEventId);
       replay = recent.filter((entry) => entryIsAfterCursor(entry, cursor));
-    } catch {
-      // Invalid cursor: fall back to the full replay window.
-    }
+    } catch {}
   }
   for (const entry of replay) sendEntry(entry);
 }

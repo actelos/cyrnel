@@ -1595,7 +1595,6 @@ describe("ModuleService", () => {
       );
       await service.initialize(MISSING_PATH);
 
-      // stored under a looser schema: 'unknown' is now schema-disallowed
       await db.run(
         sql`INSERT INTO module_configurations (module_id, payload, updated_at)
             VALUES ('openapi', '{"unknown":1}', 0)`,

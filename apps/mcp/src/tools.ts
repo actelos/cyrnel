@@ -508,7 +508,6 @@ async function pollUntilIdle(
     )
       return process;
     if (process.state === "queued" || process.state === "running") {
-      // keep polling, but check deadline only for non-approval path
       if (Date.now() >= deadline) {
         throw new Error(
           `Process ${id} did not become idle within the configured wait window.`,
