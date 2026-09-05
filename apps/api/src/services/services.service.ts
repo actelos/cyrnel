@@ -10,6 +10,7 @@ import {
   desc,
   eq,
   getTableColumns,
+  inArray,
   isNotNull,
   or,
   type SQL,
@@ -21,10 +22,12 @@ import { z } from "zod";
 
 import { db } from "@/db/client";
 import {
+  approvalRequests,
   modules as modulesTable,
   serviceConfigurations,
   serviceSecrets,
   services,
+  toolPolicies,
   tools,
 } from "@/db/schema";
 import { logger } from "@/infra/logging";
@@ -49,7 +52,6 @@ import type {
   SecretsPresence,
   ServiceConfigView,
   SetServiceEnabledInput,
-  SetToolEnablesInput,
 } from "@/models/services.model";
 import { isUniqueConstraintError } from "@/utils/db-errors.util";
 import { downloadText } from "@/utils/download.util";
@@ -104,6 +106,44 @@ const encryptedSecretsSchema = z.object({
   tag: z.string(),
   ciphertext: z.string(),
 });
+
+async function syncToolPolicies(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  serviceId: string,
+  newTools: { id: string }[],
+): Promise<void> {
+  const existing = await tx
+    .select({ toolId: toolPolicies.toolId })
+    .from(toolPolicies)
+    .where(eq(toolPolicies.serviceId, serviceId));
+  const existingIds = new Set(existing.map((r) => r.toolId));
+  const newIds = new Set(newTools.map((t) => t.id));
+
+  const orphaned = [...existingIds].filter((id) => !newIds.has(id));
+  if (orphaned.length > 0) {
+    await tx
+      .delete(toolPolicies)
+      .where(
+        and(
+          eq(toolPolicies.serviceId, serviceId),
+          inArray(toolPolicies.toolId, orphaned),
+        ),
+      );
+  }
+
+  const toInsert = newTools.filter((t) => !existingIds.has(t.id));
+  if (toInsert.length > 0) {
+    await tx.insert(toolPolicies).values(
+      toInsert.map((t) => ({
+        serviceId,
+        toolId: t.id,
+        decision: "ask" as const,
+        createdAt: new Date().toISOString(),
+        updatedAt: null,
+      })),
+    );
+  }
+}
 
 export class ServicesService {
   constructor(
@@ -325,7 +365,60 @@ export class ServicesService {
           limit: limit + 1,
           afterKey,
         });
-        return paginatePage(hits.map(toResult), limit, (item) => [
+        let filteredHits = hits;
+        if (input.decision) {
+          const hitIds = hits.map((h) => h.toolId);
+          const policyRows = hitIds.length
+            ? await db
+                .select({
+                  serviceId: toolPolicies.serviceId,
+                  toolId: toolPolicies.toolId,
+                  decision: toolPolicies.decision,
+                })
+                .from(toolPolicies)
+                .where(inArray(toolPolicies.toolId, hitIds))
+            : [];
+          const policyMap = new Map(
+            policyRows.map((p) => [`${p.serviceId}:${p.toolId}`, p.decision]),
+          );
+          filteredHits = hits.filter((hit) => {
+            const dec = (policyMap.get(`${hit.serviceId}:${hit.toolId}`) ??
+              "ask") as "allow" | "block" | "ask";
+            return dec === input.decision;
+          });
+        }
+        const hitPolicyMap = new Map<
+          string,
+          { decision: "allow" | "block" | "ask"; updatedAt: number | null }
+        >();
+        if (filteredHits.length) {
+          const hitIds = filteredHits.map((h) => h.toolId);
+          const rows = await db
+            .select({
+              serviceId: toolPolicies.serviceId,
+              toolId: toolPolicies.toolId,
+              decision: toolPolicies.decision,
+              updatedAt: toolPolicies.updatedAt,
+            })
+            .from(toolPolicies)
+            .where(inArray(toolPolicies.toolId, hitIds));
+          for (const r of rows)
+            hitPolicyMap.set(`${r.serviceId}:${r.toolId}`, {
+              decision: r.decision as "allow" | "block" | "ask",
+              updatedAt: r.updatedAt,
+            });
+        }
+        const enrichedHits = filteredHits.map((hit) => {
+          const base = toResult(hit);
+          const pol = hitPolicyMap.get(`${hit.serviceId}:${hit.toolId}`);
+          return {
+            ...base,
+            policy: pol
+              ? { decision: pol.decision, updatedAt: pol.updatedAt }
+              : { decision: "ask" as const, updatedAt: null },
+          };
+        });
+        return paginatePage(enrichedHits, limit, (item) => [
           item.score ?? 0,
           item.serviceId,
           item.id,
@@ -373,13 +466,25 @@ export class ServicesService {
         summary: tools.summary,
         description: tools.description,
         enabled: tools.enabled,
+        policyDecision: toolPolicies.decision,
+        policyUpdatedAt: toolPolicies.updatedAt,
       })
       .from(tools)
+      .leftJoin(
+        toolPolicies,
+        and(
+          eq(toolPolicies.serviceId, tools.serviceId),
+          eq(toolPolicies.toolId, tools.id),
+        ),
+      )
       .where(
         and(
           input.serviceId ? eq(tools.serviceId, input.serviceId) : undefined,
           input.enabled !== undefined
             ? eq(tools.enabled, input.enabled)
+            : undefined,
+          input.decision
+            ? sql`COALESCE(${toolPolicies.decision}, 'ask') = ${input.decision}`
             : undefined,
           normalizedQuery
             ? or(
@@ -397,14 +502,21 @@ export class ServicesService {
         throw new HttpError(500, `Failed to load tools.`);
       });
 
-    return paginatePage(
-      rows.map((row) => ({
-        ...row,
-        effectivelyEnabled: (serviceEnabled ?? true) && row.enabled,
-      })),
-      limit,
-      (item) => [item.serviceId, item.id],
-    );
+    const enriched = rows.map((row) => ({
+      serviceId: row.serviceId,
+      id: row.id,
+      name: row.name,
+      summary: row.summary,
+      description: row.description,
+      enabled: row.enabled,
+      effectivelyEnabled: (serviceEnabled ?? true) && row.enabled,
+      policy: {
+        decision: (row.policyDecision ?? "ask") as "allow" | "block" | "ask",
+        updatedAt: row.policyUpdatedAt ?? null,
+      },
+    }));
+
+    return paginatePage(enriched, limit, (item) => [item.serviceId, item.id]);
   }
 
   async getTool(input: GetToolInput): Promise<GetToolsResult> {
@@ -433,9 +545,31 @@ export class ServicesService {
         `Tool '${input.toolId}' not found for service '${input.serviceId}'.`,
       );
 
+    const [policyRow] = await db
+      .select({
+        decision: toolPolicies.decision,
+        updatedAt: toolPolicies.updatedAt,
+      })
+      .from(toolPolicies)
+      .where(
+        and(
+          eq(toolPolicies.serviceId, input.serviceId),
+          eq(toolPolicies.toolId, input.toolId),
+        ),
+      )
+      .limit(1)
+      .catch(
+        () =>
+          [] as { decision: "allow" | "block" | "ask"; updatedAt: number }[],
+      );
+    const policy = policyRow
+      ? { decision: policyRow.decision, updatedAt: policyRow.updatedAt }
+      : { decision: "ask" as const, updatedAt: null };
+
     return {
       ...tool,
       effectivelyEnabled: tool.enabled && tool.serviceEnabled,
+      policy,
     };
   }
 
@@ -522,6 +656,11 @@ export class ServicesService {
             serviceId: input.id,
             enabled: true,
           })),
+        );
+        await syncToolPolicies(
+          tx,
+          input.id,
+          generatedDefinition.tools.map((t) => ({ id: t.id })),
         );
       });
     } catch (error) {
@@ -634,6 +773,11 @@ export class ServicesService {
             enabled: true,
           })),
         );
+        await syncToolPolicies(
+          tx,
+          effectiveId,
+          generatedDefinition.tools.map((t) => ({ id: t.id })),
+        );
       });
     } catch (error) {
       if (isUniqueConstraintError(error)) {
@@ -712,6 +856,11 @@ export class ServicesService {
             })),
           );
         }
+        await syncToolPolicies(
+          tx,
+          id,
+          generatedDefinition.tools.map((t) => ({ id: t.id })),
+        );
       });
     } catch {
       throw new HttpError(500, `Failed to sync service '${id}'.`);
@@ -882,6 +1031,11 @@ export class ServicesService {
             })),
           );
         }
+        await syncToolPolicies(
+          tx,
+          id,
+          parsedDefinition.tools.map((t) => ({ id: t.id })),
+        );
       });
     } catch {
       throw new HttpError(500, `Failed to update service '${id}'.`);
@@ -994,6 +1148,11 @@ export class ServicesService {
             })),
           );
         }
+        await syncToolPolicies(
+          tx,
+          id,
+          generatedDefinition.tools.map((t) => ({ id: t.id })),
+        );
       });
     } catch {
       throw new HttpError(500, `Failed to patch service '${id}'.`);
@@ -1019,30 +1178,97 @@ export class ServicesService {
   }
 
   async deleteService(id: string): Promise<void> {
-    const [deleted] = await db
-      .delete(services)
-      .where(eq(services.id, id))
-      .returning({ id: services.id, adapter: services.adapter })
-      .catch(() => {
-        throw new HttpError(500, `Failed to delete service '${id}'.`);
-      });
+    let deletedAdapter: string | undefined;
+    const notifications: { processId: number; pendingCount: number }[] = [];
 
-    if (!deleted) throw new HttpError(404, `Service '${id}' not found.`);
+    let expiredApprovals: { id: string; processId: number | null }[] = [];
+    try {
+      await db.transaction(async (tx) => {
+        const resolved = await tx
+          .update(approvalRequests)
+          .set({ state: "expired", decidedAt: Date.now() })
+          .where(
+            and(
+              eq(approvalRequests.serviceId, id),
+              eq(approvalRequests.state, "pending"),
+            ),
+          )
+          .returning({
+            id: approvalRequests.id,
+            processId: approvalRequests.processId,
+          });
+        expiredApprovals = resolved;
+
+        const distinctProcessIds = [
+          ...new Set(resolved.map((r) => r.processId).filter((p) => p != null)),
+        ] as number[];
+        for (const processId of distinctProcessIds) {
+          const [{ count }] = await tx
+            .select({ count: sql<number>`count(*)` })
+            .from(approvalRequests)
+            .where(
+              and(
+                eq(approvalRequests.processId, processId),
+                eq(approvalRequests.state, "pending"),
+              ),
+            );
+          notifications.push({ processId, pendingCount: count });
+        }
+
+        const [deleted] = await tx
+          .delete(services)
+          .where(eq(services.id, id))
+          .returning({ id: services.id, adapter: services.adapter });
+        if (!deleted) throw new HttpError(404, `Service '${id}' not found.`);
+        deletedAdapter = deleted.adapter;
+      });
+    } catch (error) {
+      if (error instanceof HttpError) throw error;
+      throw new HttpError(500, `Failed to delete service '${id}'.`);
+    }
+
+    for (const { id: approvalId } of expiredApprovals) {
+      try {
+        const { resolveApprovalWaiter } = await import(
+          "@/services/approval-waiter"
+        );
+        resolveApprovalWaiter(approvalId, "expired");
+      } catch {}
+    }
+    for (const { processId, pendingCount } of notifications) {
+      try {
+        const { getProcessService } = await import("@/services/process-holder");
+        const ps = getProcessService();
+        if (ps)
+          await ps.notifyApprovalResolved(processId, pendingCount, "expired");
+        logger.info(
+          {
+            event: "approval-expired-service-delete",
+            processId,
+            pendingCount,
+            serviceId: id,
+          },
+          "Expired approvals due to service deletion",
+        );
+      } catch {}
+    }
 
     await this.deleteServiceSearch(id);
 
-    try {
-      await this.controller.dehydrateService(deleted.adapter, id);
-    } catch (err) {
-      logger.warn(
-        {
-          event: "dehydrate-failed-delete",
-          err,
-          adapterId: deleted.adapter,
-          serviceId: id,
-        },
-        "Failed to dehydrate service on delete",
-      );
+    if (deletedAdapter) {
+      try {
+        await this.controller.dehydrateService(deletedAdapter, id);
+      } catch (err) {
+        logger.warn(
+          {
+            event: "dehydrate-failed-delete",
+            err,
+            adapterId: deletedAdapter,
+            serviceId: id,
+          },
+          "Failed to dehydrate service on delete",
+        );
+      }
     }
   }
 
@@ -1174,26 +1400,86 @@ export class ServicesService {
     }
   }
 
-  async setToolEnabled(input: SetToolEnablesInput): Promise<void> {
-    const [updated] = await db
-      .update(tools)
-      .set({ enabled: input.enabled })
+  async setToolPolicy(input: {
+    serviceId: string;
+    toolId: string;
+    decision: "allow" | "block" | "ask";
+  }): Promise<{
+    decision: "allow" | "block" | "ask";
+    updatedAt: number | null;
+  }> {
+    const [tool] = await db
+      .select({ id: tools.id })
+      .from(tools)
       .where(
         and(eq(tools.serviceId, input.serviceId), eq(tools.id, input.toolId)),
       )
-      .returning({ id: tools.id })
+      .limit(1)
       .catch(() => {
-        throw new HttpError(
-          500,
-          `Failed to update enabled status for tool '${input.toolId}' in service '${input.serviceId}'.`,
-        );
+        throw new HttpError(500, `Failed to load tool '${input.toolId}'.`);
       });
-
-    if (!updated)
+    if (!tool)
       throw new HttpError(
         404,
         `Tool '${input.toolId}' not found in service '${input.serviceId}'.`,
       );
+    const now = Date.now();
+    const [updated] = await db
+      .insert(toolPolicies)
+      .values({
+        serviceId: input.serviceId,
+        toolId: input.toolId,
+        decision: input.decision,
+        createdAt: new Date().toISOString(),
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: [toolPolicies.serviceId, toolPolicies.toolId],
+        set: { decision: input.decision, updatedAt: now },
+      })
+      .returning({
+        updatedAt: toolPolicies.updatedAt,
+        decision: toolPolicies.decision,
+      })
+      .catch(() => {
+        throw new HttpError(
+          500,
+          `Failed to set policy for tool '${input.toolId}'.`,
+        );
+      });
+    return {
+      decision: updated.decision as "allow" | "block" | "ask",
+      updatedAt: updated.updatedAt,
+    };
+  }
+
+  async getToolPolicy(input: { serviceId: string; toolId: string }): Promise<{
+    decision: "allow" | "block" | "ask";
+    updatedAt: number | null;
+  }> {
+    const [row] = await db
+      .select({
+        decision: toolPolicies.decision,
+        updatedAt: toolPolicies.updatedAt,
+      })
+      .from(toolPolicies)
+      .where(
+        and(
+          eq(toolPolicies.serviceId, input.serviceId),
+          eq(toolPolicies.toolId, input.toolId),
+        ),
+      )
+      .limit(1)
+      .catch(
+        () =>
+          [] as { decision: "allow" | "block" | "ask"; updatedAt: number }[],
+      );
+    if (row)
+      return {
+        decision: row.decision as "allow" | "block" | "ask",
+        updatedAt: row.updatedAt,
+      };
+    return { decision: "ask", updatedAt: null };
   }
 
   async getServiceConfig(id: string): Promise<Record<string, unknown>> {
@@ -1529,9 +1815,6 @@ export class ServicesService {
         ? config
         : applyJsonSchemaDefaults(
             configSchema,
-            // Conformant projection: validates identically to the
-            // declared-only projection (permitted keys are unconstrained)
-            // while delivering schema-permitted keys to the adapter.
             filterPayloadToSchema(configSchema, config, {
               keepPermitted: true,
             }),

@@ -37,10 +37,12 @@ On disk:
 
 | Method | Path | Notes |
 | --- | --- | --- |
-| `GET` | `/tools` | List & filter |
-| `GET` | `/tools/:serviceId/:toolId` | Single tool (with schemas) |
+| `GET` | `/tools` | List & filter (supports `?decision=allow\|block\|ask`) |
+| `GET` | `/tools/:serviceId/:toolId` | Single tool (with schemas, includes `policy`) |
 | `GET` | `/tools/:serviceId/:toolId/docs` | Markdown reference for the tool |
 | `POST` | `/tools/:serviceId/:toolId/enabled` | `{ enabled: boolean }` |
+| `GET` | `/tools/:serviceId/:toolId/policy` | `{ decision, updatedAt }` (effective policy, default `ask`) |
+| `PUT` | `/tools/:serviceId/:toolId/policy` | `{ decision: "allow"\|"block"\|"ask" }` |
 
 ### Filtering `/tools`
 
@@ -49,12 +51,13 @@ Query parameters (all optional):
 - `serviceId`: Restrict to one service
 - `query`: Free-text query. Triggers a hybrid FTS5 + vector similarity search (if vector search is available). It uses Reciprocal Rank Fusion (RRF) to combine results from both sqlite-vec vector search and FTS5 full-text match.
 - `enabled`: `true` / `false`
+- `decision`: `allow` / `block` / `ask` — filters by effective policy (`COALESCE(policy, 'ask')`). `ask` includes tools with no explicit row.
 - `cursor`: Opaque pagination token from the previous page's `nextCursor`
 - `limit`: Positive integer, 1–100 (default 20, clamped above 100)
 
 The list response is the paginated envelope `{ items, nextCursor, hasMore }`
 (see [Pagination](/docs/pagination) for cursor rules and error codes) and
-includes a derived `effectivelyEnabled` flag (`tool.enabled && service.enabled`) as well as hybrid search relevance metadata if a `query` was provided.
+includes a derived `effectivelyEnabled` flag (`tool.enabled && service.enabled`), `policy: { decision, updatedAt }` per item, as well as hybrid search relevance metadata if a `query` was provided.
 
 #### Search Relevance Metadata
 
@@ -95,12 +98,13 @@ See [`EnvironmentBindings`](/cyrnel/module-specs/environment-bindings).
 
 `cyrnel.invoke` rejects with a structured error when:
 
-| Condition | Status |
-| --- | --- |
-| Service does not exist | `404` |
-| Tool does not exist on the service | `404` |
-| Service is disabled | `409` |
-| Tool is disabled | `409` |
+| Condition | Status | Code |
+| --- | --- | --- |
+| Service does not exist | `404` | — |
+| Tool does not exist on the service | `404` | — |
+| Service is disabled | `409` | — |
+| Tool is disabled | `409` | — |
+| Tool is `block` by policy | `403` | `permission_denied` |
+| Tool is `ask` (default) and not approved | `403` | `approval_required` (pending → `suspended` with `pendingApprovalIds`; approved resumes, denied/expired surfaces as catchable `__ivmError`) |
 
-These checks happen *before* the adapter is called, so a disabled tool
-cannot incur an outbound request.
+Policy is evaluated centrally in `ModuleService.invoke` (single gate, `allow|block|ask` from `tool_policies`, missing → `ask`). These checks happen *before* the adapter is called, so a blocked or unapproved tool cannot incur an outbound request. `ask` creates a durable `approval_requests` row (`pending→approved|denied|expired` via CAS, `expiresAt` frozen at creation).

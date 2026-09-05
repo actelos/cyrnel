@@ -228,6 +228,8 @@ type RunningExecution = {
   eid: number;
   interrupt: Interrupt;
   timeoutHandle: ReturnType<typeof setTimeout> | null;
+  effectiveTimeoutMs?: number;
+  startTime?: number;
 };
 
 type TerminableIsolate = ivm.Isolate & {
@@ -616,6 +618,11 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
   private maxQueueSize: number = DEFAULT_MAX_QUEUE_SIZE;
   private queueTtlMs: number = DEFAULT_QUEUE_TTL_MS;
   private maxCodeSizeBytes: number = DEFAULT_MAX_CODE_SIZE;
+  private suspendedEids = new Set<number>();
+  private suspendTimeouts = new Map<
+    number,
+    { remainingMs: number; effectiveTimeoutMs: number }
+  >();
 
   async setup(context: EnvironmentSetupContext): Promise<void> {
     this.bindings = context.bindings;
@@ -790,6 +797,46 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
     await this.terminateExecution(worker);
   }
 
+  async suspend(eid: number): Promise<void> {
+    const worker = this.runningByEid.get(eid);
+    if (!worker?.running) return;
+    if (this.suspendedEids.has(eid)) return;
+    if (worker.running.timeoutHandle) {
+      clearTimeout(worker.running.timeoutHandle);
+      const elapsed = Date.now() - (worker.running.startTime ?? Date.now());
+      const remaining = Math.max(
+        0,
+        (worker.running.effectiveTimeoutMs ?? this.defaultTimeoutMs) - elapsed,
+      );
+      this.suspendTimeouts.set(eid, {
+        remainingMs: remaining,
+        effectiveTimeoutMs:
+          worker.running.effectiveTimeoutMs ?? this.defaultTimeoutMs,
+      });
+      worker.running.timeoutHandle = null;
+    }
+    this.suspendedEids.add(eid);
+  }
+
+  async resume(eid: number, remainingMs?: number): Promise<void> {
+    const worker = this.runningByEid.get(eid);
+    if (!worker?.running) return;
+    if (!this.suspendedEids.has(eid)) return;
+    this.suspendedEids.delete(eid);
+    if (worker.running.timeoutHandle)
+      clearTimeout(worker.running.timeoutHandle);
+    const suspendInfo = this.suspendTimeouts.get(eid);
+    const timeoutMs =
+      remainingMs ?? suspendInfo?.remainingMs ?? this.defaultTimeoutMs;
+    this.suspendTimeouts.delete(eid);
+    worker.running.startTime = Date.now();
+    worker.running.effectiveTimeoutMs = timeoutMs;
+    worker.running.timeoutHandle = setTimeout(() => {
+      void this.terminateExecution(worker);
+      worker.running?.interrupt.resolve("timeout" as ExecutionExitState);
+    }, timeoutMs);
+  }
+
   private createWorkerSlot(): WorkerSlot {
     return {
       isolate: new ivm.Isolate({
@@ -836,6 +883,8 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
       eid: job.input.eid,
       interrupt,
       timeoutHandle: null,
+      effectiveTimeoutMs: undefined,
+      startTime: Date.now(),
     };
 
     worker.running = running;
@@ -873,6 +922,8 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
         }) as TerminableIsolate;
         _isolateOverridden = true;
       }
+      running.effectiveTimeoutMs = effectiveTimeoutMs;
+      running.startTime = Date.now();
       const executionPromise = this.executeInIsolate(
         worker,
         job,
@@ -983,7 +1034,14 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
           "Dispatching tool invocation",
         );
         try {
-          const result = await bindings.invokeTool(input);
+          const enriched = {
+            ...input,
+            eid: job.input.eid,
+            ...(job.input.processId !== undefined && {
+              processId: job.input.processId,
+            }),
+          } as InvokeInput & { processId?: number; eid: number };
+          const result = await bindings.invokeTool(enriched);
           dispatchLogger?.info(
             { event: "dispatch-complete" },
             "Tool invocation complete",
@@ -1157,6 +1215,12 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
   }
 
   private async terminateExecution(worker: WorkerSlot): Promise<void> {
+    const eid = worker.running?.eid;
+    if (eid !== undefined) {
+      this.suspendedEids.delete(eid);
+      this.suspendTimeouts.delete(eid);
+    }
+
     try {
       worker.isolate.dispose();
       worker.isolate = new ivm.Isolate({

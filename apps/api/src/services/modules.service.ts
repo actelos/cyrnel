@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { Dirent } from "node:fs";
 import fs from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
@@ -34,14 +35,18 @@ import { decompress as zstdDecompress } from "fzstd";
 import { satisfies } from "semver";
 import { Unpack } from "tar";
 import { z } from "zod";
+import { parseApprovalTimeout } from "@/app";
 import { CYRNEL_CORE_VERSION } from "@/constants";
 import { db } from "@/db/client";
 import {
+  approvalRequests as approvalRequestsTable,
   type ModuleRecord,
   moduleConfigurations,
   moduleSecrets,
   modules as modulesTable,
+  processes as processesTable,
   services as servicesTable,
+  toolPolicies as toolPoliciesTable,
   tools as toolsTable,
 } from "@/db/schema";
 import {
@@ -67,6 +72,8 @@ import {
   type RankedAdapter,
   type SetModuleEnabledInput,
 } from "@/models/modules.model";
+import { waitForApproval } from "@/services/approval-waiter";
+import { getProcessService } from "@/services/process-holder";
 import {
   isKindCompatible,
   parseKind,
@@ -328,7 +335,9 @@ export class ModuleService {
     await adapter.dehydrateService(serviceId);
   }
 
-  async invoke(input: InvokeInput): Promise<unknown> {
+  async invoke(
+    input: InvokeInput & { processId?: number; eid?: number },
+  ): Promise<unknown> {
     const [row] = await db
       .select({
         adapter: servicesTable.adapter,
@@ -376,6 +385,269 @@ export class ModuleService {
       );
     }
 
+    const policyRow = await db
+      .select({ decision: toolPoliciesTable.decision })
+      .from(toolPoliciesTable)
+      .where(
+        and(
+          eq(toolPoliciesTable.serviceId, input.serviceId),
+          eq(toolPoliciesTable.toolId, input.toolId),
+        ),
+      )
+      .limit(1)
+      .then((rows) => rows[0] ?? null)
+      .catch(() => null);
+    const decision = (policyRow?.decision ?? "ask") as
+      | "allow"
+      | "block"
+      | "ask";
+
+    if (decision === "block") {
+      logger.warn(
+        {
+          event: "tool-permission-blocked",
+          serviceId: input.serviceId,
+          toolId: input.toolId,
+        },
+        "Tool invocation blocked by policy",
+      );
+      throw new HttpError(
+        403,
+        `Tool '${input.toolId}' in service '${input.serviceId}' is blocked by policy.`,
+        "permission_denied",
+      );
+    }
+    if (decision === "ask") {
+      const approvalId = `apr_${randomUUID().replace(/-/g, "")}`;
+      const now = Date.now();
+      const timeoutMs = parseApprovalTimeout(
+        process.env.CYRNEL_APPROVAL_TIMEOUT_MS,
+      );
+      const expiresAt = now + timeoutMs;
+      const createdAt = new Date().toISOString();
+      const processId = input.processId ?? null;
+      const encrypted = encryptSecrets(
+        input.parameters as Record<string, unknown>,
+      );
+      try {
+        await db.insert(approvalRequestsTable).values({
+          id: approvalId,
+          serviceId: input.serviceId,
+          toolId: input.toolId,
+          processId: processId as number | null,
+          parameters: JSON.stringify(encrypted),
+          state: "pending",
+          createdAt,
+          expiresAt,
+          decidedAt: null,
+        });
+      } catch {
+        throw new HttpError(500, "Failed to create approval request.");
+      }
+      const waiterPromise =
+        processId != null ? waitForApproval(approvalId, processId) : null;
+      logger.info(
+        {
+          event: "approval-requested",
+          serviceId: input.serviceId,
+          toolId: input.toolId,
+          processId,
+          approvalId,
+        },
+        "Tool invocation requires approval",
+      );
+      if (processId != null) {
+        const ps = getProcessService();
+        if (ps) {
+          try {
+            await ps.suspendProcess(processId);
+            const pid = ps.getPidForDbId(processId);
+            if (pid !== undefined && this.activeEnvironment?.module) {
+              await this.activeEnvironment.module.suspend(pid);
+            }
+          } catch (err) {
+            logger.warn(
+              { event: "process-suspend-failed", err, processId, approvalId },
+              "Failed to persist suspended state",
+            );
+            const { resolveApprovalWaiter } = await import(
+              "@/services/approval-waiter"
+            );
+            resolveApprovalWaiter(approvalId, "expired");
+            void db
+              .update(approvalRequestsTable)
+              .set({ state: "expired", decidedAt: Date.now() })
+              .where(eq(approvalRequestsTable.id, approvalId))
+              .catch(() => {});
+            throw new HttpError(500, "Failed to suspend process for approval.");
+          }
+        } else {
+          try {
+            await db
+              .update(processesTable)
+              .set({ state: "suspended" })
+              .where(eq(processesTable.id, processId));
+          } catch (err) {
+            logger.warn(
+              { event: "process-suspend-failed", err, processId, approvalId },
+              "Failed to persist suspended state",
+            );
+            const { resolveApprovalWaiter } = await import(
+              "@/services/approval-waiter"
+            );
+            resolveApprovalWaiter(approvalId, "expired");
+            void db
+              .update(approvalRequestsTable)
+              .set({ state: "expired", decidedAt: Date.now() })
+              .where(eq(approvalRequestsTable.id, approvalId))
+              .catch(() => {});
+            throw new HttpError(500, "Failed to suspend process for approval.");
+          }
+        }
+      }
+      const resolvedState = await waiterPromise;
+      if (resolvedState === null) {
+        throw new HttpError(
+          500,
+          "Approval waiter resolved to null unexpectedly",
+        );
+      }
+      logger.info(
+        {
+          event: "approval-resolved-waiter",
+          serviceId: input.serviceId,
+          toolId: input.toolId,
+          processId,
+          approvalId,
+          resolvedState,
+        },
+        "Approval waiter resolved",
+      );
+      if (resolvedState === "approved") {
+        if (processId != null) {
+          const ps = getProcessService();
+          if (ps) {
+            try {
+              const [{ count: pending }] = await db
+                .select({ count: sql<number>`count(*)` })
+                .from(approvalRequestsTable)
+                .where(
+                  and(
+                    eq(approvalRequestsTable.processId, processId),
+                    eq(approvalRequestsTable.state, "pending"),
+                  ),
+                );
+              await ps.notifyApprovalResolved(
+                processId,
+                pending,
+                resolvedState,
+              );
+              const pid = ps.getPidForDbId(processId);
+              if (pid !== undefined && this.activeEnvironment?.module) {
+                try {
+                  await this.activeEnvironment.module.resume(pid);
+                } catch (resumeErr) {
+                  logger.error(
+                    {
+                      event: "environment-resume-failed",
+                      err: resumeErr,
+                      processId,
+                      pid,
+                    },
+                    "Failed to resume isolate timeout after approval",
+                  );
+                  throw resumeErr;
+                }
+              }
+            } catch (err) {
+              logger.error(
+                {
+                  event: "approval-resolved-failed",
+                  err,
+                  processId,
+                  approvalId,
+                },
+                "Failed to handle approval resolution",
+              );
+              throw err;
+            }
+          } else {
+            try {
+              await db
+                .update(processesTable)
+                .set({ state: "running" })
+                .where(eq(processesTable.id, processId));
+            } catch (err) {
+              logger.warn(
+                { event: "process-state-update-failed", err, processId },
+                "Failed to update process state after approval",
+              );
+            }
+          }
+        }
+        return await this.invokeAdapterWithTimeout(row.adapter, input);
+      }
+      if (processId != null) {
+        const ps = getProcessService();
+        if (ps) {
+          const pid = ps.getPidForDbId(processId);
+          if (pid !== undefined && this.activeEnvironment?.module) {
+            try {
+              await this.activeEnvironment.module.resume(pid);
+            } catch (resumeErr) {
+              logger.error(
+                {
+                  event: "environment-resume-failed",
+                  err: resumeErr,
+                  processId,
+                  pid,
+                },
+                "Failed to resume isolate timeout after denial/expiry",
+              );
+            }
+          }
+          const processIdNum: number = processId;
+          try {
+            const pendingResult = await db
+              .select({ count: sql<number>`count(*)` })
+              .from(approvalRequestsTable)
+              .where(
+                and(
+                  eq(approvalRequestsTable.processId, processIdNum),
+                  eq(approvalRequestsTable.state, "pending"),
+                ),
+              );
+            const pending = pendingResult[0]?.count ?? 0;
+            await ps.notifyApprovalResolved(
+              processIdNum,
+              pending,
+              resolvedState,
+            );
+          } catch (err) {
+            logger.error(
+              {
+                event: "approval-resolved-failed",
+                err,
+                processId,
+                approvalId,
+              },
+              "Failed to handle approval resolution after denial/expiry",
+            );
+          }
+        }
+      }
+      if (resolvedState === "denied") throw new Error("Approval denied");
+      throw new Error("Approval expired");
+    }
+
+    logger.info(
+      {
+        event: "tool-permission-allowed",
+        serviceId: input.serviceId,
+        toolId: input.toolId,
+      },
+      "Tool invocation allowed by policy",
+    );
     return await this.invokeAdapterWithTimeout(row.adapter, input);
   }
 
@@ -1789,6 +2061,37 @@ export class ModuleService {
                 })),
               );
             }
+            {
+              const existing = await tx
+                .select({ toolId: toolPoliciesTable.toolId })
+                .from(toolPoliciesTable)
+                .where(eq(toolPoliciesTable.serviceId, service.id));
+              const existingIds = new Set(existing.map((r) => r.toolId));
+              const newIds = new Set(def.tools.map((t) => t.id));
+              const orphaned = [...existingIds].filter((id) => !newIds.has(id));
+              if (orphaned.length > 0) {
+                await tx
+                  .delete(toolPoliciesTable)
+                  .where(
+                    and(
+                      eq(toolPoliciesTable.serviceId, service.id),
+                      inArray(toolPoliciesTable.toolId, orphaned),
+                    ),
+                  );
+              }
+              const toInsert = def.tools.filter((t) => !existingIds.has(t.id));
+              if (toInsert.length > 0) {
+                await tx.insert(toolPoliciesTable).values(
+                  toInsert.map((t) => ({
+                    serviceId: service.id,
+                    toolId: t.id,
+                    decision: "ask" as const,
+                    createdAt: new Date().toISOString(),
+                    updatedAt: Date.now(),
+                  })),
+                );
+              }
+            }
           });
 
           updated++;
@@ -1941,9 +2244,6 @@ export class ModuleService {
       ? config
       : applyJsonSchemaDefaults(
           manifest.configSchema,
-          // Conformant projection: validates identically to the
-          // declared-only projection (permitted keys are unconstrained)
-          // while delivering schema-permitted keys to the module.
           filterPayloadToSchema(manifest.configSchema, config, {
             keepPermitted: true,
           }),

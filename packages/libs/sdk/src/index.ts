@@ -147,6 +147,10 @@ export interface InvokeInput {
 
 /**
  * Execution states that indicate an execution is still in progress.
+ * Note: `suspended` is a host-only ProcessState (approval gating) and is
+ * intentionally not an ExecutionState-modules never set it via
+ * EnvironmentBindings.setState; the host manages it via
+ * ProcessService.suspendProcess / notifyApprovalResolved.
  */
 export const EXECUTION_STATES = ["queued", "running"] as const;
 
@@ -232,6 +236,7 @@ export interface ExecutionInput {
   eid: number;
   code: string;
   envConfig?: Record<string, unknown>;
+  processId?: number;
 }
 
 /**
@@ -307,6 +312,23 @@ export interface EnvironmentModule extends Module {
    * @returns Generated tool documentation.
    */
   generateToolDocs(input: ToolDocsInput): Promise<string>;
+
+  /**
+   * Suspends a running execution's timeout.
+   *
+   * @param eid - Execution identifier.
+   * @returns A promise that resolves when suspension completes.
+   */
+  suspend(eid: number): Promise<void>;
+
+  /**
+   * Resumes a suspended execution's timeout.
+   *
+   * @param eid - Execution identifier.
+   * @param remainingMs - Optional remaining time in ms to override.
+   * @returns A promise that resolves when resumption completes.
+   */
+  resume(eid: number, remainingMs?: number): Promise<void>;
 }
 
 /**

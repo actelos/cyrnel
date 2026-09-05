@@ -91,6 +91,12 @@ const toolSchema = z.object({
   serviceId: z.string(),
   enabled: z.boolean(),
   effectivelyEnabled: z.boolean(),
+  policy: z
+    .object({
+      decision: z.enum(["allow", "block", "ask"]),
+      updatedAt: z.number().nullable(),
+    })
+    .optional(),
   score: z.number().optional(),
   matchType: z.enum(["fts", "vector", "both"]).optional(),
   ftsRank: z.number().optional(),
@@ -543,6 +549,32 @@ export default function ServiceDetailPage() {
     }
   };
 
+  const handleSetToolPolicy = async (
+    serviceId: string,
+    toolId: string,
+    decision: "allow" | "block" | "ask",
+  ) => {
+    try {
+      await apiFetch(buildUrl(`/tools/${serviceId}/${toolId}/policy`), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ decision }),
+      });
+      if (toolsUrl) await mutate(toolsUrl);
+      addNotification({
+        type: "success",
+        title: "Success",
+        message: `Tool policy set to ${decision}.`,
+      });
+    } catch (error) {
+      addNotification({
+        type: "error",
+        title: "Error",
+        message: errorMessageFrom(error, "Unable to update tool policy."),
+      });
+    }
+  };
+
   const handleDeleteService = async (id: string) => {
     try {
       await apiFetch(buildUrl(`/services/${id}`), {
@@ -854,6 +886,34 @@ export default function ServiceDetailPage() {
                                   No description
                                 </p>
                               )}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Badge
+                                variant={
+                                  tool.policy?.decision === "allow"
+                                    ? "default"
+                                    : tool.policy?.decision === "block"
+                                      ? "destructive"
+                                      : "secondary"
+                                }
+                              >
+                                {tool.policy?.decision ?? "ask"}
+                              </Badge>
+                              <select
+                                value={tool.policy?.decision ?? "ask"}
+                                onChange={(e) =>
+                                  void handleSetToolPolicy(
+                                    serviceDetails.id,
+                                    tool.id,
+                                    e.target.value as "allow" | "block" | "ask",
+                                  )
+                                }
+                                className="h-7 rounded border bg-background px-2 text-xs"
+                              >
+                                <option value="allow">allow</option>
+                                <option value="block">block</option>
+                                <option value="ask">ask</option>
+                              </select>
                             </div>
                             <button
                               type="button"

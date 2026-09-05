@@ -70,7 +70,6 @@ export class TransformersEmbedder implements Embedder {
           "Embedding model loaded",
         );
       } catch (err) {
-        // Permanent fallback: FTS5-only mode for this process lifetime.
         logger.warn(
           { event: "embedding-model-load-failed", err, modelId: this.modelId },
           "Embedding model failed to load; running in FTS5-only search mode",

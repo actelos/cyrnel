@@ -195,7 +195,6 @@ function segmentMatches(pattern: string, value: string): boolean {
   let v = 0;
   while (p < patternLower.length) {
     if (patternLower[p] === "*") {
-      // Collapse consecutive wildcards to a single one.
       while (patternLower[p + 1] === "*") p += 1;
       if (p === patternLower.length - 1) return true;
       const next = patternLower[p + 1];

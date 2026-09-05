@@ -208,6 +208,18 @@ export const processes = sqliteTable("processes", {
     .notNull()
     .default({}),
   createdAt: text("created_at").notNull(),
+  state: text("state", {
+    enum: [
+      "idle",
+      "queued",
+      "running",
+      "suspended",
+      "terminating",
+      "terminated",
+    ],
+  })
+    .notNull()
+    .default("idle"),
 });
 
 export const processData = sqliteTable("process_data", {
@@ -224,6 +236,51 @@ export const processData = sqliteTable("process_data", {
   stderr: text("stderr"),
   completedAt: text("completed_at").notNull(),
 });
+
+export const toolPolicies = sqliteTable(
+  "tool_policies",
+  {
+    serviceId: text("service_id")
+      .notNull()
+      .references(() => services.id, { onDelete: "cascade" }),
+    toolId: text("tool_id").notNull(),
+    decision: text("decision", { enum: ["allow", "block", "ask"] }).notNull(),
+    createdAt: text("created_at").notNull(),
+    updatedAt: integer("updated_at"),
+  },
+  (t) => [primaryKey({ columns: [t.serviceId, t.toolId] })],
+);
+
+export const approvalRequests = sqliteTable(
+  "approval_requests",
+  {
+    id: text("id").primaryKey(),
+    serviceId: text("service_id")
+      .notNull()
+      .references(() => services.id, { onDelete: "cascade" }),
+    toolId: text("tool_id").notNull(),
+    processId: integer("process_id"),
+    parameters: text("parameters").notNull(),
+    state: text("state", {
+      enum: ["pending", "approved", "denied", "expired"],
+    }).notNull(),
+    createdAt: text("created_at").notNull(),
+    expiresAt: integer("expires_at").notNull(),
+    decidedAt: integer("decided_at"),
+  },
+  (t) => [
+    index("approval_requests_state_idx").on(t.state),
+    index("approval_requests_created_idx").on(t.createdAt, t.id),
+    index("approval_requests_expiry_idx").on(t.state, t.expiresAt),
+    index("approval_requests_decided_idx").on(t.state, t.decidedAt),
+    index("approval_requests_process_id_idx").on(t.processId),
+  ],
+);
+
+export type ToolPolicyRecord = typeof toolPolicies.$inferSelect;
+export type NewToolPolicyRecord = typeof toolPolicies.$inferInsert;
+export type ApprovalRequestRecord = typeof approvalRequests.$inferSelect;
+export type NewApprovalRequestRecord = typeof approvalRequests.$inferInsert;
 
 export type ProcessRow = typeof processes.$inferSelect;
 export type NewProcessRow = typeof processes.$inferInsert;

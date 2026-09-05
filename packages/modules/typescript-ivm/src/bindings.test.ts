@@ -216,7 +216,8 @@ describe("bindings", () => {
         serviceId: "calc",
         toolId: "add",
         parameters: { a: 1, b: 2 },
-      } satisfies InvokeInput);
+        eid: 1,
+      } satisfies InvokeInput & { eid: number });
     });
 
     it("throws TypeError when service id is a symbol", async () => {

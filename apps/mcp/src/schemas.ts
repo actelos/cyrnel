@@ -20,7 +20,9 @@ export const ProcessState = z.enum([
   "idle",
   "queued",
   "running",
+  "suspended",
   "terminating",
+  "terminated",
 ]);
 export type ProcessState = z.infer<typeof ProcessState>;
 

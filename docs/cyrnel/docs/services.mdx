@@ -224,8 +224,10 @@ any failure.
 
 `DELETE /services/:serviceId` → `204 No Content`
 
-Deletes the row (cascading to tools, configuration, secrets) and calls
-`adapter.dehydrateService(serviceId)`.
+Deletes the row (cascading to tools, configuration, secrets, and `tool_policies`) and calls
+`adapter.dehydrateService(serviceId)`. Pending `approval_requests` for the service are bulk-expired
+(`pending→expired` via CAS) before the delete; distinct `processId`s are notified via
+`ProcessService.notifyApprovalResolved` (pendingCount re-arm) and their waiters resolved as `expired`.
 
 ## List & Get
 
@@ -324,3 +326,12 @@ When client code calls a tool:
 The adapter is responsible for translating that into a real call to the end
 service using the `adapterDomain`, configuration, and secrets it received
 during hydration.
+
+## Tool Policies
+
+Each tool has an effective policy `allow | block | ask` stored in `tool_policies`
+(FK `serviceId` cascade, `COALESCE(policy, 'ask')` default). Refreshing a service's
+tool list (`sync`/`update`/`patch`/`regenerateAdapterServices`) preserves existing
+policies for tools that remain, creates `ask` for newly discovered tools, and deletes
+orphaned policies for removed tools. Policy is evaluated centrally in
+`ModuleService.invoke` before any adapter call.

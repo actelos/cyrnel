@@ -254,6 +254,11 @@ type ExecutionExitState = (typeof EXECUTION_EXIT_STATES)[number];
 ```
 
 The vocabulary an environment uses to report progress. `ProcessService`
-adds `idle` and `terminating` on top, those are host-side states, not
-environment-reported ones. See [Execution](/cyrnel/module-specs/environment-execution) and
+adds `suspended`, `idle`, `terminating`, and `terminated` on top — host-only
+states for approval gating (`suspended` with `pendingApprovalIds`, `terminated`
+from orphan recovery), not environment-reported. See [Execution](/cyrnel/module-specs/environment-execution) and
 [Processes](/cyrnel/docs/processes).
+
+Tool invocations that hit `ask` policy are parked by the host until
+`approved`/`denied`/`expired` (via `approval_requests` CAS); denied/expired surface
+as `JSON.stringify({ __ivmError: "Approval denied|expired" })` catchable in the sandbox.

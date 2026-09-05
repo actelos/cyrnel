@@ -56,6 +56,8 @@ async function applyMigrations(): Promise<void> {
 
 async function resetDb(): Promise<void> {
   await db.run(sql.raw("PRAGMA foreign_keys = OFF"));
+  await db.run(sql.raw("DELETE FROM approval_requests"));
+  await db.run(sql.raw("DELETE FROM tool_policies"));
   await db.run(sql.raw("DELETE FROM tools"));
   await db.run(sql.raw("DELETE FROM service_secrets"));
   await db.run(sql.raw("DELETE FROM service_configurations"));
@@ -1396,64 +1398,6 @@ describe("ServicesService", () => {
         "test-adapter",
         "alpha",
       );
-    });
-  });
-
-  describe("setToolEnabled()", () => {
-    it("throws 404 when the tool is missing", async () => {
-      await seedService("alpha");
-      const svc = new ServicesService(makeController());
-      await expect(
-        svc.setToolEnabled({
-          serviceId: "alpha",
-          toolId: "ghost",
-          enabled: true,
-        }),
-      ).rejects.toMatchObject({ statusCode: 404 });
-    });
-
-    it("toggles the stored flag", async () => {
-      await seedService("alpha", {
-        tools: [{ id: "x", name: "x", enabled: true }],
-      });
-      const svc = new ServicesService(makeController());
-
-      await svc.setToolEnabled({
-        serviceId: "alpha",
-        toolId: "x",
-        enabled: false,
-      });
-
-      const tools = (await svc.listTools({ serviceId: "alpha" })).items;
-      expect(tools[0]?.enabled).toBe(false);
-    });
-
-    it("targets by tool id, not name", async () => {
-      await seedService("alpha", {
-        tools: [
-          { id: "do_stuff", name: "Do Stuff", enabled: true },
-          { id: "other", name: "Other", enabled: true },
-        ],
-      });
-      const svc = new ServicesService(makeController());
-
-      await svc.setToolEnabled({
-        serviceId: "alpha",
-        toolId: "do_stuff",
-        enabled: false,
-      });
-
-      const rows = (await svc.listTools({ serviceId: "alpha" })).items;
-      const byId = Object.fromEntries(rows.map((r) => [r.id, r.enabled]));
-      expect(byId).toEqual({ do_stuff: false, other: true });
-
-      await expect(
-        svc.setToolEnabled({
-          serviceId: "alpha",
-          toolId: "Do Stuff",
-          enabled: false,
-        }),
-      ).rejects.toMatchObject({ statusCode: 404 });
     });
   });
 

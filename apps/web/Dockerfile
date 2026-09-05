@@ -25,7 +25,6 @@ ENV NODE_ENV=production
 ENV PORT=9372
 ENV HOST=0.0.0.0
 ENV CYRNEL_API_URL=http://api:9371
-ENV CYRNEL_API_KEY=
 
 EXPOSE 9372
 CMD ["node", "dist/server/index.js"]

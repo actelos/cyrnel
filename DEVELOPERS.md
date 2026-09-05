@@ -125,6 +125,8 @@ what each one does. The two most important ones beyond the secrets key are:
   development on `127.0.0.1`.
 - `CYRNEL_EMBEDDING_MODEL`: Local ONNX embedding model (defaults to `Xenova/bge-small-en-v1.5`)
 - `CYRNEL_RECONCILE_INTERVAL_MS`: Background search vector reconciliation sweep interval in ms. `0` disables the recurring interval, and valid values are integers from `0` through `2147483647` (defaults to `1800000`)
+- `CYRNEL_APPROVAL_TIMEOUT_MS`: Approval request expiry in ms (default `300000`; `0` is invalid and falls back to default; `expiresAt` frozen at creation, swept every minute)
+- `CYRNEL_APPROVAL_RETENTION_MS`: Retention for terminal `approval_requests` rows in ms (default `2592000000` = 30 days; `0` = keep forever; swept hourly)
 
 ### Initialise the database
 
@@ -151,7 +153,9 @@ Other Drizzle commands you'll use during development:
 
 Whenever you change a table in `apps/api/src/db/schema.ts`, run `db:generate`
 to produce a migration file, then commit both the schema change and the
-migration together.
+migration together. For `NOT NULL` additions on SQLite (e.g. `processes.state`
+`TEXT NOT NULL DEFAULT 'idle'`), Drizzle generates `ADD COLUMN … DEFAULT … NOT NULL`
+— hand-insert the backfill `UPDATE` between `ADD COLUMN` and commit (see `drizzle/0011` `state` backfill `UPDATE … WHERE id NOT IN (SELECT process_id FROM process_data)` and `tool_policies` `INSERT OR IGNORE … SELECT … CASE WHEN enabled THEN 'allow' ELSE 'ask'`).
 
 > **Migrations no longer auto-run on startup.** Previously `pnpm -C apps/api dev`
 > applied pending migrations automatically. Now you must run `db:push` (first

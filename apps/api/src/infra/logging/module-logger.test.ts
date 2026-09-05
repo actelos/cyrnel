@@ -87,11 +87,8 @@ describe("createModuleLogger redaction", () => {
     ]);
     ml.info({ custom: "hide", visible: "show", token: "x" });
     const data = getLastData();
-    // The string pattern is applied…
     expect(data.custom).toBe(REDACTED);
-    // …the non-string entry is ignored (no rule derived from `42`)…
     expect(data.visible).toBe("show");
-    // …and the host baseline still applies.
     expect(data.token).toBe(REDACTED);
   });
 

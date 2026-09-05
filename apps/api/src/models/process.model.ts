@@ -2,8 +2,10 @@ import { EXECUTION_EXIT_STATES, EXECUTION_STATES } from "@cyrnel/sdk";
 
 export const PROCESS_STATES = [
   ...EXECUTION_STATES,
+  "suspended",
   "idle",
   "terminating",
+  "terminated",
 ] as const;
 
 export type ProcessState = (typeof PROCESS_STATES)[number];
@@ -66,6 +68,12 @@ export interface GetProcessResult {
   error: string | null;
   createdAt: string;
   completedAt: string | null;
+  pendingApprovalIds?: string[];
 }
+
+export type SuspendedProcessResult = GetProcessResult & {
+  state: "suspended";
+  pendingApprovalIds: string[];
+};
 
 export type ListProcessResult = GetProcessResult;

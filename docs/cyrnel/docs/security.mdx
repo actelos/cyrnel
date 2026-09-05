@@ -182,8 +182,10 @@ redirect targets, every hop is validated before the request proceeds.
 | Service metadata, tools, schemas | `services`, `tools` tables | None (plaintext). |
 | Service configuration (JSON-Patch-edited) | `service_configurations.payload` | None (plaintext). |
 | Service secrets | `service_secrets.payload` | AES-256-GCM with `CYRNEL_SECRETS_KEY`. |
+| Tool policies | `tool_policies` (`allow\|block\|ask`, FK `serviceId` cascade) | None (plaintext, decision only). |
+| Approval requests | `approval_requests` (`pending→approved\|denied\|expired` via CAS) | `parameters` encrypted with `CYRNEL_SECRETS_KEY` (decrypted only in `GET /approvals`); never logged. |
 | Module enable/missing state | `modules` | None (plaintext, but boolean flags only). |
-| Process records, stdout, stderr, output | In-memory only | Lost on restart. |
+| Process records, stdout, stderr, output | In-memory + `processes`/`process_data` (with `state` including `suspended`/`terminated`) | Lost on restart except `processes.state` + `approval_requests` (durable). |
 
 If the db leaks, the encrypted secrets are protected by the key only.
 Configuration is not, operators must avoid storing credentials in

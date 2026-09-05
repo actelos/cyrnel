@@ -236,6 +236,12 @@ const ProcessSchema = registry.register(
         .describe(
           "ISO-8601 timestamp of when the process completed, or null if still running.",
         ),
+      pendingApprovalIds: z
+        .array(z.string())
+        .optional()
+        .describe(
+          "Pending approval request identifiers when state is suspended; omitted otherwise.",
+        ),
     })
     .describe("Process snapshot returned by the process management endpoints."),
 );
@@ -756,6 +762,18 @@ const ToolListItemSchema = registry.register(
         .describe(
           "Whether the tool is callable after accounting for its parent service state.",
         ),
+      policy: z
+        .object({
+          decision: z
+            .enum(["allow", "block", "ask"])
+            .describe("Policy decision for the tool."),
+          updatedAt: z
+            .number()
+            .nullable()
+            .describe("Last policy update epoch ms, null when default ask."),
+        })
+        .optional()
+        .describe("Policy decision for the tool; present when listing tools."),
       score: z
         .number()
         .optional()
@@ -849,6 +867,56 @@ const ToolEnabledResponseSchema = registry.register(
         .describe("The new enabled state stored for the tool."),
     })
     .describe("Response returned after toggling a tool enabled state."),
+);
+
+const ApprovalSchema = registry.register(
+  "Approval",
+  z
+    .object({
+      id: z.string().describe("Approval request identifier."),
+      serviceId: z.string().describe("Service identifier."),
+      toolId: z.string().describe("Tool identifier."),
+      processId: z
+        .number()
+        .nullable()
+        .describe(
+          "Process that triggered the approval, null if outside a process.",
+        ),
+      parameters: jsonObjectSchema.describe(
+        "Decrypted parameters of the original tool invocation.",
+      ),
+      state: z
+        .enum(["pending", "approved", "denied", "expired"])
+        .describe("Current state of the approval request."),
+      createdAt: z.string().describe("ISO-8601 creation time."),
+      expiresAt: z.number().describe("Epoch ms expiry time."),
+      decidedAt: z
+        .number()
+        .nullable()
+        .describe("Epoch ms when decided, null while pending."),
+    })
+    .describe("Approval request returned by the approvals endpoints."),
+);
+
+const ApprovalListResponseSchema = paginatedResponseSchema(
+  "ApprovalListResponse",
+  ApprovalSchema,
+  "Approval requests that match the supplied filters.",
+);
+
+const ToolPolicySchema = registry.register(
+  "ToolPolicy",
+  z
+    .object({
+      serviceId: z.string().describe("Service identifier."),
+      toolId: z.string().describe("Tool identifier."),
+      decision: z.enum(["allow", "block", "ask"]).describe("Policy decision."),
+      updatedAt: z
+        .number()
+        .nullable()
+        .describe("Last update epoch ms, null when default ask."),
+    })
+    .describe("Tool policy record."),
 );
 
 const ModuleSchema = registry.register(
@@ -2257,7 +2325,7 @@ registry.registerPath({
   tags: ["Tools"],
   summary: "List tools",
   description:
-    "Returns tools that match the supplied filters. The serviceId, query, cursor, limit, and enabled query parameters are all optional. The enabled filter accepts 'true' or 'false'.",
+    "Returns tools that match the supplied filters. The serviceId, query, cursor, limit, and enabled query parameters are all optional. The enabled filter accepts 'true' or 'false'. The decision filter accepts 'allow', 'block', or 'ask'.",
   request: {
     query: z.object({
       serviceId: z
@@ -2273,6 +2341,12 @@ registry.registerPath({
       enabled: booleanQuerySchema
         .optional()
         .describe("Enabled-state filter. Omit to return all tools."),
+      decision: z
+        .enum(["allow", "block", "ask"])
+        .optional()
+        .describe(
+          "Policy decision filter. Omit to return all tools; 'ask' includes tools with no explicit policy.",
+        ),
       ...paginationQuerySchema.shape,
     }),
   },
@@ -2366,6 +2440,179 @@ registry.registerPath({
     404: apiErrorResponse("The tool could not be found."),
     ...rateLimitResponse(),
     500: apiErrorResponse("The tool enabled state could not be updated."),
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/tools/{serviceId}/{toolId}/policy",
+  tags: ["Tools"],
+  summary: "Get tool policy",
+  description:
+    "Returns the effective policy decision for a tool, including default ask when no explicit policy exists.",
+  request: { params: serviceToolParams },
+  responses: {
+    200: {
+      description: "Tool policy.",
+      content: jsonContent(ToolPolicySchema),
+    },
+    400: apiErrorResponse("The path parameters were invalid."),
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    404: apiErrorResponse("The tool could not be found."),
+    ...rateLimitResponse(),
+    500: apiErrorResponse("The tool policy could not be loaded."),
+  },
+});
+
+registry.registerPath({
+  method: "put",
+  path: "/tools/{serviceId}/{toolId}/policy",
+  tags: ["Tools"],
+  summary: "Set tool policy",
+  description: "Sets the policy decision for a tool to allow, block, or ask.",
+  request: {
+    params: serviceToolParams,
+    body: {
+      content: jsonContent(
+        z.object({
+          decision: z
+            .enum(["allow", "block", "ask"])
+            .describe("Desired policy decision."),
+        }),
+      ),
+    },
+  },
+  responses: {
+    200: {
+      description: "Updated tool policy.",
+      content: jsonContent(ToolPolicySchema),
+    },
+    400: apiErrorResponse("The request body or path parameters were invalid."),
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    404: apiErrorResponse("The tool could not be found."),
+    ...rateLimitResponse(),
+    500: apiErrorResponse("The tool policy could not be updated."),
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/approvals",
+  tags: ["Approvals"],
+  summary: "List approvals",
+  description:
+    "Returns approval requests filtered by optional state, serviceId, toolId, and processId. Paginated with before cursor on (createdAt desc, id).",
+  request: {
+    query: z.object({
+      state: z
+        .enum(["pending", "approved", "denied", "expired"])
+        .optional()
+        .describe("Filter by approval state."),
+      serviceId: z
+        .string()
+        .optional()
+        .describe("Filter by service identifier."),
+      toolId: z.string().optional().describe("Filter by tool identifier."),
+      processId: z.coerce
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe("Filter by process identifier."),
+      ...paginationQuerySchema.shape,
+    }),
+  },
+  responses: {
+    200: {
+      description: "Matching approvals.",
+      content: jsonContent(ApprovalListResponseSchema),
+    },
+    400: apiErrorResponse("One or more query parameters could not be parsed."),
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    ...rateLimitResponse(),
+    500: apiErrorResponse("The approvals could not be loaded."),
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/approvals/{id}",
+  tags: ["Approvals"],
+  summary: "Get approval",
+  description: "Returns a single approval request by identifier.",
+  request: {
+    params: z.object({ id: z.string().describe("Approval identifier.") }),
+  },
+  responses: {
+    200: {
+      description: "Approval request.",
+      content: jsonContent(ApprovalSchema),
+    },
+    400: apiErrorResponse("The id path parameter was invalid."),
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    404: apiErrorResponse("The approval could not be found."),
+    ...rateLimitResponse(),
+    500: apiErrorResponse("The approval could not be loaded."),
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/approvals/{id}/approve",
+  tags: ["Approvals"],
+  summary: "Approve approval",
+  description:
+    "Approves a pending approval request; the suspended invocation resumes and executes.",
+  request: {
+    params: z.object({ id: z.string().describe("Approval identifier.") }),
+  },
+  responses: {
+    200: {
+      description: "Approved approval request.",
+      content: jsonContent(ApprovalSchema),
+    },
+    400: apiErrorResponse("The id path parameter was invalid."),
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    404: apiErrorResponse("The approval could not be found."),
+    409: apiErrorResponse("The approval is already decided."),
+    ...rateLimitResponse(),
+    500: apiErrorResponse("The approval could not be approved."),
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/approvals/{id}/deny",
+  tags: ["Approvals"],
+  summary: "Deny approval",
+  description:
+    "Denies a pending approval request; the suspended invocation fails with a catchable error.",
+  request: {
+    params: z.object({ id: z.string().describe("Approval identifier.") }),
+  },
+  responses: {
+    200: {
+      description: "Denied approval request.",
+      content: jsonContent(ApprovalSchema),
+    },
+    400: apiErrorResponse("The id path parameter was invalid."),
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    404: apiErrorResponse("The approval could not be found."),
+    409: apiErrorResponse("The approval is already decided."),
+    ...rateLimitResponse(),
+    500: apiErrorResponse("The approval could not be denied."),
   },
 });
 

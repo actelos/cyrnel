@@ -43,6 +43,7 @@
                       "cyrnel/docs/processes",
                       "cyrnel/docs/services",
                       "cyrnel/docs/tools",
+                      "cyrnel/docs/approvals",
                       "cyrnel/docs/pagination",
                       {
                         "group": "Modules",

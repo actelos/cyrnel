@@ -41,7 +41,9 @@ Each process has the following fields:
 | --- | --- |
 | `queued` | Waiting for the environment to pick it up. |
 | `running` | Currently executing inside the environment. |
+| `suspended` | Paused awaiting approval for a tool invocation (`ask` policy). `pendingApprovalIds: string[]` lists the approvals it waits on; excluded from `trimIdleProcesses` and requires approval resolve (or expiry/deny) to resume. `run`/`delete`/`unload` are `409` while suspended. |
 | `terminating` | A `kill` signal was issued; the runtime is winding it down. |
+| `terminated` | Orphaned `suspended` recovered on startup (no in-memory record) — persisted as `failed` with `terminated` state, `run` requires `force`. |
 | `idle` | Not executing. Either it hasn't been run yet, or it has finished. |
 
 ### Process exit states
@@ -115,11 +117,11 @@ Response (`200`): the process record.
 
 `POST /processes/:id/signals/kill`
 
-- If the process is `queued`, it transitions straight to `idle` with
-  `exitState = "canceled"`.
+- If the process is `queued` or `suspended`, it transitions straight to `idle` with
+  `exitState = "canceled"` (suspended is killable).
 - If `running`, it moves to `terminating` first, then to `idle` with
   `exitState = "canceled"` once the environment confirms.
-- If already `idle`: including historical processes that only exist in the
+- If already `idle`/`terminated`: including historical processes that only exist in the
   database - the call returns `409`.
 
 Response (`200`): the process record.
@@ -136,8 +138,8 @@ preserving history.
 
 Rules:
 
-- The process must be `idle`. Queued, running, and terminating processes
-  return `409` (unloading would orphan the execution).
+- The process must be `idle`/`terminated`. Queued, running, suspended and terminating processes
+  return `409` (unloading would orphan the execution; suspended must be resolved via approvals).
 - If the process is already outside active memory, the call returns `409`.
 - Unknown ids return `404`.
 
@@ -176,12 +178,12 @@ unlimited when the variable is unset.
 
 Query parameters:
 
-- `state`: One of `idle | queued | running | terminating`
+- `state`: One of `idle | queued | running | suspended | terminating | terminated`
 - `status`: One of `success | failed | timeout | canceled | null`
 - `ref`: Exact match (trimmed, non-empty)
 
 Results include both active in-memory processes and historical processes
-from the database, ordered newest-first by creation time.
+from the database, ordered newest-first by creation time. `suspended` processes expose `pendingApprovalIds` gated behind `state==="suspended"`.
 
 ### Pagination
 
@@ -193,9 +195,9 @@ hasMore }`; see [Pagination](/docs/pagination) for the cursor rules,
 
 `DELETE /processes/:id`
 
-The process must be `idle`. The record is permanently removed from the
+The process must be `idle`/`terminated`. The record is permanently removed from the
 database (including code, outputs, stdout, and stderr). Historical processes
 that only exist in the database can be deleted directly; they are always
-`idle`.
+`idle`/`terminated`. `suspended` must first be resolved (deny or wait for expiry) before delete — `409` otherwise.
 
 The response is `200` with the deleted process record in the body.

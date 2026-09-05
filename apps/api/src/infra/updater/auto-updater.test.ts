@@ -37,9 +37,9 @@ describe("AutoUpdater", () => {
     const listTargets = vi.fn().mockResolvedValue(targets);
     const updateModule = vi
       .fn()
-      .mockResolvedValueOnce(true) // mod1 updated
-      .mockResolvedValueOnce(false); // mod2 unchanged
-    const updateService = vi.fn().mockResolvedValue(true); // svc1 updated
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false);
+    const updateService = vi.fn().mockResolvedValue(true);
 
     const updater = new AutoUpdater({
       listTargets,
@@ -117,7 +117,7 @@ describe("AutoUpdater", () => {
     });
 
     const p1 = updater.sweepGuarded();
-    const p2 = updater.sweepGuarded(); // Should skip because p1 is active
+    const p2 = updater.sweepGuarded();
 
     resolveTargets([]);
     await p1;
@@ -134,8 +134,8 @@ describe("AutoUpdater", () => {
     });
 
     updater.start(60_000);
-    updater.start(60_000); // Idempotent
+    updater.start(60_000);
     updater.stop();
-    updater.stop(); // Idempotent
+    updater.stop();
   });
 });

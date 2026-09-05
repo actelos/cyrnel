@@ -50,6 +50,9 @@ CYRNEL_SECRETS_KEY=your-base64-32-byte-key
 | `CYRNEL_DB_URL` | `file:/data/data.db` | Database connection (SQLite by default) |
 | `CYRNEL_EMBEDDING_MODEL` | `Xenova/bge-small-en-v1.5` | Local ONNX embedding model to download and load. Changing models requires a full tool_embeddings rebuild and re-embedding, even when the dimension stays at 384. |
 | `CYRNEL_RECONCILE_INTERVAL_MS` | `1800000` | Reconciliation interval in ms for syncing embeddings. `0` disables the recurring interval; valid values are integers from `0` through `2147483647` (default: 30 min). |
+| `CYRNEL_AUTO_UPDATE_INTERVAL_MS` | `0` | Auto-update sweep interval in ms for modules/services (opt-in at install, `autoUpdate` defaults to `true`). `0` disables. |
+| `CYRNEL_APPROVAL_TIMEOUT_MS` | `300000` | Approval request expiry in ms (pending→expired). `0` is invalid and falls back to `300000`; `expiresAt` frozen at creation. |
+| `CYRNEL_APPROVAL_RETENTION_MS` | `2592000000` | Retention for terminal approvals (`approved|denied|expired`) in ms (30 days). `0` = keep forever, swept hourly. |
 | `LOG_LEVEL` | `info` | `trace`, `debug`, `info`, `warn`, `error`, `fatal`, `silent` |
 
 <Warning>

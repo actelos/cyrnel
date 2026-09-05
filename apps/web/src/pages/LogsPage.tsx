@@ -247,9 +247,7 @@ export default function LogsPage() {
           JSON.parse((event as MessageEvent<string>).data),
         );
         setRawLive((previous) => [parsed, ...previous].slice(0, LIVE_CAP));
-      } catch {
-        // Malformed frames are ignored; the API query remains the source of truth.
-      }
+      } catch {}
     });
     return () => {
       setIsLive(false);

@@ -1,19 +1,13 @@
 import type { Request, Response } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  getTool,
-  getToolDocs,
-  listTools,
-  setToolEnabled,
-} from "@/controllers/tool.controller";
+import { getTool, getToolDocs, listTools } from "@/controllers/tool.controller";
 import { HttpError } from "@/models/error.model";
 
 const servicesService = {
   listTools: vi.fn(),
   getTool: vi.fn(),
   getToolDocs: vi.fn(),
-  setToolEnabled: vi.fn(),
 };
 
 interface MockResponse {
@@ -223,55 +217,6 @@ describe("tool.controller", () => {
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.type).toHaveBeenCalledWith("text/markdown; charset=utf-8");
       expect(res.send).toHaveBeenCalledWith("# Tool\n\nDescription");
-    });
-  });
-
-  describe("setToolEnabled", () => {
-    it.each([true, false])(
-      "forwards enabled=%s and echoes id, serviceId, enabled",
-      async (enabled) => {
-        const res = makeRes();
-        servicesService.setToolEnabled.mockResolvedValue(undefined);
-
-        await setToolEnabled(
-          makeReq({
-            params: { serviceId: "svc", toolId: "t1" },
-            body: { enabled },
-          }),
-          cast(res),
-        );
-
-        expect(servicesService.setToolEnabled).toHaveBeenCalledWith({
-          serviceId: "svc",
-          toolId: "t1",
-          enabled,
-        });
-        expect(res.status).toHaveBeenCalledWith(200);
-        expect(res.json).toHaveBeenCalledWith({
-          id: "t1",
-          serviceId: "svc",
-          enabled,
-        });
-      },
-    );
-
-    it.each([
-      { body: {}, why: "missing enabled" },
-      { body: { enabled: "true" }, why: "string enabled" },
-      { body: { enabled: 1 }, why: "numeric enabled" },
-      { body: null, why: "null body" },
-      { body: "nope", why: "non-object body" },
-    ])("rejects $why", async ({ body }) => {
-      const res = makeRes();
-      await expect(
-        setToolEnabled(
-          makeReq({
-            params: { serviceId: "svc", toolId: "t1" },
-            body,
-          }),
-          cast(res),
-        ),
-      ).rejects.toBeInstanceOf(HttpError);
     });
   });
 });

@@ -78,9 +78,14 @@ const { adapterInstances, envInstances, FakeAdapter, FakeEnvironment } =
       readonly teardownCalls: number[] = [];
       readonly executeCalls: ExecutionInput[] = [];
       readonly killCalls: number[] = [];
+      readonly suspendCalls: number[] = [];
+      readonly resumeCalls: number[] = [];
       executeImpl: (input: ExecutionInput) => Promise<ExecutionExitState> =
         async () => "success";
       killImpl: (eid: number) => Promise<void> = async () => {};
+      suspendImpl: (eid: number) => Promise<void> = async () => {};
+      resumeImpl: (eid: number, remainingMs?: number) => Promise<void> =
+        async () => {};
       docs = "# env docs";
       toolDocs = "# tool docs";
 
@@ -97,6 +102,14 @@ const { adapterInstances, envInstances, FakeAdapter, FakeEnvironment } =
       async kill(eid: number): Promise<void> {
         this.killCalls.push(eid);
         return this.killImpl(eid);
+      }
+      async suspend(eid: number): Promise<void> {
+        this.suspendCalls.push(eid);
+        return this.suspendImpl(eid);
+      }
+      async resume(eid: number, remainingMs?: number): Promise<void> {
+        this.resumeCalls.push(eid);
+        return this.resumeImpl(eid, remainingMs);
       }
       async generateDocs(): Promise<string> {
         return this.docs;
@@ -233,6 +246,8 @@ function unwrap<T>(value: T | undefined | null, label = "value"): T {
 
 async function resetDb(): Promise<void> {
   await db.run(sql.raw("PRAGMA foreign_keys = OFF"));
+  await db.run(sql.raw("DELETE FROM approval_requests"));
+  await db.run(sql.raw("DELETE FROM tool_policies"));
   await db.run(sql.raw("DELETE FROM tools"));
   await db.run(sql.raw("DELETE FROM service_secrets"));
   await db.run(sql.raw("DELETE FROM service_configurations"));
@@ -846,6 +861,9 @@ describe("ModuleService", () => {
         sql`INSERT INTO tools (service_id, id, name, description, enabled, input_schema, output_schema, adapter_domain)
             VALUES ('alpha', 't', 't', '', 1, '{}', '{}', '{}')`,
       );
+      await db.run(
+        sql`INSERT OR REPLACE INTO tool_policies (service_id, tool_id, decision, created_at, updated_at) VALUES ('alpha', 't', 'allow', '2026-01-01T00:00:00.000Z', 0)`,
+      );
 
       unwrap(adapterInstances[0], "adapter").invokeImpl = async () => ({
         ok: true,
@@ -874,6 +892,9 @@ describe("ModuleService", () => {
         await db.run(
           sql`INSERT INTO tools (service_id, id, name, description, enabled, input_schema, output_schema, adapter_domain)
             VALUES ('alpha', 't', 't', '', 1, '{}', '{}', '{}')`,
+        );
+        await db.run(
+          sql`INSERT OR REPLACE INTO tool_policies (service_id, tool_id, decision, created_at, updated_at) VALUES ('alpha', 't', 'allow', '2026-01-01T00:00:00.000Z', 0)`,
         );
 
         unwrap(adapterInstances[0], "adapter").invokeImpl = () =>
@@ -1216,6 +1237,9 @@ describe("ModuleService", () => {
         await db.run(
           sql`INSERT INTO tools (service_id, id, name, description, enabled, input_schema, output_schema, adapter_domain)
               VALUES ('alpha', 't', 't', '', 1, '{}', '{}', '{}')`,
+        );
+        await db.run(
+          sql`INSERT OR REPLACE INTO tool_policies (service_id, tool_id, decision, created_at, updated_at) VALUES ('alpha', 't', 'allow', '2026-01-01T00:00:00.000Z', 0)`,
         );
 
         await fs.rm(modDir, { recursive: true, force: true });
@@ -1571,7 +1595,6 @@ describe("ModuleService", () => {
       );
       await service.initialize(MISSING_PATH);
 
-      // stored under a looser schema: 'unknown' is now schema-disallowed
       await db.run(
         sql`INSERT INTO module_configurations (module_id, payload, updated_at)
             VALUES ('openapi', '{"unknown":1}', 0)`,

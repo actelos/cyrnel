@@ -116,13 +116,20 @@ sequenceDiagram
     Env-->>PS: emit stdout / stderr / output / state
 
     Env->>MS: invokeTool({ serviceId, toolId, parameters })
-    MS->>SS: lookup service & tool (enabled?)
-    SS-->>MS: adapter id
-    MS->>Adapter: invoke({ serviceId, toolId, parameters })
-    Adapter->>Service: native protocol call
-    Service-->>Adapter: response
-    Adapter-->>MS: result
-    MS-->>Env: result
+    MS->>SS: lookup service & tool (enabled?) + policy (tool_policies, COALESCE → ask)
+    SS-->>MS: adapter id + decision
+    alt decision = allow
+        MS->>Adapter: invoke({ serviceId, toolId, parameters })
+        Adapter->>Service: native protocol call
+        Service-->>Adapter: response
+        Adapter-->>MS: result
+        MS-->>Env: result
+    else decision = block
+        MS-->>Env: throw 403 permission_denied
+    else decision = ask → suspended
+        MS->>PS: suspend (processes.state=suspended, pendingApprovalIds)
+        MS-->>Env: pending (park ivm.Reference until approved/denied/expired → __ivmError)
+    end
 
     Env-->>MS: ExecutionExitState (success / failed / timeout / canceled)
     MS-->>PS: exitState

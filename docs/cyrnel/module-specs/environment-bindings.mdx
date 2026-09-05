@@ -23,7 +23,10 @@ interface EnvironmentBindings {
 
 User code drives tool execution through the environment's runtime surface
 (`cyrnel.services[id].tools[t].invoke(...)`), which proxies through to
-this callback.
+this callback. When the tool's effective policy is `ask` (default), the host
+creates a `pending` `approval_requests` row, marks the process `suspended` with
+`pendingApprovalIds`, and parks the `ivm.Reference` until `approved` (resume and
+invoke adapter), or `denied`/`expired` (resolve with `JSON.stringify({ __ivmError: "Approval denied|expired" })` which surfaces as a catchable error in the sandbox via the existing `__ivmError` throw path).
 
 ## Execution Reporting
 
