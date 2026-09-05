@@ -425,7 +425,7 @@ export class ModuleService {
       );
       const expiresAt = now + timeoutMs;
       const createdAt = new Date().toISOString();
-      const processId = input.processId ?? input.eid ?? null;
+      const processId = input.processId ?? null;
       const encrypted = encryptSecrets(
         input.parameters as Record<string, unknown>,
       );
@@ -444,7 +444,7 @@ export class ModuleService {
       } catch {
         throw new HttpError(500, "Failed to create approval request.");
       }
-      const _waiterPromise =
+      const waiterPromise =
         processId != null ? waitForApproval(approvalId, processId) : null;
       logger.info(
         {
@@ -505,10 +505,13 @@ export class ModuleService {
           }
         }
       }
-      const resolvedState = await waitForApproval(
-        approvalId,
-        processId ?? null,
-      );
+      const resolvedState = await waiterPromise;
+      if (resolvedState === null) {
+        throw new HttpError(
+          500,
+          "Approval waiter resolved to null unexpectedly",
+        );
+      }
       logger.info(
         {
           event: "approval-resolved-waiter",
@@ -602,6 +605,34 @@ export class ModuleService {
                 "Failed to resume isolate timeout after denial/expiry",
               );
             }
+          }
+          const processIdNum: number = processId;
+          try {
+            const pendingResult = await db
+              .select({ count: sql<number>`count(*)` })
+              .from(approvalRequestsTable)
+              .where(
+                and(
+                  eq(approvalRequestsTable.processId, processIdNum),
+                  eq(approvalRequestsTable.state, "pending"),
+                ),
+              );
+            const pending = pendingResult[0]?.count ?? 0;
+            await ps.notifyApprovalResolved(
+              processIdNum,
+              pending,
+              resolvedState,
+            );
+          } catch (err) {
+            logger.error(
+              {
+                event: "approval-resolved-failed",
+                err,
+                processId,
+                approvalId,
+              },
+              "Failed to handle approval resolution after denial/expiry",
+            );
           }
         }
       }

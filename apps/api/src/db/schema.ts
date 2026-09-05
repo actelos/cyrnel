@@ -273,6 +273,7 @@ export const approvalRequests = sqliteTable(
     index("approval_requests_created_idx").on(t.createdAt, t.id),
     index("approval_requests_expiry_idx").on(t.state, t.expiresAt),
     index("approval_requests_decided_idx").on(t.state, t.decidedAt),
+    index("approval_requests_process_id_idx").on(t.processId),
   ],
 );
 

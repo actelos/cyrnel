@@ -392,6 +392,16 @@ export class ProcessService {
 
     await this.expireApprovalsForProcess(id);
 
+    // Notify ProcessService that approvals were expired so process state can be updated
+    try {
+      await this.notifyApprovalResolved(id, 0, "expired");
+    } catch (err) {
+      logger.warn(
+        { event: "notify-approval-resolved-failed", err, processId: id },
+        "Failed to notify approval resolution after kill",
+      );
+    }
+
     this.controller.kill(pid).catch((err) => {
       logger.warn(
         { event: "kill-signal-failed", err, processId: id, pid },
@@ -1013,6 +1023,8 @@ export class ProcessService {
       const stored = this.processes.get(pid);
       if (stored) {
         stored.state = "suspended";
+        // Update lastExecutedAt to suspension time so timeout calculation is correct on resume
+        stored.lastExecutedAt = Date.now();
         if (stored.timeoutMs !== null) {
           const elapsed = Math.max(0, Date.now() - stored.lastExecutedAt);
           const remaining = Math.max(0, stored.timeoutMs - elapsed);
