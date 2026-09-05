@@ -200,6 +200,7 @@ export async function resolveApproval(
         .returning({ processId: approvalRequests.processId });
 
       if (!updated) {
+        let shouldExpireStale = false;
         if (targetState !== "expired") {
           const [stale] = await tx
             .select({ id: approvalRequests.id })
@@ -217,15 +218,10 @@ export async function resolveApproval(
               .update(approvalRequests)
               .set({ state: "expired", decidedAt: now })
               .where(eq(approvalRequests.id, id));
-            try {
-              const { resolveApprovalWaiter } = await import(
-                "@/services/approval-waiter"
-              );
-              resolveApprovalWaiter(id, "expired");
-            } catch {}
+            shouldExpireStale = true;
           }
         }
-        return { resolved: false };
+        return { resolved: false, shouldExpireStale };
       }
 
       const pendingCount =
@@ -246,6 +242,14 @@ export async function resolveApproval(
       return { resolved: true, processId: updated.processId, pendingCount };
     })
     .then(async (outcome) => {
+      if (outcome.shouldExpireStale) {
+        try {
+          const { resolveApprovalWaiter } = await import(
+            "@/services/approval-waiter"
+          );
+          resolveApprovalWaiter(id, "expired");
+        } catch {}
+      }
       if (outcome.resolved) {
         try {
           const { resolveApprovalWaiter } = await import(

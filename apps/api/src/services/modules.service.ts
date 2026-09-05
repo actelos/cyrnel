@@ -35,6 +35,7 @@ import { decompress as zstdDecompress } from "fzstd";
 import { satisfies } from "semver";
 import { Unpack } from "tar";
 import { z } from "zod";
+import { parseApprovalTimeout } from "@/app";
 import { CYRNEL_CORE_VERSION } from "@/constants";
 import { db } from "@/db/client";
 import {
@@ -420,14 +421,9 @@ export class ModuleService {
     if (decision === "ask") {
       const approvalId = `apr_${randomUUID().replace(/-/g, "")}`;
       const now = Date.now();
-      const timeoutMs = (() => {
-        const raw = process.env.CYRNEL_APPROVAL_TIMEOUT_MS;
-        const MAX = 2_147_483_647;
-        if (raw === undefined) return 300_000;
-        const n = Number(raw);
-        if (!Number.isInteger(n) || n < 1 || n > MAX) return 300_000;
-        return n;
-      })();
+      const timeoutMs = parseApprovalTimeout(
+        process.env.CYRNEL_APPROVAL_TIMEOUT_MS,
+      );
       const expiresAt = now + timeoutMs;
       const createdAt = new Date().toISOString();
       const processId = input.processId ?? input.eid ?? null;

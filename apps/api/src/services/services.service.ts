@@ -107,10 +107,6 @@ const encryptedSecretsSchema = z.object({
   ciphertext: z.string(),
 });
 
-function resolvePolicyDefault(): "ask" {
-  return "ask";
-}
-
 async function syncToolPolicies(
   tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
   serviceId: string,
@@ -141,7 +137,7 @@ async function syncToolPolicies(
       toInsert.map((t) => ({
         serviceId,
         toolId: t.id,
-        decision: resolvePolicyDefault(),
+        decision: "ask" as const,
         createdAt: new Date().toISOString(),
         updatedAt: Date.now(),
       })),

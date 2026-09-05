@@ -5,7 +5,16 @@ import type {
   ExecutionInput,
   ExecutionState,
 } from "@cyrnel/sdk";
-import { and, desc, eq, isNotNull, isNull, type SQL, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  type SQL,
+  sql,
+} from "drizzle-orm";
 
 import { db } from "@/db/client";
 import {
@@ -182,15 +191,16 @@ export class ProcessService {
           process.exitState === filters.exitState) &&
         (filters.ref === undefined || process.ref === filters.ref),
     );
-    const inMemory: GetProcessResult[] = [];
-    for (const p of inMemoryRecords) {
-      if (p.state === "suspended") {
-        const ids = await this.fetchPendingApprovalIds(p.dbId);
-        inMemory.push(this.project(p, ids));
-      } else {
-        inMemory.push(this.project(p));
-      }
-    }
+    const suspendedIds = inMemoryRecords
+      .filter((p) => p.state === "suspended")
+      .map((p) => p.dbId);
+    const approvalsByProcess =
+      await this.fetchPendingApprovalIdsBatch(suspendedIds);
+    const inMemory: GetProcessResult[] = inMemoryRecords.map((p) =>
+      p.state === "suspended"
+        ? this.project(p, approvalsByProcess.get(p.dbId) ?? [])
+        : this.project(p),
+    );
 
     const inMemoryIds = new Set(this.pidIndex.keys());
     const merged: GetProcessResult[] = [...inMemory];
@@ -961,12 +971,49 @@ export class ProcessService {
     }
   }
 
+  private async fetchPendingApprovalIdsBatch(
+    processIds: number[],
+  ): Promise<Map<number, string[]>> {
+    const grouped = new Map<number, string[]>();
+    if (processIds.length === 0) return grouped;
+    try {
+      const rows = await db
+        .select({
+          id: approvalRequestsTable.id,
+          processId: approvalRequestsTable.processId,
+        })
+        .from(approvalRequestsTable)
+        .where(
+          and(
+            inArray(approvalRequestsTable.processId, processIds),
+            eq(approvalRequestsTable.state, "pending"),
+          ),
+        )
+        .all();
+      for (const row of rows) {
+        if (row.processId === null) continue;
+        const existing = grouped.get(row.processId);
+        if (existing) existing.push(row.id);
+        else grouped.set(row.processId, [row.id]);
+      }
+    } catch {
+      return grouped;
+    }
+    return grouped;
+  }
+
   async suspendProcess(processId: number): Promise<void> {
     const pid = this.pidIndex.get(processId);
     if (pid !== undefined) {
       const stored = this.processes.get(pid);
       if (stored) {
         stored.state = "suspended";
+        // Capture remaining timeout excluding approval wait time
+        if (stored.timeoutMs !== null) {
+          const elapsed = Math.max(0, Date.now() - stored.lastExecutedAt);
+          const remaining = Math.max(0, stored.timeoutMs - elapsed);
+          stored.timeoutMs = remaining;
+        }
         const handle = this.timeoutHandles.get(pid);
         if (handle) {
           clearTimeout(handle);
@@ -1008,10 +1055,7 @@ export class ProcessService {
         const handle = this.timeoutHandles.get(pid);
         if (handle) clearTimeout(handle);
         if (stored.timeoutMs !== null) {
-          const remaining = Math.max(
-            0,
-            stored.timeoutMs - (Date.now() - stored.lastExecutedAt),
-          );
+          const remaining = stored.timeoutMs;
           const h = setTimeout(() => {
             this.controller.kill(pid).catch(() => {});
             const s = this.processes.get(pid);
@@ -1022,12 +1066,10 @@ export class ProcessService {
           }, remaining);
           this.timeoutHandles.set(pid, h);
         }
-        try {
-          await db
-            .update(processesTable)
-            .set({ state: "running" })
-            .where(eq(processesTable.id, processId));
-        } catch {}
+        await db
+          .update(processesTable)
+          .set({ state: "running" })
+          .where(eq(processesTable.id, processId));
       }
     } finally {
       this.approvalLocks.delete(processId);

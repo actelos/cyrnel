@@ -302,7 +302,7 @@ function parseAutoUpdateInterval(raw: string | undefined): number {
   return parsed;
 }
 
-function parseApprovalTimeout(raw: string | undefined): number {
+export function parseApprovalTimeout(raw: string | undefined): number {
   if (raw === undefined) return DEFAULT_APPROVAL_TIMEOUT_MS;
   const parsed = Number(raw);
   if (!Number.isInteger(parsed) || parsed < 1) {
