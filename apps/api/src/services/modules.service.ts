@@ -385,7 +385,6 @@ export class ModuleService {
       );
     }
 
-    // Centralized policy gate — exactly one place (§4.2)
     const policyRow = await db
       .select({ decision: toolPoliciesTable.decision })
       .from(toolPoliciesTable)
@@ -430,7 +429,6 @@ export class ModuleService {
       const encrypted = encryptSecrets(
         input.parameters as Record<string, unknown>,
       );
-      // Insert approval request first, then register waiter to avoid race condition
       try {
         await db.insert(approvalRequestsTable).values({
           id: approvalId,
@@ -446,7 +444,6 @@ export class ModuleService {
       } catch {
         throw new HttpError(500, "Failed to create approval request.");
       }
-      // Register waiter after successful insert
       const _waiterPromise =
         processId != null ? waitForApproval(approvalId, processId) : null;
       logger.info(
@@ -459,7 +456,6 @@ export class ModuleService {
         },
         "Tool invocation requires approval",
       );
-      // Suspend process via ProcessService to keep in-memory and DB state synchronized, and pause both host and isolate timeouts
       if (processId != null) {
         const ps = getProcessService();
         if (ps) {
@@ -467,27 +463,7 @@ export class ModuleService {
             await ps.suspendProcess(processId);
             const pid = ps.getPidForDbId(processId);
             if (pid !== undefined && this.activeEnvironment?.module) {
-              try {
-                await this.activeEnvironment.module.suspend(pid);
-              } catch (suspendErr) {
-                logger.error(
-                  {
-                    event: "environment-suspend-failed",
-                    err: suspendErr,
-                    processId,
-                    pid,
-                  },
-                  "Failed to suspend isolate timeout, expiring approval",
-                );
-                const { resolveApprovalWaiter } = await import(
-                  "@/services/approval-waiter"
-                );
-                resolveApprovalWaiter(approvalId, "expired");
-                throw new HttpError(
-                  500,
-                  "Failed to suspend isolate timeout for approval.",
-                );
-              }
+              await this.activeEnvironment.module.suspend(pid);
             }
           } catch (err) {
             logger.warn(
@@ -498,6 +474,11 @@ export class ModuleService {
               "@/services/approval-waiter"
             );
             resolveApprovalWaiter(approvalId, "expired");
+            void db
+              .update(approvalRequestsTable)
+              .set({ state: "expired", decidedAt: Date.now() })
+              .where(eq(approvalRequestsTable.id, approvalId))
+              .catch(() => {});
             throw new HttpError(500, "Failed to suspend process for approval.");
           }
         } else {
@@ -515,12 +496,15 @@ export class ModuleService {
               "@/services/approval-waiter"
             );
             resolveApprovalWaiter(approvalId, "expired");
+            void db
+              .update(approvalRequestsTable)
+              .set({ state: "expired", decidedAt: Date.now() })
+              .where(eq(approvalRequestsTable.id, approvalId))
+              .catch(() => {});
             throw new HttpError(500, "Failed to suspend process for approval.");
           }
         }
       }
-      // Park until approved/denied/expired — keep ivm.Reference alive via waitForApproval
-      // processId may be null for direct SDK calls; waitForApproval handles null processId
       const resolvedState = await waitForApproval(
         approvalId,
         processId ?? null,
@@ -541,7 +525,6 @@ export class ModuleService {
           const ps = getProcessService();
           if (ps) {
             try {
-              // recompute pendingCount for this process
               const [{ count: pending }] = await db
                 .select({ count: sql<number>`count(*)` })
                 .from(approvalRequestsTable)
@@ -601,7 +584,6 @@ export class ModuleService {
         }
         return await this.invokeAdapterWithTimeout(row.adapter, input);
       }
-      // For denied/expired, ensure isolate timeout is resumed before throwing catchable __ivmError
       if (processId != null) {
         const ps = getProcessService();
         if (ps) {
@@ -2048,7 +2030,6 @@ export class ModuleService {
                 })),
               );
             }
-            // sync tool_policies — same helper as ServicesService (§A.2)
             {
               const existing = await tx
                 .select({ toolId: toolPoliciesTable.toolId })
@@ -2232,9 +2213,6 @@ export class ModuleService {
       ? config
       : applyJsonSchemaDefaults(
           manifest.configSchema,
-          // Conformant projection: validates identically to the
-          // declared-only projection (permitted keys are unconstrained)
-          // while delivering schema-permitted keys to the module.
           filterPayloadToSchema(manifest.configSchema, config, {
             keepPermitted: true,
           }),

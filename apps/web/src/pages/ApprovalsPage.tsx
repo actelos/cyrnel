@@ -404,7 +404,7 @@ export default function ApprovalsPage() {
                 Process:{" "}
                 {selected?.processId ? (
                   <a
-                    href={`/processes/${selected.processId}`}
+                    href={`/processes?processId=${selected.processId}`}
                     className="font-mono underline hover:no-underline"
                     target="_blank"
                     rel="noopener noreferrer"

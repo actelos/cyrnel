@@ -20,11 +20,11 @@ CREATE TABLE `tool_policies` (
 	`tool_id` text NOT NULL,
 	`decision` text NOT NULL,
 	`created_at` text NOT NULL,
-	`updated_at` integer NOT NULL,
+	`updated_at` integer,
 	PRIMARY KEY(`service_id`, `tool_id`),
 	FOREIGN KEY (`service_id`) REFERENCES `services`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
 ALTER TABLE `processes` ADD `state` text DEFAULT 'idle' NOT NULL;--> statement-breakpoint
 UPDATE `processes` SET `state` = 'running' WHERE `id` NOT IN (SELECT `process_id` FROM `process_data`);--> statement-breakpoint
-INSERT OR IGNORE INTO `tool_policies` (`service_id`, `tool_id`, `decision`, `created_at`, `updated_at`) SELECT `service_id`, `id`, CASE WHEN `enabled` THEN 'allow' ELSE 'ask' END, strftime('%Y-%m-%dT%H:%M:%fZ','now'), unixepoch()*1000 FROM `tools`;
+INSERT OR IGNORE INTO `tool_policies` (`service_id`, `tool_id`, `decision`, `created_at`, `updated_at`) SELECT `service_id`, `id`, CASE WHEN `enabled` THEN 'allow' ELSE 'ask' END, strftime('%Y-%m-%dT%H:%M:%fZ','now'), CASE WHEN `enabled` THEN unixepoch()*1000 ELSE NULL END FROM `tools`;

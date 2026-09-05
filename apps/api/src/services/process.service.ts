@@ -158,8 +158,10 @@ export class ProcessService {
     }
 
     if (filters.state !== undefined) {
-      if (filters.state === "idle" || filters.state === "terminated") {
+      if (filters.state === "idle") {
         conditions.push(isNotNull(processDataTable.exitState));
+      } else if (filters.state === "terminated") {
+        conditions.push(eq(processesTable.state, "terminated"));
       } else {
         conditions.push(sql`1 = 0`);
       }
@@ -662,9 +664,12 @@ export class ProcessService {
           s.state = "idle";
           s.exitState = "timeout";
         }
+        this.timeoutHandles.delete(stored.pid);
       }, stored.timeoutMs);
+      this.timeoutHandles.set(stored.pid, timeoutHandle);
       context.promise = context.promise.then(() => {
         clearTimeout(timeoutHandle);
+        this.timeoutHandles.delete(stored.pid);
       });
     }
 
@@ -1008,7 +1013,6 @@ export class ProcessService {
       const stored = this.processes.get(pid);
       if (stored) {
         stored.state = "suspended";
-        // Capture remaining timeout excluding approval wait time
         if (stored.timeoutMs !== null) {
           const elapsed = Math.max(0, Date.now() - stored.lastExecutedAt);
           const remaining = Math.max(0, stored.timeoutMs - elapsed);
@@ -1051,7 +1055,6 @@ export class ProcessService {
       const stored = this.processes.get(pid);
       if (!stored) return;
       if (pendingCount === 0 && stored.state === "suspended") {
-        stored.state = "running";
         const handle = this.timeoutHandles.get(pid);
         if (handle) clearTimeout(handle);
         if (stored.timeoutMs !== null) {
@@ -1070,6 +1073,7 @@ export class ProcessService {
           .update(processesTable)
           .set({ state: "running" })
           .where(eq(processesTable.id, processId));
+        stored.state = "running";
       }
     } finally {
       this.approvalLocks.delete(processId);

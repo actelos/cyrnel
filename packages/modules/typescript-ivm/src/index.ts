@@ -1215,6 +1215,12 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
   }
 
   private async terminateExecution(worker: WorkerSlot): Promise<void> {
+    const eid = worker.running?.eid;
+    if (eid !== undefined) {
+      this.suspendedEids.delete(eid);
+      this.suspendTimeouts.delete(eid);
+    }
+
     try {
       worker.isolate.dispose();
       worker.isolate = new ivm.Isolate({

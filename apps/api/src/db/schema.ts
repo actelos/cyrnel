@@ -247,7 +247,7 @@ export const toolPolicies = sqliteTable(
     toolId: text("tool_id").notNull(),
     decision: text("decision", { enum: ["allow", "block", "ask"] }).notNull(),
     createdAt: text("created_at").notNull(),
-    updatedAt: integer("updated_at").notNull(),
+    updatedAt: integer("updated_at"),
   },
   (t) => [primaryKey({ columns: [t.serviceId, t.toolId] })],
 );

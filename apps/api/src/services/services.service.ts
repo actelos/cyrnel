@@ -139,7 +139,7 @@ async function syncToolPolicies(
         toolId: t.id,
         decision: "ask" as const,
         createdAt: new Date().toISOString(),
-        updatedAt: Date.now(),
+        updatedAt: null,
       })),
     );
   }
@@ -365,7 +365,6 @@ export class ServicesService {
           limit: limit + 1,
           afterKey,
         });
-        // Apply decision filter to search hits before pagination (§I.1 - search path)
         let filteredHits = hits;
         if (input.decision) {
           const hitIds = hits.map((h) => h.toolId);
@@ -378,14 +377,6 @@ export class ServicesService {
                 })
                 .from(toolPolicies)
                 .where(inArray(toolPolicies.toolId, hitIds))
-                .catch(
-                  () =>
-                    [] as {
-                      serviceId: string;
-                      toolId: string;
-                      decision: string;
-                    }[],
-                )
             : [];
           const policyMap = new Map(
             policyRows.map((p) => [`${p.serviceId}:${p.toolId}`, p.decision]),
@@ -396,7 +387,6 @@ export class ServicesService {
             return dec === input.decision;
           });
         }
-        // Attach policy to hits for response
         const hitPolicyMap = new Map<
           string,
           { decision: "allow" | "block" | "ask"; updatedAt: number | null }
@@ -411,16 +401,7 @@ export class ServicesService {
               updatedAt: toolPolicies.updatedAt,
             })
             .from(toolPolicies)
-            .where(inArray(toolPolicies.toolId, hitIds))
-            .catch(
-              () =>
-                [] as {
-                  serviceId: string;
-                  toolId: string;
-                  decision: "allow" | "block" | "ask";
-                  updatedAt: number;
-                }[],
-            );
+            .where(inArray(toolPolicies.toolId, hitIds));
           for (const r of rows)
             hitPolicyMap.set(`${r.serviceId}:${r.toolId}`, {
               decision: r.decision as "allow" | "block" | "ask",
@@ -1246,7 +1227,6 @@ export class ServicesService {
       throw new HttpError(500, `Failed to delete service '${id}'.`);
     }
 
-    // Post-commit: resolve waiters and notify ProcessService for each expired approval
     for (const { id: approvalId } of expiredApprovals) {
       try {
         const { resolveApprovalWaiter } = await import(
@@ -1424,7 +1404,10 @@ export class ServicesService {
     serviceId: string;
     toolId: string;
     decision: "allow" | "block" | "ask";
-  }): Promise<{ decision: "allow" | "block" | "ask"; updatedAt: number }> {
+  }): Promise<{
+    decision: "allow" | "block" | "ask";
+    updatedAt: number | null;
+  }> {
     const [tool] = await db
       .select({ id: tools.id })
       .from(tools)
@@ -1832,9 +1815,6 @@ export class ServicesService {
         ? config
         : applyJsonSchemaDefaults(
             configSchema,
-            // Conformant projection: validates identically to the
-            // declared-only projection (permitted keys are unconstrained)
-            // while delivering schema-permitted keys to the adapter.
             filterPayloadToSchema(configSchema, config, {
               keepPermitted: true,
             }),
