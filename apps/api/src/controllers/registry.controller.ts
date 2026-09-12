@@ -40,22 +40,46 @@ const createRegistryBodySchema = z.object({
   baseUrl: registryBaseUrlBodySchema,
 });
 
-const apiKeyAuthSchema = z.object({
+const schemeNameSchema = nonEmptyTrimmedString("schemeName");
+
+const machineApiKeyAuthSchema = z.object({
+  schemeName: schemeNameSchema,
   type: z.literal("apiKey"),
   apiKey: nonEmptyTrimmedString("apiKey"),
 });
 
-const oauthAuthSchema = z.object({
+const machineBasicAuthSchema = z.object({
+  schemeName: schemeNameSchema,
+  type: z.literal("basic"),
+  username: nonEmptyTrimmedString("username"),
+  password: z.string({ error: "Field 'password' must be a string." }).min(1),
+});
+
+const machineBearerAuthSchema = z.object({
+  schemeName: schemeNameSchema,
+  type: z.literal("bearer"),
+  token: nonEmptyTrimmedString("token"),
+});
+
+const machineOauthAuthSchema = z.object({
+  schemeName: schemeNameSchema,
   type: z.literal("oauth2"),
+  grant: z.literal("client_credentials"),
   clientId: nonEmptyTrimmedString("clientId"),
   clientSecret: nonEmptyTrimmedString("clientSecret"),
   scopes: z.array(nonEmptyTrimmedString("scopes")).optional(),
 });
 
 const registryAuthBodySchema = z.discriminatedUnion("type", [
-  apiKeyAuthSchema,
-  oauthAuthSchema,
+  machineApiKeyAuthSchema,
+  machineBasicAuthSchema,
+  machineBearerAuthSchema,
+  machineOauthAuthSchema,
 ]);
+
+const deleteRegistryAuthQuerySchema = z.object({
+  schemeName: nonEmptyTrimmedString("schemeName").optional(),
+});
 
 export async function listRegistries(
   req: Request,
@@ -119,7 +143,6 @@ function isHttpUrl(value: string): boolean {
 const addRegistryBodySchema = z.object({
   baseUrl: registryBaseUrlBodySchema,
   id: registryIdBodySchema.optional(),
-  auth: registryAuthBodySchema.optional(),
 });
 
 const browseQuerySchema = paginationQuerySchema.extend({
@@ -144,7 +167,6 @@ export async function addRegistry(req: Request, res: Response): Promise<void> {
   const record = await registriesService.addRegistry(
     payload.baseUrl,
     payload.id,
-    payload.auth,
   );
   res.status(201).json(record);
 }
@@ -182,8 +204,13 @@ export async function deleteRegistryAuth(
 ): Promise<void> {
   const registriesService = getRegistriesService(req);
   const id = parseRegistryId(req.params.id);
+  const query = parseOrHttpError(
+    deleteRegistryAuthQuerySchema,
+    req.query,
+    "Invalid query parameters.",
+  );
 
-  await registriesService.deleteRegistryAuth(id);
+  await registriesService.deleteRegistryAuth(id, query.schemeName);
 
   res.status(204).send();
 }

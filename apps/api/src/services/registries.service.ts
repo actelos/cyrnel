@@ -1,9 +1,20 @@
-import { and, desc, eq, type SQL } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
+import { and, desc, eq, inArray, type SQL } from "drizzle-orm";
 
 import { db } from "@/db/client";
-import { type RegistryRecord, registries, registryAuth } from "@/db/schema";
+import {
+  type RegistryCredentialRecord,
+  type RegistryRecord,
+  registries,
+  registryCredentialAuth,
+  registryCredentials,
+} from "@/db/schema";
 import { logger } from "@/infra/logging";
 import { HttpError } from "@/models/error.model";
+import {
+  CredentialService,
+  type CredentialSummary,
+} from "@/services/credential.service";
 import {
   getUniqueConstraintColumn,
   isUniqueConstraintError,
@@ -19,20 +30,16 @@ import {
 import {
   fetchRegistryCapabilityPage,
   fetchRegistryIndex,
+  invalidateRegistryIndexCache,
   type RegistryAuthDeclaration,
-  type RegistryAuthScope,
+  type RegistryIndexInfo,
   type RegistryPage,
 } from "@/utils/registry.util";
 import {
-  exchangeClientCredentials,
   invalidateRegistryAuthCache,
   isCredentialTransportAllowed,
 } from "@/utils/registry-auth.util";
-import {
-  decryptSecrets,
-  type EncryptedSecretsPayload,
-  encryptSecrets,
-} from "@/utils/secrets.util";
+import { encryptSecrets } from "@/utils/secrets.util";
 
 const REGISTRY_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 
@@ -46,62 +53,62 @@ export interface ListRegistriesInput {
   cursor?: string;
 }
 
-export interface RegistryAuthSetupInput {
-  type: "apiKey";
-  apiKey: string;
-}
-
-export interface RegistryOAuthSetupInput {
-  type: "oauth2";
-  clientId: string;
-  clientSecret: string;
-  scopes?: string[];
-}
-
-export type RegistryAuthSetupInputUnion =
-  | RegistryAuthSetupInput
-  | RegistryOAuthSetupInput;
+export type RegistryMachineAuthMaterial =
+  | { schemeName: string; type: "apiKey"; apiKey: string }
+  | {
+      schemeName: string;
+      type: "basic";
+      username: string;
+      password: string;
+    }
+  | { schemeName: string; type: "bearer"; token: string }
+  | {
+      schemeName: string;
+      type: "oauth2";
+      grant: "client_credentials";
+      clientId: string;
+      clientSecret: string;
+      scopes?: string[];
+    };
 
 export interface RegistryAuthSetupResult {
-  type: "apiKey" | "oauth2";
+  credential: CredentialSummary;
   status: "configured" | "error";
   message?: string;
   tokenExpiresAt?: number | null;
 }
 
 export type RegistryListRecord = RegistryRecord & {
-  authType: "apiKey" | "oauth2" | null;
-  tokenExpiresAt: number | null;
+  configuredSchemes: string[];
 };
 
-type ResolvedAuthDeclaration =
-  | {
-      ok: true;
-      type: "apiKey";
-      declaration: { type: "apiKey"; name: string };
-      material: RegistryAuthSetupInput;
-    }
-  | {
-      ok: true;
-      type: "oauth2";
-      declaration: {
-        type: "oauth2";
-        grantType: "client_credentials";
-        tokenEndpoint: string;
-        scopes?: RegistryAuthScope[];
-      };
-      material: RegistryOAuthSetupInput;
-    }
-  | { ok: false; message: string };
+export interface RegistryAuthState {
+  schemes: RegistryAuthDeclaration["schemes"];
+  security: RegistryAuthDeclaration["security"];
+  credentials: CredentialSummary[];
+}
 
-interface AuthStateRecord {
-  authType: "apiKey" | "oauth2" | null;
-  tokenEndpoint: string | null;
-  headerName: string | null;
-  tokenExpiresAt: number | null;
+function parseNormalizedHttpUrl(raw: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+  return parsed.toString();
+}
+
+function schemeTypeLabel(scheme: { type?: string; scheme?: string }): string {
+  if (scheme.type === "http" && typeof scheme.scheme === "string") {
+    return `http/${scheme.scheme}`;
+  }
+  return (scheme.type ?? "unknown") as string;
 }
 
 export class RegistriesService {
+  private readonly credentials = new CredentialService();
+
   async createRegistry(input: CreateRegistryInput): Promise<RegistryRecord> {
     const id = input.id.trim();
     if (!REGISTRY_ID_PATTERN.test(id)) {
@@ -171,17 +178,8 @@ export class RegistriesService {
     }
 
     const rows = await db
-      .select({
-        id: registries.id,
-        baseUrl: registries.baseUrl,
-        lastSyncedAt: registries.lastSyncedAt,
-        createdAt: registries.createdAt,
-        updatedAt: registries.updatedAt,
-        authType: registryAuth.authType,
-        tokenExpiresAt: registryAuth.tokenExpiresAt,
-      })
+      .select()
       .from(registries)
-      .leftJoin(registryAuth, eq(registryAuth.registryId, registries.id))
       .where(and(...conditions))
       .orderBy(desc(registries.createdAt), desc(registries.id))
       .limit(limit + 1)
@@ -189,7 +187,38 @@ export class RegistriesService {
         throw new HttpError(500, "Failed to list registries.");
       });
 
-    return paginatePage(rows, limit, (item) => [item.createdAt, item.id]);
+    const page = paginatePage(rows, limit, (item) => [item.createdAt, item.id]);
+    const configured = await this.configuredSchemesFor(
+      page.items.map((item) => item.id),
+    );
+    return {
+      ...page,
+      items: page.items.map((item) => ({
+        ...item,
+        configuredSchemes: configured.get(item.id) ?? [],
+      })),
+    };
+  }
+
+  private async configuredSchemesFor(
+    ids: string[],
+  ): Promise<Map<string, string[]>> {
+    const map = new Map<string, string[]>();
+    if (ids.length === 0) return map;
+    const rows = await db
+      .select({
+        registryId: registryCredentials.registryId,
+        schemeName: registryCredentials.schemeName,
+      })
+      .from(registryCredentials)
+      .where(inArray(registryCredentials.registryId, ids))
+      .catch(() => [] as Array<{ registryId: string; schemeName: string }>);
+    for (const row of rows) {
+      const list = map.get(row.registryId) ?? [];
+      list.push(row.schemeName);
+      map.set(row.registryId, list);
+    }
+    return map;
   }
 
   async getRegistry(id: string): Promise<RegistryRecord> {
@@ -206,86 +235,33 @@ export class RegistriesService {
     return row;
   }
 
-  async getAuthState(id: string): Promise<AuthStateRecord> {
-    const [row] = await db
-      .select({
-        authType: registryAuth.authType,
-        tokenEndpoint: registryAuth.tokenEndpoint,
-        headerName: registryAuth.headerName,
-        tokenExpiresAt: registryAuth.tokenExpiresAt,
-      })
-      .from(registryAuth)
-      .where(eq(registryAuth.registryId, id))
-      .limit(1)
-      .catch(() => {
-        throw new HttpError(500, `Failed to load registry '${id}' auth.`);
-      });
-
-    if (!row) {
-      return {
-        authType: null,
-        tokenEndpoint: null,
-        headerName: null,
-        tokenExpiresAt: null,
-      };
-    }
-    return row;
-  }
-
-  async getRegistryAuthState(id: string): Promise<
-    AuthStateRecord & {
-      availableScopes: RegistryAuthScope[];
-      configuredScopes: string[];
-    }
-  > {
+  async getRegistryAuthState(id: string): Promise<RegistryAuthState> {
     const registry = await this.getRegistry(id);
-    const state = await this.getAuthState(id);
-
-    let configuredScopes: string[] = [];
-    if (state.authType === "oauth2") {
-      const [row] = await db
-        .select({ config: registryAuth.config })
-        .from(registryAuth)
-        .where(eq(registryAuth.registryId, id))
-        .limit(1)
-        .catch(() => {
-          throw new HttpError(500, `Failed to load registry '${id}' auth.`);
-        });
-      if (row) {
-        try {
-          const config = decryptSecrets(row.config);
-          if (
-            Array.isArray(config.scopes) &&
-            config.scopes.every((scope) => typeof scope === "string")
-          ) {
-            configuredScopes = config.scopes as string[];
-          }
-        } catch (err) {
-          logger.warn(
-            { err, registryId: id },
-            "Failed to decrypt registry auth config for scope read",
-          );
-        }
-      }
+    let index: RegistryIndexInfo;
+    try {
+      index = await fetchRegistryIndex(registry.baseUrl);
+    } catch (error) {
+      if (error instanceof HttpError) throw error;
+      throw new HttpError(
+        502,
+        `Failed to fetch registry '${id}' well-known document.`,
+      );
     }
-
-    const index = await fetchRegistryIndex(registry.baseUrl);
-    const availableScopes =
-      index.auth?.type === "oauth2" ? (index.auth.scopes ?? []) : [];
-
-    return { ...state, availableScopes, configuredScopes };
+    const credentials = await this.credentials
+      .forRegistry(id)
+      .listCredentials();
+    return {
+      schemes: index.auth?.schemes ?? {},
+      security: index.auth?.security ?? [],
+      credentials,
+    };
   }
 
   async deleteRegistry(id: string): Promise<void> {
     const deleted = await db
-      .transaction(async (tx) => {
-        await tx.delete(registryAuth).where(eq(registryAuth.registryId, id));
-        const result = await tx
-          .delete(registries)
-          .where(eq(registries.id, id))
-          .returning({ id: registries.id });
-        return result;
-      })
+      .delete(registries)
+      .where(eq(registries.id, id))
+      .returning({ id: registries.id })
       .catch(() => {
         throw new HttpError(500, `Failed to delete registry '${id}'.`);
       });
@@ -294,13 +270,24 @@ export class RegistriesService {
       throw new HttpError(404, `Registry '${id}' not found.`);
     }
     invalidateRegistryAuthCache();
+    invalidateRegistryIndexCache();
   }
 
   async addRegistry(
     baseUrl: string,
     id?: string,
-    auth?: RegistryAuthSetupInputUnion,
-  ): Promise<RegistryRecord & { auth: RegistryAuthSetupResult | null }> {
+  ): Promise<
+    RegistryRecord & {
+      auth: {
+        schemes: RegistryAuthDeclaration["schemes"];
+        security: RegistryAuthDeclaration["security"];
+      };
+      resolvedClients: Record<
+        string,
+        Awaited<ReturnType<CredentialService["resolveOAuthClients"]>>
+      >;
+    }
+  > {
     const index = await fetchRegistryIndex(baseUrl);
 
     if (!index.definitions && !index.modules) {
@@ -311,64 +298,39 @@ export class RegistriesService {
     }
 
     const resolvedId = id?.trim() || index.id;
+    const record = await this.createRegistry({
+      id: resolvedId,
+      baseUrl,
+    });
 
-    let authResult: RegistryAuthSetupResult | null = null;
-    let tokenState: Awaited<
-      ReturnType<typeof exchangeClientCredentials>
-    > | null = null;
-
-    if (auth) {
-      const resolved = await this.resolveAuthDeclaration(
-        index.auth,
-        auth,
-        baseUrl,
-      );
-      if (!resolved.ok) {
-        authResult = {
-          type: auth.type,
-          status: "error",
-          message: resolved.message,
-        };
-      } else {
-        if (resolved.type === "oauth2") {
-          try {
-            tokenState = await exchangeClientCredentials({
-              type: "oauth2",
-              clientId: resolved.material.clientId,
-              clientSecret: resolved.material.clientSecret,
-              tokenEndpoint: resolved.declaration.tokenEndpoint,
-              scopes:
-                resolved.material.scopes ??
-                resolved.declaration.scopes?.map((scope) => scope.id),
+    const resolvedClients: Record<
+      string,
+      Awaited<ReturnType<CredentialService["resolveOAuthClients"]>>
+    > = {};
+    if (index.auth) {
+      for (const [schemeName, scheme] of Object.entries(index.auth.schemes)) {
+        if (
+          scheme.type === "oauth2" &&
+          scheme.grantTypes.includes("authorization_code") &&
+          scheme.authorizationUrl
+        ) {
+          resolvedClients[schemeName] =
+            await this.credentials.resolveOAuthClients({
+              authorizationUrl: scheme.authorizationUrl,
             });
-          } catch (error) {
-            if (error instanceof HttpError && error.statusCode === 400) {
-              throw error;
-            }
-            authResult = {
-              type: auth.type,
-              status: "error",
-              message: authFailureMessage(error),
-            };
-            tokenState = null;
-          }
         }
       }
     }
 
-    const record = await this.createRegistry({ id: resolvedId, baseUrl });
-
-    if (auth && authResult === null) {
-      authResult = await this.persistAuth(
-        record.id,
-        auth,
-        index.auth,
-        tokenState,
-      );
-    }
-
     invalidateRegistryAuthCache();
-    return { ...record, auth: authResult };
+    return {
+      ...record,
+      auth: {
+        schemes: index.auth?.schemes ?? {},
+        security: index.auth?.security ?? [],
+      },
+      resolvedClients,
+    };
   }
 
   async refreshRegistry(id: string): Promise<RegistryRecord> {
@@ -383,7 +345,7 @@ export class RegistriesService {
       );
     }
 
-    await this.warnOnAuthDrift(id, index.auth);
+    await this.warnOnAuthDrift(id, index);
 
     const now = new Date().toISOString();
     const [row] = await db
@@ -395,74 +357,225 @@ export class RegistriesService {
         throw new HttpError(500, `Failed to refresh registry '${id}'.`);
       });
 
+    invalidateRegistryIndexCache(existing.baseUrl);
     return row;
   }
 
   async setRegistryAuth(
     id: string,
-    auth: RegistryAuthSetupInputUnion,
+    material: RegistryMachineAuthMaterial,
   ): Promise<{ auth: RegistryAuthSetupResult }> {
     const registry = await this.getRegistry(id);
-
     const index = await fetchRegistryIndex(registry.baseUrl);
-
-    const resolved = await this.resolveAuthDeclaration(
-      index.auth,
-      auth,
-      registry.baseUrl,
-    );
-    if (!resolved.ok) {
-      throw new HttpError(400, resolved.message);
+    if (!index.auth) {
+      throw new HttpError(
+        400,
+        `Registry '${id}' does not advertise authentication.`,
+      );
+    }
+    const declared = index.auth.schemes[material.schemeName];
+    if (!declared) {
+      throw new HttpError(
+        400,
+        `Scheme '${material.schemeName}' is not declared by registry '${id}'.`,
+      );
     }
 
-    let tokenState: Awaited<
-      ReturnType<typeof exchangeClientCredentials>
-    > | null = null;
-    if (resolved.type === "oauth2") {
-      try {
-        tokenState = await exchangeClientCredentials({
-          type: "oauth2",
-          clientId: resolved.material.clientId,
-          clientSecret: resolved.material.clientSecret,
-          tokenEndpoint: resolved.declaration.tokenEndpoint,
-          scopes:
-            resolved.material.scopes ??
-            resolved.declaration.scopes?.map((scope) => scope.id),
-        });
-      } catch (error) {
-        if (error instanceof HttpError && error.statusCode === 400) {
-          throw error;
-        }
-        await this.persistAuth(id, auth, index.auth, null);
-        invalidateRegistryAuthCache();
-        return {
-          auth: {
-            type: auth.type,
-            status: "error",
-            message: authFailureMessage(error),
-          },
-        };
+    const store = this.credentials.forRegistry(id);
+    const expected = material.type === "oauth2" ? "oauth2" : material.type;
+    if (
+      (expected === "apiKey" && declared.type !== "apiKey") ||
+      (expected === "basic" && declared.type !== "basic") ||
+      (expected === "bearer" &&
+        !(declared.type === "http" && declared.scheme === "bearer")) ||
+      (expected === "oauth2" && declared.type !== "oauth2")
+    ) {
+      throw new HttpError(
+        400,
+        `Scheme '${material.schemeName}' requires '${schemeTypeLabel(declared)}' but the material is '${material.type}'.`,
+      );
+    }
+
+    if (material.type === "apiKey") {
+      if (!(await isCredentialTransportAllowed(registry.baseUrl))) {
+        throw plaintextRefusal();
+      }
+      const { credential } = await store.upsertApiKey(
+        material.schemeName,
+        material.apiKey,
+      );
+      invalidateRegistryAuthCache();
+      return {
+        auth: {
+          credential: await this.credentials.toSummary(credential),
+          status: "configured",
+        },
+      };
+    }
+    if (material.type === "basic") {
+      if (!(await isCredentialTransportAllowed(registry.baseUrl))) {
+        throw plaintextRefusal();
+      }
+      const { credential } = await store.upsertBasic(
+        material.schemeName,
+        material.username,
+        material.password,
+      );
+      invalidateRegistryAuthCache();
+      return {
+        auth: {
+          credential: await this.credentials.toSummary(credential),
+          status: "configured",
+        },
+      };
+    }
+    if (material.type === "bearer") {
+      if (!(await isCredentialTransportAllowed(registry.baseUrl))) {
+        throw plaintextRefusal();
+      }
+      const { credential } = await store.upsertBearer(
+        material.schemeName,
+        material.token,
+      );
+      invalidateRegistryAuthCache();
+      return {
+        auth: {
+          credential: await this.credentials.toSummary(credential),
+          status: "configured",
+        },
+      };
+    }
+
+    if (declared.type !== "oauth2") {
+      throw new HttpError(
+        500,
+        "Unreachable: oauth2 material with non-oauth2 scheme.",
+      );
+    }
+    if (!declared.grantTypes.includes("client_credentials")) {
+      throw new HttpError(
+        400,
+        `Scheme '${material.schemeName}' does not support the 'client_credentials' grant. Use the OAuth authorize flow for 'authorization_code'.`,
+      );
+    }
+    if (!(await isCredentialTransportAllowed(declared.tokenUrl))) {
+      throw new HttpError(
+        400,
+        "Registry oauth2 token endpoint must be https; refusing to store client credentials.",
+      );
+    }
+    const declaredScopeIds = Object.keys(declared.scopes);
+    if (material.scopes) {
+      const unknown = material.scopes.filter(
+        (scope) => !declaredScopeIds.includes(scope),
+      );
+      if (unknown.length > 0) {
+        throw new HttpError(
+          400,
+          `Requested scope(s) not advertised by the registry: ${unknown.join(", ")}.`,
+        );
       }
     }
 
-    const result = await this.persistAuth(id, auth, index.auth, tokenState);
+    const { exchangeClientCredentials } = await import(
+      "@/utils/registry-auth.util"
+    );
+    let token: {
+      accessToken: string;
+      refreshToken?: string;
+      expiresAt: number;
+    } | null = null;
+    let failure: string | null = null;
+    try {
+      token = await exchangeClientCredentials({
+        tokenEndpoint: declared.tokenUrl,
+        clientId: material.clientId,
+        clientSecret: material.clientSecret,
+        scopes: material.scopes ?? declaredScopeIds,
+      });
+    } catch (error) {
+      if (error instanceof HttpError && error.statusCode === 400) {
+        throw error;
+      }
+      failure = authFailureMessage(error);
+    }
+
+    const now = new Date().toISOString();
+    const existing = await store.getForScheme(material.schemeName);
+    const credentialId = existing?.id ?? randomUUID();
+    const payload = encryptSecrets({
+      clientId: material.clientId,
+      clientSecret: material.clientSecret,
+      ...(token
+        ? { accessToken: token.accessToken, expiresAt: token.expiresAt }
+        : {}),
+    });
+    if (existing) {
+      await db
+        .update(registryCredentials)
+        .set({
+          schemeType: "oauth2",
+          status: failure ? "error" : "active",
+          requestedScopes: material.scopes ?? declaredScopeIds,
+          grantedScopes: token ? (material.scopes ?? declaredScopeIds) : null,
+          grantedSource: token ? ("provider" as const) : null,
+          updatedAt: now,
+        })
+        .where(eq(registryCredentials.id, existing.id));
+      await db
+        .update(registryCredentialAuth)
+        .set({ schemeType: "oauth2", payload, updatedAt: Date.now() })
+        .where(eq(registryCredentialAuth.credentialId, existing.id));
+      await this.credentials.deletePendingsFor(existing.id);
+    } else {
+      await db.insert(registryCredentials).values({
+        id: credentialId,
+        registryId: id,
+        schemeName: material.schemeName,
+        schemeType: "oauth2",
+        status: failure ? "error" : "active",
+        requestedScopes: material.scopes ?? declaredScopeIds,
+        grantedScopes: token ? (material.scopes ?? declaredScopeIds) : null,
+        grantedSource: token ? ("provider" as const) : null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await db.insert(registryCredentialAuth).values({
+        credentialId,
+        schemeType: "oauth2",
+        payload,
+        updatedAt: Date.now(),
+      });
+    }
+    const created = await store.getCredential(credentialId);
+    if (!created) throw new HttpError(500, "Failed to store registry auth.");
     invalidateRegistryAuthCache();
-    return { auth: result };
+    return {
+      auth: {
+        credential: await this.credentials.toSummary(created),
+        status: failure ? "error" : "configured",
+        ...(failure ? { message: failure } : {}),
+        ...(token ? { tokenExpiresAt: token.expiresAt } : {}),
+      },
+    };
   }
 
-  async deleteRegistryAuth(id: string): Promise<void> {
+  async deleteRegistryAuth(id: string, schemeName?: string): Promise<void> {
     await this.getRegistry(id);
-
-    const [deleted] = await db
-      .delete(registryAuth)
-      .where(eq(registryAuth.registryId, id))
-      .returning({ registryId: registryAuth.registryId })
-      .catch(() => {
-        throw new HttpError(500, `Failed to remove registry '${id}' auth.`);
-      });
-
-    if (!deleted)
-      throw new HttpError(404, `Registry '${id}' has no auth configured.`);
+    const store = this.credentials.forRegistry(id);
+    if (schemeName !== undefined) {
+      const removed = await store.disconnectScheme(schemeName);
+      if (!removed) {
+        throw new HttpError(
+          404,
+          `Registry '${id}' has no credential for scheme '${schemeName}'.`,
+        );
+      }
+    } else {
+      for (const cred of await store.listCredentials()) {
+        await this.credentials.deleteCredential("registry", cred.id);
+      }
+    }
     invalidateRegistryAuthCache();
   }
 
@@ -525,241 +638,79 @@ export class RegistriesService {
     }
   }
 
-  private async resolveAuthDeclaration(
-    declaration: RegistryAuthDeclaration | null,
-    material: RegistryAuthSetupInputUnion,
-    baseUrl: string,
-  ): Promise<ResolvedAuthDeclaration> {
-    if (material.type === "apiKey") {
-      if (declaration === null) {
-        return {
-          ok: false,
-          message: "The registry does not advertise an 'auth' method.",
-        };
-      }
-      if (declaration.type === "unsupported") {
-        return {
-          ok: false,
-          message: `The registry advertises unsupported auth '${declaration.declaredType}'${declaration.reason ? ` (${declaration.reason})` : ""}.`,
-        };
-      }
-      if (declaration.type === "oauth2") {
-        return {
-          ok: false,
-          message: "The registry advertises oauth2; an api key cannot be used.",
-        };
-      }
-      if (!(await isCredentialTransportAllowed(baseUrl))) {
-        throw new HttpError(
-          400,
-          "Registry authentication requires https; refusing to store credentials for a plaintext http registry.",
-        );
-      }
-      return { ok: true, type: "apiKey" as const, declaration, material };
-    }
-
-    if (declaration === null) {
-      return {
-        ok: false,
-        message: "The registry does not advertise an 'auth' method.",
-      };
-    }
-    if (declaration.type === "unsupported") {
-      return {
-        ok: false,
-        message: `The registry advertises unsupported auth '${declaration.declaredType}'${declaration.reason ? ` (${declaration.reason})` : ""}.`,
-      };
-    }
-    if (declaration.type === "apiKey") {
-      return {
-        ok: false,
-        message: "The registry advertises an api key; oauth2 cannot be used.",
-      };
-    }
-    if (!(await isCredentialTransportAllowed(declaration.tokenEndpoint))) {
-      throw new HttpError(
-        400,
-        "Registry oauth2 token endpoint must be https; refusing to store client credentials.",
-      );
-    }
-    const advertisedScopeIds = declaration.scopes?.map((scope) => scope.id);
-    if (material.scopes && advertisedScopeIds) {
-      const unknown = material.scopes.filter(
-        (scope) => !advertisedScopeIds.includes(scope),
-      );
-      if (unknown.length > 0) {
-        throw new HttpError(
-          400,
-          `Requested scope(s) not advertised by the registry: ${unknown.join(", ")}.`,
-        );
-      }
-    }
-    return { ok: true, type: "oauth2" as const, declaration, material };
-  }
-
-  private async persistAuth(
-    registryId: string,
-    material: RegistryAuthSetupInputUnion,
-    declaration: RegistryAuthDeclaration | null,
-    tokenState: Awaited<ReturnType<typeof exchangeClientCredentials>> | null,
-  ): Promise<RegistryAuthSetupResult> {
-    const now = Date.now();
-
-    let config: EncryptedSecretsPayload;
-    let token: EncryptedSecretsPayload | null = null;
-    let tokenExpiresAt: number | null = null;
-    let headerName: string | null = null;
-    let tokenEndpoint: string | null = null;
-    let authType: "apiKey" | "oauth2";
-
-    if (material.type === "apiKey") {
-      authType = "apiKey";
-      config = encryptSecrets({ apiKey: material.apiKey });
-      headerName = declaration?.type === "apiKey" ? declaration.name : null;
-    } else {
-      authType = "oauth2";
-      config = encryptSecrets({
-        clientId: material.clientId,
-        clientSecret: material.clientSecret,
-        ...(material.scopes ? { scopes: material.scopes } : {}),
-      });
-      tokenEndpoint =
-        declaration?.type === "oauth2" ? declaration.tokenEndpoint : null;
-      if (tokenState) {
-        token = encryptSecrets({
-          accessToken: tokenState.accessToken,
-          ...(tokenState.refreshToken
-            ? { refreshToken: tokenState.refreshToken }
-            : {}),
-          expiresAt: tokenState.expiresAt,
-        });
-        tokenExpiresAt = tokenState.expiresAt;
-      }
-    }
-
-    await db
-      .insert(registryAuth)
-      .values({
-        registryId,
-        authType,
-        config,
-        token,
-        tokenEndpoint,
-        headerName,
-        tokenExpiresAt,
-        updatedAt: now,
-      })
-      .onConflictDoUpdate({
-        target: registryAuth.registryId,
-        set: {
-          authType,
-          config,
-          token,
-          tokenEndpoint,
-          headerName,
-          tokenExpiresAt,
-          updatedAt: now,
-        },
-      })
-      .catch(() => {
-        throw new HttpError(
-          500,
-          `Failed to store registry '${registryId}' auth.`,
-        );
-      });
-
-    logger.debug(
-      { event: "registry-auth-configured", registryId, authType },
-      "Stored registry auth configuration",
-    );
-
-    return { type: authType, status: "configured", tokenExpiresAt };
-  }
-
   private async warnOnAuthDrift(
     id: string,
-    declaration: RegistryAuthDeclaration | null,
+    index: RegistryIndexInfo,
   ): Promise<void> {
-    if (!declaration) return;
-
-    if (declaration.type === "unsupported") {
-      logger.warn(
-        {
-          event: "registry-auth-unsupported",
-          registryId: id,
-          declaredType: declaration.declaredType,
-        },
-        "Registry advertises an unsupported auth method",
-      );
-      return;
-    }
-
-    const stored = await this.getAuthState(id);
-
-    if (!stored.authType) {
-      logger.warn(
-        { event: "registry-auth-unconfigured", registryId: id },
-        "Registry advertises auth but none is configured",
-      );
-      return;
-    }
-
-    if (stored.authType !== declaration.type) {
-      logger.warn(
-        {
-          event: "registry-auth-type-drift",
-          registryId: id,
-          configuredType: stored.authType,
-          declaredType: declaration.type,
-        },
-        "Registry auth type differs from the configured type; retaining configuration",
-      );
-      return;
-    }
-
-    if (declaration.type === "oauth2") {
-      if (
-        stored.tokenEndpoint &&
-        declaration.tokenEndpoint !== stored.tokenEndpoint
-      ) {
+    const configured = await this.credentials.forRegistry(id).listCredentials();
+    if (!index.auth) {
+      if (configured.length > 0) {
         logger.warn(
-          {
-            event: "registry-auth-token-endpoint-drift",
-            registryId: id,
-            pinned: stored.tokenEndpoint,
-            declared: declaration.tokenEndpoint,
-          },
-          "Registry oauth2 token endpoint changed; pinned endpoint retained (reconfigure to adopt)",
+          { event: "registry-auth-unadvertised", registryId: id },
+          "Registry no longer advertises auth but credentials remain configured",
         );
       }
       return;
     }
-
-    if (declaration.type === "apiKey") {
-      if (stored.headerName && declaration.name !== stored.headerName) {
+    for (const cred of configured) {
+      if (!index.auth.schemes[cred.schemeName]) {
         logger.warn(
           {
-            event: "registry-auth-header-drift",
+            event: "registry-auth-scheme-removed",
             registryId: id,
-            pinned: stored.headerName,
-            declared: declaration.name,
+            schemeName: cred.schemeName,
           },
-          "Registry api key header changed; pinned header retained (reconfigure to adopt)",
+          "Configured credential scheme is no longer advertised; retaining configuration",
         );
       }
     }
+    if (index.auth.security.length > 0) {
+      const satisfiable = await this.satisfiableGroup(index, configured);
+      if (!satisfiable) {
+        logger.warn(
+          { event: "registry-auth-unconfigured", registryId: id },
+          "Registry requires auth but no configured credential satisfies its security",
+        );
+      }
+    }
+  }
+
+  private async satisfiableGroup(
+    index: RegistryIndexInfo,
+    configured: Array<
+      Pick<
+        RegistryCredentialRecord,
+        "schemeName" | "schemeType" | "status" | "grantedScopes"
+      >
+    >,
+  ): Promise<boolean> {
+    if (!index.auth || index.auth.security.length === 0) return true;
+    const byScheme = new Map(configured.map((c) => [c.schemeName, c]));
+    for (const group of index.auth.security) {
+      let ok = true;
+      for (const [schemeName, required] of Object.entries(group)) {
+        const cred = byScheme.get(schemeName);
+        if (!cred || cred.status === "revoked") {
+          ok = false;
+          break;
+        }
+        const granted = new Set(cred.grantedScopes ?? []);
+        if ((required as string[]).some((s) => !granted.has(s))) {
+          ok = false;
+          break;
+        }
+      }
+      if (ok) return true;
+    }
+    return false;
   }
 }
 
-function parseNormalizedHttpUrl(raw: string): string | null {
-  let parsed: URL;
-  try {
-    parsed = new URL(raw);
-  } catch {
-    return null;
-  }
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
-  return parsed.toString();
+function plaintextRefusal(): HttpError {
+  return new HttpError(
+    400,
+    "Registry authentication requires https; refusing to store credentials for a plaintext http registry.",
+  );
 }
 
 function authFailureMessage(error: unknown): string {
