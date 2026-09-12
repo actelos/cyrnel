@@ -26,6 +26,8 @@ export default defineConfig(({ mode }) => {
       target: apiUrl,
       changeOrigin: true,
       ...(apiKey ? { headers: { authorization: `Bearer ${apiKey}` } } : {}),
+      bypass: (req) =>
+        req.headers.accept?.includes("text/html") ? req.url : null,
     };
   }
 
@@ -33,7 +35,7 @@ export default defineConfig(({ mode }) => {
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
-        "@": resolve(__dirname, "./src"),
+        "@": resolve(import.meta.dirname, "./src"),
       },
     },
     server: { proxy },

@@ -6,6 +6,8 @@ export const API_PATHS = [
   "/processes",
   "/approvals",
   "/registries",
+  "/oauth-clients",
+  "/auth",
   "/environment",
   "/logs",
 ] as const;

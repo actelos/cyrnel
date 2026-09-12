@@ -9,8 +9,6 @@ COPY packages/libs/sdk/package.json packages/libs/sdk/package.json
 
 RUN pnpm install --frozen-lockfile
 
-ARG VITE_CYRNEL_API_URL=
-
 COPY apps/web/ apps/web/
 COPY packages/libs/sdk/ packages/libs/sdk/
 
