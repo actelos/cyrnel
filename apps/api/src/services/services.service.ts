@@ -571,11 +571,11 @@ export class ServicesService {
   }
 
   async getTool(input: GetToolInput): Promise<GetToolsResult> {
-    const { serviceId, adapterDomain, security, ...toolColumns } =
-      getTableColumns(tools);
+    const { serviceId, adapterDomain, ...toolColumns } = getTableColumns(tools);
     const [tool] = await db
       .select({
         ...toolColumns,
+        security: tools.security,
         serviceEnabled: services.enabled,
       })
       .from(tools)
@@ -620,6 +620,7 @@ export class ServicesService {
 
     return {
       ...tool,
+      security: tool.security ?? undefined,
       effectivelyEnabled: tool.enabled && tool.serviceEnabled,
       policy,
     };
@@ -1883,7 +1884,7 @@ export class ServicesService {
           }),
           `Invalid configuration for service '${id}'.`,
         );
-    const secretsValues = isNullOnlySchema(secretsSchema)
+    const validatedSecrets = isNullOnlySchema(secretsSchema)
       ? secrets
       : applyJsonSchemaDefaults(
           secretsSchema,
@@ -1892,6 +1893,10 @@ export class ServicesService {
           }),
           `Invalid secrets for service '${id}'.`,
         );
+    const secretsKeys = new Set<string>([
+      ...declaredSchemaKeys(secretsSchema),
+      ...Object.keys(validatedSecrets),
+    ]);
 
     return {
       id,
@@ -1912,10 +1917,10 @@ export class ServicesService {
         configValues,
         declaredSchemaKeys(configSchema),
       ),
-      secrets: new HostSecretsProvider(
-        secretsValues,
-        declaredSchemaKeys(secretsSchema),
-      ),
+      secrets: new HostSecretsProvider(async (key: string) => {
+        const fresh = await this.loadServiceSecrets(id);
+        return Object.hasOwn(fresh, key) ? fresh[key] : undefined;
+      }, secretsKeys),
     };
   }
 

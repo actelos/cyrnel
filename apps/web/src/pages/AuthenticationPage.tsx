@@ -87,10 +87,25 @@ const emptyClientForm: ClientFormState = {
   availableScopes: "",
 };
 
-function isValidHttpUrl(value: string): boolean {
+function isLoopbackHostname(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  return (
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host === "::1" ||
+    host.startsWith("127.") ||
+    host.endsWith(".localhost")
+  );
+}
+
+function isHttpsOrLoopbackHttpUrl(value: string): boolean {
   try {
     const parsed = new URL(value);
-    return parsed.protocol === "http:" || parsed.protocol === "https:";
+    if (parsed.protocol === "https:") return true;
+    if (parsed.protocol === "http:") {
+      return isLoopbackHostname(parsed.hostname);
+    }
+    return false;
   } catch {
     return false;
   }
@@ -107,18 +122,18 @@ function createFormValid(form: ClientFormState): string | null {
   if (form.provider.trim().length === 0) return "Provider must not be empty.";
   if (form.clientId.trim().length === 0) return "Client ID must not be empty.";
   if (form.clientSecret.length === 0) return "Client secret must not be empty.";
-  if (!isValidHttpUrl(form.tokenUrl.trim())) {
-    return "Token URL must be a valid absolute http(s) URL.";
+  if (!isHttpsOrLoopbackHttpUrl(form.tokenUrl.trim())) {
+    return "Token URL must be a valid absolute https URL (http is allowed only for loopback).";
   }
   if (
     form.authorizationUrl.trim().length > 0 &&
-    !isValidHttpUrl(form.authorizationUrl.trim())
+    !isHttpsOrLoopbackHttpUrl(form.authorizationUrl.trim())
   ) {
-    return "Authorization URL must be a valid absolute http(s) URL.";
+    return "Authorization URL must be a valid absolute https URL (http is allowed only for loopback).";
   }
   for (const uri of splitList(form.redirectUris)) {
-    if (!isValidHttpUrl(uri)) {
-      return `Redirect URI '${uri}' must be a valid absolute http(s) URL.`;
+    if (!isHttpsOrLoopbackHttpUrl(uri)) {
+      return `Redirect URI '${uri}' must be a valid absolute https URL (http is allowed only for loopback).`;
     }
   }
   return null;
@@ -126,18 +141,18 @@ function createFormValid(form: ClientFormState): string | null {
 
 function editFormValid(form: ClientFormState): string | null {
   if (form.provider.trim().length === 0) return "Provider must not be empty.";
-  if (!isValidHttpUrl(form.tokenUrl.trim())) {
-    return "Token URL must be a valid absolute http(s) URL.";
+  if (!isHttpsOrLoopbackHttpUrl(form.tokenUrl.trim())) {
+    return "Token URL must be a valid absolute https URL (http is allowed only for loopback).";
   }
   if (
     form.authorizationUrl.trim().length > 0 &&
-    !isValidHttpUrl(form.authorizationUrl.trim())
+    !isHttpsOrLoopbackHttpUrl(form.authorizationUrl.trim())
   ) {
-    return "Authorization URL must be a valid absolute http(s) URL.";
+    return "Authorization URL must be a valid absolute https URL (http is allowed only for loopback).";
   }
   for (const uri of splitList(form.redirectUris)) {
-    if (!isValidHttpUrl(uri)) {
-      return `Redirect URI '${uri}' must be a valid absolute http(s) URL.`;
+    if (!isHttpsOrLoopbackHttpUrl(uri)) {
+      return `Redirect URI '${uri}' must be a valid absolute https URL (http is allowed only for loopback).`;
     }
   }
   return null;

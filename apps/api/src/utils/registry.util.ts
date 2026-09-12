@@ -910,12 +910,55 @@ export function effectiveSecurityForUrl(
   } catch {
     return global;
   }
-  const segment = parsed.pathname.split("/").filter(Boolean)[0];
-  if (segment === "definitions" && index.definitions?.security !== undefined) {
-    return index.definitions.security;
+  const prefixMatches = (
+    capability: { url: string } | null | undefined,
+  ): boolean => {
+    if (!capability) return false;
+    try {
+      const base = new URL(capability.url);
+      return (
+        base.origin === parsed.origin &&
+        parsed.pathname.startsWith(base.pathname)
+      );
+    } catch {
+      return false;
+    }
+  };
+  const firstSegment = (pathname: string): string | undefined =>
+    pathname.split("/").filter(Boolean)[0];
+  const segmentMatches = (
+    capability: { url: string } | null | undefined,
+  ): boolean => {
+    if (!capability) return false;
+    try {
+      const base = new URL(capability.url);
+      if (base.origin !== parsed.origin) return false;
+      const baseSeg = firstSegment(base.pathname);
+      const reqSeg = firstSegment(parsed.pathname);
+      return baseSeg !== undefined && baseSeg === reqSeg;
+    } catch {
+      return false;
+    }
+  };
+  const definitionsPrefix = prefixMatches(index.definitions);
+  const modulesPrefix = prefixMatches(index.modules);
+  if (definitionsPrefix !== modulesPrefix) {
+    const matched = definitionsPrefix ? index.definitions : index.modules;
+    if (matched?.security !== undefined) return matched.security;
+    return global;
   }
-  if (segment === "modules" && index.modules?.security !== undefined) {
-    return index.modules.security;
+  if (definitionsPrefix && modulesPrefix) {
+    const defLen = index.definitions?.url.length ?? 0;
+    const modLen = index.modules?.url.length ?? 0;
+    const longer = defLen >= modLen ? index.definitions : index.modules;
+    if (longer?.security !== undefined) return longer.security;
+    return global;
+  }
+  const definitionsSeg = segmentMatches(index.definitions);
+  const modulesSeg = segmentMatches(index.modules);
+  if (definitionsSeg !== modulesSeg) {
+    const matched = definitionsSeg ? index.definitions : index.modules;
+    if (matched?.security !== undefined) return matched.security;
   }
   return global;
 }

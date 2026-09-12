@@ -247,11 +247,15 @@ describe("bindings", () => {
         code: "const result = await cyrnel.services.calc.tools.add.invoke({ a: 1, b: 2 }); console.log(JSON.stringify(result));",
       } satisfies ExecutionInput);
 
-      expect(invokeTool).toHaveBeenCalledWith({
-        serviceId: "calc",
-        toolId: "add",
-        parameters: { a: 1, b: 2 },
-      } satisfies InvokeInput);
+      expect(invokeTool).toHaveBeenCalledWith(
+        expect.objectContaining({
+          serviceId: "calc",
+          toolId: "add",
+          parameters: { a: 1, b: 2 },
+          executionId: 1,
+          processId: 1,
+        }),
+      );
     });
 
     it("throws TypeError when service id is a symbol", async () => {

@@ -3946,7 +3946,7 @@ registry.registerPath({
   tags: ["Auth"],
   summary: "OAuth redirect callback",
   description:
-    "Redirect target for OAuth authorization-code flows. Validates state against the stored pending authorization, exchanges the code for tokens (including the PKCE verifier), and persists them encrypted.",
+    "Redirect target for OAuth authorization-code flows. Validates state against the stored pending authorization, exchanges the code for tokens (including the PKCE verifier), and persists them encrypted. Prefer POST /auth/callback with a JSON body to keep authorization codes out of request URLs and logs.",
   request: {
     query: z.object({
       code: z.string().min(1).describe("Authorization code from the provider."),
@@ -3970,6 +3970,55 @@ registry.registerPath({
     },
     400: apiErrorResponse(
       "The query parameters were invalid or the authorization state is unknown or expired.",
+    ),
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    404: apiErrorResponse("The OAuth client could not be found."),
+    502: apiErrorResponse("The token endpoint could not be reached."),
+    500: apiErrorResponse("The code exchange failed."),
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/auth/callback",
+  tags: ["Auth"],
+  summary: "OAuth callback completion via body",
+  description:
+    "Preferred completion for OAuth authorization-code flows. Accepts code and state in the JSON request body so authorization material does not appear in request URLs or logs.",
+  request: {
+    body: {
+      content: jsonContent(
+        z
+          .object({
+            code: z
+              .string()
+              .min(1)
+              .describe("Authorization code from the provider."),
+            state: z
+              .string()
+              .min(1)
+              .describe("State identifying the pending authorization."),
+          })
+          .describe("OAuth callback completion payload."),
+      ),
+    },
+  },
+  responses: {
+    200: {
+      description: "The code was exchanged and tokens were stored.",
+      content: jsonContent(
+        z.object({
+          ok: z.literal(true).describe("Always true on success."),
+          credentialId: z
+            .string()
+            .describe("The ID of the created or updated credential."),
+        }),
+      ),
+    },
+    400: apiErrorResponse(
+      "The request body was invalid or the authorization state is unknown or expired.",
     ),
     401: apiErrorResponse(
       "A bearer token was required but missing or invalid.",

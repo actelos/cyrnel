@@ -6,6 +6,24 @@ import path from "node:path";
 import { zstdCompressSync } from "node:zlib";
 import { create } from "tar";
 
+function verifyPkce(
+  verifier: string,
+  challenge: string,
+  method: string | null,
+): boolean {
+  const normalized = method ?? "plain";
+  if (normalized === "plain") return verifier === challenge;
+  if (normalized === "S256") {
+    const computed = createHash("sha256").update(verifier).digest("base64url");
+    return computed === challenge;
+  }
+  return false;
+}
+
+// PKCE challenge bound to the static AC_CODE via the authorize endpoint.
+let acCodeChallenge: string | null = null;
+let acCodeChallengeMethod: string | null = null;
+
 const HOST = "127.0.0.1";
 const PORT = 9372;
 const BASE_URL = `http://${HOST}:${PORT}`;
@@ -183,7 +201,16 @@ function handleTokenRequest(
       return;
     }
     if (grantType === "authorization_code") {
-      if (params.get("code") !== AC_CODE || !params.get("code_verifier")) {
+      const verifier = params.get("code_verifier") ?? "";
+      if (params.get("code") !== AC_CODE || !verifier) {
+        res.writeHead(400, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "invalid_grant" }));
+        return;
+      }
+      if (
+        acCodeChallenge &&
+        !verifyPkce(verifier, acCodeChallenge, acCodeChallengeMethod)
+      ) {
         res.writeHead(400, { "content-type": "application/json" });
         res.end(JSON.stringify({ error: "invalid_grant" }));
         return;
@@ -248,6 +275,8 @@ function handleAuthorizeRequest(
     res.end(JSON.stringify({ error: "invalid_request" }));
     return;
   }
+  acCodeChallenge = url.searchParams.get("code_challenge");
+  acCodeChallengeMethod = url.searchParams.get("code_challenge_method");
   const target = new URL(redirectUri);
   target.searchParams.set("code", AC_CODE);
   target.searchParams.set("state", state);

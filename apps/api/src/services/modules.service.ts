@@ -579,7 +579,9 @@ export class ModuleService {
     await adapter.dehydrateService(serviceId);
   }
 
-  async invoke(input: InvokeInput): Promise<unknown> {
+  async invoke(
+    input: InvokeInput & { processId?: number; executionId?: number },
+  ): Promise<unknown> {
     const [row] = await db
       .select({
         adapter: servicesTable.adapter,
@@ -662,7 +664,12 @@ export class ModuleService {
       );
     }
     if (decision === "ask") {
-      const processId = getExecutionContext()?.processId ?? null;
+      const explicitProcessId =
+        typeof (input as { processId?: unknown }).processId === "number"
+          ? ((input as { processId: number }).processId as number)
+          : null;
+      const processId =
+        explicitProcessId ?? getExecutionContext()?.processId ?? null;
       if (processId == null) {
         logger.warn(
           {
@@ -1377,6 +1384,11 @@ export class ModuleService {
       })
       .where(eq(modulesTable.id, id));
 
+    const manifest = this.manifests.get(id);
+    if (manifest) {
+      manifest.auth = { schemes, security };
+    }
+
     return { updated: true };
   }
 
@@ -1940,12 +1952,8 @@ export class ModuleService {
           hash: newHash,
           version: manifest.version,
           ...(iconColumns ?? {}),
-          ...(declaredAuth
-            ? {
-                schemes: declaredAuth.schemes,
-                security: declaredAuth.security,
-              }
-            : {}),
+          schemes: declaredAuth ? declaredAuth.schemes : null,
+          security: declaredAuth ? declaredAuth.security : null,
         })
         .where(eq(modulesTable.id, id));
     } catch {
@@ -2134,12 +2142,8 @@ export class ModuleService {
           iconData: null,
           iconMime: null,
           iconHash: null,
-          ...(declaredAuth
-            ? {
-                schemes: declaredAuth.schemes,
-                security: declaredAuth.security,
-              }
-            : {}),
+          schemes: declaredAuth ? declaredAuth.schemes : null,
+          security: declaredAuth ? declaredAuth.security : null,
         })
         .where(eq(modulesTable.id, id));
     } catch {
@@ -2316,12 +2320,8 @@ export class ModuleService {
               summary: normalizeSummary(manifest.summary),
               description: manifest.description,
               version: manifest.version,
-              ...(manifest.auth
-                ? {
-                    schemes: manifest.auth.schemes,
-                    security: manifest.auth.security,
-                  }
-                : {}),
+              schemes: manifest.auth ? manifest.auth.schemes : null,
+              security: manifest.auth ? manifest.auth.security : null,
             })
             .where(eq(modulesTable.id, row.id));
         }),
@@ -2593,6 +2593,10 @@ export class ModuleService {
   private async buildSetupContext(id: string): Promise<SetupValues> {
     const { config, secrets, configDeclared, secretsDeclared } =
       await this.assertConfigAndSecretsValid(id);
+    const secretsKeys = new Set<string>([
+      ...secretsDeclared,
+      ...Object.keys(secrets),
+    ]);
     const manifest = this.requireRegistered(id);
     const moduleLogger = createModuleLogger(logger, {
       category: "module",
@@ -2606,7 +2610,10 @@ export class ModuleService {
     });
     return {
       config: new HostConfigProvider<{}>(config, configDeclared),
-      secrets: new HostSecretsProvider<{}>(secrets, secretsDeclared),
+      secrets: new HostSecretsProvider<{}>(async (key: string) => {
+        const fresh = await this.loadSecrets(id);
+        return Object.hasOwn(fresh, key) ? fresh[key] : undefined;
+      }, secretsKeys),
       logger: moduleLogger,
       ...(manifest.auth
         ? {
@@ -2767,22 +2774,66 @@ export class ModuleService {
   }
 
   private async validateServiceCredentials(serviceId: string): Promise<void> {
+    const [serviceRow] = await db
+      .select({ security: servicesTable.security })
+      .from(servicesTable)
+      .where(eq(servicesTable.id, serviceId))
+      .limit(1)
+      .catch(() => [] as Array<{ security: SecurityRequirements | null }>);
+    const security = (serviceRow?.security ?? []) as SecurityRequirements;
+    if (!security || security.length === 0) return;
+    if (security.some((req) => Object.keys(req).length === 0)) return;
+
     const credStore = this.credentialService.forService(serviceId);
     const credentials = await credStore.listCredentials();
-    for (const cred of credentials) {
+    const byScheme = new Map(credentials.map((c) => [c.schemeName, c]));
+
+    const isUsable = (
+      cred:
+        | { status: string; schemeType: string; grantedScopes: string[] | null }
+        | undefined,
+    ): boolean => {
+      if (!cred) return false;
+      if (cred.status === "revoked" || cred.status === "error") return false;
+      if (cred.status === "expired") {
+        if (
+          cred.schemeType === "oauth2" &&
+          (!cred.grantedScopes || cred.grantedScopes.length === 0)
+        ) {
+          return false;
+        }
+        return true;
+      }
+      return cred.status === "active";
+    };
+
+    for (const requirement of security) {
+      const schemes = Object.keys(requirement);
+      if (schemes.length === 0) return;
+      let satisfiable = true;
+      for (const schemeName of schemes) {
+        if (!isUsable(byScheme.get(schemeName))) {
+          satisfiable = false;
+          break;
+        }
+      }
+      if (satisfiable) return;
+    }
+
+    const first = security[0] as Record<string, readonly string[]>;
+    for (const schemeName of Object.keys(first)) {
+      const cred = byScheme.get(schemeName);
+      if (!cred) {
+        throw new HttpError(
+          403,
+          `Service '${serviceId}' has no credential for scheme '${schemeName}'. Configure the credential to invoke this tool.`,
+        );
+      }
       if (cred.status === "revoked") {
         throw new HttpError(
           403,
           `Service '${serviceId}' has a revoked credential for scheme '${cred.schemeName}'. Re-authorize the credential.`,
         );
-      }
-      if (cred.status === "expired" && cred.schemeType === "oauth2") {
-        if (!cred.grantedScopes || cred.grantedScopes.length === 0) {
-          throw new HttpError(
-            403,
-            `Service '${serviceId}' has an expired OAuth credential for scheme '${cred.schemeName}' with no refresh token. Re-authorize the credential.`,
-          );
-        }
       }
       if (cred.status === "error") {
         throw new HttpError(
@@ -2790,7 +2841,21 @@ export class ModuleService {
           `Service '${serviceId}' has a credential in error state for scheme '${cred.schemeName}'. Check credential configuration.`,
         );
       }
+      if (
+        cred.status === "expired" &&
+        cred.schemeType === "oauth2" &&
+        (!cred.grantedScopes || cred.grantedScopes.length === 0)
+      ) {
+        throw new HttpError(
+          403,
+          `Service '${serviceId}' has an expired OAuth credential for scheme '${cred.schemeName}' with no refresh token. Re-authorize the credential.`,
+        );
+      }
     }
+    throw new HttpError(
+      403,
+      `Service '${serviceId}' has no satisfiable security requirement. Re-authorize the required credential.`,
+    );
   }
 
   private async invokeAdapterWithTimeout(

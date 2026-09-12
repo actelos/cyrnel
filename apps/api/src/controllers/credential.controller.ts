@@ -19,18 +19,33 @@ const nonEmptyTrimmedString = (fieldName: string) =>
     path: [fieldName],
   });
 
-function isHttpUrl(value: string): boolean {
+function isLoopbackHostname(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  return (
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host === "::1" ||
+    host.startsWith("127.") ||
+    host.endsWith(".localhost")
+  );
+}
+
+function isHttpsOrLoopbackHttpUrl(value: string): boolean {
   try {
     const parsed = new URL(value);
-    return parsed.protocol === "http:" || parsed.protocol === "https:";
+    if (parsed.protocol === "https:") return true;
+    if (parsed.protocol === "http:") {
+      return isLoopbackHostname(parsed.hostname);
+    }
+    return false;
   } catch {
     return false;
   }
 }
 
-const httpUrl = (fieldName: string) =>
-  trimmedString(fieldName).refine(isHttpUrl, {
-    error: `Field '${fieldName}' must be a valid absolute http(s) URL.`,
+const httpsUrl = (fieldName: string) =>
+  trimmedString(fieldName).refine(isHttpsOrLoopbackHttpUrl, {
+    error: `Field '${fieldName}' must be a valid absolute https URL (http is allowed only for loopback redirect URIs).`,
     path: [fieldName],
   });
 
@@ -65,24 +80,24 @@ const createOAuthClientBodySchema = z.object({
   clientSecret: z
     .string({ error: "Field 'clientSecret' must be a string." })
     .min(1),
-  tokenUrl: httpUrl("tokenUrl"),
-  authorizationUrl: httpUrl("authorizationUrl").optional(),
+  tokenUrl: httpsUrl("tokenUrl"),
+  authorizationUrl: httpsUrl("authorizationUrl").optional(),
   clientAuthMethod: z
     .enum(["client_secret_basic", "client_secret_post"])
     .optional(),
-  redirectUris: z.array(httpUrl("redirectUris")).optional(),
+  redirectUris: z.array(httpsUrl("redirectUris")).optional(),
   availableScopes: z.array(nonEmptyTrimmedString("availableScopes")),
 });
 
 const patchOAuthClientBodySchema = z
   .object({
     provider: nonEmptyTrimmedString("provider").optional(),
-    tokenUrl: httpUrl("tokenUrl").optional(),
-    authorizationUrl: httpUrl("authorizationUrl").nullable().optional(),
+    tokenUrl: httpsUrl("tokenUrl").optional(),
+    authorizationUrl: httpsUrl("authorizationUrl").nullable().optional(),
     clientAuthMethod: z
       .enum(["client_secret_basic", "client_secret_post"])
       .optional(),
-    redirectUris: z.array(httpUrl("redirectUris")).optional(),
+    redirectUris: z.array(httpsUrl("redirectUris")).optional(),
     availableScopes: z
       .array(nonEmptyTrimmedString("availableScopes"))
       .optional(),
@@ -98,6 +113,11 @@ const oauthClientIdParamSchema = z
 const oauthCallbackQuerySchema = z.object({
   code: z.string({ error: "Query 'code' must be a string." }).min(1),
   state: z.string({ error: "Query 'state' must be a string." }).min(1),
+});
+
+const oauthCallbackBodySchema = z.object({
+  code: z.string({ error: "Field 'code' must be a string." }).min(1),
+  state: z.string({ error: "Field 'state' must be a string." }).min(1),
 });
 
 const resolveQuerySchema = z.object({
@@ -344,6 +364,18 @@ export async function oauthCallback(
   req: Request,
   res: Response,
 ): Promise<void> {
+  if (req.method === "POST") {
+    const body = parseOrHttpError(
+      oauthCallbackBodySchema,
+      req.body,
+      "Request body must be an object.",
+    );
+    const credential = await getCredentialService(
+      req,
+    ).completeOAuthAuthorization(body.state, body.code);
+    res.status(200).json({ ok: true, credentialId: credential.id });
+    return;
+  }
   const query = parseOrHttpError(
     oauthCallbackQuerySchema,
     req.query,

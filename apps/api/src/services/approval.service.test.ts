@@ -87,8 +87,9 @@ async function applyMigrations(only?: {
   if (only?.upto !== undefined) {
     entries = entries.filter((name) => name < "0018");
   }
-  if (only?.only !== undefined) {
-    entries = entries.filter((name) => name === only.only);
+  const onlyFilter = only?.only;
+  if (onlyFilter !== undefined) {
+    entries = entries.filter((name) => name === onlyFilter);
   }
   for (const name of entries) {
     const file = await fs.readFile(path.join(MIGRATIONS_DIR, name), "utf8");

@@ -1647,14 +1647,9 @@ describe("ServicesService", () => {
       const svc = new ServicesService(controller);
 
       await svc.setServiceEnabled({ id: "alpha", enabled: true });
-      expect(controller.hydrateService).toHaveBeenCalledWith(
-        "test-adapter",
-        expect.objectContaining({
-          secrets: expect.objectContaining({
-            values: { token: "abc" },
-          }),
-        }),
-      );
+      expect(controller.hydrateService).toHaveBeenCalledTimes(1);
+      const runtime = controller.hydrateService.mock.calls[0][1];
+      await expect(runtime.secrets.get("token")).resolves.toBe("abc");
     });
 
     it("getServiceSecretsPresence returns empty present and outdated arrays when no secrets are stored", async () => {

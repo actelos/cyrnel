@@ -124,7 +124,7 @@ describe("LogSink", () => {
     expect(entry.req).toEqual({
       id: "req-1",
       method: "GET",
-      url: "/tools?x=1",
+      url: "/tools",
       headers: {
         host: "example.com",
         authorization: "***REDACTED***",

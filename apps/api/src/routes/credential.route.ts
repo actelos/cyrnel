@@ -58,3 +58,9 @@ authCallbackRouter.get(
   createRateLimiter(10, 60_000, "GET /auth/callback"),
   oauthCallback,
 );
+
+authCallbackRouter.post(
+  "/callback",
+  createRateLimiter(10, 60_000, "POST /auth/callback"),
+  oauthCallback,
+);

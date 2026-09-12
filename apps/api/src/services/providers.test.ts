@@ -192,25 +192,40 @@ describe("HostSecretsProvider", () => {
     },
   };
   const declaredKeys = declaredSchemaKeys(schema);
+  const resolverFor = (values: Record<string, unknown>) => {
+    return async (key: string) =>
+      Object.hasOwn(values, key) ? values[key] : undefined;
+  };
 
   it("returns value for declared and configured key", async () => {
     const provider = new HostSecretsProvider(
-      { secretKey: "secret-value", optionalSecret: 123 },
+      resolverFor({ secretKey: "secret-value", optionalSecret: 123 }),
       declaredKeys,
     );
     await expect(provider.get("secretKey")).resolves.toBe("secret-value");
     await expect(provider.get("optionalSecret")).resolves.toBe(123);
   });
 
+  it("resolves on demand without retaining plaintext", async () => {
+    let calls = 0;
+    const provider = new HostSecretsProvider(async (key: string) => {
+      calls++;
+      return key === "secretKey" ? `value-${calls}` : undefined;
+    }, declaredKeys);
+    await expect(provider.get("secretKey")).resolves.toBe("value-1");
+    await expect(provider.get("secretKey")).resolves.toBe("value-2");
+    expect(calls).toBe(2);
+  });
+
   it("throws ProviderKeyNotDeclared for undeclared key", async () => {
-    const provider = new HostSecretsProvider({}, declaredKeys);
+    const provider = new HostSecretsProvider(resolverFor({}), declaredKeys);
     await expect(provider.get("undeclared" as never)).rejects.toBeInstanceOf(
       ProviderKeyNotDeclared,
     );
   });
 
   it("throws ProviderKeyNotConfigured for declared but unconfigured key", async () => {
-    const provider = new HostSecretsProvider({}, declaredKeys);
+    const provider = new HostSecretsProvider(resolverFor({}), declaredKeys);
     await expect(provider.get("secretKey")).rejects.toBeInstanceOf(
       ProviderKeyNotConfigured,
     );
@@ -218,7 +233,7 @@ describe("HostSecretsProvider", () => {
 
   it("throws ProviderScopeInvalid after destroy", async () => {
     const provider = new HostSecretsProvider(
-      { secretKey: "value" },
+      resolverFor({ secretKey: "value" }),
       declaredKeys,
     );
     provider.destroy();
@@ -228,7 +243,7 @@ describe("HostSecretsProvider", () => {
   });
 
   it("throws ProviderScopeInvalid for any key after destroy", async () => {
-    const provider = new HostSecretsProvider({}, declaredKeys);
+    const provider = new HostSecretsProvider(resolverFor({}), declaredKeys);
     provider.destroy();
     await expect(provider.get("undeclared" as never)).rejects.toBeInstanceOf(
       ProviderScopeInvalid,
@@ -237,13 +252,22 @@ describe("HostSecretsProvider", () => {
 
   it("does not allow reading after destroy even if key was previously readable", async () => {
     const provider = new HostSecretsProvider(
-      { secretKey: "value" },
+      resolverFor({ secretKey: "value" }),
       declaredKeys,
     );
     await expect(provider.get("secretKey")).resolves.toBe("value");
     provider.destroy();
     await expect(provider.get("secretKey")).rejects.toBeInstanceOf(
       ProviderScopeInvalid,
+    );
+  });
+
+  it("wraps resolver failures as SecretDecryptionFailed", async () => {
+    const provider = new HostSecretsProvider(async () => {
+      throw new Error("decrypt boom");
+    }, declaredKeys);
+    await expect(provider.get("secretKey")).rejects.toBeInstanceOf(
+      SecretDecryptionFailed,
     );
   });
 });

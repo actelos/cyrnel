@@ -18,11 +18,19 @@ export interface AuthSweepStats {
 }
 
 export async function sweepExpiredPendingAuthorizations(): Promise<number> {
-  const deleted = await db
-    .delete(oauthPendings)
-    .where(lt(oauthPendings.expiresAt, Date.now()))
-    .returning({ state: oauthPendings.state })
-    .catch(() => [] as { state: string }[]);
+  let deleted: Array<{ state: string }>;
+  try {
+    deleted = await db
+      .delete(oauthPendings)
+      .where(lt(oauthPendings.expiresAt, Date.now()))
+      .returning({ state: oauthPendings.state });
+  } catch (err) {
+    logger.error(
+      { event: "auth-pending-sweep-failed", err },
+      "Failed to prune expired pending OAuth authorizations",
+    );
+    throw err;
+  }
   if (deleted.length > 0) {
     logger.info(
       { event: "auth-pending-sweep", prunedCount: deleted.length },
@@ -37,14 +45,20 @@ export async function sweepExpiringOAuthTokens(
   service: CredentialService = new CredentialService(),
 ): Promise<{ checked: number; refreshed: number; failed: number }> {
   const stats = { checked: 0, refreshed: 0, failed: 0 };
-  const ids = await service.listActiveOAuthCredentials().catch(
-    () =>
-      [] as Array<{
-        kind: "service" | "module" | "registry";
-        ownerId: string;
-        id: string;
-      }>,
-  );
+  let ids: Array<{
+    kind: "service" | "module" | "registry";
+    ownerId: string;
+    id: string;
+  }>;
+  try {
+    ids = await service.listActiveOAuthCredentials();
+  } catch (err) {
+    logger.error(
+      { event: "auth-refresh-list-failed", err },
+      "Failed to list OAuth credentials for background refresh",
+    );
+    throw err;
+  }
   const horizon = Date.now() + horizonMs;
 
   for (const { kind, ownerId, id } of ids) {
@@ -52,7 +66,18 @@ export async function sweepExpiringOAuthTokens(
     let auth: Record<string, unknown> | null = null;
     try {
       auth = await store.getDecryptedAuth(id);
-    } catch {
+    } catch (err) {
+      logger.warn(
+        {
+          event: "auth-refresh-read-failed",
+          err,
+          kind,
+          ownerId,
+          credentialId: id,
+        },
+        "Failed to read OAuth credential during background refresh",
+      );
+      stats.failed++;
       continue;
     }
     if (!auth) continue;
@@ -66,7 +91,11 @@ export async function sweepExpiringOAuthTokens(
     try {
       await store.refreshOAuthToken(id, "background");
       stats.refreshed++;
-    } catch {
+    } catch (err) {
+      logger.warn(
+        { event: "auth-refresh-failed", err, kind, ownerId, credentialId: id },
+        "Background OAuth token refresh failed",
+      );
       stats.failed++;
     }
   }

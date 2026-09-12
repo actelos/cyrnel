@@ -510,43 +510,44 @@ export class RegistriesService {
         ? { accessToken: token.accessToken, expiresAt: token.expiresAt }
         : {}),
     });
-    if (existing) {
-      await db
-        .update(registryCredentials)
-        .set({
+    const credentialValues = {
+      schemeType: "oauth2" as const,
+      status: failure ? ("error" as const) : ("active" as const),
+      requestedScopes: material.scopes ?? declaredScopeIds,
+      grantedScopes: token ? (material.scopes ?? declaredScopeIds) : null,
+      grantedSource: token ? ("provider" as const) : null,
+      updatedAt: now,
+    };
+    const targetCredentialId = existing?.id ?? credentialId;
+    await db.transaction(async (tx) => {
+      if (existing) {
+        await tx
+          .update(registryCredentials)
+          .set(credentialValues)
+          .where(eq(registryCredentials.id, existing.id));
+      } else {
+        await tx.insert(registryCredentials).values({
+          id: credentialId,
+          registryId: id,
+          schemeName: material.schemeName,
+          createdAt: now,
+          ...credentialValues,
+        });
+      }
+      await tx
+        .insert(registryCredentialAuth)
+        .values({
+          credentialId: targetCredentialId,
           schemeType: "oauth2",
-          status: failure ? "error" : "active",
-          requestedScopes: material.scopes ?? declaredScopeIds,
-          grantedScopes: token ? (material.scopes ?? declaredScopeIds) : null,
-          grantedSource: token ? ("provider" as const) : null,
-          updatedAt: now,
+          payload,
+          updatedAt: Date.now(),
         })
-        .where(eq(registryCredentials.id, existing.id));
-      await db
-        .update(registryCredentialAuth)
-        .set({ schemeType: "oauth2", payload, updatedAt: Date.now() })
-        .where(eq(registryCredentialAuth.credentialId, existing.id));
-      await this.credentials.deletePendingsFor(existing.id);
-    } else {
-      await db.insert(registryCredentials).values({
-        id: credentialId,
-        registryId: id,
-        schemeName: material.schemeName,
-        schemeType: "oauth2",
-        status: failure ? "error" : "active",
-        requestedScopes: material.scopes ?? declaredScopeIds,
-        grantedScopes: token ? (material.scopes ?? declaredScopeIds) : null,
-        grantedSource: token ? ("provider" as const) : null,
-        createdAt: now,
-        updatedAt: now,
-      });
-      await db.insert(registryCredentialAuth).values({
-        credentialId,
-        schemeType: "oauth2",
-        payload,
-        updatedAt: Date.now(),
-      });
-    }
+        .onConflictDoUpdate({
+          target: registryCredentialAuth.credentialId,
+          set: { schemeType: "oauth2", payload, updatedAt: Date.now() },
+        });
+    });
+    if (existing) await this.credentials.deletePendingsFor(existing.id);
     const created = await store.getCredential(credentialId);
     if (!created) throw new HttpError(500, "Failed to store registry auth.");
     invalidateRegistryAuthCache();

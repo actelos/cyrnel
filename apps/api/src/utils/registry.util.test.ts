@@ -1031,6 +1031,54 @@ describe("fetchRegistryIndex", () => {
         { apiKey: [] },
       ]);
     });
+
+    it("preserves capability security for custom same-origin paths", () => {
+      const index: RegistryIndexInfo = {
+        id: "custom",
+        finalUrl: "https://registry.example.com/.well-known/registry.json",
+        definitions: {
+          version: 1,
+          url: "https://registry.example.com/api/v1/defs",
+          security: [{ oauth2: ["definitions:read"] }],
+        },
+        modules: {
+          version: 1,
+          url: "https://registry.example.com/api/v1/mods",
+          security: [{ oauth2: ["modules:read"] }],
+        },
+        auth: {
+          schemes: {
+            oauth2: {
+              type: "oauth2",
+              grantTypes: ["client_credentials"],
+              tokenUrl: "https://registry.example.com/oauth/token",
+              scopes: {
+                "definitions:read": "Read defs",
+                "modules:read": "Read mods",
+              },
+              tokenPlacement: {
+                in: "header",
+                paramName: "Authorization",
+                prefix: "Bearer",
+              },
+            },
+          },
+          security: [],
+        },
+      };
+      expect(
+        effectiveSecurityForUrl(
+          index,
+          "https://registry.example.com/api/v1/defs?limit=10",
+        ),
+      ).toEqual([{ oauth2: ["definitions:read"] }]);
+      expect(
+        effectiveSecurityForUrl(
+          index,
+          "https://registry.example.com/api/v1/mods/github/archive.tar.zst",
+        ),
+      ).toEqual([{ oauth2: ["modules:read"] }]);
+    });
   });
 
   describe("fetchCachedRegistryIndex", () => {

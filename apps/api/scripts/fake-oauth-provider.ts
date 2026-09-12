@@ -1,8 +1,44 @@
+import crypto from "node:crypto";
 import http from "node:http";
 import url from "node:url";
 
 const PORT = 9380;
-const codes = new Map();
+const codes = new Map<
+  string,
+  {
+    scope: string;
+    createdAt: number;
+    codeChallenge?: string;
+    codeChallengeMethod?: string;
+  }
+>();
+
+function verifyPkce(
+  verifier: string,
+  challenge: string,
+  method: string | undefined,
+): boolean {
+  if (!challenge) return true;
+  const normalizedMethod = method ?? "plain";
+  if (normalizedMethod === "plain") return verifier === challenge;
+  if (normalizedMethod === "S256") {
+    const computed = crypto
+      .createHash("sha256")
+      .update(verifier)
+      .digest("base64url");
+    return computed === challenge;
+  }
+  return false;
+}
+
+function escapeHtml(value: unknown): string {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
 
 function html(page: string) {
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Fake OAuth</title>
@@ -29,15 +65,17 @@ const server = http.createServer((req, res) => {
       html(`
       <div class="card">
         <h2>Fake OAuth Provider</h2>
-        <p><strong>Client:</strong> ${client_id}</p>
-        <p><strong>Scope:</strong> ${scope}</p>
-        <p><strong>Redirect:</strong> ${redirect_uri}</p>
-        <p><strong>PKCE:</strong> ${code_challenge_method} (${code_challenge})</p>
+        <p><strong>Client:</strong> ${escapeHtml(client_id)}</p>
+        <p><strong>Scope:</strong> ${escapeHtml(scope)}</p>
+        <p><strong>Redirect:</strong> ${escapeHtml(redirect_uri)}</p>
+        <p><strong>PKCE:</strong> ${escapeHtml(code_challenge_method)} (${escapeHtml(code_challenge)})</p>
         <form method="POST" action="/authorize">
-          <input type="hidden" name="client_id" value="${client_id}">
-          <input type="hidden" name="redirect_uri" value="${redirect_uri}">
-          <input type="hidden" name="state" value="${state}">
-          <input type="hidden" name="scope" value="${scope}">
+          <input type="hidden" name="client_id" value="${escapeHtml(client_id)}">
+          <input type="hidden" name="redirect_uri" value="${escapeHtml(redirect_uri)}">
+          <input type="hidden" name="state" value="${escapeHtml(state)}">
+          <input type="hidden" name="scope" value="${escapeHtml(scope)}">
+          <input type="hidden" name="code_challenge" value="${escapeHtml(code_challenge)}">
+          <input type="hidden" name="code_challenge_method" value="${escapeHtml(code_challenge_method)}">
           <button type="submit">Authorize</button>
         </form>
       </div>
@@ -54,13 +92,21 @@ const server = http.createServer((req, res) => {
       const redirect_uri = params.get("redirect_uri") ?? "";
       const state = params.get("state") ?? "";
       const scope = params.get("scope") ?? "";
+      const codeChallenge = params.get("code_challenge") ?? undefined;
+      const codeChallengeMethod =
+        params.get("code_challenge_method") ?? undefined;
       if (!redirect_uri || !state) {
         res.writeHead(400, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: "invalid_request" }));
         return;
       }
       const code = `fake_code_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      codes.set(code, { scope, createdAt: Date.now() });
+      codes.set(code, {
+        scope,
+        createdAt: Date.now(),
+        codeChallenge,
+        codeChallengeMethod,
+      });
       const sep = redirect_uri.includes("?") ? "&" : "?";
       const location = `${redirect_uri}${sep}code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`;
       console.log(`[oauth] Issued code=${code} for scope="${scope}"`);
@@ -80,7 +126,18 @@ const server = http.createServer((req, res) => {
       console.log(
         `[token] Exchange request: code=${code} grant_type=${grant_type}`,
       );
-      if (!code || !codes.has(code)) {
+      const entry = code ? codes.get(code) : undefined;
+      if (!code || !entry) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "invalid_grant" }));
+        return;
+      }
+      const verifier = params.get("code_verifier") ?? "";
+      if (
+        entry.codeChallenge &&
+        (!verifier ||
+          !verifyPkce(verifier, entry.codeChallenge, entry.codeChallengeMethod))
+      ) {
         res.writeHead(400, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: "invalid_grant" }));
         return;

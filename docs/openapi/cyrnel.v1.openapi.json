@@ -13872,7 +13872,7 @@
           "Auth"
         ],
         "summary": "OAuth redirect callback",
-        "description": "Redirect target for OAuth authorization-code flows. Validates state against the stored pending authorization, exchanges the code for tokens (including the PKCE verifier), and persists them encrypted.",
+        "description": "Redirect target for OAuth authorization-code flows. Validates state against the stored pending authorization, exchanges the code for tokens (including the PKCE verifier), and persists them encrypted. Prefer POST /auth/callback with a JSON body to keep authorization codes out of request URLs and logs.",
         "parameters": [
           {
             "schema": {
@@ -13911,10 +13911,15 @@
                         true
                       ],
                       "description": "Always true on success."
+                    },
+                    "credentialId": {
+                      "type": "string",
+                      "description": "The ID of the created or updated credential."
                     }
                   },
                   "required": [
-                    "ok"
+                    "ok",
+                    "credentialId"
                   ]
                 }
               }
@@ -13922,6 +13927,118 @@
           },
           "400": {
             "description": "The query parameters were invalid or the authorization state is unknown or expired.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A bearer token was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The OAuth client could not be found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The code exchange failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The token endpoint could not be reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "OAuth callback completion via body",
+        "description": "Preferred completion for OAuth authorization-code flows. Accepts code and state in the JSON request body so authorization material does not appear in request URLs or logs.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Authorization code from the provider."
+                  },
+                  "state": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "State identifying the pending authorization."
+                  }
+                },
+                "required": [
+                  "code",
+                  "state"
+                ],
+                "description": "OAuth callback completion payload."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The code was exchanged and tokens were stored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ],
+                      "description": "Always true on success."
+                    },
+                    "credentialId": {
+                      "type": "string",
+                      "description": "The ID of the created or updated credential."
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "credentialId"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body was invalid or the authorization state is unknown or expired.",
             "content": {
               "application/json": {
                 "schema": {

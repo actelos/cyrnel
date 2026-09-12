@@ -1115,6 +1115,7 @@ export class ProcessService {
       if (pendingCount === 0 && stored.state === "suspended") {
         const handle = this.timeoutHandles.get(pid);
         if (handle) clearTimeout(handle);
+        stored.lastExecutedAt = Date.now();
         const remaining = stored.remainingTimeoutMs;
         if (remaining !== null && remaining > 0) {
           const h = setTimeout(() => {

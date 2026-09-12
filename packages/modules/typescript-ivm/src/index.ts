@@ -1092,7 +1092,12 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
           "Dispatching tool invocation",
         );
         try {
-          const result = await bindings.invokeTool(input);
+          const enriched = {
+            ...input,
+            executionId: job.input.executionId,
+            processId: job.input.processId,
+          } as InvokeInput & { executionId: number; processId: number };
+          const result = await bindings.invokeTool(enriched);
           dispatchLogger?.info(
             { event: "dispatch-complete" },
             "Tool invocation complete",

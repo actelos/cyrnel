@@ -1089,7 +1089,7 @@ describe("ModuleService", () => {
         schemes: {},
         security: [],
         config: new HostConfigProvider({}, new Set()),
-        secrets: new HostSecretsProvider({}, new Set()),
+        secrets: new HostSecretsProvider(async () => undefined, new Set()),
       };
       await service.hydrateService("openapi", state);
       expect(adapter.hydrateCalls).toContainEqual(state);
@@ -1643,11 +1643,11 @@ describe("ModuleService", () => {
 
       expect(adapter.setupCalls[0]).toMatchObject({
         config: { values: {} },
-        secrets: { values: {} },
+        secrets: expect.any(Object),
       });
       expect(env.setupCalls[0]).toMatchObject({
         config: { values: {} },
-        secrets: { values: {} },
+        secrets: expect.any(Object),
         bindings: expect.any(Object),
       });
     });
@@ -1791,7 +1791,7 @@ describe("ModuleService", () => {
         schemes: {},
         security: [],
         config: new HostConfigProvider({}, new Set()),
-        secrets: new HostSecretsProvider({}, new Set()),
+        secrets: new HostSecretsProvider(async () => undefined, new Set()),
       };
       let service!: InstanceType<typeof ModuleService>;
       const lifecycle = {
@@ -1817,7 +1817,7 @@ describe("ModuleService", () => {
       );
       expect(secondAdapter.setupCalls[0]).toMatchObject({
         config: { values: { baseUrl: "https://x", timeout: 30 } },
-        secrets: { values: {} },
+        secrets: expect.any(Object),
       });
       expect(secondAdapter.hydrateCalls).toContainEqual(state);
     });
@@ -1890,7 +1890,7 @@ describe("ModuleService", () => {
       const secondEnv = unwrap(envInstances[1], "environment (post-reload)");
       expect(secondEnv.setupCalls[0]).toMatchObject({
         config: { values: { poolSize: 4 } },
-        secrets: { values: {} },
+        secrets: expect.any(Object),
       });
 
       await new Promise((resolve) => setImmediate(resolve));
@@ -1916,9 +1916,10 @@ describe("ModuleService", () => {
         adapterInstances[1],
         "adapter (post-secrets-reload)",
       );
-      expect(reloaded.setupCalls[0]).toMatchObject({
-        secrets: { values: { apiKey: "sekret" } },
-      });
+      expect(reloaded.setupCalls[0].secrets).toBeDefined();
+      await expect(reloaded.setupCalls[0].secrets.get("apiKey")).resolves.toBe(
+        "sekret",
+      );
     });
 
     it("patchSecrets rejects payloads that violate the schema", async () => {
@@ -2118,9 +2119,10 @@ describe("ModuleService", () => {
         });
         await service.setEnabled({ id: "permissiveSecrets", enabled: true });
 
-        expect(customSetupCalls[0]).toMatchObject({
-          secrets: { values: { anyKey: "x" } },
-        });
+        expect(customSetupCalls[0].secrets).toBeDefined();
+        await expect(customSetupCalls[0].secrets.get("anyKey")).resolves.toBe(
+          "x",
+        );
       } finally {
         await fs.rm(dir, { recursive: true, force: true });
       }

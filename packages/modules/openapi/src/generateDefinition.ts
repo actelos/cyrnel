@@ -463,17 +463,25 @@ function toAuthSchemeWithReason(
             ? (placementRaw.prefix as string)
             : "Bearer",
       };
-      const tokenUrl =
-        flows.authorizationCode?.tokenUrl ??
-        flows.clientCredentials?.tokenUrl ??
-        (flows as Record<string, { tokenUrl?: string }>).deviceCode?.tokenUrl ??
-        "";
-      if (tokenUrl.length === 0) {
+      const candidateTokenUrls = [
+        flows.authorizationCode?.tokenUrl,
+        flows.clientCredentials?.tokenUrl,
+        (flows as Record<string, { tokenUrl?: string }>).deviceCode?.tokenUrl,
+      ].filter((v): v is string => typeof v === "string" && v.length > 0);
+      if (candidateTokenUrls.length === 0) {
         return {
           scheme: null,
           reason: "oauth2 declares no token endpoint (tokenUrl is required)",
         };
       }
+      if (new Set(candidateTokenUrls).size > 1) {
+        return {
+          scheme: null,
+          reason:
+            "oauth2 flows declare conflicting tokenUrl endpoints; use a single shared token endpoint",
+        };
+      }
+      const tokenUrl = candidateTokenUrls[0] as string;
       return {
         scheme: {
           type: "oauth2",

@@ -279,13 +279,14 @@ async function loadRegistryList(): Promise<
 > {
   if (registryListCache) return registryListCache;
   try {
-    registryListCache = await db
+    const rows = await db
       .select({ id: registries.id, baseUrl: registries.baseUrl })
       .from(registries);
+    registryListCache = rows;
+    return rows;
   } catch {
-    registryListCache = [];
+    return [];
   }
-  return registryListCache;
 }
 
 async function registryForUrl(
@@ -364,6 +365,7 @@ async function loadMaterials(
       { event: "registry-auth-cache-load-failed", registryId, err },
       "Failed to load registry credentials",
     );
+    return entry;
   }
   if (!materialCache) materialCache = new Map();
   materialCache.set(registryId, entry);

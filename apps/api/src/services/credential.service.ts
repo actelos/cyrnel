@@ -17,6 +17,7 @@ import {
 import { logger } from "@/infra/logging";
 import { HttpError } from "@/models/error.model";
 import type { EncryptedSecretsPayload } from "@/models/secrets.model";
+import { isCredentialTransportAllowed } from "@/utils/registry-auth.util";
 import { decryptSecrets, encryptSecrets } from "@/utils/secrets.util";
 
 export const TOKEN_EXPIRY_SKEW_MS = 30_000;
@@ -1084,6 +1085,21 @@ export class CredentialService {
     redirectUris?: string[];
     availableScopes: string[];
   }): Promise<string> {
+    if (!(await isCredentialTransportAllowed(input.tokenUrl))) {
+      throw new HttpError(
+        400,
+        "OAuth2 token endpoint must use https (http is allowed only for loopback or configured insecure CIDRs); refusing to store client credentials.",
+      );
+    }
+    if (
+      input.authorizationUrl != null &&
+      !(await isCredentialTransportAllowed(input.authorizationUrl))
+    ) {
+      throw new HttpError(
+        400,
+        "OAuth2 authorization endpoint must use https (http is allowed only for loopback or configured insecure CIDRs); refusing to store client credentials.",
+      );
+    }
     const id = randomUUID();
     const now = new Date().toISOString();
     await db.insert(oauthClients).values({
@@ -1119,6 +1135,24 @@ export class CredentialService {
   ): Promise<OAuthClientPublic> {
     const existing = await this.getOAuthClientRow(id);
     if (!existing) throw new HttpError(404, `OAuth client '${id}' not found.`);
+    if (
+      input.tokenUrl !== undefined &&
+      !(await isCredentialTransportAllowed(input.tokenUrl))
+    ) {
+      throw new HttpError(
+        400,
+        "OAuth2 token endpoint must use https (http is allowed only for loopback or configured insecure CIDRs); refusing to store client credentials.",
+      );
+    }
+    if (
+      input.authorizationUrl != null &&
+      !(await isCredentialTransportAllowed(input.authorizationUrl))
+    ) {
+      throw new HttpError(
+        400,
+        "OAuth2 authorization endpoint must use https (http is allowed only for loopback or configured insecure CIDRs); refusing to store client credentials.",
+      );
+    }
     await db
       .update(oauthClients)
       .set({
@@ -1515,6 +1549,7 @@ export class CredentialService {
         credentialId,
         clientId: client.clientId,
         clientSecret,
+        clientAuthMethod: client.clientAuthMethod,
         tokenUrl: client.tokenUrl,
         scopes: credential.requestedScopes,
         refreshToken: existingToken.refreshToken,
@@ -1574,6 +1609,12 @@ async function exchangeAuthorizationCode(params: {
   redirectUri: string;
   scopes: string[] | null;
 }): Promise<OAuthTokenState & { rawScope: Record<string, unknown> }> {
+  if (!(await isCredentialTransportAllowed(params.tokenUrl))) {
+    throw new HttpError(
+      502,
+      "OAuth2 token endpoint must use https (http is allowed only for loopback or configured insecure CIDRs).",
+    );
+  }
   const {
     code,
     codeVerifier,
@@ -1665,6 +1706,7 @@ async function doTokenExchange(
     credentialId: string;
     clientId: string;
     clientSecret: string;
+    clientAuthMethod: string;
     tokenUrl: string;
     scopes: string[];
     refreshToken: string;
@@ -1673,10 +1715,21 @@ async function doTokenExchange(
   },
   refreshType: TokenRefreshType,
 ): Promise<OAuthTokenState & { rawScope: Record<string, unknown> }> {
+  if (!(await isCredentialTransportAllowed(entry.tokenUrl))) {
+    logger.warn(
+      { event: "auth-refresh-failed", credentialId: entry.credentialId },
+      "OAuth2 token endpoint transport is not allowed",
+    );
+    throw new HttpError(
+      502,
+      "OAuth2 token endpoint must use https (http is allowed only for loopback or configured insecure CIDRs).",
+    );
+  }
   const {
     credentialId,
     clientId,
     clientSecret,
+    clientAuthMethod,
     tokenUrl,
     scopes,
     refreshToken: currentRefreshToken,
@@ -1688,8 +1741,16 @@ async function doTokenExchange(
     grant_type: "refresh_token",
     refresh_token: currentRefreshToken,
     client_id: clientId,
-    client_secret: clientSecret,
   });
+  const headers: Record<string, string> = {
+    "content-type": "application/x-www-form-urlencoded",
+    accept: "application/json",
+  };
+  if (clientAuthMethod === "client_secret_post") {
+    body.set("client_secret", clientSecret);
+  } else {
+    headers.authorization = `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`;
+  }
   if (scopes && scopes.length > 0) {
     body.set("scope", scopes.join(" "));
   }
@@ -1704,10 +1765,7 @@ async function doTokenExchange(
   try {
     response = await fetch(tokenUrl, {
       method: "POST",
-      headers: {
-        "content-type": "application/x-www-form-urlencoded",
-        accept: "application/json",
-      },
+      headers,
       body: body.toString(),
       signal: controller.signal,
       redirect: "manual",

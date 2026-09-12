@@ -41,8 +41,13 @@ export default function AuthCallbackPage() {
     setMessage(null);
     try {
       const result = await apiFetchJson(
-        buildUrl("/auth/callback", { code, state }),
+        buildUrl("/auth/callback"),
         callbackResponseSchema,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ code, state }),
+        },
       );
       setCredentialId(result.credentialId);
       setStatus("success");

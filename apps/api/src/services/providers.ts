@@ -93,7 +93,7 @@ export class HostSecretsProvider<Secrets extends object = {}>
   private destroyed = false;
 
   constructor(
-    private readonly values: Readonly<Record<string, unknown>>,
+    private readonly resolve: (key: string) => Promise<unknown>,
     private readonly declaredKeys: ReadonlySet<string>,
   ) {}
 
@@ -107,10 +107,17 @@ export class HostSecretsProvider<Secrets extends object = {}>
     if (!this.declaredKeys.has(rawKey)) {
       throw new ProviderKeyNotDeclared("secrets", rawKey);
     }
-    if (!Object.hasOwn(this.values, rawKey)) {
+    let value: unknown;
+    try {
+      value = await this.resolve(rawKey);
+    } catch (err) {
+      if (err instanceof ProviderError) throw err;
+      throw new SecretDecryptionFailed("secrets", rawKey, err);
+    }
+    if (value === undefined) {
       throw new ProviderKeyNotConfigured("secrets", rawKey);
     }
-    return this.values[rawKey] as ConfiguredValue<Secrets[K]>;
+    return value as ConfiguredValue<Secrets[K]>;
   }
 
   destroy(): void {

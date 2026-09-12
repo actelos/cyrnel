@@ -137,8 +137,11 @@ class OpenapiAdapter implements AdapterModule {
         );
       }
     }
+    const headerParamKeys = new Map(
+      Object.keys(params.headers ?? {}).map((k) => [k.toLowerCase(), k]),
+    );
     for (const key of Object.keys(authHeaders)) {
-      if ((params.headers ?? {})[key] !== undefined) {
+      if (headerParamKeys.has(key.toLowerCase())) {
         invokeLogger?.debug(
           { event: "auth-param-collision", location: "header", key },
           "Auth header overwrites user-supplied value",
@@ -149,8 +152,20 @@ class OpenapiAdapter implements AdapterModule {
     const url = `${baseUrl.replace(/\/+$/, "")}${path}${qs}`;
 
     const headerParams = (params.headers ?? {}) as Record<string, string>;
+    const shadowed = new Set<string>(
+      Object.keys(authHeaders)
+        .map((k) => headerParamKeys.get(k.toLowerCase()))
+        .filter((v): v is string => v !== undefined),
+    );
+    const filteredParams: Record<string, string> = {};
+    for (const [k, v] of Object.entries(headerParams)) {
+      if (!shadowed.has(k)) filteredParams[k] = v;
+    }
 
-    const headers: Record<string, string> = { ...headerParams, ...authHeaders };
+    const headers: Record<string, string> = {
+      ...filteredParams,
+      ...authHeaders,
+    };
 
     const cookies: Record<string, unknown> = {
       ...(params.cookies ?? {}),

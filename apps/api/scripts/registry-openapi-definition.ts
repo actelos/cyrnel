@@ -45,9 +45,10 @@ function toOpenApi30Schema(node: unknown): unknown {
           out.nullable = true;
         }
       } else {
-        return {
-          anyOf: (value as unknown[]).map((type) => ({ type })),
-        };
+        out.anyOf = rest.map((type) => ({ type }));
+        if (value.includes("null")) {
+          out.nullable = true;
+        }
       }
     } else {
       out[key] = toOpenApi30Schema(value);
@@ -61,9 +62,12 @@ function assertOpenApi30Clean(schemas: Record<string, unknown>): void {
   const leftovers = ["#/definitions/", '"const"'].filter((marker) =>
     serialized.includes(marker),
   );
-  if (leftovers.length > 0 || /"type":\s*\[/.test(serialized)) {
+  const hasTypeArray = /"type":\s*\[/.test(serialized);
+  const hasNullType =
+    /"type":\s*"null"/.test(serialized) || /"type":"null"/.test(serialized);
+  if (leftovers.length > 0 || hasTypeArray || hasNullType) {
     throw new Error(
-      `Registry schemas are not OpenAPI 3.0-clean (found ${[...leftovers, /"type":\s*\[/.test(serialized) ? "type arrays" : ""].filter(Boolean).join(", ")}); extend toOpenApi30Schema.`,
+      `Registry schemas are not OpenAPI 3.0-clean (found ${[...leftovers, hasTypeArray ? "type arrays" : "", hasNullType ? '"type":"null"' : ""].filter(Boolean).join(", ")}); extend toOpenApi30Schema.`,
     );
   }
 }

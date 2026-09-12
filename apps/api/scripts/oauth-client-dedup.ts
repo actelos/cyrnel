@@ -6,6 +6,7 @@ import {
   registryCredentials,
   serviceCredentials,
 } from "../src/db/schema";
+import type { EncryptedSecretsPayload } from "../src/utils/secrets.util";
 import { compareSecretEquality } from "../src/utils/secrets.util";
 
 async function main() {
@@ -14,11 +15,11 @@ async function main() {
   const allClients = await db.select().from(oauthClients);
   console.log(`Found ${allClients.length} OAuth client rows`);
 
-  const groups = new Map();
+  const groups = new Map<string, typeof allClients>();
   for (const client of allClients) {
-    const key = `${client.clientId}|${client.tokenUrl}`;
+    const key = JSON.stringify([client.clientId, client.tokenUrl]);
     if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(client);
+    (groups.get(key) as typeof allClients).push(client);
   }
 
   console.log(`Grouped into ${groups.size} unique (clientId, tokenUrl) groups`);
@@ -29,23 +30,30 @@ async function main() {
   for (const [key, group] of groups) {
     if (group.length === 1) continue;
 
-    const [clientId, tokenUrl] = key.split("|");
+    const [clientId, tokenUrl] = JSON.parse(key) as [string, string];
     console.log(
       `\nProcessing group: clientId=${clientId}, tokenUrl=${tokenUrl} (${group.length} rows)`,
     );
 
-    const secretGroups = new Map<string, typeof group>();
+    const secretGroups = new Map<EncryptedSecretsPayload, typeof group>();
     for (const client of group) {
       let found = false;
       for (const [secretKey, secretGroup] of secretGroups) {
-        if (compareSecretEquality(secretKey, client.clientSecret)) {
+        if (
+          compareSecretEquality(
+            secretKey as EncryptedSecretsPayload,
+            client.clientSecret as EncryptedSecretsPayload,
+          )
+        ) {
           secretGroup.push(client);
           found = true;
           break;
         }
       }
       if (!found) {
-        secretGroups.set(client.clientSecret, [client]);
+        secretGroups.set(client.clientSecret as EncryptedSecretsPayload, [
+          client,
+        ]);
       }
     }
 
