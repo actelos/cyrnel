@@ -1,0 +1,208 @@
+---
+title: "Authentication"
+description: "Advertised auth schemes, per-capability security, and owner-scoped registry credentials"
+sidebarTitle: "Authentication"
+---
+
+A registry advertises authentication in its
+[well-known document](/cyrnel/registry-specs/v1/well-known) using the same
+`AuthDefinition` shape as services: a `schemes` map of accepted methods
+plus `security` requirements, with optional per-capability overrides.
+Auth is **advisory**: it is never required, and it exists so Cyrnel can
+protect the registry's private content and issue scoped tokens. A
+registry that doesn't advertise `auth` is simply used anonymously.
+Registry credentials are owned by the registry like any service
+credential — one slot per declared scheme (see the [operator
+guide](/cyrnel/docs/v1/authentication)).
+
+<Warning>
+  The old single-method advertisement (`{ "type": "apiKey", "name": ...
+  }` or `{ "type": "oauth2", "grantType": "client_credentials",
+  "tokenEndpoint": ..., "scopes": [{ "id", ... }] }`) is **removed,
+  not deprecated**. Well-known documents using it fail with a `400`
+  pointing at this migration. Re-publish with `schemes` + `security`.
+</Warning>
+
+## Advertisement
+
+Registries declare auth exactly like services: **multiple accepted
+methods** plus per-route requirements.
+
+```json
+{
+  "id": "cyrnel-dev",
+  "definitions.v1": { "url": "/definitions/v1", "security": [] },
+  "modules.v1": "/modules/v1",
+  "auth": {
+    "schemes": {
+      "apiKey": { "type": "apiKey", "in": "header", "paramName": "X-Key" },
+      "basic": { "type": "basic" },
+      "bearer": { "type": "http", "scheme": "bearer" },
+      "oauth2": {
+        "type": "oauth2",
+        "grantTypes": ["authorization_code", "client_credentials"],
+        "authorizationUrl": "https://auth.example.com/authorize",
+        "tokenUrl": "https://auth.example.com/token",
+        "scopes": { "read": "Read catalog" },
+        "tokenPlacement": { "in": "header", "paramName": "Authorization", "prefix": "Bearer" }
+      }
+    },
+    "security": [{ "oauth2": ["read"] }]
+  }
+}
+```
+
+- `auth.schemes` uses the same `AuthScheme` union as the SDK
+  (`apiKey` / `basic` / `http`-bearer / `oauth2`). At least one scheme
+  is required. Query-parameter API keys are not supported (`"in"`
+  must be `"header"`); schemes advertising only unsupported grants or
+  placements are recorded as `unsupported` (ignored) until a
+  credential setup needs them, which then fails with `400`.
+- `auth.security` is the global default `SecurityRequirements`
+  (OR-of-AND groups), enforced on all authenticated registry requests
+  (capability pages, downloads). The well-known document itself stays
+  public.
+- **Per-capability override:** a capability value may be a plain URL
+  string (inherits the global `security`) or
+  `{ "url", "security"? }` (overrides it; `"security": []` makes that
+  capability public while the rest stays guarded). In the example
+  above, definitions browse anonymously while modules require the
+  `oauth2` + `read` scope.
+- Registry `oauth2` supports both `authorization_code` (human Sign in,
+  resolved against shared `oauth_clients` like services) and
+  `client_credentials` (machine secret stored per registry). The
+  `oauth2` `scopes` map (`{ scope: description }`) describes the
+  scopes the registry **offers**; see [Scope selection](#scope-selection).
+- Capability URLs and the `oauth2` `tokenUrl` / `authorizationUrl`
+  must share the well-known origin (same-origin guard).
+
+## Credential scope
+
+Credentials are attached **only** to requests within the registry's
+origin and, if the base URL has a path, that path prefix. On cross-origin
+redirects they are stripped - Cyrnel re-evaluates scope at every hop.
+
+## Transport rules
+
+Credentials are only sent over:
+
+- `https`, or
+- `http` where the resolved address is loopback, or
+- `http` where the resolved address matches a CIDR in
+  `CYRNEL_REGISTRY_AUTH_INSECURE_CIDRS`.
+
+Attach-time violations fail the request with `502 Registry authentication
+requires https; refusing to send credentials over plaintext http.`
+Setup-time violations are `400` safety refusals (nothing stored). Local
+development over plaintext on loopback works out of the box.
+
+## Setup
+
+`POST /registries` takes `{ baseUrl, id? }` only — no auth payload. The
+server fetches the well-known document, stores the registry, and returns
+the advertised `auth` declaration plus per-scheme `resolvedClients` so
+the UI can render Sign in immediately. Credentials are then claimed per
+scheme through the nested routes, exactly like services:
+
+```bash
+# Claim the registry's "oauth2" scheme with a shared client
+curl -X PUT http://localhost:9371/registries/my-registry/credentials/oauth2/oauth2 \
+  -H 'content-type: application/json' \
+  -d '{"oauthClientId":"<client-id>","scopes":["read"]}'
+
+# ...then authorize (authorization_code grants)
+curl -X POST http://localhost:9371/registries/my-registry/credentials/oauth2/oauth/authorize
+# → { "authorizationUrl": "...", "state": "..." }
+
+# Static schemes work the same way
+curl -X PUT http://localhost:9371/registries/my-registry/credentials/apiKey/api-key \
+  -H 'content-type: application/json' \
+  -d '{"apiKey":"..."}'
+
+# Disconnect one scheme slot
+curl -X DELETE http://localhost:9371/registries/my-registry/credentials/apiKey
+```
+
+All `PUT` routes are `10/min`; authorize/code routes are `5/min`.
+Validation runs against the **live advertisement** (fetched fresh,
+never from a stored snapshot): unknown scheme → `400`; type mismatch
+→ `400`; `requested ⊄ client.availableScopes` → `400`; requested
+scopes the scheme does not declare → success with
+`warning: { unknownScopes }`.
+
+### Safety refusals (400, nothing stored)
+
+| Cause | Message (`...`) |
+| --- | --- |
+| No advertised method | `The registry does not advertise an 'auth' method.` |
+| Unsupported advertisement | `The registry advertises unsupported auth '<scheme>' (<reason>).` |
+| Old single-method shape | Migration pointer (re-publish with `schemes` + `security`). |
+| Method mismatch | The slot's credential type does not satisfy the declared scheme. |
+| Plaintext transport (not exempt) | `Registry authentication requires https; ...` |
+| Unadvertised scope | `Requested scope(s) not advertised by the registry: <scopes>.` |
+
+Exchange failures mark the credential `error` (`invalid_grant` marks
+`revoked`); nothing secret is ever echoed back in the response.
+
+### Drift
+
+Refresh (`POST /registries/:id/refresh`) re-fetches the well-known
+document and stamps `lastSyncedAt`, but it never changes stored
+credentials. When the advertisement no longer covers what is
+configured, Cyrnel keeps the stored configuration and logs a warning
+(prompting reconfiguration): `registry-auth-unadvertised` (auth
+removed while credentials remain), `registry-auth-scheme-removed`
+(a configured scheme is no longer advertised), and
+`registry-auth-unconfigured` (the global `security` is no longer
+satisfiable by any configured credential).
+
+## Token lifecycle
+
+- OAuth2 tokens are persisted encrypted per credential and reused
+  until their `expiresAt` is within 30 seconds of expiry (skew), then
+  a fresh exchange happens.
+- The exchange is **single-flight**: concurrent first requests share one
+  request.
+- `authorization_code` token requests use the shared OAuth client's
+  endpoints with the PKCE verifier (`S256` always, 10s timeout);
+  `client_credentials` exchanges use the per-registry machine secret
+  (`grant_type=client_credentials`, `client_id`, `client_secret`, and
+  `scope` as the space-joined selected scopes).
+- The response must include `access_token` (string); `expires_in`
+  (seconds) defaults to 1 hour when absent; granted scopes are parsed
+  from the `scope` parameter (absent ⇒ inferred from requested, see
+  the [operator guide](/cyrnel/docs/v1/authentication)).
+- A single `401` from the upstream after using an oauth2 token triggers
+  one retry with a freshly exchanged token. apiKey/basic/bearer auth
+  never retries.
+- Signature for well-formed failures: non-2xx token response → `502
+  Registry oauth2 token endpoint responded with status N.`; malformed →
+  `502` with the parse reason. Redirects are rejected, never followed
+  (`502 ... refusing to follow redirects with credentials in the body`),
+  since `client_secret` travels in the POST body.
+
+## Scope selection
+
+- Setting `scopes` to a **subset** of the scopes the scheme declares
+  is allowed (`requested ⊆ available` still enforced against the
+  OAuth client).
+- Omitting `scopes` requests an **unscoped** credential.
+- Any scope **not permitted** by the backing client is a `400` safety
+  refusal; scopes the scheme does not declare succeed with
+  `warning: { unknownScopes }` and fail only at invoke time
+  (`required ⊆ granted`).
+- Invoke-time enforcement covers capability fetches: a capability
+  whose effective `security` no configured credential satisfies is
+  refused rather than fetched anonymously.
+
+## Testing drift & scopes
+
+The dev fixture serves the v2 `AuthDefinition` shape with selectable
+modes (`none | apikey | basic | bearer | oauth2 | oauth2-ac | multi`,
+where `multi` demonstrates the per-capability override with public
+definitions and guarded modules) and can
+advertise values it does **not** enforce
+(`CYRNEL_DEV_REGISTRY_DRIFT_AUTH=1`) to exercise the pinning behavior,
+and it enforces its advertised scopes on the token endpoint
+(`invalid_scope` for unknown requested scopes). See
+[Building a registry](/cyrnel/registry-specs/v1/building-a-registry).

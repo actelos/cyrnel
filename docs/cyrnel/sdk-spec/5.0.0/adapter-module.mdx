@@ -1,0 +1,185 @@
+---
+title: "AdapterModule"
+description: "The contract every adapter module implements"
+sidebarTitle: "AdapterModule"
+---
+
+```ts
+interface AdapterModule extends Module {
+  generateService(input: string): Promise<ServiceDefinition>;
+  hydrateService(service: ServiceRuntime): Promise<void>;
+  dehydrateService(id: string): Promise<void>;
+  invoke(input: InvokeInput): Promise<unknown>;
+}
+```
+
+Adapter modules translate service definitions and tool invocations into
+calls to the underlying end service. See
+[Adapter Modules](/cyrnel/docs/v1/adapters-modules) for the user-facing
+description.
+
+## `generateService(input)`
+
+Convert a raw definition string (an OpenAPI document, a custom schema, a
+URL to fetch and parse, whatever this adapter understands) into a
+[`ServiceDefinition`](/cyrnel/sdk-spec/5.0.0/types#servicedefinition).
+
+- Called from `POST /services` (direct install), `POST /services/install`
+  (registry install), `PATCH /services/:serviceId` (direct update),
+  `POST /services/:serviceId/update` (registry update), and
+  during `PATCH /modules/:moduleId` / `POST /modules/:moduleId/update`
+  to regenerate every service that targets the updated adapter.
+- Expected to be **pure**, given the same input string, return the same
+  definition. Adapters should not rely on instance state here.
+- Throw to reject the install. The host returns the thrown message in
+  the error response.
+- Populate `adapterDomain` (on the service and on each tool) with
+  whatever the adapter needs at invoke time. Treat it as your private
+  scratch space. The host never inspects it.
+- Declare `schemes` and `security` (`AuthDefinition`) on every
+  definition — `schemes: {}` / `security: []` mean "none". Tool-level
+  overrides go on each tool's `security` field.
+
+The host validates that the service `id` and every tool `id` is a valid
+TypeScript identifier before persisting.
+
+## `hydrateService(service)`
+
+Receive the live runtime of one service. Called when:
+
+- A service that targets this adapter is enabled.
+- Configuration or secrets on an already-enabled service are patched.
+- This adapter is activated while the service is already enabled.
+
+```ts
+interface ServiceRuntime {
+  readonly id: string;
+  readonly adapterDomain: ServiceDomain;
+  readonly tools: Readonly<Record<string, ToolState<ToolDomain>>>;
+  readonly config: ConfigProvider<Config>;
+  readonly secrets: SecretsProvider<Secrets>;
+  readonly schemes: Readonly<Record<string, AuthScheme>>;
+  readonly security: SecurityRequirements;
+  readonly credentials?: CredentialProvider;
+}
+```
+
+Implementations should **replace** any internal state they kept for
+`service.id`, not merge into it. `config` and `secrets` are providers —
+resolve values on demand instead of copying them, and never log secret
+or credential values. When `schemes` is non-empty, `credentials` is
+present: resolve a credential per invocation with
+`await credentials.getCredential(schemeName)`.
+
+Throw to reject the operation, the host rolls back `enabled` on the
+service before surfacing the error.
+
+## `dehydrateService(id)`
+
+Drop any internal state for service `id`. Called when:
+
+- A service is disabled.
+- A service is deleted.
+- A service is updated (immediately before the new tools are inserted).
+
+Should be idempotent. If the adapter never saw the service, return
+without error.
+
+## `invoke(input)`
+
+```ts
+interface InvokeInput {
+  serviceId: string;
+  toolId: string;
+  parameters: Record<string, unknown>;
+}
+```
+
+Perform one tool call. The host has already verified:
+
+- The service exists and is enabled.
+- The tool exists and is enabled.
+- The service is owned by this adapter.
+
+The adapter is free to validate `parameters` against the stored
+`inputSchema` itself (recommended) before issuing the outbound call. The
+returned value is whatever the environment receives back from tool invokes.
+
+Throw on any failure. Throwing an `Error` with a useful message is fine;
+the host surfaces it to the calling process.
+
+## Security
+
+Adapters run with full host privileges and resolve secrets and
+credentials on demand through providers. See
+[Security → Adapter modules](/cyrnel/docs/v1/security#adapter-modules) for
+operator-facing guidance and **what a well-behaved adapter must not do**.
+
+## Minimal Skeleton
+
+```ts
+import type { AdapterModule, InvokeInput, ModuleSetupContext, ServiceDefinition, ServiceRuntime } from "@cyrnel/sdk";
+
+class MyAdapter implements AdapterModule {
+  private state = new Map<string, ServiceRuntime>();
+  private logger: ModuleSetupContext["logger"] | null = null;
+
+  async setup(context: ModuleSetupContext<{ redactionPatterns?: string[] }>) {
+    // Configure reduction for yourself from your own config field, then scope
+    // a base phase. The host manages the rest of the correlation metadata.
+    const patterns = await context.config.get("redactionPatterns").catch(() => []);
+    this.logger = context.logger.redact(patterns).child({ phase: "setup" });
+  }
+  async teardown() { this.state.clear(); }
+
+  async generateService(input: string): Promise<ServiceDefinition> {
+    return {
+      name: "...",
+      summary: "Short plain-text label shown in lists",
+      description: "...",
+      configSchema: { type: "object", properties: {} },
+      secretsSchema: { type: "object", properties: {} },
+      schemes: {},
+      security: [],
+      adapterDomain: { /* parsed metadata */ },
+      tools: [
+        {
+          id: "ping",
+          name: "ping",
+          summary: "Answers with a health status",
+          description: "Health check",
+          inputSchema: { type: "object" },
+          outputSchema: { type: "object" },
+          adapterDomain: { /* per-tool routing info */ },
+        },
+      ],
+    };
+  }
+
+  async hydrateService(service: ServiceRuntime): Promise<void> {
+    this.state.set(service.id, service);
+  }
+
+  async dehydrateService(id: string): Promise<void> {
+    this.state.delete(id);
+  }
+
+  async invoke(input: InvokeInput): Promise<unknown> {
+    const svc = this.state.get(input.serviceId);
+    if (!svc) throw new Error(`unknown service ${input.serviceId}`);
+    // ...use svc.adapterDomain, await svc.config.get(...) /
+    // svc.secrets.get(...) / svc.credentials?.getCredential(...) to issue the call
+    return { ok: true };
+  }
+}
+
+export function instantiate(): AdapterModule {
+  return new MyAdapter();
+}
+```
+
+> **Note:** The manifest metadata (name, version, type, etc.) goes in
+> `module.json` for custom modules. Only built-in modules ship `export
+> const manifest` from code. The skeleton above omits it, see
+> [Writing a custom adapter module](/cyrnel/sdk-spec/5.0.0/writing-custom-adapter-module)
+> for a step-by-step walkthrough and a full working example.
