@@ -1,7 +1,7 @@
 import type {
   JSONSchema,
   ServiceDefinition,
-  ServiceState,
+  ServiceRuntime,
   ToolDocsInput,
 } from "@cyrnel/sdk";
 import {
@@ -53,6 +53,13 @@ import type {
   ServiceConfigView,
   SetServiceEnabledInput,
 } from "@/models/services.model";
+import { HostCredentialProvider } from "@/services/credential.provider";
+import { CredentialService } from "@/services/credential.service";
+import {
+  declaredSchemaKeys,
+  HostConfigProvider,
+  HostSecretsProvider,
+} from "@/services/providers";
 import { isUniqueConstraintError } from "@/utils/db-errors.util";
 import { downloadText } from "@/utils/download.util";
 import { computeContentHash } from "@/utils/hash.util";
@@ -89,10 +96,8 @@ const DEFINITION_DOWNLOAD_MAX_BYTES = 30 * 1024 * 1024;
 const IDENTIFIER_SCHEMA = z.string().regex(/^[A-Za-z_$][A-Za-z0-9_$]*$/);
 
 export interface AdapterController {
-  generateDefinition(
-    input: GenerateDefinitionInput,
-  ): Promise<ServiceDefinition>;
-  hydrateService(adapterId: string, state: ServiceState): Promise<void>;
+  generateService(input: GenerateDefinitionInput): Promise<ServiceDefinition>;
+  hydrateService(adapterId: string, service: ServiceRuntime): Promise<void>;
   dehydrateService(adapterId: string, serviceId: string): Promise<void>;
   generateToolDocs(input: ToolDocsInput): Promise<string>;
   rankAdapters(kind?: string): Promise<RankedAdapter[]>;
@@ -146,6 +151,8 @@ async function syncToolPolicies(
 }
 
 export class ServicesService {
+  private readonly credentialService = new CredentialService();
+
   constructor(
     private readonly controller: AdapterController,
     private readonly search?: SearchIndex,
@@ -178,6 +185,8 @@ export class ServicesService {
         configSchema,
         secretsSchema,
         adapterDomain,
+        schemes,
+        security,
         hash,
         source,
         definitionContent,
@@ -227,6 +236,8 @@ export class ServicesService {
       const rows = await db
         .select({
           ...serviceColumns,
+          schemes: services.schemes,
+          security: services.security,
           iconHash: services.iconHash,
           effectivelyEnabled: sql<boolean>`${services.enabled} AND ${modulesTable.enabled} AND NOT ${modulesTable.missing}`,
         })
@@ -237,8 +248,10 @@ export class ServicesService {
         .limit(limit + 1);
 
       return paginatePage(
-        rows.map(({ iconHash, ...row }) => ({
+        rows.map(({ iconHash, schemes, security, ...row }) => ({
           ...row,
+          schemes: schemes ?? {},
+          security: security ?? [],
           hasIcon: iconHash !== null,
         })),
         limit,
@@ -253,6 +266,8 @@ export class ServicesService {
   async getService(id: string): Promise<GetServiceDefinitionResult> {
     const {
       adapterDomain,
+      schemes,
+      security,
       definitionContent,
       iconData,
       iconMime,
@@ -261,6 +276,8 @@ export class ServicesService {
     const [row] = await db
       .select({
         ...serviceColumns,
+        schemes: services.schemes,
+        security: services.security,
         iconHash: services.iconHash,
         effectivelyEnabled: sql<boolean>`${services.enabled} AND ${modulesTable.enabled} AND NOT ${modulesTable.missing}`,
       })
@@ -273,8 +290,42 @@ export class ServicesService {
       });
 
     if (!row) throw new HttpError(404, `Service '${id}' not found.`);
-    const { iconHash, ...rest } = row;
-    return { ...rest, hasIcon: iconHash !== null };
+    const {
+      iconHash,
+      schemes: rowSchemes,
+      security: rowSecurity,
+      ...rest
+    } = row;
+
+    const credentials = await this.credentialService
+      .forService(id)
+      .listCredentials()
+      .catch(
+        () =>
+          [] as Awaited<ReturnType<CredentialService["listOwnedCredentials"]>>,
+      );
+
+    const credentialSchemes: Record<
+      string,
+      { configured: boolean; status?: string; grantedSource?: string | null }
+    > = {};
+    for (const cred of credentials) {
+      credentialSchemes[cred.schemeName] = {
+        configured: true,
+        status: cred.status,
+        grantedSource: cred.grantedSource,
+      };
+    }
+
+    return {
+      ...rest,
+      schemes: rowSchemes ?? {},
+      security: rowSecurity ?? [],
+      hasIcon: iconHash !== null,
+      ...(Object.keys(credentialSchemes).length > 0
+        ? { credentialSchemes }
+        : {}),
+    };
   }
 
   async getServiceIcon(
@@ -520,7 +571,8 @@ export class ServicesService {
   }
 
   async getTool(input: GetToolInput): Promise<GetToolsResult> {
-    const { serviceId, adapterDomain, ...toolColumns } = getTableColumns(tools);
+    const { serviceId, adapterDomain, security, ...toolColumns } =
+      getTableColumns(tools);
     const [tool] = await db
       .select({
         ...toolColumns,
@@ -621,7 +673,7 @@ export class ServicesService {
 
     const definitionContent = await this.downloadDefinition(input.url);
     const hash = computeContentHash(definitionContent);
-    const generatedDefinition = await this.controller.generateDefinition({
+    const generatedDefinition = await this.controller.generateService({
       definition: definitionContent,
       adapter: input.adapter,
     });
@@ -734,7 +786,7 @@ export class ServicesService {
       );
     }
 
-    const generatedDefinition = await this.controller.generateDefinition({
+    const generatedDefinition = await this.controller.generateService({
       definition: definitionContent,
       adapter: effectiveAdapter,
     });
@@ -811,7 +863,7 @@ export class ServicesService {
         `Service '${id}' has no stored definition content and cannot be synced.`,
       );
 
-    const generatedDefinition = await this.controller.generateDefinition({
+    const generatedDefinition = await this.controller.generateService({
       definition: service.definitionContent,
       adapter: service.adapter,
     });
@@ -982,7 +1034,7 @@ export class ServicesService {
       return false;
     }
 
-    const parsedDefinition = await this.controller.generateDefinition({
+    const parsedDefinition = await this.controller.generateService({
       definition: definitionContent,
       adapter: service.adapter,
     });
@@ -1096,7 +1148,7 @@ export class ServicesService {
       return { updated: false };
     }
 
-    const generatedDefinition = await this.controller.generateDefinition({
+    const generatedDefinition = await this.controller.generateService({
       definition: definitionContent,
       adapter: service.adapter,
     });
@@ -1230,14 +1282,14 @@ export class ServicesService {
     for (const { id: approvalId } of expiredApprovals) {
       try {
         const { resolveApprovalWaiter } = await import(
-          "@/services/approval-waiter"
+          "@/services/approval.waiter"
         );
         resolveApprovalWaiter(approvalId, "expired");
       } catch {}
     }
     for (const { processId, pendingCount } of notifications) {
       try {
-        const { getProcessService } = await import("@/services/process-holder");
+        const { getProcessService } = await import("@/services/process.holder");
         const ps = getProcessService();
         if (ps)
           await ps.notifyApprovalResolved(processId, pendingCount, "expired");
@@ -1359,8 +1411,8 @@ export class ServicesService {
 
     if (input.enabled) {
       try {
-        const state = await this.buildServiceState(input.id);
-        await this.controller.hydrateService(updated.adapter, state);
+        const service = await this.buildServiceRuntime(input.id);
+        await this.controller.hydrateService(updated.adapter, service);
       } catch (err) {
         await db
           .update(services)
@@ -1738,8 +1790,8 @@ export class ServicesService {
     await Promise.all(
       rows.map(async (row) => {
         try {
-          const state = await this.buildServiceState(row.id);
-          await this.controller.hydrateService(adapterId, state);
+          const service = await this.buildServiceRuntime(row.id);
+          await this.controller.hydrateService(adapterId, service);
         } catch (err) {
           logger.warn(
             {
@@ -1771,13 +1823,26 @@ export class ServicesService {
 
     if (!row?.enabled || row.stale) return;
 
-    const state = await this.buildServiceState(id);
-    await this.controller.hydrateService(row.adapter, state);
+    const service = await this.buildServiceRuntime(id);
+    await this.controller.hydrateService(row.adapter, service);
   }
 
-  private async buildServiceState(id: string): Promise<ServiceState> {
+  private async buildServiceRuntime(
+    id: string,
+  ): Promise<
+    ServiceRuntime<
+      Record<string, unknown>,
+      Record<string, unknown>,
+      Record<string, unknown>,
+      Record<string, unknown>
+    >
+  > {
     const [serviceRow] = await db
-      .select({ adapterDomain: services.adapterDomain })
+      .select({
+        adapterDomain: services.adapterDomain,
+        schemes: services.schemes,
+        security: services.security,
+      })
       .from(services)
       .where(eq(services.id, id))
       .limit(1)
@@ -1790,7 +1855,11 @@ export class ServicesService {
     const [toolRows, config, secrets, configSchema, secretsSchema] =
       await Promise.all([
         db
-          .select({ id: tools.id, adapterDomain: tools.adapterDomain })
+          .select({
+            id: tools.id,
+            adapterDomain: tools.adapterDomain,
+            security: tools.security,
+          })
           .from(tools)
           .where(eq(tools.serviceId, id))
           .catch(() => {
@@ -1805,30 +1874,48 @@ export class ServicesService {
         this.getServiceSecretsSchema(id),
       ]);
 
+    const configValues = isNullOnlySchema(configSchema)
+      ? config
+      : applyJsonSchemaDefaults(
+          configSchema,
+          filterPayloadToSchema(configSchema, config, {
+            keepPermitted: true,
+          }),
+          `Invalid configuration for service '${id}'.`,
+        );
+    const secretsValues = isNullOnlySchema(secretsSchema)
+      ? secrets
+      : applyJsonSchemaDefaults(
+          secretsSchema,
+          filterPayloadToSchema(secretsSchema, secrets, {
+            keepPermitted: true,
+          }),
+          `Invalid secrets for service '${id}'.`,
+        );
+
     return {
       id,
       adapterDomain: serviceRow.adapterDomain,
+      schemes: serviceRow.schemes ?? {},
+      security: serviceRow.security ?? [],
       tools: Object.fromEntries(
-        toolRows.map((t) => [t.id, { adapterDomain: t.adapterDomain }]),
+        toolRows.map((t) => [
+          t.id,
+          {
+            adapterDomain: t.adapterDomain,
+            ...(t.security ? { security: t.security } : {}),
+          },
+        ]),
       ),
-      config: isNullOnlySchema(configSchema)
-        ? config
-        : applyJsonSchemaDefaults(
-            configSchema,
-            filterPayloadToSchema(configSchema, config, {
-              keepPermitted: true,
-            }),
-            `Invalid configuration for service '${id}'.`,
-          ),
-      secrets: isNullOnlySchema(secretsSchema)
-        ? secrets
-        : applyJsonSchemaDefaults(
-            secretsSchema,
-            filterPayloadToSchema(secretsSchema, secrets, {
-              keepPermitted: true,
-            }),
-            `Invalid secrets for service '${id}'.`,
-          ),
+      credentials: new HostCredentialProvider(id, this.credentialService),
+      config: new HostConfigProvider(
+        configValues,
+        declaredSchemaKeys(configSchema),
+      ),
+      secrets: new HostSecretsProvider(
+        secretsValues,
+        declaredSchemaKeys(secretsSchema),
+      ),
     };
   }
 

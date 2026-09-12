@@ -5,7 +5,7 @@ import path from "node:path";
 import type {
   JSONSchema,
   ServiceDefinition,
-  ServiceState,
+  ServiceRuntime,
   ToolDocsInput,
 } from "@cyrnel/sdk";
 import { sql } from "drizzle-orm";
@@ -26,6 +26,8 @@ import type {
   GenerateDefinitionInput,
   RankedAdapter,
 } from "@/models/modules.model";
+import { CredentialService } from "@/services/credential.service";
+import { ProviderKeyNotDeclared } from "@/services/providers";
 import {
   type AdapterController,
   ServicesService,
@@ -39,6 +41,43 @@ const originalSecretsKey = process.env.CYRNEL_SECRETS_KEY;
 const originalPreviousKeys = process.env.CYRNEL_SECRETS_PREVIOUS_KEYS;
 
 async function applyMigrations(): Promise<void> {
+  await db.run(sql.raw("PRAGMA foreign_keys = OFF"));
+  try {
+    await db.run(sql.raw("DROP TABLE IF EXISTS approval_requests"));
+    await db.run(sql.raw("DROP TABLE IF EXISTS tool_policies"));
+    await db.run(sql.raw("DROP TABLE IF EXISTS tools"));
+    await db.run(sql.raw("DROP TABLE IF EXISTS service_secrets"));
+    await db.run(sql.raw("DROP TABLE IF EXISTS service_configurations"));
+    await db.run(sql.raw("DROP TABLE IF EXISTS service_credential_auth"));
+    await db.run(sql.raw("DROP TABLE IF EXISTS service_credentials"));
+    await db.run(sql.raw("DROP TABLE IF EXISTS module_credential_auth"));
+    await db.run(sql.raw("DROP TABLE IF EXISTS module_credentials"));
+    await db.run(sql.raw("DROP TABLE IF EXISTS registry_credential_auth"));
+    await db.run(sql.raw("DROP TABLE IF EXISTS registry_credentials"));
+    await db.run(sql.raw("DROP TABLE IF EXISTS oauth_pendings"));
+    await db.run(sql.raw("DROP TABLE IF EXISTS pending_authorizations"));
+    await db.run(sql.raw("DROP TABLE IF EXISTS module_connection_schemes"));
+    await db.run(sql.raw("DROP TABLE IF EXISTS connection_schemes"));
+    await db.run(sql.raw("DROP TABLE IF EXISTS oauth_clients"));
+    await db.run(sql.raw("DROP TABLE IF EXISTS connection_auth"));
+    await db.run(sql.raw("DROP TABLE IF EXISTS connections"));
+    await db.run(sql.raw("DROP TABLE IF EXISTS services"));
+    await db.run(sql.raw("DROP TABLE IF EXISTS module_secrets"));
+    await db.run(sql.raw("DROP TABLE IF EXISTS module_configurations"));
+    await db.run(sql.raw("DROP TABLE IF EXISTS modules"));
+    await db.run(sql.raw("DROP TABLE IF EXISTS registry_auth"));
+    await db.run(sql.raw("DROP TABLE IF EXISTS registries"));
+    await db.run(sql.raw("DROP TABLE IF EXISTS process_data"));
+    await db.run(sql.raw("DROP TABLE IF EXISTS process_logs"));
+    await db.run(sql.raw("DROP TABLE IF EXISTS processes"));
+    await db.run(sql.raw("DROP TABLE IF EXISTS sqlite_vec_chunks"));
+    await db.run(sql.raw("DROP TABLE IF EXISTS tool_embeddings"));
+    await db.run(sql.raw("DROP TABLE IF EXISTS tools_fts"));
+    await db.run(sql.raw("DROP TABLE IF EXISTS _drizzle_migrations"));
+  } finally {
+    await db.run(sql.raw("PRAGMA foreign_keys = ON"));
+  }
+
   const entries = (await fs.readdir(MIGRATIONS_DIR))
     .filter((name) => name.endsWith(".sql"))
     .sort();
@@ -61,6 +100,12 @@ async function resetDb(): Promise<void> {
   await db.run(sql.raw("DELETE FROM tools"));
   await db.run(sql.raw("DELETE FROM service_secrets"));
   await db.run(sql.raw("DELETE FROM service_configurations"));
+  await db.run(sql.raw("DELETE FROM oauth_pendings"));
+  await db.run(sql.raw("DELETE FROM service_credential_auth"));
+  await db.run(sql.raw("DELETE FROM service_credentials"));
+  await db.run(sql.raw("DELETE FROM module_credential_auth"));
+  await db.run(sql.raw("DELETE FROM module_credentials"));
+  await db.run(sql.raw("DELETE FROM oauth_clients"));
   await db.run(sql.raw("DELETE FROM services"));
   await db.run(sql.raw("DELETE FROM module_secrets"));
   await db.run(sql.raw("DELETE FROM module_configurations"));
@@ -83,12 +128,12 @@ type ControllerSpy = {
 
 function makeController(overrides: Partial<ControllerSpy> = {}): ControllerSpy {
   return {
-    generateDefinition: vi.fn<AdapterController["generateDefinition"]>(
+    generateService: vi.fn<AdapterController["generateService"]>(
       async (_input: GenerateDefinitionInput): Promise<ServiceDefinition> =>
         sampleDefinition(),
     ),
     hydrateService: vi.fn<AdapterController["hydrateService"]>(
-      async (_adapterId: string, _state: ServiceState): Promise<void> => {},
+      async (_adapterId: string, _service: ServiceRuntime): Promise<void> => {},
     ),
     dehydrateService: vi.fn<AdapterController["dehydrateService"]>(
       async (_adapterId: string, _serviceId: string): Promise<void> => {},
@@ -120,6 +165,8 @@ function sampleDefinition(
     description: "demo",
     configSchema: EMPTY_OBJECT_SCHEMA,
     secretsSchema: EMPTY_OBJECT_SCHEMA,
+    schemes: {},
+    security: [],
     adapterDomain: {},
     tools: [
       {
@@ -147,13 +194,14 @@ async function seedService(
     description?: string;
     configSchema?: JSONSchema;
     secretsSchema?: JSONSchema;
+    schemes?: Record<string, unknown>;
     tools?: { id: string; name: string; enabled?: boolean }[];
     version?: string;
   } = {},
 ): Promise<void> {
   const adapter = options.adapter ?? "test-adapter";
   await db.run(
-    sql`INSERT INTO services (id, name, summary, description, hash, version, source, adapter, enabled, config_schema, secrets_schema, adapter_domain)
+    sql`INSERT INTO services (id, name, summary, description, hash, version, source, adapter, enabled, config_schema, secrets_schema, adapter_domain, auth_schemes)
         VALUES (${id},
                 ${options.name ?? id},
                 ${options.summary ?? ""},
@@ -165,7 +213,8 @@ async function seedService(
                 ${options.enabled === false ? 0 : 1},
                 ${JSON.stringify(options.configSchema ?? EMPTY_OBJECT_SCHEMA)},
                 ${JSON.stringify(options.secretsSchema ?? EMPTY_OBJECT_SCHEMA)},
-                ${JSON.stringify({})})`,
+                ${JSON.stringify({})},
+                ${JSON.stringify(options.schemes ?? {})})`,
   );
   for (const tool of options.tools ?? []) {
     await db.run(
@@ -796,7 +845,7 @@ describe("ServicesService", () => {
 
       const row = await svc.getService("alpha");
       expect(row.enabled).toBe(false);
-      expect(controller.generateDefinition).toHaveBeenCalledWith({
+      expect(controller.generateService).toHaveBeenCalledWith({
         definition: "payload",
         adapter: "test-adapter",
       });
@@ -809,7 +858,7 @@ describe("ServicesService", () => {
     it("persists and trims the summary for the service and its tools", async () => {
       mockFetchOnce("payload");
       const controller = makeController({
-        generateDefinition: vi.fn(async () =>
+        generateService: vi.fn(async () =>
           sampleDefinition({
             summary: "  Pet store API  ",
             tools: [
@@ -861,7 +910,7 @@ describe("ServicesService", () => {
     it('rejects definitions whose tool id is not a valid identifier (createService says "Tool name" instead of the intended "Tool id")', async () => {
       mockFetchOnce("payload");
       const controller = makeController({
-        generateDefinition: vi.fn(async () =>
+        generateService: vi.fn(async () =>
           sampleDefinition({
             tools: [
               {
@@ -1054,7 +1103,7 @@ describe("ServicesService", () => {
       );
 
       const controller = makeController({
-        generateDefinition: vi.fn(async () =>
+        generateService: vi.fn(async () =>
           sampleDefinition({
             tools: [
               {
@@ -1601,7 +1650,9 @@ describe("ServicesService", () => {
       expect(controller.hydrateService).toHaveBeenCalledWith(
         "test-adapter",
         expect.objectContaining({
-          secrets: { token: "abc" },
+          secrets: expect.objectContaining({
+            values: { token: "abc" },
+          }),
         }),
       );
     });
@@ -1730,8 +1781,14 @@ describe("ServicesService", () => {
 
       await svc.setServiceEnabled({ id: "alpha", enabled: true });
 
-      const state = controller.hydrateService.mock.calls[0][1] as ServiceState;
-      expect(state.config).toEqual({ host: "example.com" });
+      const state = controller.hydrateService.mock
+        .calls[0][1] as ServiceRuntime<
+        Record<string, unknown>,
+        Record<string, unknown>,
+        Record<string, unknown>,
+        Record<string, unknown>
+      >;
+      await expect(state.config.get("host")).resolves.toEqual("example.com");
     });
 
     it("setServiceEnabled keeps permissive keys in the hydrated state", async () => {
@@ -1748,8 +1805,104 @@ describe("ServicesService", () => {
 
       await svc.setServiceEnabled({ id: "alpha", enabled: true });
 
-      const state = controller.hydrateService.mock.calls[0][1] as ServiceState;
-      expect(state.config).toEqual({ anyKey: 1 });
+      const state = controller.hydrateService.mock
+        .calls[0][1] as ServiceRuntime<
+        Record<string, unknown>,
+        Record<string, unknown>,
+        Record<string, unknown>,
+        Record<string, unknown>
+      >;
+      await expect(state.config.get("anyKey")).rejects.toThrow(
+        ProviderKeyNotDeclared,
+      );
+    });
+
+    it("hydrates services with owner-scoped credentials and a credential provider", async () => {
+      await seedService("alpha", {
+        enabled: false,
+        schemes: {
+          ApiKey: {
+            type: "apiKey",
+            in: "header",
+            paramName: "X-API-Key",
+          },
+        },
+      });
+      const credentialService = new CredentialService();
+      await credentialService
+        .forService("alpha")
+        .upsertApiKey("ApiKey", "sk-live");
+      const controller = makeController();
+      const svc = new ServicesService(controller);
+
+      await svc.setServiceEnabled({ id: "alpha", enabled: true });
+
+      const state = controller.hydrateService.mock
+        .calls[0][1] as ServiceRuntime;
+      expect(state.credentials).toBeDefined();
+      await expect(state.credentials?.getCredential("ApiKey")).resolves.toEqual(
+        { type: "apiKey", value: "sk-live" },
+      );
+    });
+
+    it("hydrates services without bindings to unconfigured credentials", async () => {
+      await seedService("alpha", { enabled: false });
+      const controller = makeController();
+      const svc = new ServicesService(controller);
+
+      await svc.setServiceEnabled({ id: "alpha", enabled: true });
+
+      const state = controller.hydrateService.mock
+        .calls[0][1] as ServiceRuntime;
+      expect(state.credentials).toBeDefined();
+      await expect(state.credentials?.getCredential("ApiKey")).rejects.toThrow(
+        "No credential is available",
+      );
+    });
+
+    it("persists declared auth schemes through install into the hydrated state", async () => {
+      mockFetchOnce("payload");
+      const controller = makeController({
+        generateService: vi.fn(async () =>
+          sampleDefinition({
+            schemes: {
+              ApiKey: {
+                type: "apiKey",
+                in: "header",
+                paramName: "X-API-Key",
+              },
+            },
+            security: [{ ApiKey: [] }],
+            tools: [
+              {
+                id: "doStuff",
+                name: "doStuff",
+                description: "does stuff",
+                inputSchema: EMPTY_OBJECT_SCHEMA,
+                outputSchema: EMPTY_OBJECT_SCHEMA,
+                security: [{ ApiKey: [] }],
+                adapterDomain: {},
+              },
+            ],
+          }),
+        ),
+      });
+      const svc = new ServicesService(controller);
+
+      await svc.createServiceDirect({
+        id: "alpha",
+        url: "https://example.com/def.json",
+        adapter: "test-adapter",
+      });
+      await svc.setServiceEnabled({ id: "alpha", enabled: true });
+
+      const state = controller.hydrateService.mock
+        .calls[0][1] as ServiceRuntime;
+      expect(state.schemes).toEqual({
+        ApiKey: { type: "apiKey", in: "header", paramName: "X-API-Key" },
+      });
+      expect(state.security).toEqual([{ ApiKey: [] }]);
+      expect(state.tools.doStuff?.security).toEqual([{ ApiKey: [] }]);
     });
 
     it("patchServiceConfig tolerates pre-existing outdated keys and preserves them", async () => {
@@ -2198,7 +2351,7 @@ describe("ServicesService", () => {
       await svc.hydrateAdapter("test-adapter");
 
       const hydrated = controller.hydrateService.mock.calls.map(
-        ([, state]) => (state as ServiceState).id,
+        ([, service]) => (service as ServiceRuntime).id,
       );
       expect(hydrated.sort()).toEqual(["a", "b"]);
     });
@@ -2207,8 +2360,8 @@ describe("ServicesService", () => {
       await seedService("a", { enabled: true });
       await seedService("b", { enabled: true });
       const controller = makeController({
-        hydrateService: vi.fn(async (_id, state) => {
-          if ((state as ServiceState).id === "a")
+        hydrateService: vi.fn(async (_id, service) => {
+          if ((service as ServiceRuntime).id === "a")
             throw new Error("adapter rejected a");
         }),
       });

@@ -11,7 +11,7 @@ import type {
   ExecutionInput,
   InvokeInput,
   ServiceDefinition,
-  ServiceState,
+  ServiceRuntime,
   ToolDocsInput,
 } from "@cyrnel/sdk";
 import { eq, sql } from "drizzle-orm";
@@ -25,6 +25,7 @@ import {
   it,
   vi,
 } from "vitest";
+import { HostConfigProvider, HostSecretsProvider } from "@/services/providers";
 
 const SECRETS_KEY = crypto.randomBytes(32).toString("base64");
 const ORIGINAL_SECRETS_KEY = process.env.CYRNEL_SECRETS_KEY;
@@ -37,16 +38,18 @@ const { adapterInstances, envInstances, FakeAdapter, FakeEnvironment } =
 
       readonly setupCalls: object[] = [];
       readonly teardownCalls: number[] = [];
-      readonly hydrateCalls: ServiceState[] = [];
+      readonly hydrateCalls: ServiceRuntime[] = [];
       readonly dehydrateCalls: string[] = [];
       readonly invokeCalls: InvokeInput[] = [];
-      generateDefinitionImpl: (input: string) => Promise<ServiceDefinition> =
+      generateServiceImpl: (input: string) => Promise<ServiceDefinition> =
         async () => ({
           name: "fake",
           description: "fake",
           configSchema: {},
           secretsSchema: {},
           tools: [],
+          schemes: {},
+          security: [],
           adapterDomain: {},
         });
       invokeImpl: (input: InvokeInput) => Promise<unknown> = async () => ({});
@@ -58,11 +61,11 @@ const { adapterInstances, envInstances, FakeAdapter, FakeEnvironment } =
       async teardown(): Promise<void> {
         this.teardownCalls.push(Date.now());
       }
-      async generateDefinition(input: string): Promise<ServiceDefinition> {
-        return this.generateDefinitionImpl(input);
+      async generateService(input: string): Promise<ServiceDefinition> {
+        return this.generateServiceImpl(input);
       }
-      async hydrateService(state: ServiceState): Promise<void> {
-        this.hydrateCalls.push(state);
+      async hydrateService(service: ServiceRuntime): Promise<void> {
+        this.hydrateCalls.push(service);
       }
       async dehydrateService(id: string): Promise<void> {
         this.dehydrateCalls.push(id);
@@ -254,6 +257,12 @@ async function resetDb(): Promise<void> {
   await db.run(sql.raw("DELETE FROM services"));
   await db.run(sql.raw("DELETE FROM module_secrets"));
   await db.run(sql.raw("DELETE FROM module_configurations"));
+  await db.run(sql.raw("DELETE FROM oauth_pendings"));
+  await db.run(sql.raw("DELETE FROM service_credential_auth"));
+  await db.run(sql.raw("DELETE FROM service_credentials"));
+  await db.run(sql.raw("DELETE FROM module_credential_auth"));
+  await db.run(sql.raw("DELETE FROM module_credentials"));
+  await db.run(sql.raw("DELETE FROM oauth_clients"));
   await db.run(sql.raw("DELETE FROM modules"));
   await db.run(sql.raw("PRAGMA foreign_keys = ON"));
 }
@@ -391,7 +400,7 @@ describe("ModuleService", () => {
               return {
                 async setup() {},
                 async teardown() {},
-                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async generateService() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], schemes: {}, security: [], adapterDomain: {} }; },
                 async hydrateService() {},
                 async dehydrateService() {},
                 async invoke() { return null; },
@@ -443,7 +452,7 @@ describe("ModuleService", () => {
               return {
                 async setup() {},
                 async teardown() {},
-                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async generateService() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], schemes: {}, security: [], adapterDomain: {} }; },
                 async hydrateService() {},
                 async dehydrateService() {},
                 async invoke() { return null; },
@@ -469,6 +478,321 @@ describe("ModuleService", () => {
     it("silently ignores a missing customModules path", async () => {
       const service = new ModuleService(makeBindings(), makeLifecycle());
       await expect(service.initialize(MISSING_PATH)).resolves.toBeUndefined();
+    });
+
+    describe("module auth declarations", () => {
+      const OAUTH_AUTH_SNIPPET = `auth: {
+              schemes: {
+                demoOAuth: {
+                  type: "oauth2",
+                  grantTypes: ["authorizationCode"],
+                  authorizationUrl: "https://example.com/authorize",
+                  tokenUrl: "https://example.com/token",
+                  scopes: { read: "Read access" },
+                  tokenPlacement: { in: "header", paramName: "Authorization", prefix: "Bearer" },
+                },
+              },
+              security: [{ demoOAuth: ["read"] }],
+            },`;
+
+      async function writeModule(
+        dir: string,
+        subdir: string,
+        version: string,
+        authSnippet: string,
+      ): Promise<void> {
+        const moduleDir = path.join(dir, subdir);
+        await fs.mkdir(moduleDir, { recursive: true });
+        await fs.writeFile(
+          path.join(moduleDir, "module.json"),
+          JSON.stringify({
+            id: "authMod",
+            name: "Auth Module",
+            description: "declares auth",
+            type: "adapter",
+            version,
+            main: "index.mjs",
+          }),
+        );
+        await fs.writeFile(
+          path.join(moduleDir, "index.mjs"),
+          `export default {
+            configSchema: { type: "object", properties: {}, additionalProperties: false },
+            secretsSchema: { type: "null" },
+            ${authSnippet}
+            instantiate() {
+              return {
+                async setup() {},
+                async teardown() {},
+                async generateService() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], schemes: {}, security: [], adapterDomain: {} }; },
+                async hydrateService() {},
+                async dehydrateService() {},
+                async invoke() { return null; },
+              };
+            },
+          }`,
+        );
+      }
+
+      it("persists code-declared auth and exposes it via get/list", async () => {
+        const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-auth-"));
+        try {
+          await writeModule(dir, "auth", "1.0.0", OAUTH_AUTH_SNIPPET);
+          const service = new ModuleService(makeBindings(), makeLifecycle());
+          await service.initialize(dir);
+
+          const record = unwrap(await service.get("authMod"), "authMod");
+          expect(record.schemes).toMatchObject({
+            demoOAuth: { type: "oauth2" },
+          });
+          expect(record.security).toEqual([{ demoOAuth: ["read"] }]);
+
+          const items = (await service.list()).items;
+          const listed = unwrap(
+            items.find((r) => r.id === "authMod"),
+            "listed authMod",
+          );
+          expect(listed.schemes).toMatchObject({
+            demoOAuth: { type: "oauth2" },
+          });
+          expect(listed.security).toEqual([{ demoOAuth: ["read"] }]);
+        } finally {
+          await fs.rm(dir, { recursive: true, force: true });
+        }
+      });
+
+      it("returns empty schemes/security for modules without auth", async () => {
+        const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-auth-"));
+        try {
+          await writeModule(dir, "plain", "1.0.0", "");
+          const service = new ModuleService(makeBindings(), makeLifecycle());
+          await service.initialize(dir);
+
+          const record = unwrap(await service.get("authMod"), "authMod");
+          expect(record.schemes).toEqual({});
+          expect(record.security).toEqual([]);
+        } finally {
+          await fs.rm(dir, { recursive: true, force: true });
+        }
+      });
+
+      it("rejects a present auth that declares no schemes", async () => {
+        const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-auth-"));
+        try {
+          await writeModule(
+            dir,
+            "empty",
+            "1.0.0",
+            "auth: { schemes: {}, security: [] },",
+          );
+          const service = new ModuleService(makeBindings(), makeLifecycle());
+          await expect(service.initialize(dir)).rejects.toMatchObject({
+            statusCode: 400,
+          });
+        } finally {
+          await fs.rm(dir, { recursive: true, force: true });
+        }
+      });
+
+      it("rejects an auth scheme with an unknown type", async () => {
+        const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-auth-"));
+        try {
+          await writeModule(
+            dir,
+            "weird",
+            "1.0.0",
+            'auth: { schemes: { odd: { type: "digest" } }, security: [] },',
+          );
+          const service = new ModuleService(makeBindings(), makeLifecycle());
+          await expect(service.initialize(dir)).rejects.toMatchObject({
+            statusCode: 400,
+          });
+        } finally {
+          await fs.rm(dir, { recursive: true, force: true });
+        }
+      });
+
+      it("syncs code-declared auth on reload when the code changes", async () => {
+        const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-auth-"));
+        try {
+          await writeModule(dir, "auth", "1.0.0", "");
+          const service = new ModuleService(makeBindings(), makeLifecycle());
+          await service.initialize(dir);
+          expect((await service.get("authMod"))?.schemes).toEqual({});
+
+          await writeModule(dir, "auth", "1.1.0", OAUTH_AUTH_SNIPPET);
+          await service.reload();
+
+          const record = unwrap(await service.get("authMod"), "authMod");
+          expect(record.version).toBe("1.1.0");
+          expect(record.schemes).toMatchObject({
+            demoOAuth: { type: "oauth2" },
+          });
+          expect(record.security).toEqual([{ demoOAuth: ["read"] }]);
+        } finally {
+          await fs.rm(dir, { recursive: true, force: true });
+        }
+      });
+
+      it("setModuleAuth persists schemes and get returns them", async () => {
+        const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-auth-"));
+        try {
+          await writeModule(dir, "plain", "1.0.0", "");
+          const service = new ModuleService(makeBindings(), makeLifecycle());
+          await service.initialize(dir);
+
+          await service.setModuleAuth({
+            id: "authMod",
+            schemes: {
+              apiKey: { type: "apiKey", in: "header", paramName: "X-Api-Key" },
+            },
+            security: [{ apiKey: [] }],
+          });
+
+          const record = unwrap(await service.get("authMod"), "authMod");
+          expect(record.schemes).toMatchObject({
+            apiKey: { type: "apiKey" },
+          });
+          expect(record.security).toEqual([{ apiKey: [] }]);
+        } finally {
+          await fs.rm(dir, { recursive: true, force: true });
+        }
+      });
+
+      it("exposes configured module credentials via get()", async () => {
+        const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-auth-"));
+        try {
+          await writeModule(dir, "auth", "1.0.0", OAUTH_AUTH_SNIPPET);
+          const service = new ModuleService(makeBindings(), makeLifecycle());
+          await service.initialize(dir);
+
+          expect(
+            (await service.get("authMod"))?.credentialSchemes,
+          ).toBeUndefined();
+
+          const { CredentialService } = await import(
+            "@/services/credential.service"
+          );
+          const credentials = new CredentialService();
+          const clientId = await credentials.createOAuthClient({
+            provider: "test-provider",
+            clientId: "c",
+            clientSecret: "s",
+            tokenUrl: "https://example.com/token",
+            authorizationUrl: "https://example.com/authorize",
+            availableScopes: ["read"],
+          });
+          const { credential } = await credentials
+            .forModule("authMod")
+            .upsertOAuth2("demoOAuth", clientId, ["read"]);
+
+          const record = unwrap(await service.get("authMod"), "authMod");
+          expect(record.credentialSchemes).toEqual({
+            demoOAuth: {
+              configured: true,
+              status: "active",
+              grantedSource: null,
+            },
+          });
+          expect(credential.schemeName).toBe("demoOAuth");
+        } finally {
+          await fs.rm(dir, { recursive: true, force: true });
+        }
+      });
+
+      it("injects credentials into setup context only when auth is declared", async () => {
+        const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-auth-"));
+        try {
+          const moduleDir = path.join(dir, "capture");
+          await fs.mkdir(moduleDir, { recursive: true });
+          await fs.writeFile(
+            path.join(moduleDir, "module.json"),
+            JSON.stringify({
+              id: "authMod",
+              name: "Auth Module",
+              description: "captures setup ctx",
+              type: "adapter",
+              version: "1.0.0",
+              main: "index.mjs",
+            }),
+          );
+          await fs.writeFile(
+            path.join(moduleDir, "index.mjs"),
+            `export default {
+              configSchema: { type: "object", properties: {}, additionalProperties: false },
+              secretsSchema: { type: "null" },
+              ${OAUTH_AUTH_SNIPPET}
+              instantiate() {
+                return {
+                  async setup(ctx) { globalThis.__cyrnelSetupCtx = ctx; },
+                  async teardown() {},
+                  async generateService() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], schemes: {}, security: [], adapterDomain: {} }; },
+                  async hydrateService() {},
+                  async dehydrateService() {},
+                  async invoke() { return null; },
+                };
+              },
+            }`,
+          );
+          const service = new ModuleService(makeBindings(), makeLifecycle());
+          await service.initialize(dir);
+
+          const ctx = (globalThis as Record<string, unknown>)
+            .__cyrnelSetupCtx as
+            | { credentials?: { getCredential: unknown } }
+            | undefined;
+          expect(ctx?.credentials).toBeDefined();
+          expect(typeof ctx?.credentials?.getCredential).toBe("function");
+          delete (globalThis as Record<string, unknown>).__cyrnelSetupCtx;
+        } finally {
+          await fs.rm(dir, { recursive: true, force: true });
+        }
+      });
+
+      it("omits credentials from setup context when no auth is declared", async () => {
+        const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cyrnel-auth-"));
+        try {
+          const moduleDir = path.join(dir, "capture");
+          await fs.mkdir(moduleDir, { recursive: true });
+          await fs.writeFile(
+            path.join(moduleDir, "module.json"),
+            JSON.stringify({
+              id: "authMod",
+              name: "Auth Module",
+              description: "captures setup ctx",
+              type: "adapter",
+              version: "1.0.0",
+              main: "index.mjs",
+            }),
+          );
+          await fs.writeFile(
+            path.join(moduleDir, "index.mjs"),
+            `export default {
+              configSchema: { type: "object", properties: {}, additionalProperties: false },
+              secretsSchema: { type: "null" },
+              instantiate() {
+                return {
+                  async setup(ctx) { globalThis.__cyrnelSetupCtx = ctx; },
+                  async teardown() {},
+                  async generateService() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], schemes: {}, security: [], adapterDomain: {} }; },
+                  async hydrateService() {},
+                  async dehydrateService() {},
+                  async invoke() { return null; },
+                };
+              },
+            }`,
+          );
+          const service = new ModuleService(makeBindings(), makeLifecycle());
+          await service.initialize(dir);
+
+          const ctx = (globalThis as Record<string, unknown>)
+            .__cyrnelSetupCtx as { credentials?: unknown } | undefined;
+          expect(ctx?.credentials).toBeUndefined();
+          delete (globalThis as Record<string, unknown>).__cyrnelSetupCtx;
+        } finally {
+          await fs.rm(dir, { recursive: true, force: true });
+        }
+      });
     });
 
     it("throws on modules whose module.json omits a required id", async () => {
@@ -575,7 +899,11 @@ describe("ModuleService", () => {
         release?.();
       };
 
-      const exec = service.execute({ eid: 42, code: "x" });
+      const exec = service.execute({
+        executionId: 42,
+        processId: 42,
+        code: "x",
+      });
       await service.shutdown();
       await exec;
 
@@ -605,7 +933,7 @@ describe("ModuleService", () => {
       await service.initialize(MISSING_PATH);
 
       try {
-        await service.execute({ eid: 1, code: "x" });
+        await service.execute({ executionId: 1, processId: 1, code: "x" });
         throw new Error("should have thrown");
       } catch (err) {
         expect(err).toBeInstanceOf(HttpError);
@@ -620,16 +948,20 @@ describe("ModuleService", () => {
       const env = unwrap(envInstances[0], "environment");
       env.executeImpl = async () => "success";
 
-      const result = await service.execute({ eid: 5, code: "x" });
+      const result = await service.execute({
+        executionId: 5,
+        processId: 5,
+        code: "x",
+      });
       expect(result).toBe("success");
-      expect(env.executeCalls.map((c) => c.eid)).toEqual([5]);
+      expect(env.executeCalls.map((c) => c.executionId)).toEqual([5]);
     });
 
     it("removes the execution from tracking once it resolves", async () => {
       const service = new ModuleService(makeBindings(), makeLifecycle());
       await service.initialize(MISSING_PATH);
 
-      await service.execute({ eid: 7, code: "x" });
+      await service.execute({ executionId: 7, processId: 7, code: "x" });
       await expect(service.kill(7)).resolves.toBeUndefined();
     });
   });
@@ -649,7 +981,11 @@ describe("ModuleService", () => {
         release();
       };
 
-      const exec = service.execute({ eid: 9, code: "x" });
+      const exec = service.execute({
+        executionId: 9,
+        processId: 9,
+        code: "x",
+      });
       await service.kill(9);
       await exec;
 
@@ -694,7 +1030,7 @@ describe("ModuleService", () => {
     });
   });
 
-  describe("generateDefinition", () => {
+  describe("generateService", () => {
     it("delegates to the named adapter", async () => {
       const service = new ModuleService(makeBindings(), makeLifecycle());
       await service.initialize(MISSING_PATH);
@@ -706,11 +1042,13 @@ describe("ModuleService", () => {
         configSchema: {},
         secretsSchema: {},
         tools: [],
+        schemes: {},
+        security: [],
         adapterDomain: {},
       };
-      adapter.generateDefinitionImpl = async () => def;
+      adapter.generateServiceImpl = async () => def;
 
-      const result = await service.generateDefinition({
+      const result = await service.generateService({
         adapter: "openapi",
         definition: "payload",
       });
@@ -726,7 +1064,7 @@ describe("ModuleService", () => {
       await service.initialize(MISSING_PATH);
 
       try {
-        service.generateDefinition({
+        service.generateService({
           adapter: "openapi",
           definition: "x",
         });
@@ -744,12 +1082,14 @@ describe("ModuleService", () => {
       await service.initialize(MISSING_PATH);
 
       const adapter = unwrap(adapterInstances[0], "adapter");
-      const state: ServiceState = {
+      const state: ServiceRuntime = {
         id: "alpha",
         adapterDomain: {},
         tools: {},
-        config: {},
-        secrets: {},
+        schemes: {},
+        security: [],
+        config: new HostConfigProvider({}, new Set()),
+        secrets: new HostSecretsProvider({}, new Set()),
       };
       await service.hydrateService("openapi", state);
       expect(adapter.hydrateCalls).toContainEqual(state);
@@ -1169,7 +1509,7 @@ describe("ModuleService", () => {
               return {
                 async setup() {},
                 async teardown() {},
-                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async generateService() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], schemes: {}, security: [], adapterDomain: {} }; },
                 async hydrateService() {},
                 async dehydrateService() {},
                 async invoke() { return null; },
@@ -1219,7 +1559,7 @@ describe("ModuleService", () => {
               return {
                 async setup() {},
                 async teardown() {},
-                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async generateService() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], schemes: {}, security: [], adapterDomain: {} }; },
                 async hydrateService() {},
                 async dehydrateService() {},
                 async invoke() { return { stale: true }; },
@@ -1277,7 +1617,11 @@ describe("ModuleService", () => {
           release = () => resolve("success");
         });
 
-      const exec = service.execute({ eid: 100, code: "x" });
+      const exec = service.execute({
+        executionId: 100,
+        processId: 100,
+        code: "x",
+      });
       await service.setEnabled({ id: "typescript-ivm", enabled: false });
 
       expect(env.teardownCalls.length).toBe(0);
@@ -1298,12 +1642,12 @@ describe("ModuleService", () => {
       const env = unwrap(envInstances[0], "environment");
 
       expect(adapter.setupCalls[0]).toMatchObject({
-        config: {},
-        secrets: {},
+        config: { values: {} },
+        secrets: { values: {} },
       });
       expect(env.setupCalls[0]).toMatchObject({
-        config: {},
-        secrets: {},
+        config: { values: {} },
+        secrets: { values: {} },
         bindings: expect.any(Object),
       });
     });
@@ -1314,7 +1658,7 @@ describe("ModuleService", () => {
 
       const adapter = unwrap(adapterInstances[0], "adapter");
       expect(adapter.setupCalls[0]).toMatchObject({
-        config: { timeout: 30 },
+        config: { values: { timeout: 30 } },
       });
     });
 
@@ -1411,7 +1755,7 @@ describe("ModuleService", () => {
               return {
                 async setup() {},
                 async teardown() {},
-                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async generateService() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], schemes: {}, security: [], adapterDomain: {} }; },
                 async hydrateService() {},
                 async dehydrateService() {},
                 async invoke() { return null; },
@@ -1440,12 +1784,14 @@ describe("ModuleService", () => {
     });
 
     it("patchConfig reloads an active adapter (teardown + new setup with new context)", async () => {
-      const state: ServiceState = {
+      const state: ServiceRuntime = {
         id: "alpha",
         adapterDomain: {},
         tools: {},
-        config: {},
-        secrets: {},
+        schemes: {},
+        security: [],
+        config: new HostConfigProvider({}, new Set()),
+        secrets: new HostSecretsProvider({}, new Set()),
       };
       let service!: InstanceType<typeof ModuleService>;
       const lifecycle = {
@@ -1470,8 +1816,8 @@ describe("ModuleService", () => {
         "adapter (post-reload)",
       );
       expect(secondAdapter.setupCalls[0]).toMatchObject({
-        config: { baseUrl: "https://x", timeout: 30 },
-        secrets: {},
+        config: { values: { baseUrl: "https://x", timeout: 30 } },
+        secrets: { values: {} },
       });
       expect(secondAdapter.hydrateCalls).toContainEqual(state);
     });
@@ -1499,7 +1845,7 @@ describe("ModuleService", () => {
 
       expect(firstAdapter.teardownCalls).toHaveLength(0);
       await expect(
-        service.generateDefinition({
+        service.generateService({
           adapter: "openapi",
           definition: "{}",
         }),
@@ -1543,8 +1889,8 @@ describe("ModuleService", () => {
       expect(envInstances).toHaveLength(2);
       const secondEnv = unwrap(envInstances[1], "environment (post-reload)");
       expect(secondEnv.setupCalls[0]).toMatchObject({
-        config: { poolSize: 4 },
-        secrets: {},
+        config: { values: { poolSize: 4 } },
+        secrets: { values: {} },
       });
 
       await new Promise((resolve) => setImmediate(resolve));
@@ -1571,7 +1917,7 @@ describe("ModuleService", () => {
         "adapter (post-secrets-reload)",
       );
       expect(reloaded.setupCalls[0]).toMatchObject({
-        secrets: { apiKey: "sekret" },
+        secrets: { values: { apiKey: "sekret" } },
       });
     });
 
@@ -1605,7 +1951,9 @@ describe("ModuleService", () => {
       ).resolves.toBeUndefined();
 
       const adapter = unwrap(adapterInstances[0], "adapter");
-      expect(adapter.setupCalls[0]).toMatchObject({ config: { timeout: 30 } });
+      expect(adapter.setupCalls[0]).toMatchObject({
+        config: { values: { timeout: 30 } },
+      });
     });
 
     it("config/secrets survive reload() and are still applied on next enable", async () => {
@@ -1623,7 +1971,7 @@ describe("ModuleService", () => {
 
       const adapter = unwrap(adapterInstances[0], "adapter");
       expect(adapter.setupCalls[0]).toMatchObject({
-        config: { baseUrl: "https://kept" },
+        config: { values: { baseUrl: "https://kept" } },
       });
     });
 
@@ -1750,7 +2098,7 @@ describe("ModuleService", () => {
               return {
                 async setup(ctx) { globalThis.__cyrnelTestSetupCalls.push(ctx); },
                 async teardown() {},
-                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async generateService() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], schemes: {}, security: [], adapterDomain: {} }; },
                 async hydrateService() {},
                 async dehydrateService() {},
                 async invoke() { return null; },
@@ -1771,7 +2119,7 @@ describe("ModuleService", () => {
         await service.setEnabled({ id: "permissiveSecrets", enabled: true });
 
         expect(customSetupCalls[0]).toMatchObject({
-          secrets: { anyKey: "x" },
+          secrets: { values: { anyKey: "x" } },
         });
       } finally {
         await fs.rm(dir, { recursive: true, force: true });
@@ -1799,7 +2147,7 @@ describe("ModuleService", () => {
               return {
                 async setup() {},
                 async teardown() {},
-                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async generateService() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], schemes: {}, security: [], adapterDomain: {} }; },
                 async hydrateService() {},
                 async dehydrateService() {},
                 async invoke() { return null; },
@@ -1865,7 +2213,7 @@ describe("ModuleService", () => {
               return {
                 async setup() {},
                 async teardown() {},
-                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async generateService() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], schemes: {}, security: [], adapterDomain: {} }; },
                 async hydrateService() {},
                 async dehydrateService() {},
                 async invoke() { return null; },
@@ -2006,7 +2354,7 @@ describe("ModuleService", () => {
               return {
                 async setup() {},
                 async teardown() {},
-                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async generateService() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], schemes: {}, security: [], adapterDomain: {} }; },
                 async hydrateService() {},
                 async dehydrateService() {},
                 async invoke() { return null; },
@@ -2062,7 +2410,7 @@ describe("ModuleService", () => {
               return {
                 async setup() {},
                 async teardown() {},
-                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async generateService() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], schemes: {}, security: [], adapterDomain: {} }; },
                 async hydrateService() {},
                 async dehydrateService() {},
                 async invoke() { return null; },
@@ -2131,7 +2479,7 @@ describe("ModuleService", () => {
               return {
                 async setup() {},
                 async teardown() {},
-                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async generateService() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], schemes: {}, security: [], adapterDomain: {} }; },
                 async hydrateService() {},
                 async dehydrateService() {},
                 async invoke() { return null; },
@@ -2222,7 +2570,7 @@ describe("ModuleService", () => {
               return {
                 async setup() {},
                 async teardown() {},
-                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async generateService() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], schemes: {}, security: [], adapterDomain: {} }; },
                 async hydrateService() {},
                 async dehydrateService() {},
                 async invoke() { return null; },
@@ -2275,7 +2623,7 @@ describe("ModuleService", () => {
               return {
                 async setup() {},
                 async teardown() {},
-                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async generateService() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], schemes: {}, security: [], adapterDomain: {} }; },
                 async hydrateService() {},
                 async dehydrateService() {},
                 async invoke() { return null; },
@@ -2321,7 +2669,7 @@ describe("ModuleService", () => {
               return {
                 async setup() {},
                 async teardown() {},
-                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async generateService() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], schemes: {}, security: [], adapterDomain: {} }; },
                 async hydrateService() {},
                 async dehydrateService() {},
                 async invoke() { return null; },
@@ -2372,7 +2720,7 @@ describe("ModuleService", () => {
               return {
                 async setup() {},
                 async teardown() {},
-                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async generateService() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], schemes: {}, security: [], adapterDomain: {} }; },
                 async hydrateService() {},
                 async dehydrateService() {},
                 async invoke() { return null; },
@@ -2435,7 +2783,7 @@ describe("ModuleService", () => {
               return {
                 async setup() {},
                 async teardown() {},
-                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async generateService() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], schemes: {}, security: [], adapterDomain: {} }; },
                 async hydrateService() {},
                 async dehydrateService() {},
                 async invoke() { return null; },
@@ -2478,7 +2826,7 @@ describe("ModuleService", () => {
               return {
                 async setup() {},
                 async teardown() {},
-                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async generateService() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], schemes: {}, security: [], adapterDomain: {} }; },
                 async hydrateService() {},
                 async dehydrateService() {},
                 async invoke() { return null; },
@@ -2545,7 +2893,7 @@ describe("ModuleService", () => {
               return {
                 async setup() {},
                 async teardown() {},
-                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async generateService() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], schemes: {}, security: [], adapterDomain: {} }; },
                 async hydrateService() {},
                 async dehydrateService() {},
                 async invoke() { return null; },
@@ -2599,7 +2947,7 @@ describe("ModuleService", () => {
               return {
                 async setup() {},
                 async teardown() {},
-                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async generateService() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], schemes: {}, security: [], adapterDomain: {} }; },
                 async hydrateService() {},
                 async dehydrateService() {},
                 async invoke() { return null; },
@@ -2659,7 +3007,7 @@ describe("ModuleService", () => {
               return {
                 async setup() {},
                 async teardown() {},
-                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async generateService() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], schemes: {}, security: [], adapterDomain: {} }; },
                 async hydrateService() {},
                 async dehydrateService() {},
                 async invoke() { return null; },
@@ -2761,7 +3109,7 @@ describe("ModuleService", () => {
               return {
                 async setup() {},
                 async teardown() {},
-                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async generateService() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], schemes: {}, security: [], adapterDomain: {} }; },
                 async hydrateService() {},
                 async dehydrateService() {},
                 async invoke() { return null; },
@@ -2866,7 +3214,7 @@ describe("ModuleService", () => {
               return {
                 async setup() {},
                 async teardown() {},
-                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async generateService() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], schemes: {}, security: [], adapterDomain: {} }; },
                 async hydrateService() {},
                 async dehydrateService() {},
                 async invoke() { return null; },
@@ -2973,7 +3321,7 @@ describe("ModuleService", () => {
               return {
                 async setup() {},
                 async teardown() {},
-                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async generateService() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], schemes: {}, security: [], adapterDomain: {} }; },
                 async hydrateService() {},
                 async dehydrateService() {},
                 async invoke() { return null; },
@@ -3072,7 +3420,7 @@ describe("ModuleService", () => {
               return {
                 async setup() {},
                 async teardown() {},
-                async generateDefinition() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], adapterDomain: {} }; },
+                async generateService() { return { name: "x", description: "", configSchema: {}, secretsSchema: {}, tools: [], schemes: {}, security: [], adapterDomain: {} }; },
                 async hydrateService() {},
                 async dehydrateService() {},
                 async invoke() { return null; },

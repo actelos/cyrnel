@@ -20,6 +20,7 @@ import {
   updateService,
 } from "@/controllers/service.controller";
 import { createRateLimiter } from "@/middleware/rate-limit.middleware";
+import { ownerCredentialRouter } from "@/routes/credential.route";
 
 export const serviceRouter: ExpressRouter = Router();
 
@@ -56,13 +57,31 @@ serviceRouter.patch(
   createRateLimiter(10, 60_000, "PATCH /services/:serviceId"),
   patchService,
 );
-serviceRouter.post("/:serviceId/enabled", setServiceEnabled);
-serviceRouter.delete("/:serviceId", deleteService);
+serviceRouter.post(
+  "/:serviceId/enabled",
+  createRateLimiter(10, 60_000, "POST /services/:serviceId/enabled"),
+  setServiceEnabled,
+);
+serviceRouter.delete(
+  "/:serviceId",
+  createRateLimiter(10, 60_000, "DELETE /services/:serviceId"),
+  deleteService,
+);
 
 serviceRouter.get("/:serviceId/config/schema", getServiceConfigurationSchema);
 serviceRouter.get("/:serviceId/config", getServiceConfiguration);
-serviceRouter.patch("/:serviceId/config", patchServiceConfiguration);
+serviceRouter.patch(
+  "/:serviceId/config",
+  createRateLimiter(10, 60_000, "PATCH /services/:serviceId/config"),
+  patchServiceConfiguration,
+);
 
 serviceRouter.get("/:serviceId/secrets", getServiceSecrets);
 serviceRouter.get("/:serviceId/secrets/schema", getServiceSecretsSchema);
-serviceRouter.patch("/:serviceId/secrets", patchServiceSecrets);
+serviceRouter.patch(
+  "/:serviceId/secrets",
+  createRateLimiter(10, 60_000, "PATCH /services/:serviceId/secrets"),
+  patchServiceSecrets,
+);
+
+serviceRouter.use("/:serviceId/credentials", ownerCredentialRouter("service"));

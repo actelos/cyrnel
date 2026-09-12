@@ -474,7 +474,7 @@ describe("module.controller", () => {
   });
 
   describe("getModuleConfiguration", () => {
-    it("returns the config view with outdated paths", async () => {
+    it("returns the config view with values and outdated paths", async () => {
       const res = makeRes();
       moduleService.getConfigView.mockResolvedValue({
         config: { foo: "bar" },
@@ -569,7 +569,7 @@ describe("module.controller", () => {
   });
 
   describe("patchModuleConfiguration", () => {
-    it("applies a JSON Patch and returns the resulting config view", async () => {
+    it("applies a JSON Patch and returns the updated view", async () => {
       const res = makeRes();
       const patch = [{ op: "replace", path: "/foo", value: "bar" }] as const;
       moduleService.patchConfig.mockResolvedValue({
@@ -608,6 +608,10 @@ describe("module.controller", () => {
       expect(moduleService.patchConfig).toHaveBeenCalledWith({
         id: "m1",
         patch,
+      });
+      expect(res.json).toHaveBeenCalledWith({
+        config: { foo: "bar" },
+        outdated: [],
       });
     });
 

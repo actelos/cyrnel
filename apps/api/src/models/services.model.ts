@@ -65,7 +65,15 @@ export interface ListToolsResult
 export type GetServiceDefinitionResult = Omit<
   ServiceDefinitionRecord,
   "tools" | "adapterDomain" | "definitionContent"
-> & { effectivelyEnabled: boolean; hasIcon: boolean };
+> & {
+  effectivelyEnabled: boolean;
+  hasIcon: boolean;
+  /** Map of scheme name to credential status summary. */
+  credentialSchemes?: Record<
+    string,
+    { configured: boolean; status?: string; grantedSource?: string | null }
+  >;
+};
 
 export interface GetToolInput {
   serviceId: string;

@@ -6,16 +6,22 @@ import { pathToFileURL } from "node:url";
 import oapi from "@cyrnel/openapi";
 import type {
   AdapterModule,
+  AuthScheme,
+  ConfigProvider,
+  CredentialProvider,
   EnvironmentBindings,
   EnvironmentModule,
+  EnvironmentSetupContext,
   ExecutionExitState,
   ExecutionInput,
   InvokeInput,
   JSONSchema,
   Module,
   ModuleExport,
+  SecretsProvider,
+  SecurityRequirements,
   ServiceDefinition,
-  ServiceState,
+  ServiceRuntime,
   ToolDocsInput,
 } from "@cyrnel/sdk";
 import tsivm from "@cyrnel/typescript-ivm";
@@ -72,8 +78,19 @@ import {
   type RankedAdapter,
   type SetModuleEnabledInput,
 } from "@/models/modules.model";
-import { waitForApproval } from "@/services/approval-waiter";
-import { getProcessService } from "@/services/process-holder";
+import { waitForApproval } from "@/services/approval.waiter";
+import { ModuleCredentialProvider } from "@/services/credential.provider";
+import { CredentialService } from "@/services/credential.service";
+import {
+  getExecutionContext,
+  runWithExecutionContext,
+} from "@/services/execution.context";
+import { getProcessService } from "@/services/process.holder";
+import {
+  declaredSchemaKeys,
+  HostConfigProvider,
+  HostSecretsProvider,
+} from "@/services/providers";
 import {
   isKindCompatible,
   parseKind,
@@ -116,10 +133,225 @@ const MODULE_DOWNLOAD_MAX_BYTES = 10 * 1024 * 1024;
 const DEFAULT_INVOKE_TIMEOUT_MS = 30_000;
 const IDENTIFIER_SCHEMA = z.string().regex(/^[A-Za-z_$][A-Za-z0-9_$]*$/);
 
+const MODULE_AUTH_SCHEME_TYPES = ["apiKey", "basic", "http", "oauth2"] as const;
+
+interface ModuleAuthDeclaration {
+  schemes: Record<string, AuthScheme>;
+  security: SecurityRequirements;
+}
+
+function resolveModuleAuthDeclaration(
+  def: ModuleExport,
+  moduleId: string,
+): ModuleAuthDeclaration | null {
+  const auth = def.auth;
+  if (auth === undefined) return null;
+  const label = `Invalid auth declaration for module '${moduleId}'`;
+  if (typeof auth !== "object" || auth === null || Array.isArray(auth)) {
+    throw new HttpError(400, `${label}: auth must be an object.`);
+  }
+  const { schemes, security } = auth as {
+    schemes?: unknown;
+    security?: unknown;
+  };
+  if (
+    typeof schemes !== "object" ||
+    schemes === null ||
+    Array.isArray(schemes) ||
+    Object.keys(schemes).length === 0
+  ) {
+    throw new HttpError(
+      400,
+      `${label}: auth.schemes must declare at least one scheme.`,
+    );
+  }
+  if (!Array.isArray(security)) {
+    throw new HttpError(400, `${label}: auth.security must be an array.`);
+  }
+  const schemeEntries = Object.entries(schemes as Record<string, unknown>);
+  const schemeTypes = new Map<string, string>();
+  for (const [name, scheme] of schemeEntries) {
+    const type =
+      typeof scheme === "object" && scheme !== null
+        ? (scheme as { type?: unknown }).type
+        : undefined;
+    if (
+      typeof type !== "string" ||
+      !(MODULE_AUTH_SCHEME_TYPES as readonly string[]).includes(type)
+    ) {
+      throw new HttpError(
+        400,
+        `${label}: scheme '${name}' has unknown type '${String(type)}'.`,
+      );
+    }
+    assertAuthSchemeShape(name, scheme as Record<string, unknown>, label);
+    schemeTypes.set(name, type);
+  }
+  for (const [index, requirement] of (security as unknown[]).entries()) {
+    if (
+      typeof requirement !== "object" ||
+      requirement === null ||
+      Array.isArray(requirement)
+    ) {
+      throw new HttpError(
+        400,
+        `${label}: auth.security[${index}] must be an object.`,
+      );
+    }
+    for (const [schemeName, scopes] of Object.entries(
+      requirement as Record<string, unknown>,
+    )) {
+      if (!schemeTypes.has(schemeName)) {
+        throw new HttpError(
+          400,
+          `${label}: auth.security[${index}] references undeclared scheme '${schemeName}'.`,
+        );
+      }
+      if (
+        !Array.isArray(scopes) ||
+        !scopes.every((s) => typeof s === "string")
+      ) {
+        throw new HttpError(
+          400,
+          `${label}: auth.security[${index}]['${schemeName}'] must be a string array.`,
+        );
+      }
+      if (
+        (scopes as string[]).length > 0 &&
+        schemeTypes.get(schemeName) !== "oauth2"
+      ) {
+        throw new HttpError(
+          400,
+          `${label}: auth.security[${index}]['${schemeName}'] must be empty: only oauth2 schemes support scopes.`,
+        );
+      }
+    }
+  }
+  return {
+    schemes: schemes as Record<string, AuthScheme>,
+    security: security as SecurityRequirements,
+  };
+}
+
+function assertAuthSchemeShape(
+  name: string,
+  scheme: Record<string, unknown>,
+  label: string,
+): void {
+  const fail = (detail: string): never => {
+    throw new HttpError(400, `${label}: scheme '${name}' ${detail}.`);
+  };
+  switch (scheme.type) {
+    case "apiKey": {
+      if (
+        scheme.in !== "header" &&
+        scheme.in !== "query" &&
+        scheme.in !== "cookie"
+      ) {
+        fail("must have in 'header'|'query'|'cookie'");
+      }
+      if (
+        typeof scheme.paramName !== "string" ||
+        scheme.paramName.length === 0
+      ) {
+        fail("must have a non-empty paramName");
+      }
+      if (scheme.prefix !== undefined && typeof scheme.prefix !== "string") {
+        fail("has an invalid prefix");
+      }
+      return;
+    }
+    case "basic":
+      return;
+    case "http": {
+      if (scheme.scheme !== "bearer") {
+        fail("only supports http scheme 'bearer'");
+      }
+      if (
+        scheme.bearerFormat !== undefined &&
+        typeof scheme.bearerFormat !== "string"
+      ) {
+        fail("has an invalid bearerFormat");
+      }
+      return;
+    }
+    case "oauth2": {
+      const grantTypes = scheme.grantTypes;
+      if (
+        !Array.isArray(grantTypes) ||
+        grantTypes.length === 0 ||
+        !grantTypes.every(
+          (g) =>
+            g === "authorizationCode" ||
+            g === "clientCredentials" ||
+            g === "deviceCode",
+        )
+      ) {
+        fail("must declare at least one grant type");
+      }
+      if (typeof scheme.tokenUrl !== "string" || scheme.tokenUrl.length === 0) {
+        fail("must have a non-empty tokenUrl");
+      }
+      if (scheme.scopes !== undefined) {
+        if (
+          typeof scheme.scopes !== "object" ||
+          scheme.scopes === null ||
+          Array.isArray(scheme.scopes)
+        ) {
+          fail("has invalid scopes");
+        }
+      }
+      const placement = scheme.tokenPlacement as
+        | Record<string, unknown>
+        | undefined;
+      if (
+        typeof placement !== "object" ||
+        placement === null ||
+        placement.in !== "header" ||
+        typeof placement.paramName !== "string" ||
+        placement.paramName.length === 0
+      ) {
+        fail("must declare tokenPlacement { in: 'header', paramName }");
+      }
+      return;
+    }
+    default:
+      fail(`has unknown type '${String(scheme.type)}'`);
+  }
+}
+
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableStringify).join(",")}]`;
+  }
+  if (typeof value === "object" && value !== null) {
+    const entries = Object.entries(value as Record<string, unknown>).sort(
+      ([a], [b]) => (a < b ? -1 : a > b ? 1 : 0),
+    );
+    return `{${entries
+      .map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
+
+function moduleAuthChanged(
+  auth: ModuleAuthDeclaration | null | undefined,
+  schemes: Record<string, AuthScheme> | null,
+  security: SecurityRequirements | null,
+): boolean {
+  if (!auth) return false;
+  return (
+    stableStringify(auth.schemes) !== stableStringify(schemes ?? {}) ||
+    stableStringify(auth.security) !== stableStringify(security ?? [])
+  );
+}
+
 interface ModuleFactory {
   type: ModuleType;
   configSchema: JSONSchema;
   secretsSchema: JSONSchema;
+  auth: ModuleAuthDeclaration | null;
   instantiate(): Module;
 }
 
@@ -138,15 +370,21 @@ interface RegisteredModule {
   compatibility?: { identifier: string; version: string }[];
   configSchema: JSONSchema;
   secretsSchema: JSONSchema;
+  auth: ModuleAuthDeclaration | null;
 }
 
 interface ValidatedSetupValues {
   config: Record<string, unknown>;
   secrets: Record<string, unknown>;
+  configDeclared: ReadonlySet<string>;
+  secretsDeclared: ReadonlySet<string>;
 }
 
-interface SetupValues extends ValidatedSetupValues {
+interface SetupValues {
+  config: ConfigProvider<{}>;
+  secrets: SecretsProvider<{}>;
   logger: ReturnType<typeof createModuleLogger>;
+  credentials?: CredentialProvider;
 }
 
 type JsonObject = Record<string, unknown>;
@@ -179,6 +417,7 @@ export class ModuleService {
   private readonly manifests = new Map<string, RegisteredModule>();
   private readonly adapters = new Map<string, AdapterModule>();
   private readonly drainingEnvironments = new Set<EnvironmentInstance>();
+  private readonly credentialService = new CredentialService();
   private activeEnvironment: EnvironmentInstance | null = null;
   private readonly executionMap = new Map<number, EnvironmentInstance>();
   private modulesPath: string | null = null;
@@ -249,22 +488,28 @@ export class ModuleService {
 
   async execute(input: ExecutionInput): Promise<ExecutionExitState> {
     const instance = this.requireActiveEnvironment();
-    instance.executions.add(input.eid);
-    this.executionMap.set(input.eid, instance);
+    instance.executions.add(input.executionId);
+    this.executionMap.set(input.executionId, instance);
     try {
-      return await instance.module.execute(input);
+      return await runWithExecutionContext(
+        {
+          executionId: input.executionId,
+          processId: input.processId,
+        },
+        () => instance.module.execute(input),
+      );
     } finally {
-      instance.executions.delete(input.eid);
-      this.executionMap.delete(input.eid);
+      instance.executions.delete(input.executionId);
+      this.executionMap.delete(input.executionId);
       if (instance.drained && instance.executions.size === 0)
         instance.drain?.();
     }
   }
 
-  async kill(eid: number): Promise<void> {
-    const instance = this.executionMap.get(eid);
+  async kill(executionId: number): Promise<void> {
+    const instance = this.executionMap.get(executionId);
     if (!instance) return;
-    await instance.module.kill(eid);
+    await instance.module.kill(executionId);
   }
 
   async generateEnvironmentDocs(): Promise<string> {
@@ -277,12 +522,8 @@ export class ModuleService {
     return instance.module.generateToolDocs(input);
   }
 
-  generateDefinition(
-    input: GenerateDefinitionInput,
-  ): Promise<ServiceDefinition> {
-    return this.requireAdapter(input.adapter).generateDefinition(
-      input.definition,
-    );
+  generateService(input: GenerateDefinitionInput): Promise<ServiceDefinition> {
+    return this.requireAdapter(input.adapter).generateService(input.definition);
   }
 
   async rankAdapters(kind?: string): Promise<RankedAdapter[]> {
@@ -325,8 +566,11 @@ export class ModuleService {
     );
   }
 
-  async hydrateService(adapterId: string, state: ServiceState): Promise<void> {
-    await this.requireAdapter(adapterId).hydrateService(state);
+  async hydrateService(
+    adapterId: string,
+    service: ServiceRuntime,
+  ): Promise<void> {
+    await this.requireAdapter(adapterId).hydrateService(service);
   }
 
   async dehydrateService(adapterId: string, serviceId: string): Promise<void> {
@@ -335,9 +579,7 @@ export class ModuleService {
     await adapter.dehydrateService(serviceId);
   }
 
-  async invoke(
-    input: InvokeInput & { processId?: number; eid?: number },
-  ): Promise<unknown> {
+  async invoke(input: InvokeInput): Promise<unknown> {
     const [row] = await db
       .select({
         adapter: servicesTable.adapter,
@@ -385,6 +627,8 @@ export class ModuleService {
       );
     }
 
+    await this.validateServiceCredentials(input.serviceId);
+
     const policyRow = await db
       .select({ decision: toolPoliciesTable.decision })
       .from(toolPoliciesTable)
@@ -418,6 +662,22 @@ export class ModuleService {
       );
     }
     if (decision === "ask") {
+      const processId = getExecutionContext()?.processId ?? null;
+      if (processId == null) {
+        logger.warn(
+          {
+            event: "tool-permission-ask-no-context",
+            serviceId: input.serviceId,
+            toolId: input.toolId,
+          },
+          "Tool invocation requires approval but has no execution context",
+        );
+        throw new HttpError(
+          403,
+          `Tool '${input.toolId}' in service '${input.serviceId}' requires approval, but there is no execution context to suspend. Invoke through a process execution.`,
+          "permission_denied",
+        );
+      }
       const approvalId = `apr_${randomUUID().replace(/-/g, "")}`;
       const now = Date.now();
       const timeoutMs = parseApprovalTimeout(
@@ -425,7 +685,6 @@ export class ModuleService {
       );
       const expiresAt = now + timeoutMs;
       const createdAt = new Date().toISOString();
-      const processId = input.processId ?? null;
       const encrypted = encryptSecrets(
         input.parameters as Record<string, unknown>,
       );
@@ -434,7 +693,7 @@ export class ModuleService {
           id: approvalId,
           serviceId: input.serviceId,
           toolId: input.toolId,
-          processId: processId as number | null,
+          processId,
           parameters: JSON.stringify(encrypted),
           state: "pending",
           createdAt,
@@ -444,8 +703,7 @@ export class ModuleService {
       } catch {
         throw new HttpError(500, "Failed to create approval request.");
       }
-      const waiterPromise =
-        processId != null ? waitForApproval(approvalId, processId) : null;
+      const waiterPromise = waitForApproval(approvalId, processId);
       logger.info(
         {
           event: "approval-requested",
@@ -471,7 +729,7 @@ export class ModuleService {
               "Failed to persist suspended state",
             );
             const { resolveApprovalWaiter } = await import(
-              "@/services/approval-waiter"
+              "@/services/approval.waiter"
             );
             resolveApprovalWaiter(approvalId, "expired");
             void db
@@ -493,7 +751,7 @@ export class ModuleService {
               "Failed to persist suspended state",
             );
             const { resolveApprovalWaiter } = await import(
-              "@/services/approval-waiter"
+              "@/services/approval.waiter"
             );
             resolveApprovalWaiter(approvalId, "expired");
             void db
@@ -737,7 +995,32 @@ export class ModuleService {
       .where(eq(modulesTable.id, id))
       .limit(1);
 
-    return row ? this.toManifestRecord(row) : undefined;
+    if (!row) return undefined;
+    const record = this.toManifestRecord(row);
+    const credentials = await this.credentialService
+      .forModule(id)
+      .listCredentials()
+      .catch(
+        () =>
+          [] as Awaited<ReturnType<CredentialService["listOwnedCredentials"]>>,
+      );
+    const credentialSchemes: Record<
+      string,
+      { configured: boolean; status?: string; grantedSource?: string | null }
+    > = {};
+    for (const cred of credentials) {
+      credentialSchemes[cred.schemeName] = {
+        configured: true,
+        status: cred.status,
+        grantedSource: cred.grantedSource,
+      };
+    }
+    return {
+      ...record,
+      ...(Object.keys(credentialSchemes).length > 0
+        ? { credentialSchemes }
+        : {}),
+    };
   }
 
   async getIcon(
@@ -1036,6 +1319,67 @@ export class ModuleService {
     await this.reloadIfActive(input.id);
   }
 
+  async restartModule(id: string): Promise<void> {
+    const row = await db
+      .select()
+      .from(modulesTable)
+      .where(eq(modulesTable.id, id))
+      .limit(1);
+
+    if (!row[0]) throw new HttpError(404, `Module '${id}' not found.`);
+    if (row[0].missing) {
+      throw new HttpError(
+        409,
+        `Module '${id}' is missing and cannot be restarted.`,
+      );
+    }
+
+    await this.setEnabled({ id, enabled: false });
+    await this.setEnabled({ id, enabled: true });
+  }
+
+  async setModuleAuth(input: {
+    id: string;
+    schemes: Record<string, AuthScheme>;
+    security: SecurityRequirements;
+  }): Promise<{ updated: true }> {
+    const { id, schemes, security } = input;
+    const label = `Invalid auth declaration for module '${id}'`;
+    if (
+      typeof schemes !== "object" ||
+      schemes === null ||
+      Array.isArray(schemes)
+    ) {
+      throw new HttpError(400, `${label}: 'schemes' must be an object.`);
+    }
+    if (!Array.isArray(security)) {
+      throw new HttpError(400, `${label}: 'security' must be an array.`);
+    }
+    resolveModuleAuthDeclaration(
+      {
+        auth: { schemes, security },
+      } as unknown as ModuleExport,
+      id,
+    );
+    const row = await db
+      .select()
+      .from(modulesTable)
+      .where(eq(modulesTable.id, id))
+      .limit(1);
+
+    if (!row[0]) throw new HttpError(404, `Module '${id}' not found.`);
+
+    await db
+      .update(modulesTable)
+      .set({
+        schemes,
+        security,
+      })
+      .where(eq(modulesTable.id, id));
+
+    return { updated: true };
+  }
+
   async reload(): Promise<null> {
     if (this.modulesPath === null) {
       throw new HttpError(503, "ModuleService has not been initialized.");
@@ -1101,6 +1445,7 @@ export class ModuleService {
 
     let configSchema: JSONSchema;
     let secretsSchema: JSONSchema;
+    let auth: ModuleAuthDeclaration | null = null;
 
     try {
       const imported = (await this.importModuleExport(
@@ -1121,11 +1466,13 @@ export class ModuleService {
       );
       configSchema = def.configSchema;
       secretsSchema = def.secretsSchema;
+      auth = resolveModuleAuthDeclaration(def, manifest.id);
 
       this.factories.set(manifest.id, {
         type: manifest.type,
         configSchema,
         secretsSchema,
+        auth,
         instantiate: def.instantiate,
       });
       this.manifests.set(manifest.id, {
@@ -1139,6 +1486,7 @@ export class ModuleService {
         compatibility: manifest.compatibility,
         configSchema,
         secretsSchema,
+        auth,
       });
     } catch (err) {
       await fs.rm(installDir, { recursive: true, force: true }).catch(() => {});
@@ -1163,6 +1511,8 @@ export class ModuleService {
         source: "",
         enabled: false,
         missing: false,
+        schemes: auth?.schemes ?? null,
+        security: auth?.security ?? null,
       });
     } catch {
       await fs.rm(installDir, { recursive: true, force: true }).catch(() => {});
@@ -1190,6 +1540,8 @@ export class ModuleService {
       compatibility: manifest.compatibility,
       configSchema,
       secretsSchema,
+      schemes: auth?.schemes ?? {},
+      security: auth?.security ?? [],
     };
   }
 
@@ -1256,6 +1608,7 @@ export class ModuleService {
 
     let configSchema: JSONSchema;
     let secretsSchema: JSONSchema;
+    let auth: ModuleAuthDeclaration | null = null;
 
     try {
       const imported = (await this.importModuleExport(
@@ -1276,11 +1629,13 @@ export class ModuleService {
       );
       configSchema = def.configSchema;
       secretsSchema = def.secretsSchema;
+      auth = resolveModuleAuthDeclaration(def, manifest.id);
 
       this.factories.set(manifest.id, {
         type: manifest.type,
         configSchema,
         secretsSchema,
+        auth,
         instantiate: def.instantiate,
       });
       this.manifests.set(manifest.id, {
@@ -1294,6 +1649,7 @@ export class ModuleService {
         compatibility: manifest.compatibility,
         configSchema,
         secretsSchema,
+        auth,
       });
     } catch (err) {
       await fs.rm(installDir, { recursive: true, force: true }).catch(() => {});
@@ -1322,6 +1678,8 @@ export class ModuleService {
         source: source,
         enabled: false,
         missing: false,
+        schemes: auth?.schemes ?? null,
+        security: auth?.security ?? null,
         iconData: icon?.data ?? null,
         iconMime: icon?.mime ?? null,
         iconHash: icon?.hash ?? null,
@@ -1352,6 +1710,8 @@ export class ModuleService {
       compatibility: manifest.compatibility,
       configSchema,
       secretsSchema,
+      schemes: auth?.schemes ?? {},
+      security: auth?.security ?? [],
     };
   }
 
@@ -1534,11 +1894,13 @@ export class ModuleService {
         def.secretsSchema,
         `secretsSchema for module '${manifest.id}'`,
       );
+      const auth = resolveModuleAuthDeclaration(def, manifest.id);
 
       this.factories.set(manifest.id, {
         type: manifest.type,
         configSchema: def.configSchema,
         secretsSchema: def.secretsSchema,
+        auth,
         instantiate: def.instantiate,
       });
       this.manifests.set(manifest.id, {
@@ -1552,6 +1914,7 @@ export class ModuleService {
         compatibility: manifest.compatibility,
         configSchema: def.configSchema,
         secretsSchema: def.secretsSchema,
+        auth,
       });
     } catch (err) {
       await fs.rm(installDir, { recursive: true, force: true }).catch(() => {});
@@ -1567,6 +1930,7 @@ export class ModuleService {
     }
 
     try {
+      const declaredAuth = this.manifests.get(manifest.id)?.auth ?? null;
       await db
         .update(modulesTable)
         .set({
@@ -1576,6 +1940,12 @@ export class ModuleService {
           hash: newHash,
           version: manifest.version,
           ...(iconColumns ?? {}),
+          ...(declaredAuth
+            ? {
+                schemes: declaredAuth.schemes,
+                security: declaredAuth.security,
+              }
+            : {}),
         })
         .where(eq(modulesTable.id, id));
     } catch {
@@ -1715,11 +2085,13 @@ export class ModuleService {
         def.secretsSchema,
         `secretsSchema for module '${manifest.id}'`,
       );
+      const auth = resolveModuleAuthDeclaration(def, manifest.id);
 
       this.factories.set(manifest.id, {
         type: manifest.type,
         configSchema: def.configSchema,
         secretsSchema: def.secretsSchema,
+        auth,
         instantiate: def.instantiate,
       });
       this.manifests.set(manifest.id, {
@@ -1733,6 +2105,7 @@ export class ModuleService {
         compatibility: manifest.compatibility,
         configSchema: def.configSchema,
         secretsSchema: def.secretsSchema,
+        auth,
       });
     } catch (err) {
       await fs.rm(installDir, { recursive: true, force: true }).catch(() => {});
@@ -1748,6 +2121,7 @@ export class ModuleService {
     }
 
     try {
+      const declaredAuth = this.manifests.get(manifest.id)?.auth ?? null;
       await db
         .update(modulesTable)
         .set({
@@ -1760,6 +2134,12 @@ export class ModuleService {
           iconData: null,
           iconMime: null,
           iconHash: null,
+          ...(declaredAuth
+            ? {
+                schemes: declaredAuth.schemes,
+                security: declaredAuth.security,
+              }
+            : {}),
         })
         .where(eq(modulesTable.id, id));
     } catch {
@@ -1832,6 +2212,15 @@ export class ModuleService {
       throw new HttpError(404, `Module '${id}' not found.`);
     }
 
+    for (const cred of await this.credentialService
+      .listOwnedCredentials("module", id)
+      .catch(
+        () =>
+          [] as Awaited<ReturnType<CredentialService["listOwnedCredentials"]>>,
+      )) {
+      await this.credentialService.deleteCredential("module", cred.id);
+    }
+
     this.factories.delete(id);
     this.manifests.delete(id);
 
@@ -1874,7 +2263,8 @@ export class ModuleService {
         manifest.name !== r.name ||
         manifest.summary !== r.summary ||
         manifest.description !== r.description ||
-        manifest.version !== r.version
+        manifest.version !== r.version ||
+        moduleAuthChanged(manifest.auth, r.schemes, r.security)
       );
     });
 
@@ -1893,6 +2283,8 @@ export class ModuleService {
             version: manifest.version,
             enabled: true,
             missing: false,
+            schemes: manifest.auth?.schemes ?? null,
+            security: manifest.auth?.security ?? null,
           };
         }),
       );
@@ -1924,6 +2316,12 @@ export class ModuleService {
               summary: normalizeSummary(manifest.summary),
               description: manifest.description,
               version: manifest.version,
+              ...(manifest.auth
+                ? {
+                    schemes: manifest.auth.schemes,
+                    security: manifest.auth.security,
+                  }
+                : {}),
             })
             .where(eq(modulesTable.id, row.id));
         }),
@@ -1961,7 +2359,10 @@ export class ModuleService {
     const factory = this.requireFactory(id, "environment");
     const setupCtx = await this.buildSetupContext(id);
     const module = factory.instantiate() as EnvironmentModule;
-    await module.setup({ ...setupCtx, bindings: this.bindings });
+    await module.setup({
+      ...setupCtx,
+      bindings: this.bindings,
+    } as EnvironmentSetupContext);
 
     const next: EnvironmentInstance = {
       id,
@@ -2016,9 +2417,7 @@ export class ModuleService {
         }
 
         try {
-          const def = await adapter.generateDefinition(
-            service.definitionContent,
-          );
+          const def = await adapter.generateService(service.definitionContent);
 
           for (const tool of def.tools) {
             if (!IDENTIFIER_SCHEMA.safeParse(tool.id).success) {
@@ -2173,7 +2572,10 @@ export class ModuleService {
     const factoryEnv = this.requireFactory(id, "environment");
     const setupCtx = await this.buildSetupContext(id);
     const module = factoryEnv.instantiate() as EnvironmentModule;
-    await module.setup({ ...setupCtx, bindings: this.bindings });
+    await module.setup({
+      ...setupCtx,
+      bindings: this.bindings,
+    } as EnvironmentSetupContext);
 
     const next: EnvironmentInstance = {
       id,
@@ -2189,7 +2591,8 @@ export class ModuleService {
   }
 
   private async buildSetupContext(id: string): Promise<SetupValues> {
-    const { config, secrets } = await this.assertConfigAndSecretsValid(id);
+    const { config, secrets, configDeclared, secretsDeclared } =
+      await this.assertConfigAndSecretsValid(id);
     const manifest = this.requireRegistered(id);
     const moduleLogger = createModuleLogger(logger, {
       category: "module",
@@ -2201,7 +2604,19 @@ export class ModuleService {
         ? { adapterId: id }
         : { environmentId: id }),
     });
-    return { config, secrets, logger: moduleLogger };
+    return {
+      config: new HostConfigProvider<{}>(config, configDeclared),
+      secrets: new HostSecretsProvider<{}>(secrets, secretsDeclared),
+      logger: moduleLogger,
+      ...(manifest.auth
+        ? {
+            credentials: new ModuleCredentialProvider(
+              id,
+              this.credentialService,
+            ),
+          }
+        : {}),
+    };
   }
 
   private async loadSecrets(id: string): Promise<Record<string, unknown>> {
@@ -2263,6 +2678,8 @@ export class ModuleService {
     return {
       config: validatedConfig,
       secrets: validatedSecrets,
+      configDeclared: declaredSchemaKeys(manifest.configSchema),
+      secretsDeclared: declaredSchemaKeys(manifest.secretsSchema),
     };
   }
 
@@ -2347,6 +2764,33 @@ export class ModuleService {
       throw new HttpError(503, `Adapter '${id}' is not active.`);
     }
     return adapter;
+  }
+
+  private async validateServiceCredentials(serviceId: string): Promise<void> {
+    const credStore = this.credentialService.forService(serviceId);
+    const credentials = await credStore.listCredentials();
+    for (const cred of credentials) {
+      if (cred.status === "revoked") {
+        throw new HttpError(
+          403,
+          `Service '${serviceId}' has a revoked credential for scheme '${cred.schemeName}'. Re-authorize the credential.`,
+        );
+      }
+      if (cred.status === "expired" && cred.schemeType === "oauth2") {
+        if (!cred.grantedScopes || cred.grantedScopes.length === 0) {
+          throw new HttpError(
+            403,
+            `Service '${serviceId}' has an expired OAuth credential for scheme '${cred.schemeName}' with no refresh token. Re-authorize the credential.`,
+          );
+        }
+      }
+      if (cred.status === "error") {
+        throw new HttpError(
+          403,
+          `Service '${serviceId}' has a credential in error state for scheme '${cred.schemeName}'. Check credential configuration.`,
+        );
+      }
+    }
   }
 
   private async invokeAdapterWithTimeout(
@@ -2518,6 +2962,7 @@ export class ModuleService {
         type,
         configSchema,
         secretsSchema,
+        auth: null,
         instantiate,
       });
       this.manifests.set(id, {
@@ -2531,6 +2976,7 @@ export class ModuleService {
         compatibility,
         configSchema,
         secretsSchema,
+        auth: null,
       });
     }
   }
@@ -2612,11 +3058,13 @@ export class ModuleService {
       const { configSchema, secretsSchema, instantiate } = imported.default;
       assertPlainJsonSchema(configSchema, `configSchema for module '${id}'`);
       assertPlainJsonSchema(secretsSchema, `secretsSchema for module '${id}'`);
+      const auth = resolveModuleAuthDeclaration(imported.default, id);
 
       this.factories.set(id, {
         type,
         configSchema,
         secretsSchema,
+        auth,
         instantiate,
       });
       this.manifests.set(id, {
@@ -2630,6 +3078,7 @@ export class ModuleService {
         compatibility,
         configSchema,
         secretsSchema,
+        auth,
       });
     }
   }
@@ -2693,6 +3142,8 @@ export class ModuleService {
       missing: row.missing,
       hasIcon: row.iconHash !== null,
       compatibility: this.manifests.get(row.id)?.compatibility,
+      schemes: row.schemes ?? {},
+      security: row.security ?? [],
     };
   }
 

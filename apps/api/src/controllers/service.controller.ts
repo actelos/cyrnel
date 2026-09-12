@@ -1,10 +1,9 @@
 import type { Request, Response } from "express";
 import type { Operation } from "fast-json-patch";
 import { z } from "zod";
-
-import { sendIconResponse } from "@/controllers/icon-response.util";
 import type { ServicesService } from "@/services/services.service";
 import { KIND_PATTERN } from "@/utils/compatibility.util";
+import { sendIconResponse } from "@/utils/icon-response.util";
 import { paginationQuerySchema } from "@/utils/pagination.util";
 import { parseOrHttpError } from "@/utils/validation.util";
 
