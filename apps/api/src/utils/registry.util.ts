@@ -1,5 +1,10 @@
+import type {
+  AuthScheme,
+  OAuth2AuthScheme,
+  SecurityRequirement,
+  SecurityRequirements,
+} from "@cyrnel/sdk";
 import { maxSatisfying, valid } from "semver";
-
 import { HttpError } from "@/models/error.model";
 import { assertKind } from "@/utils/compatibility.util";
 import { assertRegistryAddressAllowed } from "@/utils/download.util";
@@ -23,7 +28,7 @@ export interface RegistryIcon {
   hash: string;
 }
 
-interface VersionedRegistryDescriptor {
+export interface VersionedRegistryDescriptor {
   latestVersion: string;
   versions: Record<string, RegistryVersionEntry>;
 }
@@ -288,17 +293,10 @@ export async function resolveServiceRegistry(
 const MAX_REDIRECT_HOPS = 5;
 const MAX_CAPABILITY_PAGE_BYTES = 256 * 1024;
 
-/**
- * JSON fetch with per-hop redirect re-validation. Unlike `fetchRegistryJson`,
- * redirects are followed manually so every hop runs
- * `assertRegistryAddressAllowed` (the same guard `fetchStream` applies for
- * downloads). The final URL is returned because relative capability URLs
- * resolve against the post-redirect URL, not the caller-supplied one.
- */
 async function fetchRegistryJsonSafe(
   url: string,
   label: string,
-  options?: { maxBytes?: number },
+  options?: { maxBytes?: number; skipAuth?: boolean },
 ): Promise<{ finalUrl: string; body: Record<string, unknown> }> {
   let currentUrl = url;
 
@@ -317,9 +315,13 @@ async function fetchRegistryJsonSafe(
 
     let response: Response;
     try {
-      ({ response } = await fetchWithRegistryAuth(currentUrl, {
-        signal: controller.signal,
-      }));
+      ({ response } = await fetchWithRegistryAuth(
+        currentUrl,
+        {
+          signal: controller.signal,
+        },
+        { skipAuth: options?.skipAuth },
+      ));
     } catch {
       clearTimeout(timeout);
       throw new HttpError(502, `Failed to fetch ${label} registry metadata.`);
@@ -335,7 +337,23 @@ async function fetchRegistryJsonSafe(
         );
       }
       await response.body?.cancel().catch(() => {});
-      currentUrl = new URL(location, currentUrl).toString();
+      let nextUrl: string;
+      try {
+        nextUrl = new URL(location, currentUrl).toString();
+      } catch {
+        throw new HttpError(
+          502,
+          `${label} registry redirected to an invalid URL.`,
+        );
+      }
+      if (!nextUrl.startsWith("https://") && !nextUrl.startsWith("http://")) {
+        throw new HttpError(
+          502,
+          `${label} registry redirected to a non-http(s) URL.`,
+        );
+      }
+      await assertRegistryAddressAllowed(nextUrl);
+      currentUrl = nextUrl;
       continue;
     }
 
@@ -422,34 +440,287 @@ export interface RegistryIndexInfo {
   auth: RegistryAuthDeclaration | null;
 }
 
-export interface RegistryAuthScope {
-  id: string;
-  description?: string;
+export interface ResolvedCapability {
+  version: number;
+  url: string;
+  security?: SecurityRequirements;
 }
 
-export type RegistryAuthDeclaration =
-  | { type: "apiKey"; name: string }
-  | {
-      type: "oauth2";
-      grantType: "client_credentials";
-      tokenEndpoint: string;
-      scopes?: RegistryAuthScope[];
-    }
-  | { type: "unsupported"; declaredType: string; reason?: string };
+export interface RegistryIndexInfo {
+  id: string;
+  finalUrl: string;
+  definitions: ResolvedCapability | null;
+  modules: ResolvedCapability | null;
+  auth: RegistryAuthDeclaration | null;
+}
 
-function isRegistryAuthScope(
+export type RegistryOAuthGrantType =
+  | "authorization_code"
+  | "client_credentials";
+
+export type RegistryOAuth2AuthScheme = Omit<OAuth2AuthScheme, "grantTypes"> & {
+  readonly grantTypes: readonly RegistryOAuthGrantType[];
+};
+
+export type RegistryAuthScheme =
+  | Exclude<AuthScheme, OAuth2AuthScheme>
+  | RegistryOAuth2AuthScheme;
+
+export interface RegistryAuthDeclaration {
+  schemes: Record<string, RegistryAuthScheme>;
+  security: SecurityRequirements;
+}
+
+export interface RegistryCapabilityObject {
+  url: string;
+  security?: SecurityRequirements;
+}
+
+export type RegistryCapabilityValue = string | RegistryCapabilityObject;
+
+export interface RegistryWellKnownDocument {
+  id: string;
+  "definitions.v1"?: RegistryCapabilityValue;
+  "modules.v1"?: RegistryCapabilityValue;
+  auth?: RegistryAuthDeclaration;
+}
+
+export interface RegistryTokenRequest {
+  grant_type: "authorization_code" | "client_credentials" | "refresh_token";
+  client_id?: string;
+  client_secret?: string;
+  code?: string;
+  redirect_uri?: string;
+  code_verifier?: string;
+  scope?: string;
+  refresh_token?: string;
+}
+
+export interface RegistryTokenResponse {
+  access_token: string;
+  token_type?: string;
+  expires_in?: number;
+  scope?: string;
+  refresh_token?: string;
+}
+
+export interface RegistryErrorResponse {
+  error: string;
+}
+
+function assertSchemeRecord(
   value: unknown,
-): value is { id: string; description?: string } {
+  label: string,
+): asserts value is Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return false;
+    throw new HttpError(400, `${label} must be an object.`);
   }
+}
+
+function validateAuthScheme(
+  label: string,
+  name: string,
+  value: unknown,
+  discoveryOrigin: string,
+): RegistryAuthScheme {
+  assertSchemeRecord(value, `${label} scheme '${name}'`);
   const record = value as Record<string, unknown>;
-  if (typeof record.id !== "string" || record.id.trim().length === 0) {
-    return false;
+  const type = record.type;
+  if (type === "apiKey") {
+    if (record.in !== undefined && record.in !== "header") {
+      throw new HttpError(
+        400,
+        `${label} scheme '${name}': apiKey 'in' must be 'header'.`,
+      );
+    }
+    assertNonEmptyString(
+      record.paramName,
+      `${label} scheme '${name}': apiKey 'paramName' must be a non-empty string.`,
+    );
+    const scheme: AuthScheme = {
+      type: "apiKey",
+      in: "header",
+      paramName: (record.paramName as string).trim(),
+    };
+    if (record.prefix !== undefined) {
+      assertNonEmptyString(
+        record.prefix,
+        `${label} scheme '${name}': apiKey 'prefix' must be a non-empty string if provided.`,
+      );
+      (scheme as { prefix: string }).prefix = (record.prefix as string).trim();
+    }
+    return scheme;
   }
-  return (
-    record.description === undefined || typeof record.description === "string"
+  if (type === "basic") {
+    return { type: "basic" };
+  }
+  if (type === "http") {
+    if (record.scheme !== "bearer") {
+      throw new HttpError(
+        400,
+        `${label} scheme '${name}': http 'scheme' must be 'bearer'.`,
+      );
+    }
+    return { type: "http", scheme: "bearer" };
+  }
+  if (type === "oauth2") {
+    if (!Array.isArray(record.grantTypes) || record.grantTypes.length === 0) {
+      throw new HttpError(
+        400,
+        `${label} scheme '${name}': oauth2 'grantTypes' must be a non-empty array.`,
+      );
+    }
+    const grants = record.grantTypes as unknown[];
+    for (const grant of grants) {
+      if (grant !== "authorization_code" && grant !== "client_credentials") {
+        throw new HttpError(
+          400,
+          `${label} scheme '${name}': unsupported oauth2 grant '${String(grant)}'; only 'authorization_code' and 'client_credentials' are supported.`,
+        );
+      }
+    }
+    assertNonEmptyString(
+      record.tokenUrl,
+      `${label} scheme '${name}': oauth2 'tokenUrl' must be a non-empty string.`,
+    );
+    const tokenUrl = (record.tokenUrl as string).trim();
+    assertSameOriginHttpUrl(tokenUrl, discoveryOrigin, label, name, "tokenUrl");
+    let authorizationUrl: string | undefined;
+    if (
+      (grants as string[]).includes("authorization_code") ||
+      record.authorizationUrl !== undefined
+    ) {
+      assertNonEmptyString(
+        record.authorizationUrl,
+        `${label} scheme '${name}': oauth2 'authorizationUrl' is required when 'authorization_code' is granted.`,
+      );
+      authorizationUrl = (record.authorizationUrl as string).trim();
+      assertSameOriginHttpUrl(
+        authorizationUrl,
+        discoveryOrigin,
+        label,
+        name,
+        "authorizationUrl",
+      );
+    }
+    const scopes: Record<string, string> = {};
+    if (record.scopes !== undefined) {
+      assertSchemeRecord(record.scopes, `${label} scheme '${name}' 'scopes'`);
+      for (const [scopeId, description] of Object.entries(
+        record.scopes as Record<string, unknown>,
+      )) {
+        if (scopeId.trim().length === 0 || typeof description !== "string") {
+          throw new HttpError(
+            400,
+            `${label} scheme '${name}': oauth2 'scopes' must map non-empty ids to description strings.`,
+          );
+        }
+        scopes[scopeId.trim()] = description;
+      }
+    }
+    return {
+      type: "oauth2",
+      grantTypes: grants as RegistryOAuthGrantType[],
+      ...(authorizationUrl !== undefined ? { authorizationUrl } : {}),
+      tokenUrl,
+      scopes,
+      tokenPlacement: {
+        in: "header",
+        paramName: "Authorization",
+        prefix: "Bearer",
+      },
+    };
+  }
+  throw new HttpError(
+    400,
+    `${label} scheme '${name}': unsupported auth type '${typeof type === "string" ? type : "unknown"}'.`,
   );
+}
+
+function assertSameOriginHttpUrl(
+  value: string,
+  discoveryOrigin: string,
+  label: string,
+  schemeName: string,
+  field: string,
+): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new HttpError(
+      400,
+      `${label} scheme '${schemeName}': '${field}' must be a valid absolute URL.`,
+    );
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new HttpError(
+      400,
+      `${label} scheme '${schemeName}': '${field}' must be an http(s) URL.`,
+    );
+  }
+  if (parsed.origin !== discoveryOrigin) {
+    throw new HttpError(
+      400,
+      `${label} scheme '${schemeName}': '${field}' must be on the registry's origin.`,
+    );
+  }
+}
+
+function validateSecurity(
+  label: string,
+  value: unknown,
+  schemes: Record<string, RegistryAuthScheme>,
+): SecurityRequirements {
+  if (!Array.isArray(value)) {
+    throw new HttpError(400, `${label} 'security' must be an array.`);
+  }
+  const requirements: SecurityRequirement[] = [];
+  for (const [index, requirement] of value.entries()) {
+    assertSchemeRecord(requirement, `${label} 'security[${index}]'`);
+    const group: Record<string, string[]> = {};
+    for (const [schemeName, scopes] of Object.entries(
+      requirement as Record<string, unknown>,
+    )) {
+      const scheme = schemes[schemeName];
+      if (!scheme) {
+        throw new HttpError(
+          400,
+          `${label} 'security[${index}]' references undeclared scheme '${schemeName}'.`,
+        );
+      }
+      if (
+        !Array.isArray(scopes) ||
+        !scopes.every((s) => typeof s === "string")
+      ) {
+        throw new HttpError(
+          400,
+          `${label} 'security[${index}]['${schemeName}'] must be a string array.`,
+        );
+      }
+      if (scopes.length > 0 && scheme.type !== "oauth2") {
+        throw new HttpError(
+          400,
+          `${label} 'security[${index}]['${schemeName}'] must be empty: only oauth2 schemes support scopes.`,
+        );
+      }
+      if (scheme.type === "oauth2") {
+        const declared = Object.keys(scheme.scopes);
+        const undeclared = (scopes as string[]).filter(
+          (s) => !declared.includes(s),
+        );
+        if (undeclared.length > 0) {
+          throw new HttpError(
+            400,
+            `${label} 'security[${index}]['${schemeName}'] references undeclared scopes: ${undeclared.join(", ")}.`,
+          );
+        }
+      }
+      group[schemeName] = scopes as string[];
+    }
+    requirements.push(group);
+  }
+  return requirements;
 }
 
 const SUPPORTED_DEFINITIONS_VERSIONS = [1] as const;
@@ -461,17 +732,25 @@ function resolveCapability(
   supported: readonly number[],
   finalUrl: string,
   label: string,
+  schemes: Record<string, RegistryAuthScheme>,
 ): ResolvedCapability | null {
-  const offered: { version: number; url: string }[] = [];
+  const offered: { version: number; value: unknown }[] = [];
 
   for (const [key, value] of Object.entries(body)) {
     const match = key.match(CAPABILITY_KEY_PATTERN);
     if (!match || match[1] !== capability) continue;
-    assertNonEmptyString(
-      value,
-      `${label} registry '${key}' must be a non-empty string.`,
-    );
-    offered.push({ version: Number(match[2]), url: value.trim() });
+    if (typeof value !== "string") {
+      assertSchemeRecord(
+        value,
+        `${label} registry '${key}' must be a non-empty string or { url, security } object.`,
+      );
+    } else {
+      assertNonEmptyString(
+        value,
+        `${label} registry '${key}' must be a non-empty string.`,
+      );
+    }
+    offered.push({ version: Number(match[2]), value });
   }
 
   const best = offered
@@ -480,7 +759,27 @@ function resolveCapability(
 
   if (!best) return null;
 
-  const resolved = new URL(best.url, finalUrl);
+  let rawUrl: string;
+  let security: SecurityRequirements | undefined;
+  if (typeof best.value === "string") {
+    rawUrl = best.value.trim();
+  } else {
+    const record = best.value as Record<string, unknown>;
+    assertNonEmptyString(
+      record.url,
+      `${label} registry '${capability}.v${best.version}' object form must include a non-empty 'url' string.`,
+    );
+    rawUrl = (record.url as string).trim();
+    if (record.security !== undefined) {
+      security = validateSecurity(
+        `${label} registry '${capability}.v${best.version}'`,
+        record.security,
+        schemes,
+      );
+    }
+  }
+
+  const resolved = new URL(rawUrl, finalUrl);
   const discoveryOrigin = new URL(finalUrl).origin;
 
   if (resolved.origin !== discoveryOrigin) {
@@ -490,121 +789,68 @@ function resolveCapability(
     );
   }
 
-  return { version: best.version, url: resolved.toString() };
+  return {
+    version: best.version,
+    url: resolved.toString(),
+    ...(security !== undefined ? { security } : {}),
+  };
 }
 
 function parseAdvertisedAuth(
   body: Record<string, unknown>,
   label: string,
-  discoveryUrl: string,
+  _discoveryUrl: string,
+  discoveryOrigin: string,
 ): RegistryAuthDeclaration | null {
   const auth = body.auth;
   if (auth === undefined) return null;
 
-  if (typeof auth !== "object" || auth === null || Array.isArray(auth)) {
-    throw new HttpError(
-      400,
-      `${label} registry 'auth' must be an object if provided.`,
-    );
-  }
-
+  assertSchemeRecord(auth, `${label} registry 'auth'`);
   const record = auth as Record<string, unknown>;
-  if (typeof record.type !== "string" || record.type.trim().length === 0) {
+
+  if (
+    record.schemes === undefined ||
+    typeof record.schemes !== "object" ||
+    record.schemes === null ||
+    Array.isArray(record.schemes) ||
+    Object.keys(record.schemes).length === 0
+  ) {
     throw new HttpError(
       400,
-      `${label} registry 'auth.type' must be a non-empty string.`,
+      `${label} registry 'auth.schemes' must declare at least one scheme.`,
     );
   }
-
-  if (record.type === "apiKey") {
-    if (record.in !== undefined && record.in !== "header") {
-      return {
-        type: "unsupported",
-        declaredType: "apiKey",
-        reason:
-          "'in' must be 'header'; query-param api keys are not supported.",
-      };
+  const schemes: Record<string, RegistryAuthScheme> = {};
+  for (const [name, scheme] of Object.entries(
+    record.schemes as Record<string, unknown>,
+  )) {
+    if (name.trim().length === 0) {
+      throw new HttpError(
+        400,
+        `${label} registry 'auth.schemes' keys must be non-empty strings.`,
+      );
     }
-    assertNonEmptyString(
-      record.name,
-      `${label} registry apiKey 'auth.name' must be a non-empty string.`,
+    schemes[name] = validateAuthScheme(
+      `${label} registry 'auth'`,
+      name,
+      scheme,
+      discoveryOrigin,
     );
-    return { type: "apiKey", name: record.name.trim() };
   }
-
-  if (record.type === "oauth2") {
-    if (
-      record.grantType !== undefined &&
-      record.grantType !== "client_credentials"
-    ) {
-      return {
-        type: "unsupported",
-        declaredType: "oauth2",
-        reason: `grant '${record.grantType}' is not supported; only 'client_credentials' is.`,
-      };
-    }
-    assertNonEmptyString(
-      record.tokenEndpoint,
-      `${label} registry oauth2 'auth.tokenEndpoint' must be a non-empty string.`,
+  if (record.security === undefined) {
+    throw new HttpError(
+      400,
+      `${label} registry 'auth.security' must be an array (use [] for a public registry).`,
     );
-    const tokenEndpoint = record.tokenEndpoint.trim();
-    let parsed: URL;
-    try {
-      parsed = new URL(tokenEndpoint);
-    } catch {
-      throw new HttpError(
-        400,
-        `${label} registry oauth2 'auth.tokenEndpoint' must be a valid absolute URL.`,
-      );
-    }
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-      throw new HttpError(
-        400,
-        `${label} registry oauth2 'auth.tokenEndpoint' must be an http(s) URL.`,
-      );
-    }
-    if (parsed.origin !== new URL(discoveryUrl).origin) {
-      throw new HttpError(
-        400,
-        `${label} registry oauth2 'auth.tokenEndpoint' must be on the registry's origin.`,
-      );
-    }
-
-    let scopes: RegistryAuthScope[] | undefined;
-    if (record.scopes !== undefined) {
-      if (
-        !Array.isArray(record.scopes) ||
-        !record.scopes.every(isRegistryAuthScope)
-      ) {
-        throw new HttpError(
-          400,
-          `${label} registry oauth2 'auth.scopes' must be an array of { id, description } objects if provided.`,
-        );
-      }
-      scopes = record.scopes.map((scope) => ({
-        id: scope.id.trim(),
-        ...(scope.description !== undefined
-          ? { description: scope.description.trim() }
-          : {}),
-      }));
-    }
-
-    return {
-      type: "oauth2",
-      grantType: "client_credentials",
-      tokenEndpoint,
-      scopes,
-    };
   }
-
-  return { type: "unsupported", declaredType: record.type };
+  const security = validateSecurity(
+    `${label} registry 'auth'`,
+    record.security,
+    schemes,
+  );
+  return { schemes, security };
 }
 
-/**
- * Discovers and negotiates a registry's capabilities from its well-known
- * document. Unrecognized keys (including a `name` key) are ignored for
- * forward compatibility.
- */
 export async function fetchRegistryIndex(
   baseUrl: string,
 ): Promise<RegistryIndexInfo> {
@@ -615,6 +861,7 @@ export async function fetchRegistryIndex(
   const { finalUrl, body } = await fetchRegistryJsonSafe(
     discoveryUrl,
     "well-known",
+    { skipAuth: true },
   );
 
   assertNonEmptyString(
@@ -628,6 +875,15 @@ export async function fetchRegistryIndex(
     );
   }
 
+  const discoveryOrigin = new URL(finalUrl).origin;
+  const auth = parseAdvertisedAuth(
+    body,
+    "Well-known",
+    finalUrl,
+    discoveryOrigin,
+  );
+  const schemes = auth?.schemes ?? {};
+
   return {
     id: body.id.trim(),
     finalUrl,
@@ -637,6 +893,7 @@ export async function fetchRegistryIndex(
       SUPPORTED_DEFINITIONS_VERSIONS,
       finalUrl,
       "Well-known",
+      schemes,
     ),
     modules: resolveCapability(
       body,
@@ -644,9 +901,54 @@ export async function fetchRegistryIndex(
       SUPPORTED_MODULES_VERSIONS,
       finalUrl,
       "Well-known",
+      schemes,
     ),
-    auth: parseAdvertisedAuth(body, "Well-known", finalUrl),
+    auth,
   };
+}
+
+export function effectiveSecurityForUrl(
+  index: RegistryIndexInfo,
+  url: string,
+): SecurityRequirements {
+  const global = index.auth?.security ?? [];
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return global;
+  }
+  const segment = parsed.pathname.split("/").filter(Boolean)[0];
+  if (segment === "definitions" && index.definitions?.security !== undefined) {
+    return index.definitions.security;
+  }
+  if (segment === "modules" && index.modules?.security !== undefined) {
+    return index.modules.security;
+  }
+  return global;
+}
+
+const indexCache = new Map<string, { index: RegistryIndexInfo; at: number }>();
+const INDEX_CACHE_TTL_MS = 5 * 60 * 1000;
+
+export function invalidateRegistryIndexCache(baseUrl?: string): void {
+  if (baseUrl === undefined) {
+    indexCache.clear();
+    return;
+  }
+  indexCache.delete(baseUrl);
+}
+
+export async function fetchCachedRegistryIndex(
+  baseUrl: string,
+): Promise<RegistryIndexInfo> {
+  const cached = indexCache.get(baseUrl);
+  if (cached && Date.now() - cached.at < INDEX_CACHE_TTL_MS) {
+    return cached.index;
+  }
+  const index = await fetchRegistryIndex(baseUrl);
+  indexCache.set(baseUrl, { index, at: Date.now() });
+  return index;
 }
 
 export interface RegistryEntry {
@@ -661,6 +963,16 @@ export interface RegistryEntry {
 
 export interface RegistryPage {
   entries: RegistryEntry[];
+  nextCursor: string | null;
+}
+
+export interface RegistryDefinitionsWirePage {
+  definitions: RegistryEntry[];
+  nextCursor: string | null;
+}
+
+export interface RegistryModulesWirePage {
+  modules: RegistryEntry[];
   nextCursor: string | null;
 }
 
@@ -769,11 +1081,6 @@ function assertEntry(
   };
 }
 
-/**
- * Fetches and validates one page of a registry capability endpoint. All
- * filtering is advisory: query params are forwarded untouched and entries are
- * never filtered client-side, since that would break pagination.
- */
 export async function fetchRegistryCapabilityPage(
   capabilityUrl: string,
   capability: "definitions" | "modules",

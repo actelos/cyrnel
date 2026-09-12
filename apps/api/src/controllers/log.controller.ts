@@ -123,11 +123,6 @@ export async function listLogs(req: Request, res: Response): Promise<void> {
   });
 }
 
-/**
- * The log service produces cursors as raw `timestamp:seq` log-entry ids;
- * the wire format is the opaque base64url envelope shared by every other
- * paginated endpoint, so re-encode before responding.
- */
 function encodeLogCursor(entryId: string): string {
   const [timestamp, seq] = entryId.split(":").map(Number);
   return encodeCursor([timestamp, seq]);

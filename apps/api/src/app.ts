@@ -2,45 +2,52 @@ import path from "node:path";
 import cors from "cors";
 import express from "express";
 import pinoHttp from "pino-http";
+
 import { TransformersEmbedder } from "@/infra/embedding/embedder";
 import { logger } from "@/infra/logging";
 import { SearchEngine } from "@/infra/search/search-engine";
 import { AutoUpdater } from "@/infra/updater/auto-updater";
+
 import { apiKeyMiddleware } from "@/middleware/auth.middleware";
 import { errorMiddleware } from "@/middleware/error.middleware";
 import { ipAccessMiddleware } from "@/middleware/ip-access.middleware";
 import { globalRateLimiter } from "@/middleware/rate-limit.middleware";
 import { approvalRouter } from "@/routes/approval.route";
+import { authCallbackRouter } from "@/routes/credential.route";
 import { environmentRouter } from "@/routes/environment.route";
 import { logRouter } from "@/routes/log.route";
 import { moduleRouter } from "@/routes/module.route";
+import { oauthClientRouter } from "@/routes/oauth-client.route";
 import { processRouter } from "@/routes/process.route";
 import { registryRouter } from "@/routes/registry.route";
 import { serviceRouter } from "@/routes/service.route";
 import { toolRouter } from "@/routes/tool.route";
+import { CredentialService } from "@/services/credential.service";
 import { ModuleService } from "@/services/modules.service";
+import { setProcessService } from "@/services/process.holder";
 import { ProcessService } from "@/services/process.service";
-import { setProcessService } from "@/services/process-holder";
 import { RegistriesService } from "@/services/registries.service";
 import { ServicesService } from "@/services/services.service";
 
-const DEFAULT_RECONCILE_INTERVAL_MS = 1_800_000;
 const MAX_RECONCILE_INTERVAL_MS = 2_147_483_647;
-const DEFAULT_AUTO_UPDATE_INTERVAL_MS = 0;
 const MAX_AUTO_UPDATE_INTERVAL_MS = 2_147_483_647;
 const DEFAULT_APPROVAL_TIMEOUT_MS = 300_000;
-const DEFAULT_APPROVAL_RETENTION_MS = 2_592_000_000;
 const RETENTION_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
+const DEFAULT_RECONCILE_INTERVAL_MS = 1_800_000;
+const DEFAULT_APPROVAL_RETENTION_MS = 2_592_000_000;
+const DEFAULT_AUTO_UPDATE_INTERVAL_MS = 0;
 
 export class App {
   readonly express: express.Express;
 
   readonly moduleService: ModuleService;
   readonly processService: ProcessService;
-  readonly registriesService: RegistriesService;
   readonly servicesService: ServicesService;
+  readonly registriesService: RegistriesService;
+  readonly credentialService: CredentialService;
 
   private autoUpdater: AutoUpdater | null = null;
+  private authRefreshTimer: ReturnType<typeof setInterval> | null = null;
   private approvalExpiryTimer: ReturnType<typeof setInterval> | null = null;
   private approvalRetentionTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -62,10 +69,9 @@ export class App {
 
     this.servicesService = new ServicesService(
       {
-        generateDefinition: (input) =>
-          this.moduleService.generateDefinition(input),
-        hydrateService: (adapterId, state) =>
-          this.moduleService.hydrateService(adapterId, state),
+        generateService: (input) => this.moduleService.generateService(input),
+        hydrateService: (adapterId, service) =>
+          this.moduleService.hydrateService(adapterId, service),
         dehydrateService: (adapterId, serviceId) =>
           this.moduleService.dehydrateService(adapterId, serviceId),
         generateToolDocs: (input) => this.moduleService.generateToolDocs(input),
@@ -83,6 +89,8 @@ export class App {
     setProcessService(this.processService);
 
     this.registriesService = new RegistriesService();
+
+    this.credentialService = new CredentialService();
 
     this.express = this.createExpressApp();
   }
@@ -124,6 +132,7 @@ export class App {
     );
     void this.processService.recoverSuspendedProcesses();
     void this.startApprovalSweeps(approvalTimeoutMs, retentionMs);
+    this.startAuthRefreshSweep();
   }
 
   async shutdown(): Promise<void> {
@@ -136,6 +145,10 @@ export class App {
     if (this.approvalRetentionTimer) {
       clearInterval(this.approvalRetentionTimer);
       this.approvalRetentionTimer = null;
+    }
+    if (this.authRefreshTimer) {
+      clearInterval(this.authRefreshTimer);
+      this.authRefreshTimer = null;
     }
     this.servicesService.closeSearch();
     await this.processService.shutdown();
@@ -192,13 +205,40 @@ export class App {
     }
   }
 
+  private startAuthRefreshSweep(): void {
+    void import("@/services/auth.sweeper").then(
+      ({ parseAuthRefreshInterval, sweepAuth }) => {
+        const intervalMs = parseAuthRefreshInterval(
+          process.env.CYRNEL_AUTH_REFRESH_INTERVAL_MS,
+        );
+        void sweepAuth().catch((err) =>
+          logger.warn(
+            { event: "auth-refresh-sweep-failed", err },
+            "Auth refresh sweep failed",
+          ),
+        );
+        if (intervalMs === 0) return;
+        this.authRefreshTimer = setInterval(() => {
+          void sweepAuth(intervalMs).catch((err) =>
+            logger.warn(
+              { event: "auth-refresh-sweep-failed", err },
+              "Auth refresh sweep failed",
+            ),
+          );
+        }, intervalMs);
+        this.authRefreshTimer.unref?.();
+      },
+    );
+  }
+
   private createExpressApp(): express.Express {
     const app = express();
 
     app.locals.moduleService = this.moduleService;
     app.locals.processService = this.processService;
-    app.locals.registriesService = this.registriesService;
     app.locals.servicesService = this.servicesService;
+    app.locals.registriesService = this.registriesService;
+    app.locals.credentialService = this.credentialService;
 
     app.set("etag", false);
     app.use(
@@ -234,6 +274,8 @@ export class App {
     app.use("/environment", environmentRouter);
     app.use("/logs", logRouter);
     app.use("/registries", registryRouter);
+    app.use("/oauth-clients", oauthClientRouter);
+    app.use("/auth", authCallbackRouter);
     app.use(errorMiddleware);
 
     return app;

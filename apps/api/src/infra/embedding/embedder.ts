@@ -21,12 +21,6 @@ export type FeatureExtractor = (
 
 type TransformersModule = typeof import("@xenova/transformers");
 
-/**
- * Local embedding model backed by @xenova/transformers. The model is loaded
- * once at startup; if loading fails (e.g. no network, cache miss) the
- * embedder stays unavailable for the remainder of the process lifetime and
- * search degrades to FTS5-only; it is never retried per search call.
- */
 export class TransformersEmbedder implements Embedder {
   readonly dimensions = SEARCH_DIMENSIONS;
 
