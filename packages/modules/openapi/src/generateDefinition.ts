@@ -1,5 +1,8 @@
 import type {
+  AuthScheme,
   JSONSchema,
+  OAuth2GrantType,
+  SecurityRequirements,
   ServiceDefinition,
   ToolDefinition,
 } from "@cyrnel/sdk";
@@ -317,82 +320,249 @@ function buildConfigSchema(doc: Doc): JSONSchema {
   };
 }
 
-function buildSecretsSchema(doc: Doc): JSONSchema {
-  const securitySchemes = doc.components?.securitySchemes;
-  if (
-    !securitySchemes ||
-    (typeof securitySchemes === "object" &&
-      Object.keys(securitySchemes).length === 0)
-  ) {
-    return { type: "object", properties: {}, additionalProperties: false };
-  }
-
-  const properties: Record<string, JSONSchema> = {};
-
-  for (const [name, schemeOrRef] of Object.entries(securitySchemes)) {
-    if (!schemeOrRef) continue;
-    const resolved = resolveAllRefs(doc, schemeOrRef) as SecuritySchemeObject;
-
-    switch (resolved.type) {
-      case "apiKey":
-        properties[name] = {
-          type: "string",
-          description:
-            resolved.description ?? `${resolved.name} (${resolved.in})`,
+/**
+ * Maps OpenAPI security schemes to host-level auth schemes. Schemes without
+ * a host equivalent (`http` digest, OpenID Connect, oauth2 without a
+ * supported grant flow) return `null` with a reason and are omitted from the
+ * generated declaration. Omitted names + reasons are surfaced in
+ * `adapterDomain.unsupportedSecuritySchemes` so service authors understand
+ * why a previously working secret-based service now has fewer schemes.
+ * Security requirements referencing an omitted scheme fail closed at invoke
+ * time (the adapter never falls back to secrets).
+ *
+ * Extension fields honored (all optional):
+ * - apiKey `x-prefix`: value prefix (e.g. "Bearer")
+ * - http bearer `bearerFormat`: passed through informationally
+ * - oauth2 `x-deviceAuthorizationUrl`: enables `deviceCode` grant
+ * - oauth2 `x-clientAuthMethod`: client_secret_basic|client_secret_post|private_key_jwt|none
+ * - oauth2 `x-additionalTokenParams`: Record<string,string>
+ * - oauth2 `x-tokenPlacement`: { paramName?, prefix? } to override defaults
+ */
+function toAuthSchemeWithReason(
+  resolved: SecuritySchemeObject & Record<string, unknown>,
+): { scheme: AuthScheme | null; reason?: string } {
+  switch (resolved.type) {
+    case "apiKey": {
+      if (
+        resolved.in !== "header" &&
+        resolved.in !== "query" &&
+        resolved.in !== "cookie"
+      ) {
+        return {
+          scheme: null,
+          reason: `unsupported apiKey location '${String(resolved.in)}'`,
         };
-        break;
-      case "http":
-        if (resolved.scheme === "bearer") {
-          properties[name] = {
-            type: "string",
-            description: resolved.description ?? "Bearer token",
-          };
-        } else if (resolved.scheme === "basic") {
-          properties[name] = {
-            type: "object",
-            properties: {
-              username: { type: "string" },
-              password: { type: "string" },
-            },
-            required: ["username", "password"],
-            description:
-              resolved.description ??
-              "Basic auth credentials (username & password)",
-          };
-        } else {
-          properties[name] = {
-            type: "string",
-            description: resolved.description ?? `HTTP ${resolved.scheme} auth`,
-          };
-        }
-        break;
-      case "oauth2":
-        properties[name] = {
-          type: "string",
-          description: resolved.description ?? "OAuth2 access token",
-        };
-        break;
-      case "openIdConnect":
-        properties[name] = {
-          type: "string",
-          description: resolved.description ?? "OpenID Connect token",
-        };
-        break;
+      }
+      const prefix =
+        typeof resolved["x-prefix"] === "string" &&
+        (resolved["x-prefix"] as string).length > 0
+          ? (resolved["x-prefix"] as string)
+          : undefined;
+      return {
+        scheme: {
+          type: "apiKey",
+          in: resolved.in,
+          paramName: resolved.name,
+          ...(prefix !== undefined ? { prefix } : {}),
+        },
+      };
     }
+    case "http": {
+      if (resolved.scheme === "bearer") {
+        const bearerFormat =
+          typeof resolved.bearerFormat === "string" &&
+          resolved.bearerFormat.length > 0
+            ? resolved.bearerFormat
+            : undefined;
+        return {
+          scheme: {
+            type: "http",
+            scheme: "bearer",
+            ...(bearerFormat !== undefined ? { bearerFormat } : {}),
+          },
+        };
+      }
+      if (resolved.scheme === "basic") return { scheme: { type: "basic" } };
+      if (
+        resolved.type === "http" &&
+        (resolved as { scheme?: string }).scheme === "digest"
+      ) {
+        return {
+          scheme: null,
+          reason: "http digest is not supported (bearer/basic only)",
+        };
+      }
+      return {
+        scheme: null,
+        reason: `unsupported http scheme '${String((resolved as { scheme?: unknown }).scheme)}'`,
+      };
+    }
+    case "oauth2": {
+      const flows = (resolved.flows ?? {}) as Record<
+        string,
+        | {
+            authorizationUrl?: string;
+            tokenUrl?: string;
+            scopes?: Record<string, string>;
+          }
+        | undefined
+      >;
+      const grantTypes: OAuth2GrantType[] = [];
+      if (flows.authorizationCode) grantTypes.push("authorizationCode");
+      if (flows.clientCredentials) grantTypes.push("clientCredentials");
+      const deviceAuthorizationUrl =
+        typeof resolved["x-deviceAuthorizationUrl"] === "string"
+          ? (resolved["x-deviceAuthorizationUrl"] as string)
+          : typeof (flows as Record<string, unknown>).deviceCode === "object"
+            ? ((flows as Record<string, { deviceAuthorizationUrl?: string }>)
+                .deviceCode?.deviceAuthorizationUrl as string | undefined)
+            : undefined;
+      if (
+        deviceAuthorizationUrl ||
+        (flows as Record<string, unknown>).deviceCode
+      ) {
+        grantTypes.push("deviceCode");
+      }
+      if (grantTypes.length === 0) {
+        return {
+          scheme: null,
+          reason:
+            "oauth2 has no supported grant flow (need authorizationCode, clientCredentials, or x-deviceAuthorizationUrl for deviceCode)",
+        };
+      }
+      const clientAuthMethodRaw = resolved["x-clientAuthMethod"];
+      const clientAuthMethod =
+        clientAuthMethodRaw === "client_secret_basic" ||
+        clientAuthMethodRaw === "client_secret_post" ||
+        clientAuthMethodRaw === "private_key_jwt" ||
+        clientAuthMethodRaw === "none"
+          ? clientAuthMethodRaw
+          : undefined;
+      const additionalRaw = resolved["x-additionalTokenParams"];
+      const additionalTokenParams =
+        typeof additionalRaw === "object" &&
+        additionalRaw !== null &&
+        !Array.isArray(additionalRaw) &&
+        Object.values(additionalRaw as Record<string, unknown>).every(
+          (v) => typeof v === "string",
+        )
+          ? (additionalRaw as Record<string, string>)
+          : undefined;
+      const placementRaw = resolved["x-tokenPlacement"] as
+        | { paramName?: unknown; prefix?: unknown }
+        | undefined;
+      const tokenPlacement = {
+        in: "header" as const,
+        paramName:
+          typeof placementRaw?.paramName === "string" &&
+          (placementRaw.paramName as string).length > 0
+            ? (placementRaw.paramName as string)
+            : "Authorization",
+        prefix:
+          typeof placementRaw?.prefix === "string"
+            ? (placementRaw.prefix as string)
+            : "Bearer",
+      };
+      return {
+        scheme: {
+          type: "oauth2",
+          grantTypes,
+          authorizationUrl: flows.authorizationCode?.authorizationUrl,
+          ...(deviceAuthorizationUrl !== undefined
+            ? { deviceAuthorizationUrl }
+            : {}),
+          tokenUrl:
+            flows.authorizationCode?.tokenUrl ??
+            flows.clientCredentials?.tokenUrl ??
+            (flows as Record<string, { tokenUrl?: string }>).deviceCode
+              ?.tokenUrl ??
+            "",
+          scopes: {
+            ...(flows.authorizationCode?.scopes ?? {}),
+            ...(flows.clientCredentials?.scopes ?? {}),
+            ...((flows as Record<string, { scopes?: Record<string, string> }>)
+              .deviceCode?.scopes ?? {}),
+          },
+          ...(clientAuthMethod !== undefined ? { clientAuthMethod } : {}),
+          ...(additionalTokenParams !== undefined
+            ? { additionalTokenParams }
+            : {}),
+          tokenPlacement,
+        },
+      };
+    }
+    case "openIdConnect":
+      return {
+        scheme: null,
+        reason:
+          "openIdConnect has no host equivalent (use oauth2 with explicit flows)",
+      };
+    default:
+      return {
+        scheme: null,
+        reason: `unsupported type '${String((resolved as { type?: unknown }).type)}'`,
+      };
   }
-
-  return {
-    type: "object",
-    properties,
-    additionalProperties: false,
-  };
 }
 
-export async function generateDefinition(
+function resolveSecuritySchemes(
+  doc: Doc,
+): Record<string, SecuritySchemeObject | undefined> {
+  const securitySchemes = doc.components?.securitySchemes;
+  if (!securitySchemes || typeof securitySchemes !== "object") return {};
+  const resolved: Record<string, SecuritySchemeObject | undefined> = {};
+  for (const [name, schemeOrRef] of Object.entries(securitySchemes)) {
+    if (!schemeOrRef) continue;
+    resolved[name] = resolveAllRefs(doc, schemeOrRef) as SecuritySchemeObject;
+  }
+  return resolved;
+}
+
+function buildAuthSchemes(
+  resolvedSchemes: Record<string, SecuritySchemeObject | undefined>,
+): { schemes: Record<string, AuthScheme>; omitted: Record<string, string> } {
+  const schemes: Record<string, AuthScheme> = {};
+  const omitted: Record<string, string> = {};
+  for (const [name, resolved] of Object.entries(resolvedSchemes)) {
+    if (!resolved) continue;
+    const { scheme, reason } = toAuthSchemeWithReason(
+      resolved as SecuritySchemeObject & Record<string, unknown>,
+    );
+    if (scheme) {
+      schemes[name] = scheme;
+    } else {
+      omitted[name] = reason ?? "unsupported";
+    }
+  }
+  return { schemes, omitted };
+}
+
+/**
+ * Converts an OpenAPI security clause to host security requirements: one
+ * entry per OR-branch, each `schemeName → scopes`. Scope arrays only apply
+ * to OAuth2 schemes; per the SDK contract non-OAuth schemes MUST have empty
+ * scope arrays, so any source scopes on them are stripped.
+ */
+function toSecurityRequirements(
+  security: Array<Record<string, string[]>>,
+  resolvedSchemes: Record<string, SecuritySchemeObject | undefined>,
+): SecurityRequirements {
+  return (security ?? []).map((requirement) => {
+    const out: Record<string, readonly string[]> = {};
+    for (const [name, scopes] of Object.entries(requirement ?? {})) {
+      const isOAuth2 = resolvedSchemes[name]?.type === "oauth2";
+      out[name] = isOAuth2 && Array.isArray(scopes) ? scopes : [];
+    }
+    return out;
+  });
+}
+
+export async function generateService(
   input: string,
 ): Promise<ServiceDefinition> {
   const { doc, openapi } = parseDocument(input);
 
+  const resolvedSchemes = resolveSecuritySchemes(doc);
   const tools: ToolDefinition[] = [];
 
   for (const [path, pathItem] of Object.entries(doc.paths ?? {})) {
@@ -419,19 +589,21 @@ export async function generateDefinition(
       const outputSchema = buildOutputSchema(doc, operation);
 
       const operationSecurity = operation.security ?? doc.security ?? [];
-      tools.push({
+      const tool: ToolDefinition = {
         id,
         name,
         summary,
         description,
         inputSchema,
         outputSchema,
+        security: toSecurityRequirements(operationSecurity, resolvedSchemes),
         adapterDomain: {
           path,
           method,
           security: operationSecurity,
         },
-      });
+      };
+      tools.push(tool);
     }
   }
 
@@ -447,13 +619,25 @@ export async function generateDefinition(
     ) as Record<string, unknown>;
   }
 
-  return {
+  const { schemes, omitted } = buildAuthSchemes(resolvedSchemes);
+  if (Object.keys(omitted).length > 0) {
+    adapterDomain.unsupportedSecuritySchemes = omitted;
+  }
+
+  const definition: ServiceDefinition = {
     name: doc.info.title,
     summary: doc.info.summary ?? "",
     description: doc.info.description ?? "",
     tools,
     configSchema: buildConfigSchema(doc),
-    secretsSchema: buildSecretsSchema(doc),
+    secretsSchema: {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    },
+    schemes,
+    security: toSecurityRequirements(doc.security ?? [], resolvedSchemes),
     adapterDomain,
   };
+  return definition;
 }

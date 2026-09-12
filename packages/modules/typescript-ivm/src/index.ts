@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import { Worker } from "node:worker_threads";
 import type {
+  ConfigProvider,
   EnvironmentBindings,
   EnvironmentModule,
   EnvironmentSetupContext,
@@ -51,8 +52,7 @@ const BINDINGS_DEFAULTS: BindingsConfig = {
   fullConsole: false,
 };
 
-function parseBindingsConfig(config: Record<string, unknown>): BindingsConfig {
-  const raw = config.bindings;
+function parseBindingsConfig(raw: unknown): BindingsConfig {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
     return { ...BINDINGS_DEFAULTS };
   }
@@ -218,14 +218,14 @@ type Interrupt = {
 };
 
 type ExecutionJob = {
-  input: ExecutionInput;
+  input: ExecutionInput<IvmRuntimeConfig>;
   code: string;
   queuedAt: number;
   resolve: (state: ExecutionExitState) => void;
 };
 
 type RunningExecution = {
-  eid: number;
+  executionId: number;
   interrupt: Interrupt;
   timeoutHandle: ReturnType<typeof setTimeout> | null;
   effectiveTimeoutMs?: number;
@@ -600,6 +600,98 @@ function errorMessage(err: unknown): string {
   }
 }
 
+interface IvmConfig {
+  poolSize?: number;
+  maxQueueSize?: number;
+  queueTtlMs?: number;
+  maxCodeSizeBytes?: number;
+  memoryLimitMb?: number;
+  redactionPatterns?: string[];
+  bindings?: Record<string, boolean>;
+  timeoutMs?: number;
+}
+
+interface IvmRuntimeConfig {
+  timeoutMs?: number;
+  memoryLimitMb?: number;
+}
+
+function isProviderKeyNotConfigured(err: unknown): boolean {
+  return err instanceof Error && err.name === "ProviderKeyNotConfigured";
+}
+
+/**
+ * Reads the environment's declared config through the scope-bound
+ * {@link ConfigProvider}. All keys are optional with defaults; a declared but
+ * unset key throws `ProviderKeyNotConfigured` (the provider never returns
+ * `undefined`), which is treated here as "use the default".
+ */
+async function readIvmConfig(provider: ConfigProvider<IvmConfig>): Promise<{
+  bindings: BindingsConfig;
+  poolSize: number;
+  defaultTimeoutMs: number;
+  memoryLimitMb: number;
+  maxQueueSize: number;
+  queueTtlMs: number;
+  maxCodeSizeBytes: number;
+  redactionPatterns: string[];
+}> {
+  const loose = provider as ConfigProvider<Record<string, unknown>>;
+  const read = async (key: string): Promise<unknown> => {
+    try {
+      return await loose.get(key);
+    } catch (err) {
+      if (isProviderKeyNotConfigured(err)) return undefined;
+      throw err;
+    }
+  };
+
+  const integerOrDefault = (
+    value: unknown,
+    fallback: number,
+    minimum: number,
+  ): number =>
+    typeof value === "number" && Number.isInteger(value) && value >= minimum
+      ? value
+      : fallback;
+
+  const rawPatterns = (await read("redactionPatterns")) as unknown;
+  const redactionPatterns = Array.isArray(rawPatterns)
+    ? rawPatterns.filter((item): item is string => typeof item === "string")
+    : [];
+
+  return {
+    bindings: parseBindingsConfig(await read("bindings")),
+    poolSize: integerOrDefault(await read("poolSize"), DEFAULT_POOL_SIZE, 1),
+    defaultTimeoutMs: integerOrDefault(
+      await read("timeoutMs"),
+      DEFAULT_TIMEOUT_MS,
+      1,
+    ),
+    memoryLimitMb: integerOrDefault(
+      await read("memoryLimitMb"),
+      DEFAULT_MEMORY_LIMIT_MB,
+      16,
+    ),
+    maxQueueSize: integerOrDefault(
+      await read("maxQueueSize"),
+      DEFAULT_MAX_QUEUE_SIZE,
+      1,
+    ),
+    queueTtlMs: integerOrDefault(
+      await read("queueTtlMs"),
+      DEFAULT_QUEUE_TTL_MS,
+      1,
+    ),
+    maxCodeSizeBytes: integerOrDefault(
+      await read("maxCodeSizeBytes"),
+      DEFAULT_MAX_CODE_SIZE,
+      1024,
+    ),
+    redactionPatterns,
+  };
+}
+
 class TypescriptIvmEnvironment implements EnvironmentModule {
   private bindings: EnvironmentBindings | null = null;
   private logger: EnvironmentSetupContext["logger"] | null = null;
@@ -607,7 +699,7 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
   private queue: BoundedQueue<ExecutionJob> = new BoundedQueue(
     DEFAULT_MAX_QUEUE_SIZE,
   );
-  private runningByEid = new Map<number, WorkerSlot>();
+  private runningByExecutionId = new Map<number, WorkerSlot>();
   private pumping = false;
   private shuttingDown = false;
   private isolatePreludeJs: string | null = null;
@@ -618,71 +710,33 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
   private maxQueueSize: number = DEFAULT_MAX_QUEUE_SIZE;
   private queueTtlMs: number = DEFAULT_QUEUE_TTL_MS;
   private maxCodeSizeBytes: number = DEFAULT_MAX_CODE_SIZE;
-  private suspendedEids = new Set<number>();
+  private suspendedExecutionIds = new Set<number>();
   private suspendTimeouts = new Map<
     number,
     { remainingMs: number; effectiveTimeoutMs: number }
   >();
 
-  async setup(context: EnvironmentSetupContext): Promise<void> {
+  async setup(context: EnvironmentSetupContext<IvmConfig, {}>): Promise<void> {
     this.bindings = context.bindings;
-    const patterns =
-      (context.config.redactionPatterns as string[] | undefined) ?? [];
-    this.logger = context.logger?.redact(patterns).child({
-      phase: "environment-setup",
-    });
+    const config = await readIvmConfig(context.config);
+    this.logger = context.logger
+      ?.redact(config.redactionPatterns)
+      .child({ phase: "environment-setup" });
     this.shuttingDown = false;
-    this.bindingsConfig = parseBindingsConfig(context.config);
+    this.bindingsConfig = config.bindings;
     this.isolatePreludeJs = await this.loadIsolatePreludeJs(
       this.bindingsConfig,
     );
-
-    this.defaultTimeoutMs =
-      typeof context.config.timeoutMs === "number" &&
-      Number.isInteger(context.config.timeoutMs) &&
-      context.config.timeoutMs >= 1
-        ? context.config.timeoutMs
-        : DEFAULT_TIMEOUT_MS;
-
-    this.memoryLimitMb =
-      typeof context.config.memoryLimitMb === "number" &&
-      Number.isInteger(context.config.memoryLimitMb) &&
-      context.config.memoryLimitMb >= 16
-        ? context.config.memoryLimitMb
-        : DEFAULT_MEMORY_LIMIT_MB;
-
-    this.maxQueueSize =
-      typeof context.config.maxQueueSize === "number" &&
-      Number.isInteger(context.config.maxQueueSize) &&
-      context.config.maxQueueSize >= 1
-        ? context.config.maxQueueSize
-        : DEFAULT_MAX_QUEUE_SIZE;
-
-    this.queueTtlMs =
-      typeof context.config.queueTtlMs === "number" &&
-      Number.isInteger(context.config.queueTtlMs) &&
-      context.config.queueTtlMs >= 1
-        ? context.config.queueTtlMs
-        : DEFAULT_QUEUE_TTL_MS;
-
-    this.maxCodeSizeBytes =
-      typeof context.config.maxCodeSizeBytes === "number" &&
-      Number.isInteger(context.config.maxCodeSizeBytes) &&
-      context.config.maxCodeSizeBytes >= 1024
-        ? context.config.maxCodeSizeBytes
-        : DEFAULT_MAX_CODE_SIZE;
+    this.defaultTimeoutMs = config.defaultTimeoutMs;
+    this.memoryLimitMb = config.memoryLimitMb;
+    this.maxQueueSize = config.maxQueueSize;
+    this.queueTtlMs = config.queueTtlMs;
+    this.maxCodeSizeBytes = config.maxCodeSizeBytes;
 
     this.queue = new BoundedQueue(this.maxQueueSize);
 
     if (this.workers.length === 0) {
-      const poolSize =
-        typeof context.config.poolSize === "number" &&
-        Number.isInteger(context.config.poolSize) &&
-        context.config.poolSize >= 1
-          ? context.config.poolSize
-          : DEFAULT_POOL_SIZE;
-
-      this.workers = Array.from({ length: poolSize }, () =>
+      this.workers = Array.from({ length: config.poolSize }, () =>
         this.createWorkerSlot(),
       );
     }
@@ -701,7 +755,7 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
       job.resolve("canceled");
     }
 
-    const runningWorkers = Array.from(this.runningByEid.values());
+    const runningWorkers = Array.from(this.runningByExecutionId.values());
     await Promise.all(
       runningWorkers.map(async (worker) => {
         worker.running?.interrupt.resolve("canceled");
@@ -716,7 +770,7 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
     }
 
     this.workers = [];
-    this.runningByEid.clear();
+    this.runningByExecutionId.clear();
     this.queue = new BoundedQueue(DEFAULT_MAX_QUEUE_SIZE);
     this.bindings = null;
     this.logger?.info(
@@ -725,7 +779,9 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
     );
   }
 
-  async execute(input: ExecutionInput): Promise<ExecutionExitState> {
+  async execute(
+    input: ExecutionInput<IvmRuntimeConfig>,
+  ): Promise<ExecutionExitState> {
     if (!this.bindings) {
       throw new Error("Environment module is not setup");
     }
@@ -734,12 +790,12 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
       return "canceled";
     }
 
-    if (this.runningByEid.has(input.eid)) {
-      throw new Error(`execution ${input.eid} is already running`);
+    if (this.runningByExecutionId.has(input.executionId)) {
+      throw new Error(`execution ${input.executionId} is already running`);
     }
 
-    if (this.queue.find((job) => job.input.eid === input.eid)) {
-      throw new Error(`execution ${input.eid} is already queued`);
+    if (this.queue.find((job) => job.input.executionId === input.executionId)) {
+      throw new Error(`execution ${input.executionId} is already queued`);
     }
 
     if (this.queue.isFull) {
@@ -751,7 +807,7 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
     const codeSizeBytes = Buffer.byteLength(input.code, "utf8");
     if (codeSizeBytes > this.maxCodeSizeBytes) {
       this.bindings.setError(
-        input.eid,
+        input.executionId,
         `Code exceeds maximum size (${codeSizeBytes} > ${this.maxCodeSizeBytes} bytes).`,
       );
       return "failed";
@@ -762,11 +818,11 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
     try {
       code = await transpileTypeScript(input.code);
     } catch (err) {
-      this.bindings.setError(input.eid, errorMessage(err));
+      this.bindings.setError(input.executionId, errorMessage(err));
       return "failed";
     }
 
-    this.bindings.setState(input.eid, "queued");
+    this.bindings.setState(input.executionId, "queued");
 
     return new Promise<ExecutionExitState>((resolve) => {
       this.queue.enqueue({ input, code, queuedAt: Date.now(), resolve });
@@ -782,25 +838,25 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
     return renderToolDocs(input);
   }
 
-  async kill(eid: number): Promise<void> {
-    const job = this.queue.remove((j) => j.input.eid === eid);
+  async kill(executionId: number): Promise<void> {
+    const job = this.queue.remove((j) => j.input.executionId === executionId);
 
     if (job) {
       job.resolve("canceled");
       return;
     }
 
-    const worker = this.runningByEid.get(eid);
+    const worker = this.runningByExecutionId.get(executionId);
     if (!worker?.running) return;
 
     worker.running.interrupt.resolve("canceled");
     await this.terminateExecution(worker);
   }
 
-  async suspend(eid: number): Promise<void> {
-    const worker = this.runningByEid.get(eid);
+  async suspend(executionId: number): Promise<void> {
+    const worker = this.runningByExecutionId.get(executionId);
     if (!worker?.running) return;
-    if (this.suspendedEids.has(eid)) return;
+    if (this.suspendedExecutionIds.has(executionId)) return;
     if (worker.running.timeoutHandle) {
       clearTimeout(worker.running.timeoutHandle);
       const elapsed = Date.now() - (worker.running.startTime ?? Date.now());
@@ -808,27 +864,26 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
         0,
         (worker.running.effectiveTimeoutMs ?? this.defaultTimeoutMs) - elapsed,
       );
-      this.suspendTimeouts.set(eid, {
+      this.suspendTimeouts.set(executionId, {
         remainingMs: remaining,
         effectiveTimeoutMs:
           worker.running.effectiveTimeoutMs ?? this.defaultTimeoutMs,
       });
       worker.running.timeoutHandle = null;
     }
-    this.suspendedEids.add(eid);
+    this.suspendedExecutionIds.add(executionId);
   }
 
-  async resume(eid: number, remainingMs?: number): Promise<void> {
-    const worker = this.runningByEid.get(eid);
+  async resume(executionId: number): Promise<void> {
+    const worker = this.runningByExecutionId.get(executionId);
     if (!worker?.running) return;
-    if (!this.suspendedEids.has(eid)) return;
-    this.suspendedEids.delete(eid);
+    if (!this.suspendedExecutionIds.has(executionId)) return;
+    this.suspendedExecutionIds.delete(executionId);
     if (worker.running.timeoutHandle)
       clearTimeout(worker.running.timeoutHandle);
-    const suspendInfo = this.suspendTimeouts.get(eid);
-    const timeoutMs =
-      remainingMs ?? suspendInfo?.remainingMs ?? this.defaultTimeoutMs;
-    this.suspendTimeouts.delete(eid);
+    const suspendInfo = this.suspendTimeouts.get(executionId);
+    const timeoutMs = suspendInfo?.remainingMs ?? this.defaultTimeoutMs;
+    this.suspendTimeouts.delete(executionId);
     worker.running.startTime = Date.now();
     worker.running.effectiveTimeoutMs = timeoutMs;
     worker.running.timeoutHandle = setTimeout(() => {
@@ -876,11 +931,11 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
     let result: ExecutionExitState;
     const interrupt = createInterrupt();
     const executionLogger = this.logger?.child({
-      executionId: job.input.eid,
+      executionId: job.input.executionId,
       phase: "execution",
     });
     const running: RunningExecution = {
-      eid: job.input.eid,
+      executionId: job.input.executionId,
       interrupt,
       timeoutHandle: null,
       effectiveTimeoutMs: undefined,
@@ -888,27 +943,25 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
     };
 
     worker.running = running;
-    this.runningByEid.set(job.input.eid, worker);
+    this.runningByExecutionId.set(job.input.executionId, worker);
 
     let _isolateOverridden = false;
 
     try {
-      this.bindings?.setState(job.input.eid, "running");
+      this.bindings?.setState(job.input.executionId, "running");
       executionLogger?.info(
         { event: "execution-started" },
         "Starting environment execution",
       );
 
-      const rawTimeoutMs = job.input.envConfig?.timeoutMs as number | undefined;
+      const rawTimeoutMs = job.input.envConfig?.timeoutMs;
       const effectiveTimeoutMs: number =
         typeof rawTimeoutMs === "number" &&
         Number.isInteger(rawTimeoutMs) &&
         rawTimeoutMs >= 1
           ? rawTimeoutMs
           : this.defaultTimeoutMs;
-      const rawMemoryLimitMb = job.input.envConfig?.memoryLimitMb as
-        | number
-        | undefined;
+      const rawMemoryLimitMb = job.input.envConfig?.memoryLimitMb;
       const effectiveMemoryLimitMb: number =
         typeof rawMemoryLimitMb === "number" &&
         Number.isInteger(rawMemoryLimitMb) &&
@@ -931,7 +984,7 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
       )
         .then(() => "success" as const)
         .catch((err) => {
-          this.bindings?.setError(job.input.eid, errorMessage(err));
+          this.bindings?.setError(job.input.executionId, errorMessage(err));
           return "failed" as const;
         });
 
@@ -964,7 +1017,9 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
 
     worker.running = null;
     worker.busy = false;
-    this.runningByEid.delete(job.input.eid);
+    this.runningByExecutionId.delete(job.input.executionId);
+    this.suspendedExecutionIds.delete(job.input.executionId);
+    this.suspendTimeouts.delete(job.input.executionId);
     executionLogger?.info(
       { event: "execution-complete", exitState: result },
       "Environment execution complete",
@@ -988,7 +1043,7 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
 
     await jail.set("globalThis", jail.derefInto());
 
-    const eid = job.input.eid;
+    const executionId = job.input.executionId;
     const bindings = this.bindings;
     const config = this.bindingsConfig;
 
@@ -997,19 +1052,22 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
 
     try {
       const refStdout = new ivm.Reference((data: string) => {
-        void bindings.emitStdout(eid, Buffer.from(data, "utf8"));
+        void bindings.emitStdout(executionId, Buffer.from(data, "utf8"));
       });
       refs.push(refStdout);
       await jail.set("__cyrnel_emitStdout", refStdout);
 
       const refStderr = new ivm.Reference((data: string) => {
-        void bindings.emitStderr(eid, Buffer.from(data, "utf8"));
+        void bindings.emitStderr(executionId, Buffer.from(data, "utf8"));
       });
       refs.push(refStderr);
       await jail.set("__cyrnel_emitStderr", refStderr);
 
       const refOutput = new ivm.Reference((data: string) => {
-        bindings.emitOutput(eid, JSON.parse(data) as Record<string, unknown>);
+        bindings.emitOutput(
+          executionId,
+          JSON.parse(data) as Record<string, unknown>,
+        );
       });
       refs.push(refOutput);
       await jail.set("__cyrnel_emitOutput", refOutput);
@@ -1034,14 +1092,7 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
           "Dispatching tool invocation",
         );
         try {
-          const enriched = {
-            ...input,
-            eid: job.input.eid,
-            ...(job.input.processId !== undefined && {
-              processId: job.input.processId,
-            }),
-          } as InvokeInput & { processId?: number; eid: number };
-          const result = await bindings.invokeTool(enriched);
+          const result = await bindings.invokeTool(input);
           dispatchLogger?.info(
             { event: "dispatch-complete" },
             "Tool invocation complete",
@@ -1215,10 +1266,10 @@ class TypescriptIvmEnvironment implements EnvironmentModule {
   }
 
   private async terminateExecution(worker: WorkerSlot): Promise<void> {
-    const eid = worker.running?.eid;
-    if (eid !== undefined) {
-      this.suspendedEids.delete(eid);
-      this.suspendTimeouts.delete(eid);
+    const executionId = worker.running?.executionId;
+    if (executionId !== undefined) {
+      this.suspendedExecutionIds.delete(executionId);
+      this.suspendTimeouts.delete(executionId);
     }
 
     try {
@@ -1239,6 +1290,12 @@ export default {
       queueTtlMs: { type: "integer", minimum: 1 },
       maxCodeSizeBytes: { type: "integer", minimum: 1024 },
       memoryLimitMb: { type: "integer", minimum: 16 },
+      timeoutMs: {
+        type: "integer",
+        minimum: 1,
+        description:
+          "Default sandbox execution timeout in milliseconds (default 30000).",
+      },
       redactionPatterns: {
         type: "array",
         items: { type: "string" },
@@ -1286,6 +1343,27 @@ export default {
     },
     additionalProperties: false,
   },
-  secretsSchema: { type: "null" },
+  secretsSchema: {
+    type: "object",
+    properties: {},
+    additionalProperties: false,
+  },
+  executionConfigSchema: {
+    type: "object",
+    properties: {
+      timeoutMs: {
+        type: "integer",
+        minimum: 1,
+        description:
+          "Sandbox execution timeout in milliseconds (default 30000).",
+      },
+      memoryLimitMb: {
+        type: "integer",
+        minimum: 16,
+        description: "Per-execution memory limit in megabytes (default 128).",
+      },
+    },
+    additionalProperties: false,
+  },
   instantiate: () => new TypescriptIvmEnvironment(),
 };

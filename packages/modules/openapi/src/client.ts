@@ -1,12 +1,38 @@
 import http from "node:http";
 import https from "node:https";
+import type {
+  AuthScheme,
+  ConfigProvider,
+  CredentialProvider,
+  ResolvedCredential,
+  SecurityRequirements,
+} from "@cyrnel/sdk";
 
 export interface RequestResult {
   status: string;
   body?: unknown;
 }
 
-export function resolveServerUrl(
+/**
+ * Reads an optional configuration key through the scope-bound provider.
+ * Declared-but-unset keys throw `ProviderKeyNotConfigured` (the provider never
+ * returns `undefined`), which is treated here as "not configured".
+ */
+export async function readOptionalConfig(
+  provider: ConfigProvider<Record<string, unknown>>,
+  key: string,
+): Promise<unknown> {
+  try {
+    return await provider.get(key);
+  } catch (err) {
+    if (err instanceof Error && err.name === "ProviderKeyNotConfigured") {
+      return undefined;
+    }
+    throw err;
+  }
+}
+
+export async function resolveServerUrl(
   servers: Array<{
     url: string;
     variables?: Record<
@@ -14,10 +40,11 @@ export function resolveServerUrl(
       { default: string; enum?: string[]; description?: string }
     >;
   }>,
-  config: Record<string, unknown>,
-): string {
-  if (config.serverUrl && typeof config.serverUrl === "string") {
-    return config.serverUrl;
+  config: ConfigProvider<Record<string, unknown>>,
+): Promise<string> {
+  const serverUrl = await readOptionalConfig(config, "serverUrl");
+  if (typeof serverUrl === "string" && serverUrl.length > 0) {
+    return serverUrl;
   }
 
   const server = servers?.[0];
@@ -27,7 +54,10 @@ export function resolveServerUrl(
   if (server.variables) {
     for (const [name, variable] of Object.entries(server.variables)) {
       const configKey = `serverVar_${name}`;
-      const value = (config[configKey] as string) ?? variable.default;
+      const configured = await readOptionalConfig(config, configKey);
+      const value =
+        (typeof configured === "string" ? configured : undefined) ??
+        variable.default;
       url = url.replace(`{${name}}`, encodeURIComponent(value));
     }
   }
@@ -74,49 +104,151 @@ export function buildQueryString(
   return `?${params.toString()}`;
 }
 
-export function buildAuthHeaders(
-  secrets: Record<string, unknown>,
-  securitySchemes: Record<string, unknown> | undefined,
-  security?: Array<Record<string, string[]>>,
-): Record<string, string> {
-  const headers: Record<string, string> = {};
+export interface AuthPlacements {
+  headers: Record<string, string>;
+  query: Record<string, string>;
+  cookies: Record<string, string>;
+}
 
-  if (!security?.length || !securitySchemes) return headers;
+function assertOAuthScopes(
+  schemeName: string,
+  credential: ResolvedCredential,
+  required: readonly string[],
+): void {
+  if (credential.type !== "oauth2") {
+    throw new Error(
+      `Credential for scheme '${schemeName}' resolved to '${credential.type}' credentials, expected an OAuth2 token.`,
+    );
+  }
+  const granted = new Set(credential.scopes ?? []);
+  const missing = required.filter((scope) => !granted.has(scope));
+  if (missing.length > 0) {
+    throw new Error(
+      `Credential for scheme '${schemeName}' lacks required scopes: ${missing.join(", ")}.`,
+    );
+  }
+}
 
-  for (const requirement of security) {
-    for (const [schemeName] of Object.entries(requirement)) {
-      const scheme = securitySchemes[schemeName] as
-        | {
-            type: string;
-            in?: string;
-            name?: string;
-            scheme?: string;
-          }
-        | undefined;
-      if (!scheme) continue;
-
-      const secretValue = secrets[schemeName];
-      if (secretValue === undefined || secretValue === null) continue;
-
-      if (scheme.type === "apiKey" && scheme.in === "header") {
-        headers[scheme.name ?? schemeName] = String(secretValue);
-      } else if (scheme.type === "http" && scheme.scheme === "bearer") {
-        headers.Authorization = `Bearer ${String(secretValue)}`;
-      } else if (scheme.type === "http" && scheme.scheme === "basic") {
-        const creds = secretValue as Record<string, string>;
-        const encoded = Buffer.from(
-          `${creds.username ?? ""}:${creds.password ?? ""}`,
-        ).toString("base64");
-        headers.Authorization = `Basic ${encoded}`;
-      } else if (scheme.type === "oauth2" || scheme.type === "openIdConnect") {
-        headers.Authorization = `Bearer ${String(secretValue)}`;
+function applyCredential(
+  schemeName: string,
+  scheme: AuthScheme,
+  credential: ResolvedCredential,
+  placements: AuthPlacements,
+): void {
+  switch (scheme.type) {
+    case "apiKey":
+      if (credential.type !== "apiKey") {
+        throw new Error(
+          `Credential for scheme '${schemeName}' resolved to '${credential.type}' credentials, expected an API key.`,
+        );
       }
-    }
+      {
+        const value =
+          scheme.prefix !== undefined && scheme.prefix.length > 0
+            ? `${scheme.prefix} ${credential.value}`
+            : credential.value;
+        if (scheme.in === "header") {
+          placements.headers[scheme.paramName] = value;
+        } else if (scheme.in === "query") {
+          placements.query[scheme.paramName] = value;
+        } else {
+          placements.cookies[scheme.paramName] = value;
+        }
+      }
+      return;
+    case "basic":
+      if (credential.type !== "basic") {
+        throw new Error(
+          `Credential for scheme '${schemeName}' resolved to '${credential.type}' credentials, expected a username and password.`,
+        );
+      }
+      placements.headers.Authorization = `Basic ${Buffer.from(
+        `${credential.username}:${credential.password}`,
+      ).toString("base64")}`;
+      return;
+    case "http":
+      if (scheme.scheme !== "bearer") {
+        throw new Error(
+          `Auth scheme '${schemeName}' uses unsupported HTTP auth scheme '${scheme.scheme}'.`,
+        );
+      }
+      if (credential.type !== "bearer") {
+        throw new Error(
+          `Credential for scheme '${schemeName}' resolved to '${credential.type}' credentials, expected a bearer token.`,
+        );
+      }
+      placements.headers.Authorization = `Bearer ${credential.token}`;
+      return;
+    case "oauth2":
+      if (credential.type !== "oauth2") {
+        throw new Error(
+          `Credential for scheme '${schemeName}' resolved to '${credential.type}' credentials, expected an OAuth2 token.`,
+        );
+      }
+      {
+        const prefix = scheme.tokenPlacement.prefix;
+        placements.headers[scheme.tokenPlacement.paramName] =
+          prefix !== undefined && prefix.length > 0
+            ? `${prefix} ${credential.accessToken}`
+            : credential.accessToken;
+      }
+      return;
+  }
+}
 
-    if (Object.keys(headers).length > 0) break;
+/**
+ * Resolves auth placements for a tool invocation through the host
+ * CredentialProvider. Security requirement groups are tried in order (OR);
+ * every scheme in a group must resolve (AND). The FIRST satisfiable group in
+ * declaration order is selected (deterministic). Fails closed: when no group
+ * can be satisfied the last resolution error is thrown — there is no fallback
+ * to secrets or any other credential source.
+ *
+ * OAuth2 scope enforcement: when a requirement lists scopes for an oauth2
+ * scheme, the resolved credential must grant every required scope, otherwise
+ * the group is unsatisfiable and the next group is tried.
+ */
+export async function resolveAuthPlacements(
+  authSchemes: Readonly<Record<string, AuthScheme>>,
+  security: SecurityRequirements | undefined,
+  provider: CredentialProvider,
+): Promise<AuthPlacements> {
+  if (!security || security.length === 0) {
+    return { headers: {}, query: {}, cookies: {} };
   }
 
-  return headers;
+  let lastError: unknown = null;
+  for (const requirement of security) {
+    const placements: AuthPlacements = { headers: {}, query: {}, cookies: {} };
+    try {
+      for (const [schemeName, requiredScopes] of Object.entries(requirement)) {
+        const scheme = authSchemes[schemeName];
+        if (scheme === undefined) {
+          throw new Error(
+            `No auth scheme '${schemeName}' declared by the service.`,
+          );
+        }
+        const required = Array.isArray(requiredScopes) ? requiredScopes : [];
+        if (required.length > 0 && scheme.type !== "oauth2") {
+          throw new Error(
+            `Scheme '${schemeName}' requires scopes but is '${scheme.type}', which has no scope concept.`,
+          );
+        }
+        const credential = await provider.getCredential(schemeName);
+        if (scheme.type === "oauth2" && required.length > 0) {
+          assertOAuthScopes(schemeName, credential, required);
+        }
+        applyCredential(schemeName, scheme, credential, placements);
+      }
+      return placements;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("No security requirement could be satisfied for this tool.");
 }
 
 export interface RequestOptions {

@@ -1,8 +1,10 @@
 import type {
+  ConfigProvider,
   EnvironmentBindings,
   ExecutionInput,
   ModuleLogBindings,
   ModuleLogger,
+  SecretsProvider,
 } from "@cyrnel/sdk";
 import { describe, expect, it, vi } from "vitest";
 
@@ -27,6 +29,32 @@ const stubLogger: ModuleLogger<ModuleLogBindings> = {
   fatal: () => {},
 };
 
+function createConfigProvider(
+  values: Record<string, unknown> = {},
+): ConfigProvider<any> {
+  return {
+    get: async (key: keyof any) => {
+      const name = String(key);
+      if (!(name in values)) {
+        const err = new Error(`ProviderKeyNotConfigured: ${name}`);
+        err.name = "ProviderKeyNotConfigured";
+        throw err;
+      }
+      return values[name];
+    },
+  };
+}
+
+function createSecretsProvider(): SecretsProvider<any> {
+  return {
+    get: async (_key: keyof any) => {
+      const err = new Error("ProviderKeyNotConfigured");
+      err.name = "ProviderKeyNotConfigured";
+      throw err;
+    },
+  };
+}
+
 describe("bindings integration", () => {
   const createBindings = () => {
     return {
@@ -50,13 +78,14 @@ describe("bindings integration", () => {
 
       await environment.setup({
         bindings,
-        config: {},
-        secrets: {},
+        config: createConfigProvider({}),
+        secrets: createSecretsProvider(),
         logger: stubLogger,
       });
 
       const result = await environment.execute({
-        eid: 1,
+        executionId: 1,
+        processId: 1,
         code: `
           try {
             await cyrnel.services.broken.tools.fail.invoke({});
@@ -82,13 +111,14 @@ describe("bindings integration", () => {
 
       await environment.setup({
         bindings,
-        config: {},
-        secrets: {},
+        config: createConfigProvider({}),
+        secrets: createSecretsProvider(),
         logger: stubLogger,
       });
 
       await environment.execute({
-        eid: 1,
+        executionId: 1,
+        processId: 1,
         code: `
           console.log("Starting process");
           console.error("Warning: This is a test");
@@ -114,13 +144,14 @@ describe("bindings integration", () => {
 
       await environment.setup({
         bindings,
-        config: {},
-        secrets: {},
+        config: createConfigProvider({}),
+        secrets: createSecretsProvider(),
         logger: stubLogger,
       });
 
       await environment.execute({
-        eid: 1,
+        executionId: 1,
+        processId: 1,
         code: `
           const data = {
             name: "Test",
@@ -147,13 +178,14 @@ describe("bindings integration", () => {
 
       await environment.setup({
         bindings,
-        config: {},
-        secrets: {},
+        config: createConfigProvider({}),
+        secrets: createSecretsProvider(),
         logger: stubLogger,
       });
 
       const result = await environment.execute({
-        eid: 1,
+        executionId: 1,
+        processId: 1,
         code: `
           const obj = { name: "test" };
           obj.self = obj;
@@ -173,13 +205,14 @@ describe("bindings integration", () => {
 
       await environment.setup({
         bindings,
-        config: {},
-        secrets: {},
+        config: createConfigProvider({}),
+        secrets: createSecretsProvider(),
         logger: stubLogger,
       });
 
       await environment.execute({
-        eid: 100,
+        executionId: 100,
+        processId: 1,
         code: `
           console.log("Execution 100");
           cyrnel.output({ eid: 100 });
@@ -187,7 +220,8 @@ describe("bindings integration", () => {
       } satisfies ExecutionInput);
 
       await environment.execute({
-        eid: 200,
+        executionId: 200,
+        processId: 1,
         code: `
           console.log("Execution 200");
           cyrnel.output({ eid: 200 });
@@ -224,13 +258,14 @@ describe("bindings integration", () => {
 
       await environment.setup({
         bindings,
-        config: {},
-        secrets: {},
+        config: createConfigProvider({}),
+        secrets: createSecretsProvider(),
         logger: stubLogger,
       });
 
       const result = await environment.execute({
-        eid: 1,
+        executionId: 1,
+        processId: 1,
         code: `
           const result = await cyrnel.services.async.tools.wait.invoke({});
           cyrnel.output(result);
@@ -249,13 +284,14 @@ describe("bindings integration", () => {
 
       await environment.setup({
         bindings,
-        config: {},
-        secrets: {},
+        config: createConfigProvider({}),
+        secrets: createSecretsProvider(),
         logger: stubLogger,
       });
 
       const result = await environment.execute({
-        eid: 1,
+        executionId: 1,
+        processId: 1,
         code: `
           const results = await Promise.all([
             cyrnel.services.test.tools.a.invoke({}),
@@ -279,13 +315,14 @@ describe("bindings integration", () => {
 
       await environment.setup({
         bindings,
-        config: {},
-        secrets: {},
+        config: createConfigProvider({}),
+        secrets: createSecretsProvider(),
         logger: stubLogger,
       });
 
       const result = await environment.execute({
-        eid: 1,
+        executionId: 1,
+        processId: 1,
         code: `
           interface Result {
             value: number;

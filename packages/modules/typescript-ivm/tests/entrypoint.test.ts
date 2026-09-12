@@ -1,8 +1,10 @@
 import type {
+  ConfigProvider,
   EnvironmentBindings,
   ExecutionInput,
   ModuleLogBindings,
   ModuleLogger,
+  SecretsProvider,
 } from "@cyrnel/sdk";
 import { describe, expect, it, vi } from "vitest";
 
@@ -27,6 +29,32 @@ const stubLogger: ModuleLogger<ModuleLogBindings> = {
   fatal: () => {},
 };
 
+function createConfigProvider(
+  values: Record<string, unknown> = {},
+): ConfigProvider<any> {
+  return {
+    get: async (key: keyof any) => {
+      const name = String(key);
+      if (!(name in values)) {
+        const err = new Error(`ProviderKeyNotConfigured: ${name}`);
+        err.name = "ProviderKeyNotConfigured";
+        throw err;
+      }
+      return values[name];
+    },
+  };
+}
+
+function createSecretsProvider(): SecretsProvider<any> {
+  return {
+    get: async (_key: keyof any) => {
+      const err = new Error("ProviderKeyNotConfigured");
+      err.name = "ProviderKeyNotConfigured";
+      throw err;
+    },
+  };
+}
+
 const infiniteCode = "while (true) {}";
 const tick = () => new Promise((resolve) => setTimeout(resolve, 10));
 
@@ -47,13 +75,14 @@ describe("typescript-ivm integration", () => {
 
     await environment.setup({
       bindings,
-      config: {},
-      secrets: {},
+      config: createConfigProvider({}),
+      secrets: createSecretsProvider(),
       logger: stubLogger,
     });
 
     const result = await environment.execute({
-      eid: 100,
+      executionId: 100,
+      processId: 1,
       code: "const value = 1 + 1;",
       envConfig: {
         timeoutMs: 30_000,
@@ -69,13 +98,14 @@ describe("typescript-ivm integration", () => {
 
     await environment.setup({
       bindings,
-      config: {},
-      secrets: {},
+      config: createConfigProvider({}),
+      secrets: createSecretsProvider(),
       logger: stubLogger,
     });
 
     const promise = environment.execute({
-      eid: 101,
+      executionId: 101,
+      processId: 1,
       code: infiniteCode,
       envConfig: {
         timeoutMs: 30_000,

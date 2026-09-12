@@ -1,33 +1,54 @@
 import http, { type Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import type {
+  AuthScheme,
+  ConfigProvider,
+  CredentialProvider,
+  ResolvedCredential,
+} from "@cyrnel/sdk";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import {
-  buildAuthHeaders,
   buildQueryString,
   makeRequest,
+  readOptionalConfig,
+  resolveAuthPlacements,
   resolveServerUrl,
   substitutePathParams,
 } from "./client";
 
+function configWith(
+  values: Record<string, unknown>,
+): ConfigProvider<Record<string, unknown>> {
+  return {
+    get: async (key: string) => {
+      if (key in values) return values[key];
+      const err = new Error(`Key '${String(key)}' is not configured`);
+      err.name = "ProviderKeyNotConfigured";
+      throw err;
+    },
+  };
+}
+
 describe("resolveServerUrl", () => {
-  it("uses serverUrl override from config when present", () => {
-    const result = resolveServerUrl([{ url: "https://api.example.com/v1" }], {
-      serverUrl: "https://custom.example.com",
-    });
+  it("uses serverUrl override from config when present", async () => {
+    const result = await resolveServerUrl(
+      [{ url: "https://api.example.com/v1" }],
+      configWith({ serverUrl: "https://custom.example.com" }),
+    );
     expect(result).toBe("https://custom.example.com");
   });
 
-  it("uses first server url when no override", () => {
-    const result = resolveServerUrl(
+  it("uses first server url when no override", async () => {
+    const result = await resolveServerUrl(
       [{ url: "https://api.example.com/v1" }],
-      {},
+      configWith({}),
     );
     expect(result).toBe("https://api.example.com/v1");
   });
 
-  it("substitutes server variables from config", () => {
-    const result = resolveServerUrl(
+  it("substitutes server variables from config", async () => {
+    const result = await resolveServerUrl(
       [
         {
           url: "https://{environment}.example.com/{version}",
@@ -37,13 +58,13 @@ describe("resolveServerUrl", () => {
           },
         },
       ],
-      { serverVar_environment: "staging", serverVar_version: "v3" },
+      configWith({ serverVar_environment: "staging", serverVar_version: "v3" }),
     );
     expect(result).toBe("https://staging.example.com/v3");
   });
 
-  it("uses defaults for server variables when config is missing", () => {
-    const result = resolveServerUrl(
+  it("uses defaults for server variables when config is missing", async () => {
+    const result = await resolveServerUrl(
       [
         {
           url: "https://{env}.example.com",
@@ -52,18 +73,18 @@ describe("resolveServerUrl", () => {
           },
         },
       ],
-      {},
+      configWith({}),
     );
     expect(result).toBe("https://api.example.com");
   });
 
-  it("returns empty string when servers list is empty", () => {
-    const result = resolveServerUrl([], {});
+  it("returns empty string when servers list is empty", async () => {
+    const result = await resolveServerUrl([], configWith({}));
     expect(result).toBe("");
   });
 
-  it("encodes variable values", () => {
-    const result = resolveServerUrl(
+  it("encodes variable values", async () => {
+    const result = await resolveServerUrl(
       [
         {
           url: "https://{sub}.example.com",
@@ -72,9 +93,31 @@ describe("resolveServerUrl", () => {
           },
         },
       ],
-      {},
+      configWith({}),
     );
     expect(result).toBe("https://my%20api.example.com");
+  });
+
+  it("propagates provider errors for other keys", async () => {
+    await expect(
+      resolveServerUrl([{ url: "https://api.example.com" }], {
+        get: async () => {
+          throw new Error("boom");
+        },
+      }),
+    ).rejects.toThrow("boom");
+  });
+});
+
+describe("readOptionalConfig", () => {
+  it("returns undefined for unset keys", async () => {
+    expect(await readOptionalConfig(configWith({}), "missing")).toBeUndefined();
+  });
+
+  it("returns configured values", async () => {
+    expect(
+      await readOptionalConfig(configWith({ timeoutMs: 5000 }), "timeoutMs"),
+    ).toBe(5000);
   });
 });
 
@@ -142,135 +185,6 @@ describe("buildQueryString", () => {
   it("handles array values (multi-value query params)", () => {
     const result = buildQueryString({ ids: ["1", "2", "3"] });
     expect(result).toBe("?ids=1&ids=2&ids=3");
-  });
-});
-
-describe("buildAuthHeaders", () => {
-  const schemes = {
-    ApiKey: { type: "apiKey", in: "header", name: "X-API-Key" },
-    Bearer: { type: "http", scheme: "bearer" },
-    Basic: { type: "http", scheme: "basic" },
-    OAuth2: { type: "oauth2" },
-  };
-
-  it("returns empty headers when security is not provided", () => {
-    const result = buildAuthHeaders({ ApiKey: "secret" }, schemes);
-    expect(result).toEqual({});
-  });
-
-  it("returns empty headers when security is empty", () => {
-    const result = buildAuthHeaders({ ApiKey: "secret" }, schemes, []);
-    expect(result).toEqual({});
-  });
-
-  it("sets header for apiKey scheme", () => {
-    const result = buildAuthHeaders({ ApiKey: "my-api-key" }, schemes, [
-      { ApiKey: [] },
-    ]);
-    expect(result).toEqual({ "X-API-Key": "my-api-key" });
-  });
-
-  it("sets Authorization Bearer for http bearer scheme", () => {
-    const result = buildAuthHeaders({ Bearer: "my-token" }, schemes, [
-      { Bearer: [] },
-    ]);
-    expect(result).toEqual({ Authorization: "Bearer my-token" });
-  });
-
-  it("sets Authorization Basic for http basic scheme", () => {
-    const result = buildAuthHeaders(
-      { Basic: { username: "admin", password: "pass" } },
-      schemes,
-      [{ Basic: [] }],
-    );
-    expect(result).toEqual({
-      Authorization: `Basic ${Buffer.from("admin:pass").toString("base64")}`,
-    });
-  });
-
-  it("sets Authorization Bearer for oauth2 scheme", () => {
-    const result = buildAuthHeaders({ OAuth2: "oauth-token" }, schemes, [
-      { OAuth2: [] },
-    ]);
-    expect(result).toEqual({ Authorization: "Bearer oauth-token" });
-  });
-
-  it("returns empty headers when secret value is missing", () => {
-    const result = buildAuthHeaders({}, schemes, [{ ApiKey: [] }]);
-    expect(result).toEqual({});
-  });
-
-  it("picks second OR entry when first has no matching secret", () => {
-    const result = buildAuthHeaders({ Bearer: "my-token" }, schemes, [
-      { ApiKey: [] },
-      { Bearer: [] },
-    ]);
-    expect(result).toEqual({ Authorization: "Bearer my-token" });
-  });
-
-  it("uses first matching requirement entry (OR semantics)", () => {
-    const result = buildAuthHeaders(
-      { ApiKey: "key", Bearer: "token" },
-      schemes,
-      [{ ApiKey: [] }, { Bearer: [] }],
-    );
-    expect(result).toEqual({ "X-API-Key": "key" });
-  });
-
-  describe("AND semantics across multiple schemes in one requirement", () => {
-    it("applies all matched schemes in a single requirement entry", () => {
-      const result = buildAuthHeaders(
-        { ApiKey: "my-key", Bearer: "my-token" },
-        schemes,
-        [{ ApiKey: [], Bearer: [] }],
-      );
-      expect(result).toEqual({
-        "X-API-Key": "my-key",
-        Authorization: "Bearer my-token",
-      });
-    });
-
-    it("applies only schemes that have secrets when some are missing", () => {
-      const result = buildAuthHeaders({ Bearer: "my-token" }, schemes, [
-        { ApiKey: [], Bearer: [] },
-      ]);
-      expect(result).toEqual({ Authorization: "Bearer my-token" });
-    });
-
-    it("returns empty headers when no schemes in the entry have secrets", () => {
-      const result = buildAuthHeaders({}, schemes, [
-        { ApiKey: [], Bearer: [] },
-      ]);
-      expect(result).toEqual({});
-    });
-
-    it("stops at first entry that produces headers (OR across entries)", () => {
-      const combined = {
-        ApiKey: "key",
-        Bearer: "token",
-        OAuth2: "oauth-token",
-      };
-      const result = buildAuthHeaders(combined, schemes, [
-        { ApiKey: [], Bearer: [] },
-        { OAuth2: [] },
-      ]);
-      expect(result).toEqual({
-        "X-API-Key": "key",
-        Authorization: "Bearer token",
-      });
-    });
-
-    it("applies apiKey and oauth2 schemes together in same entry", () => {
-      const result = buildAuthHeaders(
-        { ApiKey: "my-key", OAuth2: "my-token" },
-        schemes,
-        [{ ApiKey: [], OAuth2: [] }],
-      );
-      expect(result).toEqual({
-        "X-API-Key": "my-key",
-        Authorization: "Bearer my-token",
-      });
-    });
   });
 });
 
@@ -435,5 +349,186 @@ describe("makeRequest", () => {
     });
 
     expect(seen[0].headers.accept).toBe("application/json");
+  });
+});
+
+describe("resolveAuthPlacements", () => {
+  const schemes: Record<string, AuthScheme> = {
+    headerKey: { type: "apiKey", in: "header", paramName: "X-API-Key" },
+    queryKey: { type: "apiKey", in: "query", paramName: "key" },
+    cookieKey: { type: "apiKey", in: "cookie", paramName: "session" },
+    bearer: { type: "http", scheme: "bearer" },
+    basic: { type: "basic" },
+    oauth: {
+      type: "oauth2",
+      grantTypes: ["authorizationCode"],
+      tokenUrl: "https://example.com/token",
+      scopes: {},
+      tokenPlacement: {
+        in: "header",
+        paramName: "Authorization",
+        prefix: "Bearer",
+      },
+    },
+  };
+
+  function providerFor(
+    credentials: Record<string, ResolvedCredential>,
+  ): CredentialProvider {
+    return {
+      getCredential: async (schemeName: string) => {
+        const credential = credentials[schemeName];
+        if (!credential) throw new Error(`no credential for ${schemeName}`);
+        return credential;
+      },
+    };
+  }
+
+  it("returns empty placements when no security is required", async () => {
+    const provider = providerFor({});
+    expect(await resolveAuthPlacements(schemes, undefined, provider)).toEqual({
+      headers: {},
+      query: {},
+      cookies: {},
+    });
+    expect(await resolveAuthPlacements(schemes, [], provider)).toEqual({
+      headers: {},
+      query: {},
+      cookies: {},
+    });
+  });
+
+  it("places apiKey credentials per scheme location", async () => {
+    const provider = providerFor({
+      headerKey: { type: "apiKey", value: "h" },
+      queryKey: { type: "apiKey", value: "q" },
+      cookieKey: { type: "apiKey", value: "c" },
+    });
+    const result = await resolveAuthPlacements(
+      schemes,
+      [{ headerKey: [], queryKey: [], cookieKey: [] }],
+      provider,
+    );
+    expect(result).toEqual({
+      headers: { "X-API-Key": "h" },
+      query: { key: "q" },
+      cookies: { session: "c" },
+    });
+  });
+
+  it("applies prefixes, basic encoding, and bearer tokens", async () => {
+    const provider = providerFor({
+      bearer: { type: "bearer", token: "tok" },
+      basic: { type: "basic", username: "u", password: "p" },
+      oauth: { type: "oauth2", accessToken: "at", expiresAt: 1 },
+    });
+    const result = await resolveAuthPlacements(
+      schemes,
+      [{ bearer: [], basic: [], oauth: [] }],
+      provider,
+    );
+    expect(result.headers).toEqual({ Authorization: "Bearer at" });
+    expect(
+      await resolveAuthPlacements(schemes, [{ basic: [] }], provider),
+    ).toEqual({
+      headers: {
+        Authorization: `Basic ${Buffer.from("u:p").toString("base64")}`,
+      },
+      query: {},
+      cookies: {},
+    });
+    expect(
+      await resolveAuthPlacements(schemes, [{ bearer: [] }], provider),
+    ).toMatchObject({ headers: { Authorization: "Bearer tok" } });
+  });
+
+  it("falls through to the next satisfiable requirement group", async () => {
+    const provider = providerFor({
+      queryKey: { type: "apiKey", value: "q" },
+    });
+    const result = await resolveAuthPlacements(
+      schemes,
+      [{ headerKey: [] }, { queryKey: [] }],
+      provider,
+    );
+    expect(result).toEqual({ headers: {}, query: { key: "q" }, cookies: {} });
+  });
+
+  it("selects the first satisfiable group deterministically", async () => {
+    const provider = providerFor({
+      headerKey: { type: "apiKey", value: "h" },
+      queryKey: { type: "apiKey", value: "q" },
+    });
+    const result = await resolveAuthPlacements(
+      schemes,
+      [{ headerKey: [] }, { queryKey: [] }],
+      provider,
+    );
+    expect(result).toEqual({
+      headers: { "X-API-Key": "h" },
+      query: {},
+      cookies: {},
+    });
+  });
+
+  it("throws when no requirement group can be satisfied", async () => {
+    const provider = providerFor({});
+    await expect(
+      resolveAuthPlacements(schemes, [{ headerKey: [] }], provider),
+    ).rejects.toThrow("no credential for headerKey");
+  });
+
+  it("throws for undeclared schemes", async () => {
+    const provider = providerFor({});
+    await expect(
+      resolveAuthPlacements(schemes, [{ ghost: [] }], provider),
+    ).rejects.toThrow("No auth scheme 'ghost' declared");
+  });
+
+  it("throws on credential/scheme type mismatch", async () => {
+    const provider = providerFor({
+      headerKey: { type: "basic", username: "u", password: "p" },
+    });
+    await expect(
+      resolveAuthPlacements(schemes, [{ headerKey: [] }], provider),
+    ).rejects.toThrow("expected an API key");
+  });
+
+  it("throws when http bearer gets a non-bearer credential", async () => {
+    const provider = providerFor({
+      bearer: { type: "apiKey", value: "not-a-token" },
+    });
+    await expect(
+      resolveAuthPlacements(schemes, [{ bearer: [] }], provider),
+    ).rejects.toThrow("expected a bearer token");
+  });
+
+  it("enforces oauth2 scopes against the granted credential scopes", async () => {
+    const provider = providerFor({
+      oauth: {
+        type: "oauth2",
+        accessToken: "at",
+        expiresAt: 1,
+        scopes: ["repo:read"],
+      },
+    });
+    await expect(
+      resolveAuthPlacements(schemes, [{ oauth: ["repo:write"] }], provider),
+    ).rejects.toThrow("lacks required scopes");
+    const result = await resolveAuthPlacements(
+      schemes,
+      [{ oauth: ["repo:write"] }, { oauth: ["repo:read"] }],
+      provider,
+    );
+    expect(result.headers).toEqual({ Authorization: "Bearer at" });
+  });
+
+  it("rejects scoped requirements on non-oauth schemes", async () => {
+    const provider = providerFor({
+      headerKey: { type: "apiKey", value: "h" },
+    });
+    await expect(
+      resolveAuthPlacements(schemes, [{ headerKey: ["read"] }], provider),
+    ).rejects.toThrow("no scope concept");
   });
 });

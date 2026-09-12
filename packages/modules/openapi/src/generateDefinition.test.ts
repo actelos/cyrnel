@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { generateDefinition, normalizeIdentifier } from "@/generateDefinition";
+import { generateService, normalizeIdentifier } from "@/generateDefinition";
 
 describe("generateDefinition", () => {
   describe("service metadata", () => {
@@ -11,7 +11,7 @@ describe("generateDefinition", () => {
         paths: {},
       });
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.name).toBe("Pet Store API");
     });
@@ -27,7 +27,7 @@ describe("generateDefinition", () => {
         paths: {},
       });
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.description).toBe("A sample API for pet store operations");
     });
@@ -39,7 +39,7 @@ describe("generateDefinition", () => {
         paths: {},
       });
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.description).toBe("");
     });
@@ -55,7 +55,7 @@ describe("generateDefinition", () => {
         paths: {},
       });
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.summary).toBe("Manage pets in the store");
     });
@@ -71,7 +71,7 @@ describe("generateDefinition", () => {
         paths: {},
       });
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.summary).toBe("");
       expect(result.description).toBe("A sample API for pet store operations");
@@ -89,7 +89,7 @@ describe("generateDefinition", () => {
         paths: {},
       });
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.summary).toBe("Manages pets");
       expect(result.description).toBe("A sample API for pet store operations");
@@ -112,7 +112,7 @@ describe("generateDefinition", () => {
         },
       });
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.tools).toHaveLength(1);
       expect(result.tools[0].id).toBe("listPets");
@@ -132,7 +132,7 @@ describe("generateDefinition", () => {
         },
       });
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.tools[0].id).toBe("gmail_users_messages_list");
     });
@@ -152,7 +152,7 @@ describe("generateDefinition", () => {
         },
       });
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.tools[0].name).toBe("List all pets");
     });
@@ -172,7 +172,7 @@ describe("generateDefinition", () => {
         },
       });
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.tools[0].summary).toBe("List all pets");
     });
@@ -191,7 +191,7 @@ describe("generateDefinition", () => {
         },
       });
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.tools[0].summary).toBe("");
     });
@@ -219,7 +219,7 @@ describe("generateDefinition", () => {
         },
       });
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.tools[0].description).toBe("Pet object to be created");
     });
@@ -240,7 +240,7 @@ describe("generateDefinition", () => {
         },
       });
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.tools[0].description).toBe(
         "Returns a list of all pets in the store",
@@ -279,7 +279,7 @@ describe("generateDefinition", () => {
         },
       });
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.tools).toHaveLength(4);
       expect(result.tools.map((t) => t.id)).toEqual([
@@ -315,7 +315,7 @@ describe("generateDefinition", () => {
         },
       });
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.tools[0].inputSchema).toEqual({
         type: "object",
@@ -359,7 +359,7 @@ describe("generateDefinition", () => {
         },
       });
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.tools[0].inputSchema).toEqual({
         type: "object",
@@ -400,7 +400,7 @@ describe("generateDefinition", () => {
         },
       });
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.tools[0].inputSchema).toEqual({
         type: "object",
@@ -442,7 +442,7 @@ describe("generateDefinition", () => {
         },
       });
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.tools[0].inputSchema).toEqual({
         type: "object",
@@ -491,7 +491,7 @@ describe("generateDefinition", () => {
         },
       });
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.tools[0].inputSchema).toEqual({
         type: "object",
@@ -532,7 +532,7 @@ describe("generateDefinition", () => {
         },
       });
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.tools[0].inputSchema).toEqual({
         type: "object",
@@ -565,7 +565,7 @@ describe("generateDefinition", () => {
         },
       });
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.tools[0].inputSchema).toEqual({
         type: "object",
@@ -612,7 +612,7 @@ describe("generateDefinition", () => {
         },
       });
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.tools[0].inputSchema).toEqual({
         type: "object",
@@ -666,7 +666,7 @@ describe("generateDefinition", () => {
         },
       });
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.tools[0].outputSchema).toEqual({
         type: "object",
@@ -701,7 +701,7 @@ describe("generateDefinition", () => {
         },
       });
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.tools[0].outputSchema).toEqual({
         type: "object",
@@ -749,7 +749,7 @@ describe("generateDefinition", () => {
         },
       });
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.tools[0].outputSchema).toEqual({
         oneOf: [
@@ -803,7 +803,7 @@ describe("generateDefinition", () => {
         },
       });
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.tools[0].outputSchema).toEqual({
         oneOf: [
@@ -844,7 +844,7 @@ describe("generateDefinition", () => {
         },
       });
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.tools[0].outputSchema).toEqual({
         type: "object",
@@ -881,7 +881,7 @@ describe("generateDefinition", () => {
         },
       });
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.tools[0].inputSchema).toEqual({
         type: "object",
@@ -930,7 +930,7 @@ describe("generateDefinition", () => {
         },
       });
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.tools[0].inputSchema).toEqual({
         type: "object",
@@ -987,7 +987,7 @@ describe("generateDefinition", () => {
         },
       });
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.tools[0].inputSchema).toEqual({
         type: "object",
@@ -1044,7 +1044,7 @@ describe("generateDefinition", () => {
         },
       });
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.tools[0].outputSchema).toEqual({
         type: "object",
@@ -1079,7 +1079,7 @@ describe("generateDefinition", () => {
         },
       });
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.tools[0].adapterDomain).toMatchObject({
         path: "/pets/{petId}",
@@ -1102,7 +1102,7 @@ describe("generateDefinition", () => {
         },
       });
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.tools[0].adapterDomain).toMatchObject({
         security: [],
@@ -1125,7 +1125,7 @@ describe("generateDefinition", () => {
         },
       });
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.tools[0].adapterDomain).toMatchObject({
         security: [{ apiKey: [] }],
@@ -1140,7 +1140,7 @@ describe("generateDefinition", () => {
         paths: {},
       });
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.adapterDomain).toMatchObject({
         openapi: "3.0.0",
@@ -1155,7 +1155,7 @@ describe("generateDefinition", () => {
         paths: {},
       });
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.adapterDomain).toMatchObject({
         openapi: "3.0.3",
@@ -1170,7 +1170,7 @@ describe("generateDefinition", () => {
         paths: {},
       });
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.adapterDomain).not.toHaveProperty("securitySchemes");
     });
@@ -1188,7 +1188,7 @@ describe("generateDefinition", () => {
         },
       });
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.adapterDomain).toMatchObject({
         securitySchemes: {
@@ -1207,7 +1207,7 @@ describe("generateDefinition", () => {
         paths: {},
       });
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.adapterDomain).toMatchObject({ openapi: "3.0.3" });
     });
@@ -1219,7 +1219,7 @@ describe("generateDefinition", () => {
         paths: {},
       });
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.adapterDomain).toMatchObject({ openapi: "3.1.0" });
     });
@@ -1231,7 +1231,7 @@ describe("generateDefinition", () => {
         paths: {},
       });
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.adapterDomain).toMatchObject({ openapi: "3.2.0" });
     });
@@ -1243,7 +1243,7 @@ describe("generateDefinition", () => {
         paths: {},
       });
 
-      await expect(generateDefinition(spec)).rejects.toThrow(
+      await expect(generateService(spec)).rejects.toThrow(
         'Unsupported OpenAPI version "2.0". Only 3.x is supported.',
       );
     });
@@ -1254,7 +1254,7 @@ describe("generateDefinition", () => {
         paths: {},
       });
 
-      await expect(generateDefinition(spec)).rejects.toThrow(
+      await expect(generateService(spec)).rejects.toThrow(
         'Missing "openapi" field',
       );
     });
@@ -1266,7 +1266,7 @@ describe("generateDefinition", () => {
         paths: {},
       });
 
-      await expect(generateDefinition(spec)).rejects.toThrow(
+      await expect(generateService(spec)).rejects.toThrow(
         'Unsupported OpenAPI version "4.0.0". Only 3.x is supported.',
       );
     });
@@ -1280,7 +1280,7 @@ describe("generateDefinition", () => {
         paths: {},
       });
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.configSchema).toEqual({
         type: "object",
@@ -1303,7 +1303,7 @@ describe("generateDefinition", () => {
         paths: {},
       });
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.secretsSchema).toEqual({
         type: "object",
@@ -1333,7 +1333,7 @@ describe("generateDefinition", () => {
         paths: {},
       });
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.configSchema).toMatchObject({
         type: "object",
@@ -1353,7 +1353,7 @@ describe("generateDefinition", () => {
       });
     });
 
-    it("generates secretsSchema from securitySchemes", async () => {
+    it("keeps secretsSchema empty when all securitySchemes are supported", async () => {
       const spec = JSON.stringify({
         openapi: "3.0.0",
         info: { title: "API", version: "1.0.0" },
@@ -1366,16 +1366,336 @@ describe("generateDefinition", () => {
         },
       });
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
-      expect(result.secretsSchema).toMatchObject({
+      expect(result.secretsSchema).toEqual({
         type: "object",
-        properties: {
-          ApiKey: { type: "string" },
-          BearerToken: { type: "string" },
-        },
+        properties: {},
         additionalProperties: false,
       });
+    });
+
+    it("omits unsupported http digest scheme from schemes and keeps secretsSchema empty", async () => {
+      const spec = JSON.stringify({
+        openapi: "3.0.0",
+        info: { title: "API", version: "1.0.0" },
+        paths: {},
+        components: {
+          securitySchemes: {
+            DigestAuth: { type: "http", scheme: "digest" },
+          },
+        },
+      });
+
+      const result = await generateService(spec);
+
+      expect(result.secretsSchema).toEqual({
+        type: "object",
+        properties: {},
+        additionalProperties: false,
+      });
+      expect(result.schemes).not.toHaveProperty("DigestAuth");
+    });
+
+    it("omits oauth2 implicit-only flow from schemes and keeps secretsSchema empty", async () => {
+      const spec = JSON.stringify({
+        openapi: "3.0.0",
+        info: { title: "API", version: "1.0.0" },
+        paths: {},
+        components: {
+          securitySchemes: {
+            ImplicitAuth: {
+              type: "oauth2",
+              flows: {
+                implicit: {
+                  authorizationUrl: "https://example.com/authorize",
+                  scopes: { read: "Read access" },
+                },
+              },
+            },
+          },
+        },
+      });
+
+      const result = await generateService(spec);
+
+      expect(result.secretsSchema).toEqual({
+        type: "object",
+        properties: {},
+        additionalProperties: false,
+      });
+      expect(result.schemes).not.toHaveProperty("ImplicitAuth");
+    });
+
+    it("omits oauth2 password-only flow from schemes and keeps secretsSchema empty", async () => {
+      const spec = JSON.stringify({
+        openapi: "3.0.0",
+        info: { title: "API", version: "1.0.0" },
+        paths: {},
+        components: {
+          securitySchemes: {
+            PasswordAuth: {
+              type: "oauth2",
+              flows: {
+                password: {
+                  tokenUrl: "https://example.com/token",
+                  scopes: { admin: "Admin access" },
+                },
+              },
+            },
+          },
+        },
+      });
+
+      const result = await generateService(spec);
+
+      expect(result.secretsSchema).toEqual({
+        type: "object",
+        properties: {},
+        additionalProperties: false,
+      });
+      expect(result.schemes).toEqual({});
+    });
+
+    it("mixes supported and unsupported schemes", async () => {
+      const spec = JSON.stringify({
+        openapi: "3.0.0",
+        info: { title: "API", version: "1.0.0" },
+        paths: {},
+        components: {
+          securitySchemes: {
+            ApiKey: { type: "apiKey", in: "header", name: "X-API-Key" },
+            DigestAuth: { type: "http", scheme: "digest" },
+            BearerToken: { type: "http", scheme: "bearer" },
+          },
+        },
+      });
+
+      const result = await generateService(spec);
+
+      expect(result.schemes).toEqual({
+        ApiKey: { type: "apiKey", in: "header", paramName: "X-API-Key" },
+        BearerToken: { type: "http", scheme: "bearer" },
+      });
+      expect(result.secretsSchema).toEqual({
+        type: "object",
+        properties: {},
+        additionalProperties: false,
+      });
+    });
+
+    it("emits host schemes for every supported scheme kind", async () => {
+      const spec = JSON.stringify({
+        openapi: "3.0.0",
+        info: { title: "API", version: "1.0.0" },
+        paths: {},
+        components: {
+          securitySchemes: {
+            ApiKey: { type: "apiKey", in: "header", name: "X-API-Key" },
+            QueryKey: { type: "apiKey", in: "query", name: "key" },
+            BearerToken: { type: "http", scheme: "bearer" },
+            BasicAuth: { type: "http", scheme: "basic" },
+            DigestAuth: { type: "http", scheme: "digest" },
+            OAuth: {
+              type: "oauth2",
+              flows: {
+                authorizationCode: {
+                  authorizationUrl: "https://example.com/authorize",
+                  tokenUrl: "https://example.com/token",
+                  scopes: { read: "Read access" },
+                },
+                clientCredentials: {
+                  tokenUrl: "https://example.com/token",
+                  scopes: { admin: "Admin access" },
+                },
+              },
+            },
+            OpenId: {
+              type: "openIdConnect",
+              openIdConnectUrl: "https://example.com/.well-known/openid",
+            },
+          },
+        },
+      });
+
+      const result = await generateService(spec);
+
+      expect(result.schemes).toEqual({
+        ApiKey: { type: "apiKey", in: "header", paramName: "X-API-Key" },
+        QueryKey: { type: "apiKey", in: "query", paramName: "key" },
+        BearerToken: { type: "http", scheme: "bearer" },
+        BasicAuth: { type: "basic" },
+        OAuth: {
+          type: "oauth2",
+          grantTypes: ["authorizationCode", "clientCredentials"],
+          authorizationUrl: "https://example.com/authorize",
+          tokenUrl: "https://example.com/token",
+          scopes: { read: "Read access", admin: "Admin access" },
+          tokenPlacement: {
+            in: "header",
+            paramName: "Authorization",
+            prefix: "Bearer",
+          },
+        },
+      });
+      expect(result.schemes).not.toHaveProperty("DigestAuth");
+      expect(result.schemes).not.toHaveProperty("OpenId");
+    });
+
+    it("emits empty schemes when no securitySchemes are defined", async () => {
+      const spec = JSON.stringify({
+        openapi: "3.0.0",
+        info: { title: "API", version: "1.0.0" },
+        paths: {},
+      });
+
+      const result = await generateService(spec);
+
+      expect(result.schemes).toEqual({});
+    });
+
+    it("annotates omitted schemes in adapterDomain", async () => {
+      const spec = JSON.stringify({
+        openapi: "3.0.0",
+        info: { title: "API", version: "1.0.0" },
+        paths: {},
+        components: {
+          securitySchemes: {
+            DigestAuth: { type: "http", scheme: "digest" },
+            OpenId: {
+              type: "openIdConnect",
+              openIdConnectUrl: "https://example.com/.well-known/openid",
+            },
+          },
+        },
+      });
+
+      const result = await generateService(spec);
+
+      expect(result.schemes).toEqual({});
+      expect(result.adapterDomain).toMatchObject({
+        unsupportedSecuritySchemes: {
+          DigestAuth: expect.stringContaining("digest"),
+          OpenId: expect.stringContaining("openIdConnect"),
+        },
+      });
+    });
+
+    it("maps apiKey x-prefix, http bearerFormat, and oauth2 extensions", async () => {
+      const spec = JSON.stringify({
+        openapi: "3.0.0",
+        info: { title: "API", version: "1.0.0" },
+        paths: {},
+        components: {
+          securitySchemes: {
+            ApiKey: {
+              type: "apiKey",
+              in: "header",
+              name: "X-API-Key",
+              "x-prefix": "Bearer",
+            },
+            BearerToken: {
+              type: "http",
+              scheme: "bearer",
+              bearerFormat: "JWT",
+            },
+            OAuth: {
+              type: "oauth2",
+              flows: {
+                clientCredentials: {
+                  tokenUrl: "https://example.com/token",
+                  scopes: { admin: "Admin" },
+                },
+              },
+              "x-deviceAuthorizationUrl": "https://example.com/device",
+              "x-clientAuthMethod": "client_secret_post",
+              "x-additionalTokenParams": { audience: "api" },
+            },
+          },
+        },
+      });
+
+      const result = await generateService(spec);
+
+      expect(result.schemes.ApiKey).toMatchObject({ prefix: "Bearer" });
+      expect(result.schemes.BearerToken).toMatchObject({
+        bearerFormat: "JWT",
+      });
+      expect(result.schemes.OAuth).toMatchObject({
+        grantTypes: expect.arrayContaining(["clientCredentials", "deviceCode"]),
+        deviceAuthorizationUrl: "https://example.com/device",
+        clientAuthMethod: "client_secret_post",
+        additionalTokenParams: { audience: "api" },
+      });
+    });
+
+    it("emits per-tool security requirements and the document default", async () => {
+      const spec = JSON.stringify({
+        openapi: "3.0.0",
+        info: { title: "API", version: "1.0.0" },
+        security: [{ ApiKey: [] }],
+        paths: {
+          "/pets": {
+            get: {
+              operationId: "listPets",
+              security: [{ ApiKey: [] }, { OAuth: ["read"] }],
+              responses: { "200": { description: "OK" } },
+            },
+          },
+          "/health": {
+            get: {
+              operationId: "health",
+              security: [],
+              responses: { "200": { description: "OK" } },
+            },
+          },
+        },
+        components: {
+          securitySchemes: {
+            ApiKey: { type: "apiKey", in: "header", name: "X-API-Key" },
+            OAuth: {
+              type: "oauth2",
+              flows: {
+                authorizationCode: {
+                  authorizationUrl: "https://example.com/authorize",
+                  tokenUrl: "https://example.com/token",
+                  scopes: { read: "Read" },
+                },
+              },
+            },
+          },
+        },
+      });
+
+      const result = await generateService(spec);
+
+      expect(result.security).toEqual([{ ApiKey: [] }]);
+      const byId = Object.fromEntries(result.tools.map((t) => [t.id, t]));
+      expect(byId.listPets.security).toEqual([
+        { ApiKey: [] },
+        { OAuth: ["read"] },
+      ]);
+      expect(byId.health.security).toEqual([]);
+    });
+
+    it("emits empty tool security and no default security when no security is declared", async () => {
+      const spec = JSON.stringify({
+        openapi: "3.0.0",
+        info: { title: "API", version: "1.0.0" },
+        paths: {
+          "/health": {
+            get: {
+              operationId: "health",
+              responses: { "200": { description: "OK" } },
+            },
+          },
+        },
+      });
+
+      const result = await generateService(spec);
+
+      expect(result.tools[0].security).toEqual([]);
+      expect(result.security).toEqual([]);
     });
   });
 
@@ -1389,7 +1709,7 @@ info:
 paths: {}
 `;
 
-      const result = await generateDefinition(yamlSpec);
+      const result = await generateService(yamlSpec);
 
       expect(result.name).toBe("Pet Store API");
     });
@@ -1408,7 +1728,7 @@ paths: {}
         },
       });
 
-      await expect(generateDefinition(spec)).rejects.toThrow(
+      await expect(generateService(spec)).rejects.toThrow(
         "OpenAPI operationId is required for GET /pets",
       );
     });
@@ -1427,7 +1747,7 @@ paths: {}
         },
       });
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.tools[0].name).toBe("listPets");
     });
@@ -1446,7 +1766,7 @@ paths: {}
         },
       });
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.tools).toHaveLength(0);
     });
