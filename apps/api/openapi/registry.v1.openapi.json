@@ -1,0 +1,1112 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Cyrnel Registry API",
+    "version": "1.0.0",
+    "description": "Contract a registry host implements so Cyrnel can discover capabilities, browse definitions and modules, resolve version descriptors, download artifacts, and exchange OAuth2 tokens. Capability URLs are dynamic and advertised per registry; the paths below mirror the reference fixture (`apps/api/scripts/dev-registry.ts`, served via `pnpm -C apps/api registry:dev`). See the Registry Specification docs for the full operator guide."
+  },
+  "servers": [
+    {
+      "url": "{baseUrl}",
+      "description": "Registry base URL. Defaults to the local reference fixture.",
+      "variables": {
+        "baseUrl": {
+          "default": "http://127.0.0.1:9372",
+          "description": "Absolute http(s) base URL of the registry."
+        }
+      }
+    }
+  ],
+  "tags": [
+    {
+      "name": "Discovery",
+      "description": "Well-known capability advertisement."
+    },
+    {
+      "name": "Capabilities",
+      "description": "Paginated browse pages for definitions and modules."
+    },
+    {
+      "name": "Descriptors",
+      "description": "Per-entry version descriptors resolving to artifacts."
+    },
+    {
+      "name": "Artifacts",
+      "description": "Versioned definition documents and module archives."
+    },
+    {
+      "name": "Authentication",
+      "description": "OAuth2 token exchange and authorization entry points."
+    }
+  ],
+  "paths": {
+    "/.well-known/registry.json": {
+      "get": {
+        "tags": [
+          "Discovery"
+        ],
+        "summary": "Discover registry capabilities",
+        "description": "Returns the registry id, the highest-supported `definitions.vN` / `modules.vN` capability URLs (bare string or `{ url, security }` object form), and the optional `auth` declaration. Discovery is public by definition and never attaches auth. Unknown keys are ignored.",
+        "responses": {
+          "200": {
+            "description": "Registry discovery document.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistryWellKnownDocument"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/definitions/v1": {
+      "get": {
+        "tags": [
+          "Capabilities"
+        ],
+        "summary": "Browse service definitions",
+        "description": "Reference-fixture path. Real registries advertise their own capability URLs in the well-known document; Cyrnel follows the advertised URL, which must stay on the registry's origin. Query filters are advisory and registry-defined. Cyrnel always sends `limit` (default 50).",
+        "parameters": [
+          {
+            "name": "query",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Free-text search forwarded to the registry; matching semantics are registry-defined."
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Definition kind filter (e.g. `openapi@3.0`) forwarded to the registry."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Opaque cursor returned as nextCursor by the previous page."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            },
+            "description": "Maximum entries per page. Cyrnel defaults to 50; registries may clamp to [1, 200]."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page of advertised service definitions.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistryDefinitionsWirePage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The browse page failed validation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistryErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A registry credential was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistryErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/modules/v1": {
+      "get": {
+        "tags": [
+          "Capabilities"
+        ],
+        "summary": "Browse modules",
+        "description": "Reference-fixture path. Real registries advertise their own capability URLs in the well-known document; Cyrnel follows the advertised URL, which must stay on the registry's origin. Query filters are advisory and registry-defined. Cyrnel always sends `limit` (default 50).",
+        "parameters": [
+          {
+            "name": "query",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Free-text search forwarded to the registry; matching semantics are registry-defined."
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "adapter",
+                "environment"
+              ]
+            },
+            "description": "Module type filter forwarded to the registry."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Opaque cursor returned as nextCursor by the previous page."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            },
+            "description": "Maximum entries per page. Cyrnel defaults to 50; registries may clamp to [1, 200]."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page of advertised modules.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistryModulesWirePage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The browse page failed validation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistryErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A registry credential was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistryErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/definitions/{id}": {
+      "get": {
+        "tags": [
+          "Descriptors"
+        ],
+        "summary": "Resolve a definition version descriptor",
+        "description": "Reference-fixture path. Real registries advertise their own capability URLs in the well-known document; Cyrnel follows the advertised URL, which must stay on the registry's origin. Entry `source` URLs must resolve to the registry's origin. Cyrnel selects `latestVersion` by default or the highest version satisfying a semver constraint.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Entry slug from the browse page."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Version descriptor for one service definition.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionedRegistryDescriptor"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The descriptor failed validation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistryErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A registry credential was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistryErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No version satisfies the requested constraint.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistryErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/modules/{id}": {
+      "get": {
+        "tags": [
+          "Descriptors"
+        ],
+        "summary": "Resolve a module version descriptor",
+        "description": "Reference-fixture path. Real registries advertise their own capability URLs in the well-known document; Cyrnel follows the advertised URL, which must stay on the registry's origin. Entry `source` URLs must resolve to the registry's origin. Cyrnel selects `latestVersion` by default or the highest version satisfying a semver constraint.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Entry slug from the browse page."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Version descriptor for one module.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionedRegistryDescriptor"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The descriptor failed validation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistryErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A registry credential was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistryErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No version satisfies the requested constraint.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistryErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/definitions/{id}/definition.json": {
+      "get": {
+        "tags": [
+          "Artifacts"
+        ],
+        "summary": "Download a definition document",
+        "description": "Returns the versioned definition document bytes from the descriptor's `downloadUrl` (here shown at the fixture's conventional location). Cyrnel hashes the bytes and refuses to install on mismatch. Artifacts may live off-origin; keep artifact URLs immutable per version.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Entry slug from the browse page."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Definition document (shape depends on the entry kind, e.g. an OpenAPI document for `openapi@3.0`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A registry credential was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistryErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The artifact could not be found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistryErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/modules/{id}/archive.tar.zst": {
+      "get": {
+        "tags": [
+          "Artifacts"
+        ],
+        "summary": "Download a module archive",
+        "description": "Returns the versioned `.tar.zst` module archive bytes from the descriptor's `downloadUrl` (here shown at the fixture's conventional location). Cyrnel hashes the bytes and refuses to install on mismatch.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Entry slug from the browse page."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Zstandard-compressed tar module archive.",
+            "content": {
+              "application/zstd": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A registry credential was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistryErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The artifact could not be found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistryErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oauth/token": {
+      "post": {
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Exchange an OAuth2 token",
+        "description": "Reference-fixture path; real registries advertise their own `tokenUrl` per oauth2 scheme. Cyrnel POSTs `application/x-www-form-urlencoded`, requires https when client secrets are involved, and refuses to follow redirects with credentials in the body. Only `access_token` is required in the response (`expires_in` defaults to one hour client-side).",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/RegistryTokenRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Issued access token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistryTokenResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The grant was invalid or unsupported.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistryErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Client authentication failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistryErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oauth/authorize": {
+      "get": {
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Open the authorization-code flow",
+        "description": "Reference-fixture path; real registries advertise their own `authorizationUrl` per oauth2 scheme supporting the authorization-code grant. This is a browser-facing entry point that redirects the operator to approve access; Cyrnel completes the flow at its `/auth/callback` redirect target. The fixture auto-approves.",
+        "parameters": [
+          {
+            "name": "response_type",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "code"
+              ]
+            },
+            "description": "OAuth2 response type."
+          },
+          {
+            "name": "client_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "OAuth2 client id."
+          },
+          {
+            "name": "redirect_uri",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Where to redirect with the issued code."
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Space-delimited requested scopes."
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Opaque state echoed back to the redirect target."
+          },
+          {
+            "name": "code_challenge",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "PKCE code challenge (S256)."
+          },
+          {
+            "name": "code_challenge_method",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "S256"
+              ]
+            },
+            "description": "PKCE challenge method."
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Redirect to the operator approval page."
+          },
+          "400": {
+            "description": "The authorization request was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistryErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "RegistryWellKnownDocument": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "definitions.v1": {
+            "$ref": "#/components/schemas/RegistryCapabilityValue"
+          },
+          "modules.v1": {
+            "$ref": "#/components/schemas/RegistryCapabilityValue"
+          },
+          "auth": {
+            "$ref": "#/components/schemas/RegistryAuthDeclaration"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RegistryCapabilityValue": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "$ref": "#/components/schemas/RegistryCapabilityObject"
+          }
+        ]
+      },
+      "RegistryCapabilityObject": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "security": {
+            "$ref": "#/components/schemas/SecurityRequirements"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "additionalProperties": false
+      },
+      "SecurityRequirements": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/SecurityRequirement"
+        },
+        "description": "OR of AND-groups; satisfying any one requirement group suffices. Group resolution by adapters MUST be deterministic: when multiple groups are satisfiable, the first satisfiable group in declaration order is selected."
+      },
+      "SecurityRequirement": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "description": "Security requirement: scheme name to required scopes for that scheme. Scope semantics apply only to OAuth2 schemes. For `apiKey`, `basic`, and `http` (bearer) schemes the array MUST be empty; a non-empty array is invalid for those scheme types. An empty scope array means \"the scheme is required, with no independent scope concept.\" `SecurityRequirements` is an OR-of-AND-groups: satisfying one group (`{ OAuth: [\"repo:read\"] }`) suffices. `Readonly<Record<string, readonly string[]>>` is the hard-cut shape for v4, there is no transitional form."
+      },
+      "RegistryAuthDeclaration": {
+        "type": "object",
+        "properties": {
+          "schemes": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/RegistryAuthScheme"
+            }
+          },
+          "security": {
+            "$ref": "#/components/schemas/SecurityRequirements"
+          }
+        },
+        "required": [
+          "schemes",
+          "security"
+        ],
+        "additionalProperties": false
+      },
+      "RegistryAuthScheme": {
+        "anyOf": [
+          {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ApiKeyAuthScheme"
+              },
+              {
+                "$ref": "#/components/schemas/BasicAuthScheme"
+              },
+              {
+                "$ref": "#/components/schemas/HttpAuthScheme"
+              }
+            ],
+            "description": "Discriminated union of authentication schemes supported by services and modules."
+          },
+          {
+            "$ref": "#/components/schemas/RegistryOAuth2AuthScheme"
+          }
+        ]
+      },
+      "ApiKeyAuthScheme": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "apiKey"
+            ]
+          },
+          "in": {
+            "type": "string",
+            "enum": [
+              "header",
+              "query",
+              "cookie"
+            ]
+          },
+          "paramName": {
+            "type": "string"
+          },
+          "prefix": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "in",
+          "paramName"
+        ],
+        "additionalProperties": false,
+        "description": "API key sent in a header, query parameter, or cookie."
+      },
+      "BasicAuthScheme": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "basic"
+            ]
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "additionalProperties": false,
+        "description": "HTTP Basic `username:password` (base64) in the `Authorization` header."
+      },
+      "HttpAuthScheme": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "http"
+            ]
+          },
+          "scheme": {
+            "type": "string",
+            "enum": [
+              "bearer"
+            ]
+          },
+          "bearerFormat": {
+            "type": "string",
+            "description": "Informational only (e.g. \"JWT\"); not enforced by the host."
+          }
+        },
+        "required": [
+          "type",
+          "scheme"
+        ],
+        "additionalProperties": false,
+        "description": "HTTP auth via the `Authorization` header using a static bearer token. Only `\"bearer\"` is supported. `\"digest\"` (challenge-response) is a non-goal for v4. The `bearerFormat` is informational only (e.g. \"JWT\") and not enforced by the host."
+      },
+      "RegistryOAuth2AuthScheme": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "grantTypes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RegistryOAuthGrantType"
+            }
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "oauth2"
+            ]
+          },
+          "authorizationUrl": {
+            "type": "string",
+            "description": "Required when `\"authorizationCode\"` ∈ grantTypes."
+          },
+          "deviceAuthorizationUrl": {
+            "type": "string",
+            "description": "Required when `\"deviceCode\"` ∈ grantTypes."
+          },
+          "tokenUrl": {
+            "type": "string"
+          },
+          "scopes": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "clientAuthMethod": {
+            "type": "string",
+            "enum": [
+              "client_secret_basic",
+              "client_secret_post",
+              "private_key_jwt",
+              "none"
+            ]
+          },
+          "additionalTokenParams": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "tokenPlacement": {
+            "type": "object",
+            "properties": {
+              "in": {
+                "type": "string",
+                "enum": [
+                  "header"
+                ]
+              },
+              "paramName": {
+                "type": "string"
+              },
+              "prefix": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "in",
+              "paramName"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "grantTypes",
+          "scopes",
+          "tokenPlacement",
+          "tokenUrl",
+          "type"
+        ]
+      },
+      "RegistryOAuthGrantType": {
+        "type": "string",
+        "enum": [
+          "authorization_code",
+          "client_credentials"
+        ]
+      },
+      "RegistryDefinitionsWirePage": {
+        "type": "object",
+        "properties": {
+          "definitions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RegistryEntry"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "definitions",
+          "nextCursor"
+        ],
+        "additionalProperties": false
+      },
+      "RegistryEntry": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "adapter",
+              "environment"
+            ]
+          },
+          "icon": {
+            "$ref": "#/components/schemas/RegistryIcon"
+          }
+        },
+        "required": [
+          "id",
+          "source"
+        ],
+        "additionalProperties": false
+      },
+      "RegistryIcon": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "hash": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "hash"
+        ],
+        "additionalProperties": false
+      },
+      "RegistryModulesWirePage": {
+        "type": "object",
+        "properties": {
+          "modules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RegistryEntry"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "modules",
+          "nextCursor"
+        ],
+        "additionalProperties": false
+      },
+      "VersionedRegistryDescriptor": {
+        "type": "object",
+        "properties": {
+          "latestVersion": {
+            "type": "string"
+          },
+          "versions": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/RegistryVersionEntry"
+            }
+          }
+        },
+        "required": [
+          "latestVersion",
+          "versions"
+        ],
+        "additionalProperties": false
+      },
+      "RegistryVersionEntry": {
+        "type": "object",
+        "properties": {
+          "downloadUrl": {
+            "type": "string"
+          },
+          "hash": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "icon": {
+            "$ref": "#/components/schemas/RegistryIcon"
+          },
+          "engines": {
+            "type": "object",
+            "properties": {
+              "cyrnel": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "downloadUrl"
+        ],
+        "additionalProperties": false
+      },
+      "RegistryTokenRequest": {
+        "type": "object",
+        "properties": {
+          "grant_type": {
+            "type": "string",
+            "enum": [
+              "authorization_code",
+              "client_credentials",
+              "refresh_token"
+            ]
+          },
+          "client_id": {
+            "type": "string"
+          },
+          "client_secret": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "redirect_uri": {
+            "type": "string"
+          },
+          "code_verifier": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "refresh_token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "grant_type"
+        ],
+        "additionalProperties": false
+      },
+      "RegistryTokenResponse": {
+        "type": "object",
+        "properties": {
+          "access_token": {
+            "type": "string"
+          },
+          "token_type": {
+            "type": "string"
+          },
+          "expires_in": {
+            "type": "number"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "refresh_token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "access_token"
+        ],
+        "additionalProperties": false
+      },
+      "RegistryErrorResponse": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "securitySchemes": {
+      "apiKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key",
+        "description": "Placeholder header name; real registries advertise their own `paramName` per apiKey scheme in the well-known document."
+      },
+      "basic": {
+        "type": "http",
+        "scheme": "basic",
+        "description": "HTTP Basic credentials per the advertised scheme."
+      },
+      "bearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Bearer token per the advertised scheme."
+      },
+      "oauth2": {
+        "type": "oauth2",
+        "description": "OAuth2 per the advertised scheme. Flow URLs below are the reference fixture's; real registries advertise their own `tokenUrl` / `authorizationUrl`.",
+        "flows": {
+          "clientCredentials": {
+            "tokenUrl": "http://127.0.0.1:9372/oauth/token",
+            "scopes": {}
+          },
+          "authorizationCode": {
+            "authorizationUrl": "http://127.0.0.1:9372/oauth/authorize",
+            "tokenUrl": "http://127.0.0.1:9372/oauth/token",
+            "scopes": {}
+          }
+        }
+      }
+    }
+  }
+}
