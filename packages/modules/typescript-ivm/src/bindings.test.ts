@@ -2,7 +2,6 @@ import type {
   ConfigProvider,
   EnvironmentBindings,
   ExecutionInput,
-  InvokeInput,
   ModuleLogBindings,
   ModuleLogger,
   SecretsProvider,
@@ -32,9 +31,9 @@ const stubLogger: ModuleLogger<ModuleLogBindings> = {
 
 function createConfigProvider(
   values: Record<string, unknown> = {},
-): ConfigProvider<any> {
+): ConfigProvider<Record<string, unknown>> {
   return {
-    get: async (key: keyof any) => {
+    get: async (key: string) => {
       const name = String(key);
       if (!(name in values)) {
         const err = new Error(`ProviderKeyNotConfigured: ${name}`);
@@ -46,9 +45,9 @@ function createConfigProvider(
   };
 }
 
-function createSecretsProvider(): SecretsProvider<any> {
+function createSecretsProvider(): SecretsProvider<Record<string, unknown>> {
   return {
-    get: async (_key: keyof any) => {
+    get: async (_key: string) => {
       const err = new Error("ProviderKeyNotConfigured");
       err.name = "ProviderKeyNotConfigured";
       throw err;

@@ -25,6 +25,7 @@ import {
   sweepExpiredApprovals,
   sweepRetention,
 } from "@/services/approval.service";
+import type { ProcessService } from "@/services/process.service";
 import { encryptSecrets } from "@/utils/secrets.util";
 
 const MIGRATIONS_DIR = path.resolve(import.meta.dirname, "../../drizzle");
@@ -475,9 +476,12 @@ describe("approval.service", () => {
       const first = await listApprovals({ limit: 2 });
       expect(first.items).toHaveLength(2);
 
+      if (first.nextCursor === undefined) {
+        throw new Error("expected nextCursor to be defined");
+      }
       const second = await listApprovals({
         limit: 2,
-        cursor: first.nextCursor!,
+        cursor: first.nextCursor,
       });
       expect(second.items).toHaveLength(1);
       expect(second.hasMore).toBe(false);
@@ -940,7 +944,7 @@ describe("approval.service", () => {
       const { getProcessService } = await import("@/services/process.holder");
       vi.mocked(getProcessService).mockReturnValue({
         notifyApprovalResolved: notifyMock,
-      } as any);
+      } as unknown as ProcessService);
 
       await sweepExpiredApprovals();
 

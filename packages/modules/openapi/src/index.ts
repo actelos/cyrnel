@@ -122,7 +122,7 @@ class OpenapiAdapter implements AdapterModule {
       phase: "adapter-invoke",
     });
     for (const key of Object.keys(authQuery)) {
-      if ((params.query ?? {})[key] !== undefined) {
+      if (params.query?.[key] !== undefined) {
         invokeLogger?.debug(
           { event: "auth-param-collision", location: "query", key },
           "Auth query param overwrites user-supplied value",
@@ -130,7 +130,7 @@ class OpenapiAdapter implements AdapterModule {
       }
     }
     for (const key of Object.keys(authCookies)) {
-      if ((params.cookies ?? {})[key] !== undefined) {
+      if (params.cookies?.[key] !== undefined) {
         invokeLogger?.debug(
           { event: "auth-param-collision", location: "cookie", key },
           "Auth cookie overwrites user-supplied value",

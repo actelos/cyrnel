@@ -43,7 +43,7 @@ describe("icon-response.util", () => {
     it("returns 404 with error when icon is undefined", () => {
       const res = makeRes();
 
-      sendIconResponse(cast(res), undefined as any, "Service 'svc-1'");
+      sendIconResponse(cast(res), undefined, "Service 'svc-1'");
 
       expect(res.status).toHaveBeenCalledWith(404);
       expect(res.json).toHaveBeenCalledWith({
