@@ -362,30 +362,53 @@ export async function setModuleAuth(
     scheme: z.literal("bearer"),
     bearerFormat: z.string().optional(),
   });
-  const oauth2SchemeSchema = z.object({
-    type: z.literal("oauth2"),
-    grantTypes: z
-      .array(z.enum(["authorizationCode", "clientCredentials", "deviceCode"]))
-      .min(1),
-    authorizationUrl: z.string().optional(),
-    deviceAuthorizationUrl: z.string().optional(),
-    tokenUrl: z.string().min(1),
-    scopes: z.record(z.string(), z.string()).optional().default({}),
-    clientAuthMethod: z
-      .enum([
-        "client_secret_basic",
-        "client_secret_post",
-        "private_key_jwt",
-        "none",
-      ])
-      .optional(),
-    additionalTokenParams: z.record(z.string(), z.string()).optional(),
-    tokenPlacement: z.object({
-      in: z.literal("header"),
-      paramName: z.string().min(1),
-      prefix: z.string().optional(),
-    }),
-  });
+  const oauth2SchemeSchema = z
+    .object({
+      type: z.literal("oauth2"),
+      grantTypes: z
+        .array(z.enum(["authorizationCode", "clientCredentials", "deviceCode"]))
+        .min(1),
+      authorizationUrl: z.string().optional(),
+      deviceAuthorizationUrl: z.string().optional(),
+      tokenUrl: z.string().min(1),
+      scopes: z.record(z.string(), z.string()).optional().default({}),
+      clientAuthMethod: z
+        .enum([
+          "client_secret_basic",
+          "client_secret_post",
+          "private_key_jwt",
+          "none",
+        ])
+        .optional(),
+      additionalTokenParams: z.record(z.string(), z.string()).optional(),
+      tokenPlacement: z.object({
+        in: z.literal("header"),
+        paramName: z.string().min(1),
+        prefix: z.string().optional(),
+      }),
+    })
+    .refine(
+      (val) => {
+        if (
+          val.grantTypes.includes("authorizationCode") &&
+          !val.authorizationUrl
+        ) {
+          return false;
+        }
+        if (
+          val.grantTypes.includes("deviceCode") &&
+          !val.deviceAuthorizationUrl
+        ) {
+          return false;
+        }
+        return true;
+      },
+      {
+        message:
+          "authorizationUrl is required when grantTypes includes authorizationCode; deviceAuthorizationUrl is required when grantTypes includes deviceCode",
+        path: ["authorizationUrl", "deviceAuthorizationUrl"],
+      },
+    );
   const authSchemeSchema = z.discriminatedUnion("type", [
     apiKeySchemeSchema,
     basicSchemeSchema,

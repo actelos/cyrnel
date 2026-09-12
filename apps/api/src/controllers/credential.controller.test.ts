@@ -539,7 +539,7 @@ describe("credential.controller", () => {
 
         expect(credentialService.createOAuthClient).toHaveBeenCalled();
         expect(res.status).toHaveBeenCalledWith(201);
-        expect(res.json).toHaveBeenCalledWith({ clientId: "new-client-id" });
+        expect(res.json).toHaveBeenCalledWith({ id: "new-client-id" });
       });
 
       it("requires provider, clientId, clientSecret, tokenUrl, availableScopes", async () => {

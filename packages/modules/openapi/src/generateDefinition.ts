@@ -463,6 +463,17 @@ function toAuthSchemeWithReason(
             ? (placementRaw.prefix as string)
             : "Bearer",
       };
+      const tokenUrl =
+        flows.authorizationCode?.tokenUrl ??
+        flows.clientCredentials?.tokenUrl ??
+        (flows as Record<string, { tokenUrl?: string }>).deviceCode?.tokenUrl ??
+        "";
+      if (tokenUrl.length === 0) {
+        return {
+          scheme: null,
+          reason: "oauth2 declares no token endpoint (tokenUrl is required)",
+        };
+      }
       return {
         scheme: {
           type: "oauth2",
@@ -471,12 +482,7 @@ function toAuthSchemeWithReason(
           ...(deviceAuthorizationUrl !== undefined
             ? { deviceAuthorizationUrl }
             : {}),
-          tokenUrl:
-            flows.authorizationCode?.tokenUrl ??
-            flows.clientCredentials?.tokenUrl ??
-            (flows as Record<string, { tokenUrl?: string }>).deviceCode
-              ?.tokenUrl ??
-            "",
+          tokenUrl,
           scopes: {
             ...(flows.authorizationCode?.scopes ?? {}),
             ...(flows.clientCredentials?.scopes ?? {}),

@@ -51,9 +51,14 @@ const server = http.createServer((req, res) => {
     req.on("data", (chunk) => (body += chunk));
     req.on("end", () => {
       const params = new URLSearchParams(body);
-      const redirect_uri = params.get("redirect_uri")!;
-      const state = params.get("state")!;
-      const scope = params.get("scope")!;
+      const redirect_uri = params.get("redirect_uri") ?? "";
+      const state = params.get("state") ?? "";
+      const scope = params.get("scope") ?? "";
+      if (!redirect_uri || !state) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "invalid_request" }));
+        return;
+      }
       const code = `fake_code_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       codes.set(code, { scope, createdAt: Date.now() });
       const sep = redirect_uri.includes("?") ? "&" : "?";
@@ -70,7 +75,7 @@ const server = http.createServer((req, res) => {
     req.on("data", (chunk) => (body += chunk));
     req.on("end", () => {
       const params = new URLSearchParams(body);
-      const code = params.get("code");
+      const code = params.get("code") ?? "";
       const grant_type = params.get("grant_type");
       console.log(
         `[token] Exchange request: code=${code} grant_type=${grant_type}`,
@@ -78,7 +83,6 @@ const server = http.createServer((req, res) => {
       if (!code || !codes.has(code)) {
         res.writeHead(400, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: "invalid_grant" }));
-        codes.delete(code!);
         return;
       }
       codes.delete(code);

@@ -23,6 +23,8 @@ export interface ProcessRecord {
   error: string | null;
   code: string;
   timeoutMs: number | null;
+  originalTimeoutMs: number | null;
+  remainingTimeoutMs: number | null;
   envConfig: Record<string, unknown>;
   autorun?: boolean;
   output: Record<string, unknown>;
@@ -43,6 +45,8 @@ export type CreateProcessInput = Omit<
   | "stdout"
   | "stderr"
   | "timeoutMs"
+  | "originalTimeoutMs"
+  | "remainingTimeoutMs"
   | "envConfig"
   | "lastExecutedAt"
   | "createdAt"

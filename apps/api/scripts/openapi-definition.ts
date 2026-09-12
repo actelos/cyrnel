@@ -3962,6 +3962,9 @@ registry.registerPath({
       content: jsonContent(
         z.object({
           ok: z.literal(true).describe("Always true on success."),
+          credentialId: z
+            .string()
+            .describe("The ID of the created or updated credential."),
         }),
       ),
     },

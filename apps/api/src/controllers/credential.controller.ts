@@ -293,8 +293,8 @@ export async function createOAuthClient(
     req.body,
     "Request body must be an object.",
   );
-  const clientId = await getCredentialService(req).createOAuthClient(payload);
-  res.status(201).json({ clientId });
+  const id = await getCredentialService(req).createOAuthClient(payload);
+  res.status(201).json({ id });
 }
 
 export async function patchOAuthClient(

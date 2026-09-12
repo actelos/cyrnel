@@ -130,6 +130,8 @@ export default function RegistriesPage() {
 
   const [authTarget, setAuthTarget] = useState<Registry | null>(null);
   const [isRemovingAll, setIsRemovingAll] = useState(false);
+  const [isRemoveAllAuthConfirmOpen, setIsRemoveAllAuthConfirmOpen] =
+    useState(false);
 
   const registriesUrl = buildUrl("/registries");
 
@@ -279,7 +281,13 @@ export default function RegistriesPage() {
 
   const handleRemoveAllAuth = async () => {
     if (authTarget === null) return;
+    setIsRemoveAllAuthConfirmOpen(true);
+  };
+
+  const confirmRemoveAllAuth = async () => {
+    if (authTarget === null) return;
     setIsRemovingAll(true);
+    setIsRemoveAllAuthConfirmOpen(false);
     try {
       await apiFetch(buildUrl(`/registries/${authTarget.id}/auth`), {
         method: "DELETE",
@@ -608,6 +616,35 @@ export default function RegistriesPage() {
               }}
             >
               {isDeleting ? "Deleting" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={isRemoveAllAuthConfirmOpen}
+        onOpenChange={(open) => {
+          if (!open) setIsRemoveAllAuthConfirmOpen(false);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove all credentials?</AlertDialogTitle>
+            <AlertDialogDescription>
+              All credentials for {authTarget?.id ?? ""} will be permanently
+              removed. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isRemovingAll}
+              onClick={(event) => {
+                event.preventDefault();
+                void confirmRemoveAllAuth();
+              }}
+            >
+              {isRemovingAll ? "Removing..." : "Remove all"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

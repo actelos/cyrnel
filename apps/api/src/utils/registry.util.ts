@@ -432,14 +432,6 @@ export interface ResolvedCapability {
   url: string;
 }
 
-export interface RegistryIndexInfo {
-  id: string;
-  finalUrl: string;
-  definitions: ResolvedCapability | null;
-  modules: ResolvedCapability | null;
-  auth: RegistryAuthDeclaration | null;
-}
-
 export interface ResolvedCapability {
   version: number;
   url: string;

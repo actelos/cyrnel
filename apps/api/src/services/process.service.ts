@@ -290,6 +290,7 @@ export class ProcessService {
       code: input.code,
       timeoutMs,
       originalTimeoutMs: timeoutMs,
+      remainingTimeoutMs: timeoutMs,
       envConfig,
       autorun,
       output: {},
@@ -639,6 +640,9 @@ export class ProcessService {
     if (!stored) return;
 
     stored.lastExecutedAt = Date.now();
+    if (stored.originalTimeoutMs !== null) {
+      stored.remainingTimeoutMs = stored.originalTimeoutMs;
+    }
 
     const context: ExecutionContext = {
       stdoutDecoder: new StringDecoder("utf8"),
@@ -799,6 +803,7 @@ export class ProcessService {
       code: row.code,
       timeoutMs: row.timeoutMs,
       originalTimeoutMs: row.timeoutMs,
+      remainingTimeoutMs: row.timeoutMs,
       envConfig: row.envConfig,
       autorun: true,
       output: {},
@@ -1056,8 +1061,19 @@ export class ProcessService {
     if (pid !== undefined) {
       const stored = this.processes.get(pid);
       if (stored) {
+        const now = Date.now();
+        const elapsed = now - stored.lastExecutedAt;
+        if (
+          stored.remainingTimeoutMs !== null &&
+          stored.remainingTimeoutMs > 0
+        ) {
+          stored.remainingTimeoutMs = Math.max(
+            0,
+            stored.remainingTimeoutMs - elapsed,
+          );
+        }
         stored.state = "suspended";
-        stored.lastExecutedAt = Date.now();
+        stored.lastExecutedAt = now;
         const handle = this.timeoutHandles.get(pid);
         if (handle) {
           clearTimeout(handle);
@@ -1099,7 +1115,7 @@ export class ProcessService {
       if (pendingCount === 0 && stored.state === "suspended") {
         const handle = this.timeoutHandles.get(pid);
         if (handle) clearTimeout(handle);
-        const remaining = stored.originalTimeoutMs;
+        const remaining = stored.remainingTimeoutMs;
         if (remaining !== null && remaining > 0) {
           const h = setTimeout(() => {
             this.controller.kill(pid).catch(() => {});

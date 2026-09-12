@@ -173,18 +173,13 @@ async function readDeclaredSchemes(
     );
   }
   const [row] = await db
-    .select({ id: registries.id })
+    .select({ id: registries.id, baseUrl: registries.baseUrl })
     .from(registries)
     .where(eq(registries.id, ownerId))
     .limit(1);
   if (!row) throw new HttpError(404, `Registry '${ownerId}' not found.`);
   const { fetchRegistryIndex } = await import("@/utils/registry.util");
-  const baseUrlRow = await db
-    .select({ baseUrl: registries.baseUrl })
-    .from(registries)
-    .where(eq(registries.id, ownerId))
-    .limit(1);
-  const index = await fetchRegistryIndex(baseUrlRow[0].baseUrl);
+  const index = await fetchRegistryIndex(row.baseUrl);
   const schemes: Record<string, { type?: string; scheme?: string }> = {};
   const declared = index.auth?.schemes;
   if (declared) {
@@ -801,7 +796,11 @@ export class OwnerCredentialStore {
       code_challenge: codeChallenge,
       code_challenge_method: "S256",
     });
-    const authorizationUrl = `${client.authorizationUrl}?${params.toString()}`;
+    const authorizeUrl = new URL(client.authorizationUrl);
+    for (const [key, value] of params) {
+      authorizeUrl.searchParams.set(key, value);
+    }
+    const authorizationUrl = authorizeUrl.toString();
     const now = Date.now();
     await db.insert(oauthPendings).values({
       state,
@@ -1520,6 +1519,7 @@ export class CredentialService {
         scopes: credential.requestedScopes,
         refreshToken: existingToken.refreshToken,
         fallbackExpiresAt: existingToken.expiresAt,
+        kind,
       },
       refreshType,
     );
@@ -1669,6 +1669,7 @@ async function doTokenExchange(
     scopes: string[];
     refreshToken: string;
     fallbackExpiresAt: number;
+    kind: OwnerKind;
   },
   refreshType: TokenRefreshType,
 ): Promise<OAuthTokenState & { rawScope: Record<string, unknown> }> {
@@ -1680,6 +1681,7 @@ async function doTokenExchange(
     scopes,
     refreshToken: currentRefreshToken,
     fallbackExpiresAt,
+    kind,
   } = entry;
 
   const body = new URLSearchParams({
@@ -1737,23 +1739,17 @@ async function doTokenExchange(
     const revoked = errorCode === "invalid_grant";
     const now = new Date().toISOString();
     const failedStatus = revoked ? "revoked" : "error";
-    await Promise.all([
-      db
-        .update(serviceCredentials)
-        .set({ status: failedStatus, updatedAt: now })
-        .where(eq(serviceCredentials.id, credentialId))
-        .catch(() => undefined),
-      db
-        .update(moduleCredentials)
-        .set({ status: failedStatus, updatedAt: now })
-        .where(eq(moduleCredentials.id, credentialId))
-        .catch(() => undefined),
-      db
-        .update(registryCredentials)
-        .set({ status: failedStatus, updatedAt: now })
-        .where(eq(registryCredentials.id, credentialId))
-        .catch(() => undefined),
-    ]);
+    const targetTable =
+      kind === "service"
+        ? serviceCredentials
+        : kind === "module"
+          ? moduleCredentials
+          : registryCredentials;
+    await db
+      .update(targetTable)
+      .set({ status: failedStatus, updatedAt: now })
+      .where(eq(targetTable.id, credentialId))
+      .catch(() => undefined);
     logger.warn(
       {
         event: "auth-failure",

@@ -33,7 +33,11 @@ const defaultOut =
     : "./openapi/cyrnel.v1.openapi.json";
 const outputPaths =
   outIndex !== -1
-    ? args.slice(outIndex + 1).filter((a) => !a.startsWith("--"))
+    ? (() => {
+        const rest = args.slice(outIndex + 1);
+        const end = rest.findIndex((a) => a.startsWith("--"));
+        return end === -1 ? rest : rest.slice(0, end);
+      })()
     : [resolve(process.cwd(), defaultOut)];
 
 if (outputPaths.length === 0) {
