@@ -14,9 +14,8 @@ import type {
   JSONSchema,
   ToolDocsInput,
 } from "@cyrnel/sdk";
-import { build } from "esbuild";
+import { build, transformSync } from "esbuild";
 import ivm from "isolated-vm";
-import ts from "typescript";
 
 const DEFAULT_POOL_SIZE = 2;
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -288,40 +287,32 @@ function transpileWorkerCode(): string {
   return [
     `(async () => {`,
     `const { parentPort, workerData } = await import("worker_threads");`,
-    `const { code, typescriptUrl } = workerData;`,
+    `const { code, esbuildUrl } = workerData;`,
     `try {`,
-    `  const tsMod = await import(typescriptUrl);`,
-    `  const ts = tsMod.default || tsMod;`,
-    `  const result = ts.transpileModule(code, {`,
-    `    compilerOptions: {`,
-    `      target: ts.ScriptTarget.ES2022,`,
-    `      module: ts.ModuleKind.ESNext,`,
-    `      strict: false,`,
-    `    },`,
-    `    reportDiagnostics: true,`,
+    `  const esbuildMod = await import(esbuildUrl);`,
+    `  const esbuild = esbuildMod.default || esbuildMod;`,
+    `  const result = esbuild.transformSync(code, {`,
+    `    loader: "ts",`,
+    `    target: "es2022",`,
+    `    format: "esm",`,
     `  });`,
-    `  if (result.diagnostics && result.diagnostics.length) {`,
-    `    const diagnostics = result.diagnostics`,
-    `      .map((item) => ts.flattenDiagnosticMessageText(item.messageText, "\\n"))`,
-    `      .join("; ");`,
-    `    parentPort.postMessage({ error: "Failed to transpile TypeScript: " + diagnostics });`,
-    `    return;`,
-    `  }`,
-    `  parentPort.postMessage({ outputText: result.outputText });`,
+    `  parentPort.postMessage({ outputText: result.code });`,
     `} catch (err) {`,
-    `  parentPort.postMessage({ error: String(err) });`,
+    `  const message = err && typeof err.message === "string" ? err.message : String(err);`,
+    `  parentPort.postMessage({ error: "Failed to transpile TypeScript: " + message });`,
+    `  return;`,
     `}`,
     `})();`,
   ].join("\n");
 }
 
-let _tsUrl: string | null = null;
-function getTypescriptUrl(): string {
-  if (!_tsUrl) {
+let _esbuildUrl: string | null = null;
+function getEsbuildUrl(): string {
+  if (!_esbuildUrl) {
     const _require = createRequire(import.meta.url);
-    _tsUrl = pathToFileURL(_require.resolve("typescript")).href;
+    _esbuildUrl = pathToFileURL(_require.resolve("esbuild")).href;
   }
-  return _tsUrl;
+  return _esbuildUrl;
 }
 
 let _urlBundlePromise: Promise<string> | null = null;
@@ -348,21 +339,20 @@ function getUrlPolyfillBundle(): Promise<string> {
 }
 
 function transpileTypeScriptSync(code: string): string {
-  const result = ts.transpileModule(code, {
-    compilerOptions: {
-      target: ts.ScriptTarget.ES2022,
-      module: ts.ModuleKind.ESNext,
-      strict: false,
-    },
-    reportDiagnostics: true,
-  });
-  if (result.diagnostics?.length) {
-    const diagnostics = result.diagnostics
-      .map((item) => ts.flattenDiagnosticMessageText(item.messageText, "\n"))
-      .join("; ");
-    throw new Error(`Failed to transpile TypeScript: ${diagnostics}`);
+  try {
+    const result = transformSync(code, {
+      loader: "ts",
+      target: "es2022",
+      format: "esm",
+    });
+    return result.code;
+  } catch (err) {
+    const message =
+      err && typeof (err as Error).message === "string"
+        ? (err as Error).message
+        : String(err);
+    throw new Error(`Failed to transpile TypeScript: ${message}`);
   }
-  return result.outputText;
 }
 
 function isTestEnv(): boolean {
@@ -376,7 +366,7 @@ async function transpileTypeScript(code: string): Promise<string> {
 
   const worker = new Worker(transpileWorkerCode(), {
     eval: true,
-    workerData: { code, typescriptUrl: getTypescriptUrl() },
+    workerData: { code, esbuildUrl: getEsbuildUrl() },
   });
 
   const timer = setTimeout(() => {
