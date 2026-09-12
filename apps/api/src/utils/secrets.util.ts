@@ -173,6 +173,34 @@ export function decryptSecrets(
   );
 }
 
+export function compareSecretEquality(
+  a: EncryptedSecretsPayload,
+  b: EncryptedSecretsPayload,
+): boolean {
+  try {
+    const plainA = decryptSecrets(a);
+    const plainB = decryptSecrets(b);
+    return canonicalStringify(plainA) === canonicalStringify(plainB);
+  } catch {
+    return false;
+  }
+}
+
+function canonicalStringify(value: unknown): string {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value) ?? "null";
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => canonicalStringify(item)).join(",")}]`;
+  }
+  const entries = Object.entries(value as Record<string, unknown>).sort(
+    ([ka], [kb]) => (ka < kb ? -1 : ka > kb ? 1 : 0),
+  );
+  return `{${entries
+    .map(([k, v]) => `${JSON.stringify(k)}:${canonicalStringify(v)}`)
+    .join(",")}}`;
+}
+
 function decryptWithKey(
   key: Buffer,
   iv: Buffer,

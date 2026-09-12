@@ -59,4 +59,4 @@ jobs:
       - name: OpenAPI spec is up to date
         run: |
           pnpm -C apps/api openapi:generate
-          git diff --exit-code -- apps/api/openapi.json docs/cyrnel/openapi.json
+          git diff --exit-code -- apps/api/openapi/cyrnel.v1.openapi.json apps/api/openapi/registry.v1.openapi.json docs/openapi/cyrnel.v1.openapi.json docs/openapi/registry.v1.openapi.json

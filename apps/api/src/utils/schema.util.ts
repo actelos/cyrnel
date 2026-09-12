@@ -123,14 +123,6 @@ export interface FilterPayloadOptions {
   keepPermitted?: boolean;
 }
 
-/**
- * Projects a stored payload onto the schema surface.
- *
- * Default (declared-only) keeps keys declared in `properties`; keys at
- * permissive levels (`additionalProperties` absent, `true`, or a schema) are
- * dropped unless `keepPermitted` is set. Undeclared keys at strict levels
- * (`additionalProperties: false`) are always dropped.
- */
 export function filterPayloadToSchema(
   schema: Record<string, unknown>,
   payload: Record<string, unknown>,

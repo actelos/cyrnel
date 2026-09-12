@@ -289,6 +289,8 @@ export class ProcessService {
       error: null,
       code: input.code,
       timeoutMs,
+      originalTimeoutMs: timeoutMs,
+      remainingTimeoutMs: timeoutMs,
       envConfig,
       autorun,
       output: {},
@@ -391,8 +393,8 @@ export class ProcessService {
     stored.state = "terminating";
 
     await this.expireApprovalsForProcess(id);
+    await this.cancelWaitersForProcess(id);
 
-    // Notify ProcessService that approvals were expired so process state can be updated
     try {
       await this.notifyApprovalResolved(id, 0, "expired");
     } catch (err) {
@@ -638,6 +640,9 @@ export class ProcessService {
     if (!stored) return;
 
     stored.lastExecutedAt = Date.now();
+    if (stored.originalTimeoutMs !== null) {
+      stored.remainingTimeoutMs = stored.originalTimeoutMs;
+    }
 
     const context: ExecutionContext = {
       stdoutDecoder: new StringDecoder("utf8"),
@@ -693,7 +698,7 @@ export class ProcessService {
 
     try {
       exitState = await this.controller.execute({
-        eid: pid,
+        executionId: pid,
         code,
         envConfig,
         processId,
@@ -797,6 +802,8 @@ export class ProcessService {
       error: null,
       code: row.code,
       timeoutMs: row.timeoutMs,
+      originalTimeoutMs: row.timeoutMs,
+      remainingTimeoutMs: row.timeoutMs,
       envConfig: row.envConfig,
       autorun: true,
       output: {},
@@ -889,7 +896,7 @@ export class ProcessService {
       const { eq, and } = await import("drizzle-orm");
       const { db } = await import("@/db/client");
       const { resolveApprovalWaiter } = await import(
-        "@/services/approval-waiter"
+        "@/services/approval.waiter"
       );
       const expired = await db
         .update(approvalRequests)
@@ -918,6 +925,38 @@ export class ProcessService {
       logger.warn(
         { event: "expire-approvals-failed", err, processId },
         "Failed to expire approvals on process state change",
+      );
+    }
+  }
+
+  private async cancelWaitersForProcess(processId: number): Promise<void> {
+    try {
+      const { approvalRequests } = await import("@/db/schema");
+      const { eq, and } = await import("drizzle-orm");
+      const { db } = await import("@/db/client");
+      const { cancelWaiter, getWaiterProcessId } = await import(
+        "@/services/approval.waiter"
+      );
+      const pending = await db
+        .select({ id: approvalRequests.id })
+        .from(approvalRequests)
+        .where(
+          and(
+            eq(approvalRequests.processId, processId),
+            eq(approvalRequests.state, "pending"),
+          ),
+        )
+        .all();
+      for (const { id: approvalId } of pending) {
+        const waiterProcessId = getWaiterProcessId(approvalId);
+        if (waiterProcessId === processId) {
+          cancelWaiter(approvalId);
+        }
+      }
+    } catch (err) {
+      logger.warn(
+        { event: "cancel-waiters-failed", err, processId },
+        "Failed to cancel waiters for process",
       );
     }
   }
@@ -1022,14 +1061,19 @@ export class ProcessService {
     if (pid !== undefined) {
       const stored = this.processes.get(pid);
       if (stored) {
-        stored.state = "suspended";
-        // Update lastExecutedAt to suspension time so timeout calculation is correct on resume
-        stored.lastExecutedAt = Date.now();
-        if (stored.timeoutMs !== null) {
-          const elapsed = Math.max(0, Date.now() - stored.lastExecutedAt);
-          const remaining = Math.max(0, stored.timeoutMs - elapsed);
-          stored.timeoutMs = remaining;
+        const now = Date.now();
+        const elapsed = now - stored.lastExecutedAt;
+        if (
+          stored.remainingTimeoutMs !== null &&
+          stored.remainingTimeoutMs > 0
+        ) {
+          stored.remainingTimeoutMs = Math.max(
+            0,
+            stored.remainingTimeoutMs - elapsed,
+          );
         }
+        stored.state = "suspended";
+        stored.lastExecutedAt = now;
         const handle = this.timeoutHandles.get(pid);
         if (handle) {
           clearTimeout(handle);
@@ -1058,8 +1102,10 @@ export class ProcessService {
   ): Promise<void> {
     const existing = this.approvalLocks.get(processId);
     if (existing) await existing;
-    let resolveLock!: () => void;
-    const lock = new Promise<void>((r) => (resolveLock = r));
+    let resolveLock: () => void = () => {};
+    const lock = new Promise<void>((r) => {
+      resolveLock = r;
+    });
     this.approvalLocks.set(processId, lock);
     try {
       const pid = this.pidIndex.get(processId);
@@ -1069,8 +1115,9 @@ export class ProcessService {
       if (pendingCount === 0 && stored.state === "suspended") {
         const handle = this.timeoutHandles.get(pid);
         if (handle) clearTimeout(handle);
-        if (stored.timeoutMs !== null) {
-          const remaining = stored.timeoutMs;
+        stored.lastExecutedAt = Date.now();
+        const remaining = stored.remainingTimeoutMs;
+        if (remaining !== null && remaining > 0) {
           const h = setTimeout(() => {
             this.controller.kill(pid).catch(() => {});
             const s = this.processes.get(pid);
@@ -1135,7 +1182,7 @@ export class ProcessService {
             const { eq, and } = await import("drizzle-orm");
             const { db } = await import("@/db/client");
             const { resolveApprovalWaiter } = await import(
-              "@/services/approval-waiter"
+              "@/services/approval.waiter"
             );
             const expired = await db
               .update(approvalRequests)

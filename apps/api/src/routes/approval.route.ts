@@ -9,7 +9,11 @@ import { createRateLimiter } from "@/middleware/rate-limit.middleware";
 
 export const approvalRouter: ExpressRouter = Router();
 
-approvalRouter.get("/", listApprovalRequests);
+approvalRouter.get(
+  "/",
+  createRateLimiter(30, 60_000, "GET /approvals"),
+  listApprovalRequests,
+);
 approvalRouter.get("/:id", getApprovalRequest);
 approvalRouter.post(
   "/:id/approve",

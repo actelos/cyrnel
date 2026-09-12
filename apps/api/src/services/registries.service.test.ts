@@ -1,6 +1,5 @@
-import crypto from "node:crypto";
+import crypto, { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
-import { createServer } from "node:http";
 import path from "node:path";
 import { eq, sql } from "drizzle-orm";
 import {
@@ -15,14 +14,18 @@ import {
 } from "vitest";
 
 import { db } from "@/db/client";
-import { registries, registryAuth } from "@/db/schema";
+import {
+  registries,
+  registryCredentialAuth,
+  registryCredentials,
+} from "@/db/schema";
 import { HttpError } from "@/models/error.model";
+import { CredentialService } from "@/services/credential.service";
 import { RegistriesService } from "@/services/registries.service";
 import { encodeCursor } from "@/utils/pagination.util";
-import {
-  invalidateAccessToken,
-  invalidateRegistryAuthCache,
-} from "@/utils/registry-auth.util";
+import { invalidateRegistryIndexCache } from "@/utils/registry.util";
+import { invalidateRegistryAuthCache } from "@/utils/registry-auth.util";
+import { encryptSecrets } from "@/utils/secrets.util";
 
 vi.mock("@/utils/download.util", () => ({
   assertRegistryAddressAllowed: vi.fn(async () => undefined),
@@ -30,13 +33,54 @@ vi.mock("@/utils/download.util", () => ({
 
 const MIGRATIONS_DIR = path.resolve(import.meta.dirname, "../../drizzle");
 
+const SECRETS_KEY = crypto.randomBytes(32).toString("base64");
+const originalSecretsKey = process.env.CYRNEL_SECRETS_KEY;
+const originalPreviousKeys = process.env.CYRNEL_SECRETS_PREVIOUS_KEYS;
+
+const DROP_TABLES = [
+  "approval_requests",
+  "tool_policies",
+  "tools",
+  "service_secrets",
+  "service_configurations",
+  "service_credential_auth",
+  "service_credentials",
+  "module_credential_auth",
+  "module_credentials",
+  "registry_credential_auth",
+  "registry_credentials",
+  "oauth_pendings",
+  "pending_authorizations",
+  "module_connection_schemes",
+  "connection_schemes",
+  "oauth_clients",
+  "connection_auth",
+  "connections",
+  "services",
+  "module_secrets",
+  "module_configurations",
+  "modules",
+  "registry_auth",
+  "registries",
+  "process_data",
+  "process_logs",
+  "processes",
+  "sqlite_vec_chunks",
+  "tool_embeddings",
+  "tools_fts",
+  "_drizzle_migrations",
+];
+
 async function applyMigrations(): Promise<void> {
-  const existing = await db.run(
-    sql.raw(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name='registries'",
-    ),
-  );
-  if (existing.rows.length > 0) return;
+  await db.run(sql.raw("PRAGMA foreign_keys = OFF"));
+  try {
+    for (const name of DROP_TABLES) {
+      await db.run(sql.raw(`DROP TABLE IF EXISTS ${name}`));
+    }
+  } finally {
+    await db.run(sql.raw("PRAGMA foreign_keys = ON"));
+  }
+
   const entries = (await fs.readdir(MIGRATIONS_DIR))
     .filter((name) => name.endsWith(".sql"))
     .sort();
@@ -54,11 +98,169 @@ async function applyMigrations(): Promise<void> {
 
 async function resetDb(): Promise<void> {
   await db.run(sql.raw("PRAGMA foreign_keys = OFF"));
-  await db.run(sql.raw("DELETE FROM registries"));
+  for (const name of [
+    "oauth_pendings",
+    "service_credential_auth",
+    "service_credentials",
+    "module_credential_auth",
+    "module_credentials",
+    "registry_credential_auth",
+    "registry_credentials",
+    "oauth_clients",
+    "services",
+    "modules",
+    "registries",
+  ]) {
+    await db.run(sql.raw(`DELETE FROM ${name}`));
+  }
   await db.run(sql.raw("PRAGMA foreign_keys = ON"));
 }
 
 const svc = new RegistriesService();
+const credSvc = new CredentialService();
+
+const BASE = "https://registry.example.com";
+const TOKEN_URL = `${BASE}/oauth/token`;
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+function publicIndex(id = "cyrnel-dev"): Record<string, unknown> {
+  return {
+    id,
+    "definitions.v1": "/definitions/v1",
+    "modules.v1": "/modules/v1",
+  };
+}
+
+function apiKeyIndex(): Record<string, unknown> {
+  return {
+    id: "cyrnel-dev",
+    auth: {
+      schemes: {
+        apiKey: { type: "apiKey", in: "header", paramName: "X-Key" },
+      },
+      security: [{ apiKey: [] }],
+    },
+    "definitions.v1": "/definitions/v1",
+    "modules.v1": "/modules/v1",
+  };
+}
+
+function machineIndex(): Record<string, unknown> {
+  return {
+    id: "cyrnel-dev",
+    auth: {
+      schemes: {
+        apiKey: { type: "apiKey", in: "header", paramName: "X-Key" },
+        basic: { type: "basic" },
+        bearer: { type: "http", scheme: "bearer" },
+        oauth2: {
+          type: "oauth2",
+          grantTypes: ["client_credentials"],
+          tokenUrl: TOKEN_URL,
+          scopes: { read: "Read catalog", write: "Write catalog" },
+        },
+      },
+      security: [{ apiKey: [] }],
+    },
+    "definitions.v1": "/definitions/v1",
+    "modules.v1": "/modules/v1",
+  };
+}
+
+function acIndex(): Record<string, unknown> {
+  return {
+    id: "cyrnel-dev",
+    auth: {
+      schemes: {
+        oauth2: {
+          type: "oauth2",
+          grantTypes: ["authorization_code"],
+          authorizationUrl: `${BASE}/oauth/authorize`,
+          tokenUrl: TOKEN_URL,
+          scopes: { read: "Read catalog" },
+        },
+      },
+      security: [{ oauth2: ["read"] }],
+    },
+    "definitions.v1": "/definitions/v1",
+    "modules.v1": "/modules/v1",
+  };
+}
+
+let wellKnownDoc: Record<string, unknown> = publicIndex();
+let tokenBodies: string[] = [];
+let tokenCalls = 0;
+let tokenStatus = 200;
+
+function installFetch(
+  handlers?: Partial<Record<string, unknown>>,
+): ReturnType<typeof vi.fn> {
+  const mock = vi.fn(async (input: unknown, init?: { body?: unknown }) => {
+    const url = new URL(String(input));
+    if (url.pathname === "/.well-known/registry.json") {
+      return jsonResponse(wellKnownDoc);
+    }
+    if (url.pathname === "/oauth/token") {
+      tokenCalls += 1;
+      const raw = init?.body;
+      tokenBodies.push(typeof raw === "string" ? raw : String(raw));
+      return jsonResponse(
+        {
+          access_token: "cc-token",
+          token_type: "Bearer",
+          expires_in: 3600,
+        },
+        tokenStatus,
+      );
+    }
+    if (url.pathname === "/definitions/v1") {
+      return jsonResponse(
+        handlers?.definitionsPage ?? { definitions: [], nextCursor: null },
+      );
+    }
+    if (url.pathname === "/modules/v1") {
+      return jsonResponse(
+        handlers?.modulesPage ?? { modules: [], nextCursor: null },
+      );
+    }
+    return jsonResponse({ error: "not found" }, 404);
+  });
+  vi.stubGlobal("fetch", mock);
+  return mock;
+}
+
+async function insertRegistryCredential(input: {
+  registryId: string;
+  schemeName: string;
+  schemeType: "apiKey" | "basic" | "bearer" | "oauth2";
+  secrets: Record<string, unknown>;
+}): Promise<string> {
+  const id = randomUUID();
+  const now = new Date().toISOString();
+  await db.insert(registryCredentials).values({
+    id,
+    registryId: input.registryId,
+    schemeName: input.schemeName,
+    schemeType: input.schemeType,
+    status: "active",
+    requestedScopes: [],
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(registryCredentialAuth).values({
+    credentialId: id,
+    schemeType: input.schemeType,
+    payload: encryptSecrets(input.secrets),
+    updatedAt: Date.now(),
+  });
+  return id;
+}
 
 type SeedRow = [id: string, baseUrl: string, createdAt: string];
 
@@ -74,19 +276,44 @@ async function seedRegistries(rows: SeedRow[]): Promise<void> {
   );
 }
 
+beforeAll(async () => {
+  process.env.CYRNEL_SECRETS_KEY = SECRETS_KEY;
+  delete process.env.CYRNEL_SECRETS_PREVIOUS_KEYS;
+  await applyMigrations();
+});
+
+afterAll(async () => {
+  if (originalSecretsKey === undefined) {
+    delete process.env.CYRNEL_SECRETS_KEY;
+  } else {
+    process.env.CYRNEL_SECRETS_KEY = originalSecretsKey;
+  }
+  if (originalPreviousKeys === undefined) {
+    delete process.env.CYRNEL_SECRETS_PREVIOUS_KEYS;
+  } else {
+    process.env.CYRNEL_SECRETS_PREVIOUS_KEYS = originalPreviousKeys;
+  }
+  await resetDb();
+});
+
+beforeEach(async () => {
+  vi.unstubAllGlobals();
+  await resetDb();
+  invalidateRegistryAuthCache();
+  invalidateRegistryIndexCache();
+  wellKnownDoc = publicIndex();
+  tokenBodies = [];
+  tokenCalls = 0;
+  tokenStatus = 200;
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  invalidateRegistryAuthCache();
+  invalidateRegistryIndexCache();
+});
+
 describe("RegistriesService", () => {
-  beforeAll(async () => {
-    await applyMigrations();
-  });
-
-  afterAll(async () => {
-    await resetDb();
-  });
-
-  beforeEach(async () => {
-    await resetDb();
-  });
-
   describe("createRegistry()", () => {
     it("persists a registry with defaults", async () => {
       const record = await svc.createRegistry({
@@ -267,6 +494,33 @@ describe("RegistriesService", () => {
         statusCode: 400,
       });
     });
+
+    it("carries configuredSchemes per registry", async () => {
+      await svc.createRegistry({ id: "r1", baseUrl: "https://r1.example.com" });
+      await svc.createRegistry({ id: "r2", baseUrl: "https://r2.example.com" });
+      await insertRegistryCredential({
+        registryId: "r1",
+        schemeName: "apiKey",
+        schemeType: "apiKey",
+        secrets: { apiKey: "super-secret-key" },
+      });
+      await insertRegistryCredential({
+        registryId: "r1",
+        schemeName: "bearer",
+        schemeType: "bearer",
+        secrets: { token: "tok" },
+      });
+
+      const { items } = await svc.listRegistries();
+      const r1 = items.find((r) => r.id === "r1");
+      const r2 = items.find((r) => r.id === "r2");
+      expect(r1?.configuredSchemes.sort()).toEqual(["apiKey", "bearer"]);
+      expect(r2?.configuredSchemes).toEqual([]);
+
+      const serialized = JSON.stringify(items);
+      expect(serialized).not.toContain("super-secret-key");
+      expect(serialized).not.toContain("aes-256-gcm");
+    });
   });
 
   describe("getRegistry()", () => {
@@ -305,6 +559,21 @@ describe("RegistriesService", () => {
       await expect(svc.getRegistry("github")).rejects.toBeInstanceOf(HttpError);
     });
 
+    it("cascades owned credentials", async () => {
+      await svc.createRegistry({ id: "r1", baseUrl: "https://r1.example.com" });
+      await insertRegistryCredential({
+        registryId: "r1",
+        schemeName: "apiKey",
+        schemeType: "apiKey",
+        secrets: { apiKey: "k" },
+      });
+
+      await svc.deleteRegistry("r1");
+
+      expect(await db.select().from(registryCredentials)).toHaveLength(0);
+      expect(await db.select().from(registryCredentialAuth)).toHaveLength(0);
+    });
+
     it("throws 404 for a missing id", async () => {
       await expect(svc.deleteRegistry("missing")).rejects.toMatchObject({
         statusCode: 404,
@@ -313,153 +582,464 @@ describe("RegistriesService", () => {
   });
 });
 
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json" },
-  });
-}
-
-const INDEX = {
-  id: "cyrnel-dev",
-  "definitions.v1": "/definitions/v1",
-  "modules.v1": "/modules/v1",
-};
-
-const DEFINITIONS_PAGE = {
-  definitions: [
-    {
-      id: "github",
-      name: "GitHub",
-      source: "/definitions/github",
-      kind: "openapi@3.0",
-    },
-  ],
-  nextCursor: null,
-};
-
-const MODULES_PAGE = {
-  modules: [
-    {
-      id: "hello-env",
-      name: "Hello Env",
-      source: "/modules/hello-env",
-      type: "adapter",
-    },
-  ],
-  nextCursor: null,
-};
-
-function stubRegistryServer(options?: {
-  index?: unknown;
-  definitionsPage?: unknown;
-  modulesPage?: unknown;
-}): ReturnType<typeof vi.fn> {
-  const fetchMock = vi.fn(async (input: string) => {
-    const url = new URL(String(input));
-    if (url.pathname === "/.well-known/registry.json") {
-      return jsonResponse(options?.index ?? INDEX);
-    }
-    if (url.pathname === "/definitions/v1") {
-      return jsonResponse(options?.definitionsPage ?? DEFINITIONS_PAGE);
-    }
-    if (url.pathname === "/modules/v1") {
-      return jsonResponse(options?.modulesPage ?? MODULES_PAGE);
-    }
-    return jsonResponse({ error: "not found" }, 404);
-  });
-  vi.stubGlobal("fetch", fetchMock);
-  return fetchMock;
-}
-
 describe("addRegistry()", () => {
-  beforeEach(async () => {
-    await resetDb();
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
   it("discovers capabilities and persists using the advertised id", async () => {
-    stubRegistryServer();
+    wellKnownDoc = publicIndex();
+    installFetch();
 
-    const record = await svc.addRegistry("https://registry.example.com");
+    const record = await svc.addRegistry(BASE);
 
     expect(record).toMatchObject({
       id: "cyrnel-dev",
-      baseUrl: "https://registry.example.com/",
+      baseUrl: `${BASE}/`,
       lastSyncedAt: null,
+    });
+    expect(record.auth).toEqual({ schemes: {}, security: [] });
+    expect(record.resolvedClients).toEqual({});
+  });
+
+  it("returns the advertised auth declaration", async () => {
+    wellKnownDoc = machineIndex();
+    installFetch();
+
+    const record = await svc.addRegistry(BASE);
+
+    expect(Object.keys(record.auth.schemes).sort()).toEqual([
+      "apiKey",
+      "basic",
+      "bearer",
+      "oauth2",
+    ]);
+    expect(record.auth.security).toEqual([{ apiKey: [] }]);
+    expect(record.resolvedClients).toEqual({});
+  });
+
+  it("resolves OAuth clients for authorization_code schemes", async () => {
+    wellKnownDoc = acIndex();
+    installFetch();
+    const clientId = await credSvc.createOAuthClient({
+      provider: "test-provider",
+      clientId: "test-client",
+      clientSecret: "test-secret",
+      tokenUrl: TOKEN_URL,
+      authorizationUrl: `${BASE}/oauth/authorize`,
+      availableScopes: ["read"],
+    });
+
+    const record = await svc.addRegistry(BASE);
+
+    expect(record.resolvedClients.oauth2).toHaveLength(1);
+    expect(record.resolvedClients.oauth2[0]).toMatchObject({
+      id: clientId,
+      provider: "test-provider",
+      scopeCompatible: true,
     });
   });
 
-  it("succeeds for a definitions-only registry", async () => {
-    stubRegistryServer({
-      index: { id: "defs-only", "definitions.v1": "/definitions/v1" },
-    });
+  it("omits client_credentials-only schemes from resolvedClients", async () => {
+    wellKnownDoc = machineIndex();
+    installFetch();
 
-    const record = await svc.addRegistry("https://registry.example.com");
+    const record = await svc.addRegistry(BASE);
+
+    expect(record.resolvedClients).toEqual({});
+  });
+
+  it("succeeds for a definitions-only registry", async () => {
+    wellKnownDoc = { id: "defs-only", "definitions.v1": "/definitions/v1" };
+    installFetch();
+
+    const record = await svc.addRegistry(BASE);
     expect(record.id).toBe("defs-only");
   });
 
   it("succeeds for a modules-only registry", async () => {
-    stubRegistryServer({
-      index: { id: "mods-only", "modules.v1": "/modules/v1" },
-    });
+    wellKnownDoc = { id: "mods-only", "modules.v1": "/modules/v1" };
+    installFetch();
 
-    const record = await svc.addRegistry("https://registry.example.com");
+    const record = await svc.addRegistry(BASE);
     expect(record.id).toBe("mods-only");
   });
 
   it("uses an explicit id override even when it differs from the advertised id", async () => {
-    stubRegistryServer();
+    wellKnownDoc = publicIndex();
+    installFetch();
 
-    const record = await svc.addRegistry(
-      "https://registry.example.com",
-      "local-alias",
-    );
+    const record = await svc.addRegistry(BASE, "local-alias");
     expect(record.id).toBe("local-alias");
   });
 
   it("rejects a registry advertising no supported capability with 400", async () => {
-    stubRegistryServer({ index: { id: "bare" } });
+    wellKnownDoc = { id: "bare" };
+    installFetch();
 
-    await expect(
-      svc.addRegistry("https://registry.example.com"),
-    ).rejects.toMatchObject({ statusCode: 400 });
+    await expect(svc.addRegistry(BASE)).rejects.toMatchObject({
+      statusCode: 400,
+    });
   });
 
   it("propagates 409 conflicts from createRegistry unchanged", async () => {
-    stubRegistryServer();
+    wellKnownDoc = publicIndex();
+    installFetch();
     await svc.createRegistry({
       id: "cyrnel-dev",
       baseUrl: "https://other.example.com",
     });
 
-    await expect(
-      svc.addRegistry("https://registry.example.com"),
-    ).rejects.toMatchObject({
+    await expect(svc.addRegistry(BASE)).rejects.toMatchObject({
       statusCode: 409,
       message: "Registry 'cyrnel-dev' already exists.",
     });
   });
 });
 
-describe("refreshRegistry()", () => {
-  beforeEach(async () => {
-    await resetDb();
-  });
+describe("setRegistryAuth()", () => {
+  it("configures apiKey material for a declared scheme", async () => {
+    wellKnownDoc = machineIndex();
+    installFetch();
+    await svc.createRegistry({ id: "r1", baseUrl: BASE });
 
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  it("stamps lastSyncedAt and updatedAt", async () => {
-    stubRegistryServer();
-    await svc.createRegistry({
-      id: "cyrnel-dev",
-      baseUrl: "https://registry.example.com",
+    const result = await svc.setRegistryAuth("r1", {
+      schemeName: "apiKey",
+      type: "apiKey",
+      apiKey: "super-secret-key",
     });
+
+    expect(result.auth.status).toBe("configured");
+    expect(result.auth.credential).toMatchObject({
+      schemeName: "apiKey",
+      schemeType: "apiKey",
+      status: "active",
+    });
+    expect(JSON.stringify(result.auth.credential)).not.toContain(
+      "super-secret-key",
+    );
+
+    const [row] = await db.select().from(registryCredentialAuth).limit(1);
+    expect(row.schemeType).toBe("apiKey");
+    expect(JSON.stringify(row.payload)).not.toContain("super-secret-key");
+
+    const { items } = await svc.listRegistries();
+    expect(items[0].configuredSchemes).toEqual(["apiKey"]);
+  });
+
+  it("configures basic material for a declared scheme", async () => {
+    wellKnownDoc = machineIndex();
+    installFetch();
+    await svc.createRegistry({ id: "r1", baseUrl: BASE });
+
+    const result = await svc.setRegistryAuth("r1", {
+      schemeName: "basic",
+      type: "basic",
+      username: "dev",
+      password: "devpass",
+    });
+
+    expect(result.auth.status).toBe("configured");
+    expect(result.auth.credential).toMatchObject({
+      schemeName: "basic",
+      schemeType: "basic",
+    });
+  });
+
+  it("configures bearer material for a declared http/bearer scheme", async () => {
+    wellKnownDoc = machineIndex();
+    installFetch();
+    await svc.createRegistry({ id: "r1", baseUrl: BASE });
+
+    const result = await svc.setRegistryAuth("r1", {
+      schemeName: "bearer",
+      type: "bearer",
+      token: "dev-registry-token",
+    });
+
+    expect(result.auth.status).toBe("configured");
+    expect(result.auth.credential).toMatchObject({
+      schemeName: "bearer",
+      schemeType: "bearer",
+    });
+  });
+
+  it("exchanges oauth2 client credentials immediately", async () => {
+    wellKnownDoc = machineIndex();
+    installFetch();
+    await svc.createRegistry({ id: "r1", baseUrl: BASE });
+
+    const result = await svc.setRegistryAuth("r1", {
+      schemeName: "oauth2",
+      type: "oauth2",
+      grant: "client_credentials",
+      clientId: "c",
+      clientSecret: "s",
+      scopes: ["read"],
+    });
+
+    expect(result.auth.status).toBe("configured");
+    expect(result.auth.tokenExpiresAt).toBeGreaterThan(Date.now());
+    expect(result.auth.credential).toMatchObject({
+      schemeName: "oauth2",
+      schemeType: "oauth2",
+      status: "active",
+    });
+    expect(tokenCalls).toBe(1);
+    const params = new URLSearchParams(tokenBodies[0]);
+    expect(params.get("grant_type")).toBe("client_credentials");
+    expect(params.get("client_id")).toBe("c");
+    expect(params.get("scope")).toBe("read");
+  });
+
+  it("defaults to the full declared scope set when no scopes are given", async () => {
+    wellKnownDoc = machineIndex();
+    installFetch();
+    await svc.createRegistry({ id: "r1", baseUrl: BASE });
+
+    const result = await svc.setRegistryAuth("r1", {
+      schemeName: "oauth2",
+      type: "oauth2",
+      grant: "client_credentials",
+      clientId: "c",
+      clientSecret: "s",
+    });
+
+    expect(result.auth.status).toBe("configured");
+    const params = new URLSearchParams(tokenBodies[0]);
+    expect(params.get("scope")).toBe("read write");
+  });
+
+  it("rejects scope subsets the registry does not advertise with 400", async () => {
+    wellKnownDoc = machineIndex();
+    installFetch();
+    await svc.createRegistry({ id: "r1", baseUrl: BASE });
+
+    await expect(
+      svc.setRegistryAuth("r1", {
+        schemeName: "oauth2",
+        type: "oauth2",
+        grant: "client_credentials",
+        clientId: "c",
+        clientSecret: "s",
+        scopes: ["read", "registry:admin"],
+      }),
+    ).rejects.toMatchObject({ statusCode: 400 });
+    expect(tokenCalls).toBe(0);
+    expect(await db.select().from(registryCredentials)).toHaveLength(0);
+  });
+
+  it("stores error status when the token exchange fails", async () => {
+    wellKnownDoc = machineIndex();
+    tokenStatus = 401;
+    installFetch();
+    await svc.createRegistry({ id: "r1", baseUrl: BASE });
+
+    const result = await svc.setRegistryAuth("r1", {
+      schemeName: "oauth2",
+      type: "oauth2",
+      grant: "client_credentials",
+      clientId: "wrong",
+      clientSecret: "wrong",
+    });
+
+    expect(result.auth.status).toBe("error");
+    expect(result.auth.message).toBeTypeOf("string");
+    expect(result.auth.tokenExpiresAt).toBeUndefined();
+    expect(result.auth.credential.status).toBe("error");
+
+    tokenStatus = 200;
+    const repaired = await svc.setRegistryAuth("r1", {
+      schemeName: "oauth2",
+      type: "oauth2",
+      grant: "client_credentials",
+      clientId: "c",
+      clientSecret: "s",
+    });
+    expect(repaired.auth.status).toBe("configured");
+  });
+
+  it("refuses authorization_code-only schemes with a pointer to the oauth2 flow", async () => {
+    wellKnownDoc = acIndex();
+    installFetch();
+    await svc.createRegistry({ id: "r1", baseUrl: BASE });
+
+    await expect(
+      svc.setRegistryAuth("r1", {
+        schemeName: "oauth2",
+        type: "oauth2",
+        grant: "client_credentials",
+        clientId: "c",
+        clientSecret: "s",
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      message: expect.stringContaining("authorize flow"),
+    });
+    expect(await db.select().from(registryCredentials)).toHaveLength(0);
+  });
+
+  it("rejects material whose type mismatches the declaration with 400", async () => {
+    wellKnownDoc = apiKeyIndex();
+    installFetch();
+    await svc.createRegistry({ id: "r1", baseUrl: BASE });
+
+    await expect(
+      svc.setRegistryAuth("r1", {
+        schemeName: "apiKey",
+        type: "bearer",
+        token: "tok",
+      }),
+    ).rejects.toMatchObject({ statusCode: 400 });
+    expect(await db.select().from(registryCredentials)).toHaveLength(0);
+  });
+
+  it("rejects an undeclared scheme with 400", async () => {
+    wellKnownDoc = apiKeyIndex();
+    installFetch();
+    await svc.createRegistry({ id: "r1", baseUrl: BASE });
+
+    await expect(
+      svc.setRegistryAuth("r1", {
+        schemeName: "nope",
+        type: "apiKey",
+        apiKey: "k",
+      }),
+    ).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it("throws 404 for a missing registry", async () => {
+    installFetch();
+
+    await expect(
+      svc.setRegistryAuth("missing", {
+        schemeName: "apiKey",
+        type: "apiKey",
+        apiKey: "k",
+      }),
+    ).rejects.toMatchObject({ statusCode: 404 });
+  });
+});
+
+describe("getRegistryAuthState()", () => {
+  it("returns schemes, security, and configured credentials", async () => {
+    wellKnownDoc = machineIndex();
+    installFetch();
+    await svc.createRegistry({ id: "r1", baseUrl: BASE });
+    await svc.setRegistryAuth("r1", {
+      schemeName: "apiKey",
+      type: "apiKey",
+      apiKey: "super-secret-key",
+    });
+
+    const state = await svc.getRegistryAuthState("r1");
+
+    expect(Object.keys(state.schemes).sort()).toEqual([
+      "apiKey",
+      "basic",
+      "bearer",
+      "oauth2",
+    ]);
+    expect(state.security).toEqual([{ apiKey: [] }]);
+    expect(state.credentials).toHaveLength(1);
+    expect(state.credentials[0]).toMatchObject({
+      schemeName: "apiKey",
+      schemeType: "apiKey",
+    });
+    expect(JSON.stringify(state)).not.toContain("super-secret-key");
+  });
+
+  it("returns empty credentials before anything is configured", async () => {
+    wellKnownDoc = apiKeyIndex();
+    installFetch();
+    await svc.createRegistry({ id: "r1", baseUrl: BASE });
+
+    const state = await svc.getRegistryAuthState("r1");
+
+    expect(Object.keys(state.schemes)).toEqual(["apiKey"]);
+    expect(state.credentials).toEqual([]);
+  });
+
+  it("throws 404 for a missing registry", async () => {
+    installFetch();
+
+    await expect(svc.getRegistryAuthState("missing")).rejects.toMatchObject({
+      statusCode: 404,
+    });
+  });
+});
+
+describe("deleteRegistryAuth()", () => {
+  it("removes a single scheme slot", async () => {
+    installFetch();
+    await svc.createRegistry({ id: "r1", baseUrl: BASE });
+    await insertRegistryCredential({
+      registryId: "r1",
+      schemeName: "apiKey",
+      schemeType: "apiKey",
+      secrets: { apiKey: "k" },
+    });
+    await insertRegistryCredential({
+      registryId: "r1",
+      schemeName: "bearer",
+      schemeType: "bearer",
+      secrets: { token: "tok" },
+    });
+
+    await svc.deleteRegistryAuth("r1", "apiKey");
+
+    const remaining = await db
+      .select({ schemeName: registryCredentials.schemeName })
+      .from(registryCredentials)
+      .where(eq(registryCredentials.registryId, "r1"));
+    expect(remaining.map((r) => r.schemeName)).toEqual(["bearer"]);
+    expect(await db.select().from(registryCredentialAuth)).toHaveLength(1);
+    const { items } = await svc.listRegistries();
+    expect(items[0].configuredSchemes).toEqual(["bearer"]);
+  });
+
+  it("removes every slot when no scheme is given", async () => {
+    installFetch();
+    await svc.createRegistry({ id: "r1", baseUrl: BASE });
+    await insertRegistryCredential({
+      registryId: "r1",
+      schemeName: "apiKey",
+      schemeType: "apiKey",
+      secrets: { apiKey: "k" },
+    });
+    await insertRegistryCredential({
+      registryId: "r1",
+      schemeName: "bearer",
+      schemeType: "bearer",
+      secrets: { token: "tok" },
+    });
+
+    await svc.deleteRegistryAuth("r1");
+
+    expect(await db.select().from(registryCredentials)).toHaveLength(0);
+    expect(await db.select().from(registryCredentialAuth)).toHaveLength(0);
+  });
+
+  it("throws 404 when the scheme slot is empty", async () => {
+    wellKnownDoc = apiKeyIndex();
+    installFetch();
+    await svc.createRegistry({ id: "r1", baseUrl: BASE });
+
+    await expect(svc.deleteRegistryAuth("r1", "apiKey")).rejects.toMatchObject({
+      statusCode: 404,
+    });
+  });
+
+  it("throws 404 for a missing registry", async () => {
+    installFetch();
+
+    await expect(svc.deleteRegistryAuth("missing")).rejects.toMatchObject({
+      statusCode: 404,
+    });
+  });
+});
+
+describe("refreshRegistry()", () => {
+  it("stamps lastSyncedAt and updatedAt", async () => {
+    wellKnownDoc = publicIndex();
+    installFetch();
+    await svc.createRegistry({ id: "cyrnel-dev", baseUrl: BASE });
 
     const record = await svc.refreshRegistry("cyrnel-dev");
 
@@ -469,13 +1049,9 @@ describe("refreshRegistry()", () => {
   });
 
   it("does not change the id when the advertised id differs", async () => {
-    stubRegistryServer({
-      index: { id: "renamed-id", "definitions.v1": "/definitions/v1" },
-    });
-    await svc.createRegistry({
-      id: "local-id",
-      baseUrl: "https://registry.example.com",
-    });
+    wellKnownDoc = publicIndex("renamed-id");
+    installFetch();
+    await svc.createRegistry({ id: "local-id", baseUrl: BASE });
 
     const record = await svc.refreshRegistry("local-id");
 
@@ -483,19 +1059,70 @@ describe("refreshRegistry()", () => {
   });
 
   it("throws 502 when the registry loses all supported capabilities", async () => {
-    stubRegistryServer({ index: { id: "bare" } });
-    await svc.createRegistry({
-      id: "cyrnel-dev",
-      baseUrl: "https://registry.example.com",
-    });
+    wellKnownDoc = { id: "bare" };
+    installFetch();
+    await svc.createRegistry({ id: "cyrnel-dev", baseUrl: BASE });
 
     await expect(svc.refreshRegistry("cyrnel-dev")).rejects.toMatchObject({
       statusCode: 502,
     });
   });
 
+  it("keeps configured credentials when the advertisement drops auth (best-effort drift warning)", async () => {
+    wellKnownDoc = apiKeyIndex();
+    installFetch();
+    await svc.createRegistry({ id: "r1", baseUrl: BASE });
+    await svc.setRegistryAuth("r1", {
+      schemeName: "apiKey",
+      type: "apiKey",
+      apiKey: "k",
+    });
+
+    wellKnownDoc = publicIndex();
+    invalidateRegistryIndexCache();
+    const record = await svc.refreshRegistry("r1");
+
+    expect(record.id).toBe("r1");
+    const state = await svc.getRegistryAuthState("r1");
+    expect(state.schemes).toEqual({});
+    expect(state.credentials).toHaveLength(1);
+  });
+
+  it("keeps configured credentials when the advertised scheme drifts (best-effort drift warning)", async () => {
+    wellKnownDoc = apiKeyIndex();
+    installFetch();
+    await svc.createRegistry({ id: "r1", baseUrl: BASE });
+    await svc.setRegistryAuth("r1", {
+      schemeName: "apiKey",
+      type: "apiKey",
+      apiKey: "k",
+    });
+
+    wellKnownDoc = {
+      id: "cyrnel-dev",
+      auth: {
+        schemes: {
+          apiKey: {
+            type: "apiKey",
+            in: "header",
+            paramName: "X-Key-Drift",
+          },
+        },
+        security: [{ apiKey: [] }],
+      },
+      "definitions.v1": "/definitions/v1",
+    };
+    invalidateRegistryIndexCache();
+    await expect(svc.refreshRegistry("r1")).resolves.toMatchObject({
+      id: "r1",
+    });
+    const state = await svc.getRegistryAuthState("r1");
+    expect(state.credentials).toHaveLength(1);
+  });
+
   it("throws 404 for a missing registry", async () => {
-    stubRegistryServer();
+    wellKnownDoc = publicIndex();
+    installFetch();
 
     await expect(svc.refreshRegistry("missing")).rejects.toMatchObject({
       statusCode: 404,
@@ -504,20 +1131,33 @@ describe("refreshRegistry()", () => {
 });
 
 describe("browseDefinitions() / browseModules()", () => {
-  beforeEach(async () => {
-    await resetDb();
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
+  const DEFINITIONS_PAGE = {
+    definitions: [
+      {
+        id: "github",
+        name: "GitHub",
+        source: "/definitions/github",
+        kind: "openapi@3.0",
+      },
+    ],
+    nextCursor: null,
+  };
+  const MODULES_PAGE = {
+    modules: [
+      {
+        id: "hello-env",
+        name: "Hello Env",
+        source: "/modules/hello-env",
+        type: "adapter",
+      },
+    ],
+    nextCursor: null,
+  };
 
   it("passes definitions params through to the capability endpoint", async () => {
-    const fetchMock = stubRegistryServer();
-    await svc.createRegistry({
-      id: "cyrnel-dev",
-      baseUrl: "https://registry.example.com",
-    });
+    wellKnownDoc = publicIndex("cyrnel-dev");
+    const fetchMock = installFetch({ definitionsPage: DEFINITIONS_PAGE });
+    await svc.createRegistry({ id: "cyrnel-dev", baseUrl: BASE });
 
     const page = await svc.browseDefinitions("cyrnel-dev", {
       query: "git",
@@ -536,11 +1176,9 @@ describe("browseDefinitions() / browseModules()", () => {
   });
 
   it("passes modules params through to the capability endpoint", async () => {
-    const fetchMock = stubRegistryServer();
-    await svc.createRegistry({
-      id: "cyrnel-dev",
-      baseUrl: "https://registry.example.com",
-    });
+    wellKnownDoc = publicIndex("cyrnel-dev");
+    const fetchMock = installFetch({ modulesPage: MODULES_PAGE });
+    await svc.createRegistry({ id: "cyrnel-dev", baseUrl: BASE });
 
     await svc.browseModules("cyrnel-dev", { type: "adapter" });
 
@@ -552,13 +1190,9 @@ describe("browseDefinitions() / browseModules()", () => {
   });
 
   it("throws 404 when the registry does not support definitions", async () => {
-    stubRegistryServer({
-      index: { id: "mods-only", "modules.v1": "/modules/v1" },
-    });
-    await svc.createRegistry({
-      id: "mods-only",
-      baseUrl: "https://registry.example.com",
-    });
+    wellKnownDoc = { id: "mods-only", "modules.v1": "/modules/v1" };
+    installFetch();
+    await svc.createRegistry({ id: "mods-only", baseUrl: BASE });
 
     await expect(svc.browseDefinitions("mods-only", {})).rejects.toMatchObject({
       statusCode: 404,
@@ -566,13 +1200,9 @@ describe("browseDefinitions() / browseModules()", () => {
   });
 
   it("throws 404 when the registry does not support modules", async () => {
-    stubRegistryServer({
-      index: { id: "defs-only", "definitions.v1": "/definitions/v1" },
-    });
-    await svc.createRegistry({
-      id: "defs-only",
-      baseUrl: "https://registry.example.com",
-    });
+    wellKnownDoc = { id: "defs-only", "definitions.v1": "/definitions/v1" };
+    installFetch();
+    await svc.createRegistry({ id: "defs-only", baseUrl: BASE });
 
     await expect(svc.browseModules("defs-only", {})).rejects.toMatchObject({
       statusCode: 404,
@@ -580,7 +1210,8 @@ describe("browseDefinitions() / browseModules()", () => {
   });
 
   it("throws 404 when the registry itself is missing", async () => {
-    stubRegistryServer();
+    wellKnownDoc = publicIndex();
+    installFetch();
 
     await expect(svc.browseDefinitions("missing", {})).rejects.toMatchObject({
       statusCode: 404,
@@ -591,12 +1222,7 @@ describe("browseDefinitions() / browseModules()", () => {
 describe("seedDefault()", () => {
   const ORIGINAL_DEFAULT = process.env.CYRNEL_DEFAULT_REGISTRY_URL;
 
-  beforeEach(async () => {
-    await resetDb();
-  });
-
   afterEach(() => {
-    vi.unstubAllGlobals();
     if (ORIGINAL_DEFAULT === undefined) {
       delete process.env.CYRNEL_DEFAULT_REGISTRY_URL;
     } else {
@@ -617,8 +1243,9 @@ describe("seedDefault()", () => {
   });
 
   it("seeds when the table is empty", async () => {
-    process.env.CYRNEL_DEFAULT_REGISTRY_URL = "https://registry.example.com";
-    stubRegistryServer();
+    process.env.CYRNEL_DEFAULT_REGISTRY_URL = BASE;
+    wellKnownDoc = publicIndex();
+    installFetch();
 
     await svc.seedDefault();
 
@@ -628,8 +1255,9 @@ describe("seedDefault()", () => {
   });
 
   it("does nothing when the table already has registries", async () => {
-    process.env.CYRNEL_DEFAULT_REGISTRY_URL = "https://registry.example.com";
-    stubRegistryServer();
+    process.env.CYRNEL_DEFAULT_REGISTRY_URL = BASE;
+    wellKnownDoc = publicIndex();
+    installFetch();
     await svc.createRegistry({
       id: "existing",
       baseUrl: "https://other.example.com",
@@ -642,7 +1270,7 @@ describe("seedDefault()", () => {
   });
 
   it("swallows a failing fetch", async () => {
-    process.env.CYRNEL_DEFAULT_REGISTRY_URL = "https://registry.example.com";
+    process.env.CYRNEL_DEFAULT_REGISTRY_URL = BASE;
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => {
@@ -655,652 +1283,6 @@ describe("seedDefault()", () => {
       items: [],
       nextCursor: null,
       hasMore: false,
-    });
-  });
-});
-
-describe("RegistriesService registry auth", () => {
-  type Enforcement = "none" | "apikey" | "oauth2";
-
-  interface FixtureState {
-    enforcement: Enforcement;
-    advertisement: unknown;
-    apiKey: string;
-    keyHeader: string;
-    clientId: string;
-    clientSecret: string;
-    tokenEndpoint: string | null;
-    token: string;
-    failNextDefinitions: number;
-    tokenExchanges: number;
-    tokenBodies: string[];
-    definitionsHeaders: Array<Record<string, string | string[] | undefined>>;
-  }
-
-  const SECRETS_KEY = crypto.randomBytes(32).toString("base64");
-  const originalSecretsKey = process.env.CYRNEL_SECRETS_KEY;
-  const originalPreviousKeys = process.env.CYRNEL_SECRETS_PREVIOUS_KEYS;
-
-  const state: FixtureState = {
-    enforcement: "none",
-    advertisement: undefined,
-    apiKey: "fixture-key",
-    keyHeader: "X-Fixture-Key",
-    clientId: "fixture-client",
-    clientSecret: "fixture-secret",
-    tokenEndpoint: null,
-    token: "fixture-access-token",
-    failNextDefinitions: 0,
-    tokenExchanges: 0,
-    tokenBodies: [],
-    definitionsHeaders: [],
-  };
-
-  let baseUrl: string;
-  let fixtureServer: import("node:http").Server;
-
-  function advertiseApiKey(headerName = state.keyHeader): void {
-    state.advertisement = { type: "apiKey", name: headerName };
-  }
-
-  function advertiseOAuth2(tokenEndpoint?: string): void {
-    state.advertisement = {
-      type: "oauth2",
-      grantType: "client_credentials",
-      tokenEndpoint: tokenEndpoint ?? `${baseUrl}/oauth/token`,
-      scopes: [
-        { id: "registry:read", description: "Read from the registry" },
-        { id: "registry:write", description: "Write to the registry" },
-      ],
-    };
-  }
-
-  function isAuthorized(
-    headers: Record<string, string | string[] | undefined>,
-  ): boolean {
-    if (state.enforcement === "apikey") {
-      return headers[state.keyHeader.toLowerCase()] === state.apiKey;
-    }
-    if (state.enforcement === "oauth2") {
-      return headers.authorization === `Bearer ${state.token}`;
-    }
-    return true;
-  }
-
-  beforeAll(async () => {
-    process.env.CYRNEL_SECRETS_KEY = SECRETS_KEY;
-    delete process.env.CYRNEL_SECRETS_PREVIOUS_KEYS;
-    await applyMigrations();
-
-    fixtureServer = createServer((req, res) => {
-      const url = new URL(
-        req.url ?? "/",
-        `http://127.0.0.1:${req.socket.localPort ?? 0}`,
-      );
-
-      if (req.method === "POST" && url.pathname === "/oauth/token") {
-        let body = "";
-        req.on("data", (chunk: Buffer) => {
-          body += chunk.toString("utf8");
-        });
-        req.on("end", () => {
-          state.tokenExchanges += 1;
-          state.tokenBodies.push(body);
-          const params = new URLSearchParams(body);
-          if (
-            params.get("client_id") !== state.clientId ||
-            params.get("client_secret") !== state.clientSecret
-          ) {
-            res.writeHead(401, { "content-type": "application/json" });
-            res.end(JSON.stringify({ error: "invalid_client" }));
-            return;
-          }
-          res.writeHead(200, { "content-type": "application/json" });
-          res.end(
-            JSON.stringify({
-              access_token: state.token,
-              token_type: "Bearer",
-              expires_in: 3600,
-            }),
-          );
-        });
-        return;
-      }
-
-      if (url.pathname === "/.well-known/registry.json") {
-        res.writeHead(200, { "content-type": "application/json" });
-        res.end(
-          JSON.stringify({
-            id: "auth-fixture",
-            ...(state.advertisement === undefined
-              ? {}
-              : { auth: state.advertisement }),
-            "definitions.v1": "/definitions/v1",
-          }),
-        );
-        return;
-      }
-
-      if (url.pathname === "/definitions/v1") {
-        state.definitionsHeaders.push(req.headers);
-        if (state.failNextDefinitions > 0) {
-          state.failNextDefinitions -= 1;
-          res.writeHead(401, { "content-type": "application/json" });
-          res.end(JSON.stringify({ error: "unauthorized" }));
-          return;
-        }
-        if (!isAuthorized(req.headers)) {
-          res.writeHead(401, { "content-type": "application/json" });
-          res.end(JSON.stringify({ error: "unauthorized" }));
-          return;
-        }
-        res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ definitions: [], nextCursor: null }));
-        return;
-      }
-
-      res.writeHead(404, { "content-type": "application/json" });
-      res.end(JSON.stringify({ error: `Not found: ${url.pathname}` }));
-    });
-
-    await new Promise<void>((resolve) => {
-      fixtureServer.listen(0, "127.0.0.1", resolve);
-    });
-    const address = fixtureServer.address();
-    if (address === null || typeof address === "string") {
-      throw new Error("auth fixture server did not bind a port");
-    }
-    baseUrl = `http://127.0.0.1:${address.port}`;
-    state.tokenEndpoint = `${baseUrl}/oauth/token`;
-  });
-
-  afterAll(async () => {
-    if (originalSecretsKey === undefined) {
-      delete process.env.CYRNEL_SECRETS_KEY;
-    } else {
-      process.env.CYRNEL_SECRETS_KEY = originalSecretsKey;
-    }
-    if (originalPreviousKeys === undefined) {
-      delete process.env.CYRNEL_SECRETS_PREVIOUS_KEYS;
-    } else {
-      process.env.CYRNEL_SECRETS_PREVIOUS_KEYS = originalPreviousKeys;
-    }
-    await new Promise<void>((resolve, reject) => {
-      fixtureServer.close((err) => (err ? reject(err) : resolve()));
-    });
-    await resetDb();
-  });
-
-  beforeEach(async () => {
-    await db.run(sql.raw("PRAGMA foreign_keys = OFF"));
-    await db.run(sql.raw("DELETE FROM registry_auth"));
-    await db.run(sql.raw("DELETE FROM registries"));
-    await db.run(sql.raw("PRAGMA foreign_keys = ON"));
-    invalidateRegistryAuthCache();
-
-    state.enforcement = "none";
-    state.advertisement = undefined;
-    state.failNextDefinitions = 0;
-    state.tokenExchanges = 0;
-    state.tokenBodies = [];
-    state.definitionsHeaders = [];
-  });
-
-  it("stores api key credentials encrypted and attaches them on browse", async () => {
-    advertiseApiKey();
-    state.enforcement = "apikey";
-
-    const result = await svc.addRegistry(baseUrl, undefined, {
-      type: "apiKey",
-      apiKey: state.apiKey,
-    });
-
-    expect(result.id).toBe("auth-fixture");
-    expect(result.auth).toMatchObject({
-      type: "apiKey",
-      status: "configured",
-    });
-
-    const [row] = await db
-      .select()
-      .from(registryAuth)
-      .where(eq(registryAuth.registryId, result.id))
-      .limit(1);
-    expect(row).toBeDefined();
-    expect(row.authType).toBe("apiKey");
-    expect(row.headerName).toBe("X-Fixture-Key");
-    expect(JSON.stringify(row.config)).not.toContain(state.apiKey);
-    expect(JSON.stringify(row.config)).toContain("aes-256-gcm");
-
-    await svc.browseDefinitions(result.id, {});
-    const lastHeaders = state.definitionsHeaders.at(-1);
-    expect(lastHeaders?.["x-fixture-key"]).toBe(state.apiKey);
-
-    const authState = await svc.getAuthState(result.id);
-    expect(authState.authType).toBe("apiKey");
-    expect(authState.headerName).toBe("X-Fixture-Key");
-    expect(authState.tokenExpiresAt).toBeNull();
-  });
-
-  it("list responses expose auth metadata but never secrets", async () => {
-    advertiseApiKey();
-    state.enforcement = "apikey";
-    await svc.addRegistry(baseUrl, undefined, {
-      type: "apiKey",
-      apiKey: "super-secret-key",
-    });
-
-    const { items } = await svc.listRegistries();
-    expect(items[0].authType).toBe("apiKey");
-    const serialized = JSON.stringify(items);
-    expect(serialized).not.toContain("super-secret-key");
-    expect(serialized).not.toContain("aes-256-gcm");
-  });
-
-  it("exchanges oauth2 credentials, caches the token, and browses with the bearer", async () => {
-    advertiseOAuth2();
-    state.enforcement = "oauth2";
-
-    const result = await svc.addRegistry(baseUrl, undefined, {
-      type: "oauth2",
-      clientId: state.clientId,
-      clientSecret: state.clientSecret,
-      scopes: ["registry:read"],
-    });
-
-    expect(result.auth).toMatchObject({
-      type: "oauth2",
-      status: "configured",
-    });
-    expect(result.auth?.tokenExpiresAt).toBeGreaterThan(Date.now() + 3_500_000);
-    expect(state.tokenExchanges).toBe(1);
-
-    const params = new URLSearchParams(state.tokenBodies[0]);
-    expect(params.get("grant_type")).toBe("client_credentials");
-    expect(params.get("client_id")).toBe(state.clientId);
-    expect(params.get("scope")).toBe("registry:read");
-
-    await svc.browseDefinitions(result.id, {});
-    expect(state.definitionsHeaders.at(-1)?.authorization).toBe(
-      `Bearer ${state.token}`,
-    );
-
-    const authState = await svc.getAuthState(result.id);
-    expect(authState.authType).toBe("oauth2");
-    expect(authState.tokenEndpoint).toBe(state.tokenEndpoint);
-    expect(authState.tokenExpiresAt).not.toBeNull();
-  });
-
-  it("defaults to the full advertised scope set when none is requested", async () => {
-    advertiseOAuth2();
-    state.enforcement = "oauth2";
-
-    const result = await svc.addRegistry(baseUrl, undefined, {
-      type: "oauth2",
-      clientId: state.clientId,
-      clientSecret: state.clientSecret,
-    });
-
-    expect(result.auth?.status).toBe("configured");
-    const params = new URLSearchParams(state.tokenBodies[0]);
-    expect(params.get("scope")).toBe("registry:read registry:write");
-  });
-
-  it("refuses requested scopes the registry does not advertise", async () => {
-    advertiseOAuth2();
-    state.enforcement = "oauth2";
-
-    await expect(
-      svc.addRegistry(baseUrl, undefined, {
-        type: "oauth2",
-        clientId: state.clientId,
-        clientSecret: state.clientSecret,
-        scopes: ["registry:read", "registry:admin"],
-      }),
-    ).rejects.toMatchObject({ statusCode: 400 });
-    expect((await svc.listRegistries()).items).toHaveLength(0);
-
-    const result = await svc.addRegistry(baseUrl, undefined, {
-      type: "oauth2",
-      clientId: state.clientId,
-      clientSecret: state.clientSecret,
-    });
-    const exchangesBefore = state.tokenExchanges;
-    await expect(
-      svc.setRegistryAuth(result.id, {
-        type: "oauth2",
-        clientId: state.clientId,
-        clientSecret: state.clientSecret,
-        scopes: ["registry:admin"],
-      }),
-    ).rejects.toMatchObject({ statusCode: 400 });
-    const [row] = await db.select().from(registryAuth).limit(1);
-    expect(row).toBeDefined();
-    expect(state.tokenExchanges).toBe(exchangesBefore);
-  });
-
-  it("reads back available and configured scopes from the live advertisement", async () => {
-    advertiseOAuth2();
-    state.enforcement = "oauth2";
-
-    const result = await svc.addRegistry(baseUrl, undefined, {
-      type: "oauth2",
-      clientId: state.clientId,
-      clientSecret: state.clientSecret,
-      scopes: ["registry:read"],
-    });
-
-    const authState = await svc.getRegistryAuthState(result.id);
-    expect(authState.availableScopes).toEqual([
-      { id: "registry:read", description: "Read from the registry" },
-      { id: "registry:write", description: "Write to the registry" },
-    ]);
-    expect(authState.configuredScopes).toEqual(["registry:read"]);
-
-    await expect(svc.getRegistryAuthState("missing")).rejects.toMatchObject({
-      statusCode: 404,
-    });
-  });
-
-  it("reads back no scopes when api key auth is configured", async () => {
-    advertiseApiKey();
-    state.enforcement = "apikey";
-    const result = await svc.addRegistry(baseUrl, undefined, {
-      type: "apiKey",
-      apiKey: state.apiKey,
-    });
-
-    const authState = await svc.getRegistryAuthState(result.id);
-    expect(authState.availableScopes).toEqual([]);
-    expect(authState.configuredScopes).toEqual([]);
-  });
-
-  it("exposes advertised scopes before any auth is configured", async () => {
-    advertiseOAuth2();
-    state.enforcement = "oauth2";
-    const result = await svc.addRegistry(baseUrl, undefined);
-
-    const authState = await svc.getRegistryAuthState(result.id);
-    expect(authState.authType).toBeNull();
-    expect(authState.availableScopes).toEqual([
-      { id: "registry:read", description: "Read from the registry" },
-      { id: "registry:write", description: "Write to the registry" },
-    ]);
-    expect(authState.configuredScopes).toEqual([]);
-  });
-
-  it("never stores credentials when the methods mismatch", async () => {
-    advertiseOAuth2();
-    state.enforcement = "oauth2";
-
-    const result = await svc.addRegistry(baseUrl, undefined, {
-      type: "apiKey",
-      apiKey: "super-secret-key",
-    });
-
-    expect(result.auth).toMatchObject({
-      type: "apiKey",
-      status: "error",
-      message: expect.stringContaining("oauth2"),
-    });
-    expect((await svc.listRegistries()).items).toHaveLength(1);
-    const [row] = await db.select().from(registryAuth).limit(1);
-    expect(row).toBeUndefined();
-
-    await expect(
-      svc.setRegistryAuth(result.id, {
-        type: "apiKey",
-        apiKey: "super-secret-key",
-      }),
-    ).rejects.toMatchObject({ statusCode: 400 });
-    const [stillEmpty] = await db.select().from(registryAuth).limit(1);
-    expect(stillEmpty).toBeUndefined();
-  });
-
-  it("stores the registry with error status when the token exchange fails at setup", async () => {
-    advertiseOAuth2();
-    state.enforcement = "oauth2";
-
-    const result = await svc.addRegistry(baseUrl, undefined, {
-      type: "oauth2",
-      clientId: "wrong-client",
-      clientSecret: "wrong-secret",
-    });
-
-    expect(result.auth).toMatchObject({ type: "oauth2", status: "error" });
-    expect((await svc.listRegistries()).items).toHaveLength(1);
-
-    const repaired = await svc.setRegistryAuth(result.id, {
-      type: "oauth2",
-      clientId: state.clientId,
-      clientSecret: state.clientSecret,
-    });
-    expect(repaired.auth.status).toBe("configured");
-    expect(repaired.auth.tokenExpiresAt).not.toBeNull();
-
-    await expect(svc.browseDefinitions(result.id, {})).resolves.toBeDefined();
-  });
-
-  it("refuses plaintext-http token endpoints advertised outside loopback", async () => {
-    advertiseOAuth2("http://public.invalid/oauth/token");
-    state.enforcement = "oauth2";
-
-    await expect(
-      svc.addRegistry(baseUrl, undefined, {
-        type: "oauth2",
-        clientId: state.clientId,
-        clientSecret: state.clientSecret,
-      }),
-    ).rejects.toMatchObject({ statusCode: 400 });
-
-    expect((await svc.listRegistries()).items).toHaveLength(0);
-  });
-
-  it("keeps the pinned token endpoint when the advertisement drifts", async () => {
-    advertiseOAuth2();
-    state.enforcement = "oauth2";
-    const result = await svc.addRegistry(baseUrl, undefined, {
-      type: "oauth2",
-      clientId: state.clientId,
-      clientSecret: state.clientSecret,
-    });
-
-    advertiseOAuth2(`${baseUrl}/oauth/drift-token`);
-
-    await expect(svc.refreshRegistry(result.id)).resolves.toMatchObject({
-      id: result.id,
-    });
-
-    const authState = await svc.getAuthState(result.id);
-    expect(authState.tokenEndpoint).toBe(state.tokenEndpoint);
-  });
-
-  it("keeps the pinned header name when the api key advertisement drifts", async () => {
-    advertiseApiKey();
-    state.enforcement = "apikey";
-    const result = await svc.addRegistry(baseUrl, undefined, {
-      type: "apiKey",
-      apiKey: "super-secret-key",
-    });
-
-    advertiseApiKey("X-Fixture-Key-Drift");
-
-    await expect(svc.refreshRegistry(result.id)).resolves.toBeDefined();
-
-    const authState = await svc.getAuthState(result.id);
-    expect(authState.headerName).toBe("X-Fixture-Key");
-  });
-
-  it("exchanges a single token for concurrent refresh requests", async () => {
-    advertiseOAuth2();
-    state.enforcement = "oauth2";
-    const result = await svc.addRegistry(baseUrl, undefined, {
-      type: "oauth2",
-      clientId: state.clientId,
-      clientSecret: state.clientSecret,
-    });
-    expect(state.tokenExchanges).toBe(1);
-
-    await invalidateAccessToken(result.id);
-
-    await Promise.all([
-      svc.browseDefinitions(result.id, {}),
-      svc.browseDefinitions(result.id, {}),
-    ]);
-
-    expect(state.tokenExchanges).toBe(2);
-  });
-
-  it("retries exactly once with a fresh token after a 401", async () => {
-    advertiseOAuth2();
-    state.enforcement = "oauth2";
-    const result = await svc.addRegistry(baseUrl, undefined, {
-      type: "oauth2",
-      clientId: state.clientId,
-      clientSecret: state.clientSecret,
-    });
-    expect(state.tokenExchanges).toBe(1);
-
-    await invalidateAccessToken(result.id);
-    state.failNextDefinitions = 1;
-
-    await expect(svc.browseDefinitions(result.id, {})).resolves.toBeDefined();
-    expect(state.tokenExchanges).toBe(3);
-    expect(state.failNextDefinitions).toBe(0);
-  });
-
-  it("reuses a stored token across cache reloads", async () => {
-    advertiseOAuth2();
-    state.enforcement = "oauth2";
-    const result = await svc.addRegistry(baseUrl, undefined, {
-      type: "oauth2",
-      clientId: state.clientId,
-      clientSecret: state.clientSecret,
-    });
-
-    invalidateRegistryAuthCache();
-    invalidateAccessToken(result.id);
-
-    await expect(svc.browseDefinitions(result.id, {})).resolves.toBeDefined();
-    expect(state.tokenExchanges).toBe(1);
-  });
-
-  it("scopes auth headers to the owning registry", async () => {
-    advertiseApiKey();
-    state.enforcement = "apikey";
-    const resultA = await svc.addRegistry(baseUrl, undefined, {
-      type: "apiKey",
-      apiKey: state.apiKey,
-    });
-
-    const otherKey = "secret-b";
-    const otherHeaders: Array<Record<string, string | string[] | undefined>> =
-      [];
-    const otherServer = createServer((req, res) => {
-      const url = new URL(req.url ?? "/", "http://127.0.0.1");
-      if (url.pathname === "/.well-known/registry.json") {
-        res.writeHead(200, { "content-type": "application/json" });
-        res.end(
-          JSON.stringify({
-            id: "other-fixture",
-            auth: { type: "apiKey", name: "X-Other-Key" },
-            "definitions.v1": "/definitions/v1",
-          }),
-        );
-        return;
-      }
-      if (url.pathname === "/definitions/v1") {
-        otherHeaders.push(req.headers);
-        if (req.headers["x-other-key"] !== otherKey) {
-          res.writeHead(401, { "content-type": "application/json" });
-          res.end(JSON.stringify({ error: "unauthorized" }));
-          return;
-        }
-        res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ definitions: [], nextCursor: null }));
-        return;
-      }
-      res.writeHead(404).end();
-    });
-    await new Promise<void>((resolve) => {
-      otherServer.listen(0, "127.0.0.1", resolve);
-    });
-    const otherAddress = otherServer.address();
-    if (otherAddress === null || typeof otherAddress === "string") {
-      throw new Error("other fixture server did not bind a port");
-    }
-
-    try {
-      const resultB = await svc.addRegistry(
-        `http://127.0.0.1:${otherAddress.port}`,
-        undefined,
-        { type: "apiKey", apiKey: otherKey },
-      );
-
-      state.definitionsHeaders = [];
-      await Promise.all([
-        svc.browseDefinitions(resultA.id, {}),
-        svc.browseDefinitions(resultB.id, {}),
-      ]);
-
-      expect(state.definitionsHeaders.at(-1)?.["x-fixture-key"]).toBe(
-        state.apiKey,
-      );
-      expect(state.definitionsHeaders.at(-1)?.["x-other-key"]).toBeUndefined();
-      expect(otherHeaders.at(-1)?.["x-other-key"]).toBe(otherKey);
-      expect(otherHeaders.at(-1)?.["x-fixture-key"]).toBeUndefined();
-
-      state.definitionsHeaders = [];
-      await svc.browseDefinitions(resultA.id, {});
-      expect(state.definitionsHeaders.at(-1)?.["x-other-key"]).toBeUndefined();
-    } finally {
-      await new Promise<void>((resolve) => {
-        otherServer.close(() => resolve());
-      });
-    }
-  });
-
-  it("cascades auth rows when a registry is deleted", async () => {
-    advertiseApiKey();
-    state.enforcement = "apikey";
-    const result = await svc.addRegistry(baseUrl, undefined, {
-      type: "apiKey",
-      apiKey: "super-secret-key",
-    });
-
-    await svc.deleteRegistry(result.id);
-
-    const [row] = await db
-      .select()
-      .from(registryAuth)
-      .where(eq(registryAuth.registryId, result.id))
-      .limit(1);
-    expect(row).toBeUndefined();
-  });
-
-  it("setRegistryAuth replaces the method and deleteRegistryAuth removes it", async () => {
-    advertiseApiKey();
-    state.enforcement = "apikey";
-    const result = await svc.addRegistry(baseUrl, undefined, {
-      type: "apiKey",
-      apiKey: "super-secret-key",
-    });
-
-    advertiseOAuth2();
-    state.enforcement = "oauth2";
-    const replaced = await svc.setRegistryAuth(result.id, {
-      type: "oauth2",
-      clientId: state.clientId,
-      clientSecret: state.clientSecret,
-    });
-    expect(replaced.auth.status).toBe("configured");
-    expect((await svc.getAuthState(result.id)).authType).toBe("oauth2");
-
-    await svc.deleteRegistryAuth(result.id);
-    expect((await svc.getAuthState(result.id)).authType).toBeNull();
-
-    await expect(svc.deleteRegistryAuth(result.id)).rejects.toMatchObject({
-      statusCode: 404,
     });
   });
 });

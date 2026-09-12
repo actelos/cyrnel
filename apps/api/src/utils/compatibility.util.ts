@@ -2,11 +2,6 @@ import { satisfies } from "semver";
 
 import { HttpError } from "@/models/error.model";
 
-/**
- * A definition kind is an identifier plus a version, e.g. `openapi@3.0`.
- * The identifier names the definition family and the version names the
- * family's specification version.
- */
 export const KIND_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]*@\d+(?:\.\d+){0,2}$/;
 
 export interface DefinitionKind {
@@ -51,11 +46,6 @@ function normalizeKindVersion(version: string): string {
   return parts.join(".");
 }
 
-/**
- * Whether a definition kind is accepted by an adapter's compatibility list.
- * Kind versions like `3.0` are padded to full semver (`3.0.0`) before the
- * range check.
- */
 export function isKindCompatible(
   kind: DefinitionKind | undefined,
   compatibility: readonly CompatibilityEntry[] | undefined,
@@ -70,12 +60,6 @@ export function isKindCompatible(
   );
 }
 
-/**
- * Ranks adapters for a definition kind: compatible adapters first, then
- * incompatible ones. Within each group, active adapters sort before inactive
- * ones, built-in (canonical) adapters sort before third-party ones, and ties
- * break by name.
- */
 export function rankAdapters(
   kind: DefinitionKind | undefined,
   adapters: readonly RankableAdapter[],
@@ -93,10 +77,6 @@ export function rankAdapters(
   );
 }
 
-/**
- * The best adapter to install a definition kind with: the top-ranked
- * compatible adapter that is currently active, if any.
- */
 export function resolveDefaultAdapterId(
   kind: DefinitionKind | undefined,
   adapters: readonly RankableAdapter[],

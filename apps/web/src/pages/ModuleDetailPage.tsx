@@ -5,6 +5,7 @@ import { useNavigate, useParams } from "react-router";
 import remarkGfm from "remark-gfm";
 import useSWR, { useSWRConfig } from "swr";
 import { z } from "zod";
+import AuthSection from "@/components/AuthSection";
 import { EntityIcon } from "@/components/entity-icon";
 import JsonSchemaForm from "@/components/JsonSchemaForm";
 import {
@@ -53,6 +54,20 @@ const moduleDetailSchema = z.object({
   hasIcon: z.boolean(),
   configSchema: z.record(z.string(), z.unknown()),
   secretsSchema: z.record(z.string(), z.unknown()),
+  schemes: z
+    .record(z.string(), z.object({ type: z.string() }).passthrough())
+    .optional(),
+  security: z.array(z.record(z.string(), z.array(z.string()))).optional(),
+  credentialSchemes: z
+    .record(
+      z.string(),
+      z.object({
+        configured: z.boolean(),
+        status: z.string().optional(),
+        grantedSource: z.string().nullable().optional(),
+      }),
+    )
+    .optional(),
 });
 
 const moduleConfigSchema = z.object({
@@ -146,7 +161,7 @@ export default function ModuleDetailPage() {
   const { data: moduleDetail } = useSWR(
     moduleDetailUrl,
     (url) => apiFetchJson(url, moduleDetailSchema),
-    { refreshInterval: 8000 },
+    { refreshInterval: 12000 },
   );
 
   const { data: updateCheck } = useSWR(
@@ -174,25 +189,25 @@ export default function ModuleDetailPage() {
   const { data: moduleConfig } = useSWR(
     configUrl,
     (url) => apiFetchJson(url, moduleConfigSchema),
-    { refreshInterval: 8000 },
+    { refreshInterval: 12000 },
   );
 
   const { data: moduleConfigSchemaPayload } = useSWR(
     configSchemaUrl,
     (url) => apiFetchJson(url, moduleConfigSchemaSchema),
-    { refreshInterval: 8000 },
+    { refreshInterval: 12000 },
   );
 
   const { data: moduleSecretsPresence } = useSWR(
     secretsUrl,
     (url) => apiFetchJson(url, secretsPresenceSchema),
-    { refreshInterval: 8000 },
+    { refreshInterval: 12000 },
   );
 
   const { data: moduleSecretsSchemaPayload } = useSWR(
     secretsSchemaUrl,
     (url) => apiFetchJson(url, moduleSecretsSchemaSchema),
-    { refreshInterval: 8000 },
+    { refreshInterval: 12000 },
   );
 
   const presentSet = useMemo(
@@ -423,7 +438,7 @@ export default function ModuleDetailPage() {
         </Button>
       </header>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-6">
+      <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto">
         <Card>
           <CardContent className="space-y-4">
             <div className="space-y-2">
@@ -618,6 +633,25 @@ export default function ModuleDetailPage() {
             </div>
           </CardContent>
         </Card>
+
+        {moduleDetail.schemes &&
+        Object.keys(moduleDetail.schemes).length > 0 ? (
+          <AuthSection
+            target={{ kind: "module", id: moduleDetail.id }}
+            authSchemes={moduleDetail.schemes}
+            credentialSchemes={moduleDetail.credentialSchemes}
+            secretsSchema={moduleDetail.secretsSchema}
+          />
+        ) : (
+          <Card>
+            <CardContent className="space-y-4">
+              <h3 className="text-lg font-semibold">Authentication</h3>
+              <p className="text-muted-foreground text-sm">
+                This module does not declare any authentication schemes.
+              </p>
+            </CardContent>
+          </Card>
+        )}
 
         <div className="max-h-[calc(100vh-3rem)] flex flex-col lg:flex-row gap-6">
           <JsonSchemaForm

@@ -1,0 +1,2 @@
+DELETE FROM `connection_schemes` WHERE `rowid` NOT IN (SELECT MIN(`rowid`) FROM `connection_schemes` GROUP BY `service_id`, `scheme_name`);--> statement-breakpoint
+CREATE UNIQUE INDEX `connection_schemes_service_scheme_unique` ON `connection_schemes` (`service_id`,`scheme_name`);

@@ -19,38 +19,47 @@
             "tabs": [
               {
                 "tab": "Documentation",
-                "groups": [
+                "versions": [
                   {
-                    "group": "Overview",
-                    "pages": [
-                      "cyrnel/docs/quick-start",
-                      "cyrnel/docs/introduction",
-                      "cyrnel/docs/faq",
-                      "cyrnel/docs/comparison"
-                    ]
-                  },
-                  {
-                    "group": "Architecture",
-                    "pages": [
-                      "cyrnel/docs/architecture",
-                      "cyrnel/docs/transport",
-                      "cyrnel/docs/security"
-                    ]
-                  },
-                  {
-                    "group": "Concepts",
-                    "pages": [
-                      "cyrnel/docs/processes",
-                      "cyrnel/docs/services",
-                      "cyrnel/docs/tools",
-                      "cyrnel/docs/approvals",
-                      "cyrnel/docs/pagination",
+                    "version": "v1",
+                    "tag": "Latest",
+                    "default": true,
+                    "groups": [
                       {
-                        "group": "Modules",
+                        "group": "Overview",
                         "pages": [
-                          "cyrnel/docs/modules",
-                          "cyrnel/docs/adapters-modules",
-                          "cyrnel/docs/environments-modules"
+                          "cyrnel/docs/v1/quick-start",
+                          "cyrnel/docs/v1/introduction",
+                          "cyrnel/docs/v1/faq",
+                          "cyrnel/docs/v1/comparison"
+                        ]
+                      },
+                      {
+                        "group": "Architecture",
+                        "pages": [
+                          "cyrnel/docs/v1/architecture",
+                          "cyrnel/docs/v1/transport",
+                          "cyrnel/docs/v1/security"
+                        ]
+                      },
+                      {
+                        "group": "Concepts",
+                        "pages": [
+                          "cyrnel/docs/v1/processes",
+                          "cyrnel/docs/v1/services",
+                          "cyrnel/docs/v1/tools",
+                          "cyrnel/docs/v1/authentication",
+                          "cyrnel/docs/v1/approvals",
+                          "cyrnel/docs/v1/pagination",
+                          "cyrnel/docs/v1/registries",
+                          {
+                            "group": "Modules",
+                            "pages": [
+                              "cyrnel/docs/v1/modules",
+                              "cyrnel/docs/v1/adapters-modules",
+                              "cyrnel/docs/v1/environments-modules"
+                            ]
+                          }
                         ]
                       }
                     ]
@@ -58,74 +67,102 @@
                 ]
               },
               {
-                "tab": "Specification",
-                "groups": [
+                "tab": "SDK Specification",
+                "versions": [
                   {
-                    "group": "Overview",
-                    "pages": ["cyrnel/module-specs/overview", "cyrnel/module-specs/types"]
-                  },
-                  {
-                    "group": "Module Interfaces",
-                    "pages": [
-                      "cyrnel/module-specs/module",
-                      "cyrnel/module-specs/adapter-module",
-                      "cyrnel/module-specs/environment-module",
-                      "cyrnel/module-specs/definition-kinds"
-                    ]
-                  },
-                  {
-                    "group": "Runtime Contracts",
-                    "pages": [
-                      "cyrnel/module-specs/environment-bindings",
-                      "cyrnel/module-specs/environment-execution"
-                    ]
-                  },
-                  {
-                    "group": "Authoring",
-                    "pages": [
-                      "cyrnel/module-specs/writing-custom-modules",
-                      "cyrnel/module-specs/writing-custom-adapter-module",
-                      "cyrnel/module-specs/writing-custom-environment-module"
+                    "version": "v5.0.0",
+                    "tag": "Latest",
+                    "default": true,
+                    "groups": [
+                      {
+                        "group": "Overview",
+                        "pages": [
+                          "cyrnel/sdk-spec/5.0.0/overview",
+                          "cyrnel/sdk-spec/5.0.0/types"
+                        ]
+                      },
+                      {
+                        "group": "Module Interfaces",
+                        "pages": [
+                          "cyrnel/sdk-spec/5.0.0/module",
+                          "cyrnel/sdk-spec/5.0.0/adapter-module",
+                          "cyrnel/sdk-spec/5.0.0/environment-module",
+                          "cyrnel/sdk-spec/5.0.0/definition-kinds"
+                        ]
+                      },
+                      {
+                        "group": "Runtime Contracts",
+                        "pages": [
+                          "cyrnel/sdk-spec/5.0.0/environment-bindings",
+                          "cyrnel/sdk-spec/5.0.0/environment-execution"
+                        ]
+                      },
+                      {
+                        "group": "Authoring",
+                        "pages": [
+                          "cyrnel/sdk-spec/5.0.0/writing-custom-modules",
+                          "cyrnel/sdk-spec/5.0.0/writing-custom-adapter-module",
+                          "cyrnel/sdk-spec/5.0.0/writing-custom-environment-module"
+                        ]
+                      }
                     ]
                   }
                 ]
               },
               {
                 "tab": "Registry Specification",
-                "groups": [
+                "versions": [
                   {
-                    "group": "Overview",
-                    "pages": ["cyrnel/registry-specs/registry-overview"]
-                  },
-                  {
-                    "group": "Discovery & Auth",
-                    "pages": [
-                      "cyrnel/registry-specs/well-known",
-                      "cyrnel/registry-specs/authentication"
-                    ]
-                  },
-                  {
-                    "group": "Capabilities",
-                    "pages": [
-                      "cyrnel/registry-specs/definitions",
-                      "cyrnel/registry-specs/modules",
-                      "cyrnel/registry-specs/pagination"
-                    ]
-                  },
-                  {
-                    "group": "Operations",
-                    "pages": [
-                      "cyrnel/registry-specs/install-and-update",
-                      "cyrnel/registry-specs/building-a-registry",
-                      "cyrnel/registry-specs/registry-management-api",
-                      "cyrnel/registry-specs/security"
+                    "version": "v1",
+                    "tag": "Latest",
+                    "default": true,
+                    "groups": [
+                      {
+                        "group": "Overview",
+                        "pages": ["cyrnel/registry-specs/v1/registry-overview"]
+                      },
+                      {
+                        "group": "Discovery & Auth",
+                        "pages": [
+                          "cyrnel/registry-specs/v1/well-known",
+                          "cyrnel/registry-specs/v1/authentication"
+                        ]
+                      },
+                      {
+                        "group": "Capabilities",
+                        "pages": [
+                          "cyrnel/registry-specs/v1/definitions",
+                          "cyrnel/registry-specs/v1/modules",
+                          "cyrnel/registry-specs/v1/pagination"
+                        ]
+                      },
+                      {
+                        "group": "Operations",
+                        "pages": [
+                          "cyrnel/registry-specs/v1/install-and-update",
+                          "cyrnel/registry-specs/v1/building-a-registry",
+                          "cyrnel/registry-specs/v1/registry-management-api",
+                          "cyrnel/registry-specs/v1/security"
+                        ]
+                      },
+                      {
+                        "group": "Registry API",
+                        "openapi": "/openapi/registry.v1.openapi.json"
+                      }
                     ]
                   }
                 ]
               },
               {
                 "tab": "API Reference",
-                "openapi": "/openapi.json"
+                "versions": [
+                  {
+                    "version": "v1.0.0",
+                    "tag": "Latest",
+                    "default": true,
+                    "openapi": "/openapi/cyrnel.v1.openapi.json"
+                  }
+                ]
               }
             ]
           },
@@ -207,7 +244,55 @@
   "redirects": [
     {
       "source": "/cyrnel/specs/:slug*",
-      "destination": "/cyrnel/module-specs/:slug*"
+      "destination": "/cyrnel/sdk-spec/5.0.0/:slug*"
+    },
+    {
+      "source": "/cyrnel/module-specs/:slug*",
+      "destination": "/cyrnel/sdk-spec/5.0.0/:slug*"
+    },
+    {
+      "source": "/cyrnel/docs/:slug*",
+      "destination": "/cyrnel/docs/v1/:slug*"
+    },
+    {
+      "source": "/cyrnel/registry-specs/:slug*",
+      "destination": "/cyrnel/registry-specs/v1/:slug*"
+    },
+    {
+      "source": "/cyrnel/sdk-spec/:slug*",
+      "destination": "/cyrnel/sdk-spec/5.0.0/:slug*"
+    },
+    {
+      "source": "/openapi.json",
+      "destination": "/openapi/cyrnel.v1.openapi.json"
+    },
+    {
+      "source": "/api-reference",
+      "destination": "/cyrnel-api-reference"
+    },
+    {
+      "source": "/api-reference/:slug*",
+      "destination": "/cyrnel-api-reference/:slug*"
+    },
+    {
+      "source": "/cyrnel/docs",
+      "destination": "/cyrnel/docs/v1/quick-start"
+    },
+    {
+      "source": "/cyrnel/registry-specs",
+      "destination": "/cyrnel/registry-specs/v1/registry-overview"
+    },
+    {
+      "source": "/cyrnel/sdk-spec",
+      "destination": "/cyrnel/sdk-spec/5.0.0/overview"
+    },
+    {
+      "source": "/cyrnel/module-specs",
+      "destination": "/cyrnel/sdk-spec/5.0.0/overview"
+    },
+    {
+      "source": "/cyrnel/specs",
+      "destination": "/cyrnel/sdk-spec/5.0.0/overview"
     }
   ]
 }

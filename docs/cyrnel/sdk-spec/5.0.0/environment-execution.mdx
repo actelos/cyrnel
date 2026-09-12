@@ -1,0 +1,149 @@
+---
+title: "Code Execution"
+description: "Execution state machine and the host's contract with environments"
+---
+
+This page collects the execution-related shapes and state machine that
+sit between the host and an environment module.
+
+## `ExecutionInput`
+
+```ts
+interface ExecutionInput<RuntimeConfig extends object = {}> {
+  readonly executionId: number;
+  readonly processId: number;
+  readonly code: string;
+  readonly envConfig?: RuntimeConfig;
+}
+```
+
+What the host hands to `EnvironmentModule.execute`:
+
+- `executionId` is the execution id. Treat it as opaque; just feed it
+  back to every binding.
+- `processId` is the owning process — every execution is process-backed
+  for approval and policy tracking.
+- `code` is exactly what the client submitted via `POST /processes`.
+- `envConfig` is the per-execution runtime configuration, validated
+  against the environment's `executionConfigSchema` before dispatch. The
+  host guarantees at minimum a `timeoutMs` key, resolved against
+  `DEFAULT_EXECUTION_TIMEOUT_MS` (`30000`) before dispatch. The
+  environment should treat this as authoritative and pluck the values it
+  recognises.
+
+## Host-side States
+
+The host's `ProcessService` runs the public-facing state machine. From
+the API's perspective, a process is always in one of six states:
+
+```mermaid
+stateDiagram-v2
+    [*] --> queued
+
+    queued --> running
+    queued --> idle : canceled before running
+
+    running --> suspended : ask → approval pending
+    suspended --> running : approved (pendingCount 0 → timeout re-arm)
+    suspended --> idle : denied/expired (catchable __ivmError) or kill
+
+    running --> idle
+    running --> terminating
+
+    terminating --> idle : canceled
+    suspended --> terminated : orphaned recovery (startup)
+```
+
+- `idle`: Not executing. Either pre-run, or post-run with an exit state (`terminated` is idle-like terminal from recovery).
+- `queued`: Accepted, waiting for the environment.
+- `running`: Environment is executing the code.
+- `suspended`: Paused awaiting approval (`ask` policy, `pendingApprovalIds`); excluded from `trimIdleProcesses`, killable, not deletable/unloadable, resume via `notifyApprovalResolved` (pendingCount 0).
+- `terminating`: A kill is in flight.
+- `terminated`: Orphaned `suspended` recovered on startup (persisted `failed` + `terminated`, `run` requires `force`).
+
+## Environment-reported States
+
+`EnvironmentBindings.setState(executionId, data)` accepts only the environment
+states:
+
+```ts
+const EXECUTION_STATES = ["queued", "running"] as const;
+type ExecutionState = "queued" | "running";
+```
+
+The host maps these to its own state machine. `idle`, `suspended`,
+`terminating`, and `terminated` are host-only; the environment never reports them.
+`suspended` is set by the host via `ProcessService.suspendProcess` (approval gating)
+with timeout pausing; resume re-arms the remaining `timeoutMs`.
+
+## Exit States
+
+```ts
+const EXECUTION_EXIT_STATES = [
+  "failed",
+  "success",
+  "timeout",
+  "canceled",
+] as const;
+type ExecutionExitState = "failed" | "success" | "timeout" | "canceled";
+```
+
+The environment's `execute` returns one of these. The host stores it as
+`process.exitState`:
+
+| Exit | When |
+| --- | --- |
+| `success` | The code completed normally. |
+| `failed` | The code threw, or the environment couldn't run it. `process.error` is populated. |
+| `timeout` | The environment terminated the execution because it exceeded `envConfig.timeoutMs`. |
+| `canceled` | The host called `kill(executionId)`, or the environment is shutting down. |
+
+The host also accepts `null` as a transient pre-execution value, but
+**environment code never returns null**.
+
+## Timeout Contract
+
+The host hands the environment a `timeoutMs` within `envConfig` and
+expects the environment to enforce it. The host does not run a wall
+clock of its own; if the environment lies about exit state, the process
+record lies too.
+
+- The bundled `typescript-ivm` enforces the timeout by racing the
+  isolate against a `setTimeout`, then disposing the isolate.
+- Custom environments are free to use any mechanism, process group
+  signals, worker thread interrupts, whatever fits the runtime.
+
+## Cancellation Contract
+
+`EnvironmentModule.kill(executionId)` is the only way the host asks for
+cancellation. The environment should:
+
+1. Stop whatever is executing for `executionId` promptly.
+2. Resolve the outstanding `execute(executionId)` promise with `"canceled"`.
+3. Be safe to call with an `executionId` it does not know about.
+
+There is no "soft kill" channel. If you need cooperative shutdown for
+long-running tools, model it inside the runtime (e.g. an
+`AbortController` exposed to user code).
+
+## What the host owns
+
+| Concern | Owner |
+| --- | --- |
+| Generating `executionId` / `pid` | Host (`ProcessService.createPid`). |
+| Default `timeoutMs` | Host (`DEFAULT_EXECUTION_TIMEOUT_MS`). |
+| stdout/stderr decoding | Host (`StringDecoder("utf8")` per stream). |
+| Output merging | Host (`Object.assign(process.output, data)`). |
+| `state` transitions to `idle` / `terminating` | Host. |
+| Routing tool invocations to adapters | Host (`ModuleService.invoke`). |
+
+## What the environment owns
+
+| Concern | Owner |
+| --- | --- |
+| Transpiling / parsing `input.code` | Environment. |
+| Running the code in a sandbox | Environment. |
+| Enforcing `timeoutMs` | Environment. |
+| Reporting `queued` / `running` / exit state | Environment. |
+| Emitting stdout, stderr, output | Environment. |
+| Surfacing tool calls from user code back through `bindings.invokeTool` | Environment. |

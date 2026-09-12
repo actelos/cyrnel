@@ -1,0 +1,146 @@
+---
+title: "Writing a Custom Environment Module"
+description: "Skeleton and example for building a custom environment"
+sidebarTitle: "Writing a custom environment"
+---
+
+This page covers the environment-specific parts of writing a custom module.
+For the shared mechanics (file layout, registration, lifecycle) see
+[Writing a custom module](/cyrnel/sdk-spec/5.0.0/writing-custom-modules). For the full
+interface reference see [`EnvironmentModule`](/cyrnel/sdk-spec/5.0.0/environment-module).
+
+## Minimal Skeleton
+
+```ts
+import type {
+  EnvironmentBindings,
+  EnvironmentModule,
+  EnvironmentSetupContext,
+  ExecutionExitState,
+  ExecutionInput,
+  ToolDocsInput,
+} from "@cyrnel/sdk";
+
+class MyEnvironment implements EnvironmentModule {
+  private bindings!: EnvironmentBindings;
+  private logger: EnvironmentSetupContext["logger"] | null = null;
+
+  async setup({ bindings, config, logger }: EnvironmentSetupContext<{ redactionPatterns?: string[] }>) {
+    this.bindings = bindings;
+    // Configure reduction for yourself from your own config field, then scope
+    // a base phase. The host manages the rest of the correlation metadata.
+    const patterns = await config.get("redactionPatterns").catch(() => []);
+    this.logger = logger.redact(patterns).child({ phase: "setup" });
+  }
+
+  async teardown() {}
+
+  async execute(input: ExecutionInput<{ timeoutMs?: number }>): Promise<ExecutionExitState> {
+    const { executionId } = input;
+
+    // input.envConfig contains environment-level configuration the host
+    // validated against your executionConfigSchema. At minimum it guarantees timeoutMs.
+    const timeoutMs = input.envConfig?.timeoutMs ?? 30_000;
+
+    const execLogger = this.logger?.child({ phase: "execution" });
+    execLogger?.info({ event: "execution-start" }, "Execution starting");
+
+    this.bindings.setState(executionId, "running");
+    try {
+      // ...execute input.code in your runtime, emitting stdout/stderr/output
+      // Use timeoutMs to enforce the deadline.
+      return "success";
+    } catch (err) {
+      this.bindings.setError(executionId, String(err));
+      execLogger?.error({ event: "execution-failed", err }, "Execution failed");
+      return "failed";
+    }
+  }
+
+  async kill(_executionId: number) {}
+
+  async suspend(_executionId: number) {}
+
+  async resume(_executionId: number) {}
+
+  async generateDocs() {
+    return "# My Environment\n\nDocument the runtime here.";
+  }
+
+  async generateToolDocs(_input: ToolDocsInput) {
+    return "# Tool\n\nDocument how to call this tool here.";
+  }
+}
+
+const configSchema = {
+  type: "object",
+  properties: {
+    redactionPatterns: {
+      type: "array",
+      items: { type: "string" },
+      description:
+        "Path patterns (dot/bracket notation) merged additively with the host-enforced baseline for this module's logs.",
+    },
+  },
+} as const;
+const secretsSchema = { type: "object", properties: {}, additionalProperties: false } as const;
+const executionConfigSchema = {
+  type: "object",
+  properties: {
+    timeoutMs: { type: "number", minimum: 1 },
+  },
+} as const;
+
+export default { configSchema, secretsSchema, executionConfigSchema, instantiate: () => new MyEnvironment() };
+```
+
+## Logging
+
+The host owns all logging - your module never creates a logger. The logger it
+receives in `setup` already carries your module's identity (`moduleId`,
+`moduleType`, `environmentId`), and every entry is tagged `type: "module"`.
+
+- Call `context.logger.redact(patterns)` to opt into **self-managed
+  reduction**. Declare `redactionPatterns` in your own `configSchema` and read
+  it back with `await context.config.get("redactionPatterns")`: the host
+  never supplies patterns for you.
+  Your patterns merge additively on top of a non-disableable baseline
+  (secrets / tokens / passwords / authorization).
+- Use `logger.child({ ... })` to scope a logger for a phase or a specific
+  execution. `child` accepts only `phase`/`event`; the host-owned correlation
+  fields (`executionId`, `dispatchId`, `toolId`, …) are merged in by the host
+  and cannot be forged.
+- Emit structured logs with `logger.info({ event, ...payload }, "message")`.
+  All six levels are available: `trace`, `debug`, `info`, `warn`, `error`,
+  `fatal`.
+
+## `envConfig`
+
+The host passes per-execution configuration via `input.envConfig`,
+validated against your `executionConfigSchema` before `execute` runs
+(declare it on your default export — it is required). Each environment
+module documents which keys it recognises and falls back to sensible
+defaults for any missing values:
+
+```ts
+# validate and coerce at runtime
+const raw = input.envConfig?.timeoutMs;
+const timeoutMs = Number.isInteger(raw) && (raw as number) >= 1
+  ? (raw as number)
+  : 30_000;
+```
+
+Formerly this configuration lived in a separate `ExecutionOptions` type
+and an `options` field on `ExecutionInput`. Both have been removed in
+favour of `envConfig`. Update any existing module code accordingly.
+
+## Full Example
+
+See the [Shell environment example](https://github.com/actelos/cyrnel/tree/main/examples/5.0.0/environment-module)
+in the repository for a complete, working environment that executes
+submitted code as shell commands via `sh -c`. It streams stdout and stderr
+back through the host bindings and reports the exit code on completion.
+
+See [`EnvironmentBindings`](/cyrnel/sdk-spec/5.0.0/environment-bindings) for the callback
+surface and [Execution](/cyrnel/sdk-spec/5.0.0/environment-execution) for the state machine
+and timeout contracts.

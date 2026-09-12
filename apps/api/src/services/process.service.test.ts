@@ -449,7 +449,7 @@ describe("ProcessService", () => {
       mockInsertReturning(1);
 
       const active = await service.create(BASE_CREATE_INPUT);
-      const pid = controller.executeCalls[0].eid;
+      const pid = controller.executeCalls[0].executionId;
       service.recordState(pid, "running");
 
       const runningChain = makeSelectChain([
@@ -534,7 +534,7 @@ describe("ProcessService", () => {
       mockInsertReturning(1);
 
       const { id } = await service.create(BASE_CREATE_INPUT);
-      const pid = controller.executeCalls[0].eid;
+      const pid = controller.executeCalls[0].executionId;
       service.recordOutput(pid, { hello: "world" });
       service.recordStdout(pid, Buffer.from("hello", "utf8"));
       service.recordStderr(pid, Buffer.from("boom", "utf8"));
@@ -673,7 +673,7 @@ describe("ProcessService", () => {
       expect(result.state).toBe("queued");
       expect(result.pid).not.toBeNull();
       expect(controller.executeCalls).toHaveLength(1);
-      expect(controller.executeCalls[0].eid).toBe(result.pid);
+      expect(controller.executeCalls[0].executionId).toBe(result.pid);
       expect(controller.executeCalls[0].code).toBe("console.log('hi')");
     });
 
@@ -772,7 +772,7 @@ describe("ProcessService", () => {
       const { service, controller } = makeService();
       mockInsertReturning(1);
       const { id } = await service.create(BASE_CREATE_INPUT);
-      const pid = controller.executeCalls[0].eid;
+      const pid = controller.executeCalls[0].executionId;
       service.recordOutput(pid, { a: 1 });
       await tick(5);
 
@@ -790,7 +790,7 @@ describe("ProcessService", () => {
       const { service, controller } = makeService();
       mockInsertReturning(1);
       const { id } = await service.create(BASE_CREATE_INPUT);
-      const pid = controller.executeCalls[0].eid;
+      const pid = controller.executeCalls[0].executionId;
       service.recordOutput(pid, { a: 1 });
       service.recordStdout(pid, Buffer.from("noise", "utf8"));
       await tick(5);
@@ -1273,7 +1273,7 @@ describe("ProcessService", () => {
       mockInsertReturning(1);
 
       const { id } = await service.create(BASE_CREATE_INPUT);
-      const pid = controller.executeCalls[0].eid;
+      const pid = controller.executeCalls[0].executionId;
       service.recordState(pid, "running");
       expect((await service.get(id)).state).toBe("running");
       service.recordState(pid, "queued");
@@ -1303,7 +1303,7 @@ describe("ProcessService", () => {
       mockInsertReturning(1);
 
       await service.create(BASE_CREATE_INPUT);
-      const pid = controller.executeCalls[0].eid;
+      const pid = controller.executeCalls[0].executionId;
       service.recordStdout(pid, Buffer.from([0xe2, 0x82]));
       service.recordStdout(pid, Buffer.from([0xac]));
 
@@ -1326,7 +1326,7 @@ describe("ProcessService", () => {
       mockInsertReturning(1);
 
       await service.create(BASE_CREATE_INPUT);
-      const pid = controller.executeCalls[0].eid;
+      const pid = controller.executeCalls[0].executionId;
       service.recordOutput(pid, { a: 1 });
       service.recordOutput(pid, { b: 2 });
       service.recordOutput(pid, { a: 99 });
@@ -1412,7 +1412,7 @@ describe("ProcessService", () => {
       mockInsertReturning(1);
 
       const { id } = await service.create(BASE_CREATE_INPUT);
-      const pid = controller.executeCalls[0].eid;
+      const pid = controller.executeCalls[0].executionId;
       service.recordStdout(pid, Buffer.from([0xe2, 0x82]));
 
       finish.resolve("success");

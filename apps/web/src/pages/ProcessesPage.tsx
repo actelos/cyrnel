@@ -238,7 +238,7 @@ export default function ProcessesPage() {
     error: processError,
     isValidating: isProcessListValidating,
   } = useSWR(processesUrl, (url) => apiFetchJson(url, processListSchema), {
-    refreshInterval: 2000,
+    refreshInterval: 5000,
   });
 
   const [extraProcesses, setExtraProcesses] = useState<Process[]>([]);
@@ -348,25 +348,25 @@ export default function ProcessesPage() {
     outputKey,
     (url) => apiFetchJson(url, z.record(z.string(), z.unknown())),
     {
-      refreshInterval: 2000,
+      refreshInterval: 5000,
     },
   );
   const { data: stdoutData, error: stdoutError } = useSWR(
     stdoutKey,
     apiFetchText,
     {
-      refreshInterval: 2000,
+      refreshInterval: 5000,
     },
   );
   const { data: stderrData, error: stderrError } = useSWR(
     stderrKey,
     apiFetchText,
     {
-      refreshInterval: 2000,
+      refreshInterval: 5000,
     },
   );
   const { data: codeData } = useSWR(codeKey, apiFetchText, {
-    refreshInterval: 4000,
+    refreshInterval: 5000,
   });
 
   const stdoutContent =

@@ -222,7 +222,8 @@ export function normalizeLogObject(
     if (typeof res.statusCode === "number") entry.statusCode = res.statusCode;
     if (typeof raw.responseTime === "number")
       entry.durationMs = raw.responseTime;
-    entry.req = req;
+    entry.req =
+      typeof req.url === "string" ? { ...req, url: stripQuery(req.url) } : req;
     entry.res = res;
   } else {
     if (typeof raw.method === "string") entry.method = raw.method;

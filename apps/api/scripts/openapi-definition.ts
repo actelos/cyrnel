@@ -960,6 +960,32 @@ const ModuleSchema = registry.register(
         .describe(
           "Semver range pinning the auto-update registry version, or null for latest.",
         ),
+      schemes: z
+        .record(
+          z.string(),
+          z.object({ type: z.string() }).catchall(z.unknown()),
+        )
+        .describe(
+          "Auth schemes declared by the module export (empty object when the module declares no auth).",
+        ),
+      security: z
+        .array(z.record(z.string(), z.array(z.string())))
+        .describe(
+          "Default security requirements declared by the module export (empty array when the module declares no auth).",
+        ),
+      credentialSchemes: z
+        .record(
+          z.string(),
+          z.object({
+            configured: z.boolean(),
+            status: z.string().optional(),
+            grantedSource: z.string().nullable().optional(),
+          }),
+        )
+        .optional()
+        .describe(
+          "Credential status by scheme name. Only present when at least one scheme has a credential configured.",
+        ),
     })
     .describe("Module manifest record returned by the modules endpoints."),
 );
@@ -1142,125 +1168,140 @@ const RegistrySchema = registry.register(
       updatedAt: z
         .string()
         .describe("ISO-8601 timestamp of the last mutation to the record."),
-      authType: z
-        .enum(["apiKey", "oauth2"])
-        .nullable()
+      configuredSchemes: z
+        .array(z.string())
         .describe(
-          "Authentication method configured for this registry, or null when none is set.",
-        ),
-      tokenExpiresAt: z
-        .number()
-        .nullable()
-        .describe(
-          "Epoch-ms timestamp when the cached OAuth2 access token expires, or null for api key auth or when no token has been fetched.",
+          "Scheme names with a credential configured for this registry.",
         ),
     })
     .describe("Record of a registered registry."),
 );
 
-const ApiKeyAuthSetupSchema = registry.register(
-  "ApiKeyAuthSetup",
-  z
-    .object({
-      type: z
-        .literal("apiKey")
-        .describe("API key authentication; the key is sent in a fixed header."),
-      apiKey: z
-        .string()
-        .min(1)
-        .describe(
-          "API key sent in the header named by the registry's well-known auth advertisement.",
-        ),
-    })
-    .describe("API key credentials for a registry."),
-);
+const RegistryMachineApiKeySchema = z
+  .object({
+    schemeName: z
+      .string()
+      .min(1)
+      .describe("Registry scheme name to configure."),
+    type: z.literal("apiKey").describe("API key authentication."),
+    apiKey: z.string().min(1).describe("API key value (encrypted at rest)."),
+  })
+  .describe("API key material for a registry scheme.");
 
-const OAuthAuthSetupSchema = registry.register(
-  "OAuthAuthSetup",
-  z
-    .object({
-      type: z
-        .literal("oauth2")
-        .describe("OAuth2 client-credentials authentication."),
-      clientId: z.string().min(1).describe("OAuth2 client id."),
-      clientSecret: z.string().min(1).describe("OAuth2 client secret."),
-      scopes: z
-        .array(z.string().min(1))
-        .optional()
-        .describe(
-          "Optional requested scopes; each must be one of the scopes advertised by the registry. Defaults to all advertised scopes when omitted.",
-        ),
-    })
-    .describe("OAuth2 client-credentials for a registry."),
-);
+const RegistryMachineBasicSchema = z
+  .object({
+    schemeName: z
+      .string()
+      .min(1)
+      .describe("Registry scheme name to configure."),
+    type: z.literal("basic").describe("HTTP Basic authentication."),
+    username: z.string().min(1).describe("Basic-auth username."),
+    password: z
+      .string()
+      .min(1)
+      .describe("Basic-auth password (encrypted at rest)."),
+  })
+  .describe("Basic material for a registry scheme.");
 
-const RegistryAuthAvailableScopeSchema = registry.register(
-  "RegistryAuthAvailableScope",
-  z
-    .object({
-      id: z.string().min(1).describe("Scope identifier."),
-      description: z
-        .string()
-        .optional()
-        .describe("Human-readable description of what the scope permits."),
-    })
-    .describe("A scope offered by the registry's oauth2 auth advertisement."),
-);
+const RegistryMachineBearerSchema = z
+  .object({
+    schemeName: z
+      .string()
+      .min(1)
+      .describe("Registry scheme name to configure."),
+    type: z.literal("bearer").describe("Bearer token authentication."),
+    token: z.string().min(1).describe("Bearer token (encrypted at rest)."),
+  })
+  .describe("Bearer material for a registry scheme.");
+
+const RegistryMachineOauthSchema = z
+  .object({
+    schemeName: z
+      .string()
+      .min(1)
+      .describe("Registry scheme name to configure."),
+    type: z
+      .literal("oauth2")
+      .describe("OAuth2 client-credentials authentication."),
+    grant: z
+      .literal("client_credentials")
+      .describe(
+        "Only the client-credentials grant is accepted here; authorization-code goes through the nested credential endpoints.",
+      ),
+    clientId: z.string().min(1).describe("OAuth2 client id."),
+    clientSecret: z
+      .string()
+      .min(1)
+      .describe("OAuth2 client secret (encrypted at rest)."),
+    scopes: z
+      .array(z.string().min(1))
+      .optional()
+      .describe(
+        "Requested scopes; each must be declared by the scheme. Defaults to all declared scopes when omitted.",
+      ),
+  })
+  .describe("OAuth2 client-credentials material for a registry scheme.");
 
 const RegistryAuthReadResponseSchema = registry.register(
   "RegistryAuthReadResponse",
   z
     .object({
-      authType: z.enum(["apiKey", "oauth2"]).nullable(),
-      tokenEndpoint: z.string().nullable(),
-      headerName: z.string().nullable(),
-      tokenExpiresAt: z.number().nullable(),
-      availableScopes: z
-        .array(RegistryAuthAvailableScopeSchema)
+      schemes: z
+        .record(
+          z.string(),
+          z.object({ type: z.string() }).catchall(z.unknown()),
+        )
         .describe(
-          "Scopes advertised by the registry's current well-known document when it advertises oauth2 auth, regardless of whether auth is configured; empty otherwise.",
+          "Auth schemes declared by the registry's live well-known document (empty when the registry advertises no auth).",
         ),
-      configuredScopes: z
-        .array(z.string())
-        .describe("Scopes currently configured for the registry."),
+      security: z
+        .array(z.record(z.string(), z.array(z.string())))
+        .describe(
+          "Global default security requirements from the well-known document.",
+        ),
+      credentials: z
+        .array(z.lazy(() => CredentialSchema))
+        .describe("Owner-scoped credentials configured for this registry."),
     })
     .describe(
-      "Current auth configuration for a registry and the oauth2 scopes its advertisement offers.",
+      "Live auth declaration plus configured credentials for a registry.",
     ),
 );
 
 const RegistryAuthSetupSchema = registry.register(
   "RegistryAuthSetup",
   z
-    .discriminatedUnion("type", [ApiKeyAuthSetupSchema, OAuthAuthSetupSchema])
+    .discriminatedUnion("type", [
+      RegistryMachineApiKeySchema,
+      RegistryMachineBasicSchema,
+      RegistryMachineBearerSchema,
+      RegistryMachineOauthSchema,
+    ])
     .describe(
-      "Credentials used when the server talks to the registry. The token endpoint (oauth2) and header name (apiKey) always come from the registry's well-known advertisement, never from this request.",
+      "Machine (non-interactive) auth material for one registry scheme. The scheme must be declared by the registry's well-known document.",
     ),
 );
+
+const CredentialSummarySchema = z.lazy(() => CredentialSchema);
 
 const RegistryAuthResultSchema = registry.register(
   "RegistryAuthResult",
   z
     .object({
-      type: z.enum(["apiKey", "oauth2"]),
+      credential: CredentialSummarySchema.describe(
+        "The stored owner-scoped credential (secret values never included).",
+      ),
       status: z
         .enum(["configured", "error"])
         .describe(
-          "configured when credentials were successfully stored; error when storage or validation failed.",
-        ),
-      headerName: z
-        .string()
-        .nullable()
-        .optional()
-        .describe(
-          "Header the api key is sent in, when the registry advertises api key auth.",
+          "configured when credentials were successfully stored; error when the live token exchange failed (material is still stored).",
         ),
       tokenExpiresAt: z
         .number()
         .nullable()
         .optional()
         .describe(
-          "Epoch-ms timestamp when the fetched access token expires, when the registry advertises oauth2.",
+          "Epoch-ms timestamp when the fetched access token expires, for client-credentials oauth2.",
         ),
       message: z
         .string()
@@ -1268,7 +1309,7 @@ const RegistryAuthResultSchema = registry.register(
         .optional()
         .describe("Human-readable detail when status is error."),
     })
-    .describe("Outcome of storing credentials for a registry."),
+    .describe("Outcome of storing credentials for a registry scheme."),
 );
 
 const RegistryCreatedResponseSchema = registry.register(
@@ -1276,10 +1317,23 @@ const RegistryCreatedResponseSchema = registry.register(
   z
     .object({
       ...RegistrySchema.shape,
-      auth: RegistryAuthResultSchema.nullable()
-        .optional()
+      auth: z
+        .object({
+          schemes: z
+            .record(
+              z.string(),
+              z.object({ type: z.string() }).catchall(z.unknown()),
+            )
+            .describe("Declared schemes from the fetched well-known document."),
+          security: z
+            .array(z.record(z.string(), z.array(z.string())))
+            .describe("Global default security from the well-known document."),
+        })
+        .describe("Auth declaration fetched at registration time."),
+      resolvedClients: z
+        .record(z.string(), z.array(z.lazy(() => ResolvedOAuthClientSchema)))
         .describe(
-          "Outcome of storing the credentials supplied in the request, or null when no auth was supplied.",
+          "Eligible OAuth clients per authorization-code scheme, for instant Sign-in buttons.",
         ),
     })
     .describe("Response body of a registry registration request."),
@@ -1317,9 +1371,6 @@ const AddRegistryRequestSchema = registry.register(
         .describe(
           "Optional local id override. When omitted, the id advertised by the registry's well-known document is used.",
         ),
-      auth: RegistryAuthSetupSchema.optional().describe(
-        "Optional credentials for the registry, validated against its well-known auth advertisement before storage.",
-      ),
     })
     .describe("Request body used to register a registry via discovery."),
 );
@@ -2834,7 +2885,7 @@ registry.registerPath({
   tags: ["Modules"],
   summary: "Update a module from its stored registry",
   description:
-    "Re-resolves the stored registry source URL, compares the registry hash against the stored hash, and re-downloads and re-installs the archive if changed. Returns updated: false when the archive is unchanged. Only works for registry-installed modules. After a successful archive replacement every non-missing service targeting this adapter is regenerated via the new module's generateDefinition. Services that fail regeneration are marked stale and cannot be invoked until synced.",
+    "Re-resolves the stored registry source URL, compares the registry hash against the stored hash, and re-downloads and re-installs the archive if changed. Returns updated: false when the archive is unchanged. Only works for registry-installed modules. After a successful archive replacement every non-missing service targeting this adapter is regenerated via the new module's generateService. Services that fail regeneration are marked stale and cannot be invoked until synced.",
   request: { params: moduleIdParam },
   responses: {
     200: {
@@ -2897,7 +2948,7 @@ registry.registerPath({
   tags: ["Modules"],
   summary: "Replace a module via direct URL",
   description:
-    "Downloads a .tar.zst archive from the supplied direct URL and replaces the existing module installation. The stored registry source is cleared, making the module a direct-installed item. After a successful archive replacement every non-missing service targeting this adapter is regenerated via the new module's generateDefinition. Services that fail regeneration are marked stale and cannot be invoked until synced.",
+    "Downloads a .tar.zst archive from the supplied direct URL and replaces the existing module installation. The stored registry source is cleared, making the module a direct-installed item. After a successful archive replacement every non-missing service targeting this adapter is regenerated via the new module's generateService. Services that fail regeneration are marked stale and cannot be invoked until synced.",
   request: {
     params: moduleIdParam,
     body: { content: jsonContent(ModulePatchRequestSchema) },
@@ -2980,7 +3031,7 @@ registry.registerPath({
   tags: ["Registries"],
   summary: "Register a registry",
   description:
-    "Discovers a registry from its base URL: fetches its well-known document, negotiates the highest supported definitions/modules capability, and stores a record. The advertised id is used unless an explicit id override is supplied. The base URL is validated and normalized before storage. When auth credentials are supplied, the well-known auth advertisement is validated first: safety refusals (plaintext transport, method mismatch, a requested oauth2 scope the registry does not advertise) fail the request with 400, while a failed live token exchange still stores the record and reports error status on the auth field.",
+    "Discovers a registry from its base URL: fetches its well-known document (v2 AuthDefinition shape required), negotiates the highest supported definitions/modules capability, and stores a record. The advertised id is used unless an explicit id override is supplied. The base URL is validated and normalized before storage. The response includes the fetched auth declaration and eligible OAuth clients per authorization-code scheme for instant Sign-in buttons; credentials are connected afterwards via the registry credential endpoints.",
   request: { body: { content: jsonContent(AddRegistryRequestSchema) } },
   responses: {
     201: {
@@ -3010,7 +3061,7 @@ registry.registerPath({
   tags: ["Registries"],
   summary: "Set registry auth",
   description:
-    "Stores or replaces the credentials used when this server talks to the registry. The method must match the registry's well-known auth advertisement: a mismatch or an unsupported method fails with 400 and nothing is stored. Credentials are encrypted at rest with AES-256-GCM. For oauth2, a client-credentials token is exchanged immediately; transport policy refusals (non-https token endpoint outside the loopback/insecure-CIDR allowlist) fail with 400, while exchange failures store the credentials and report error status.",
+    "Stores or replaces machine (non-interactive) auth material for one registry scheme. The scheme must be declared by the registry's well-known document and the type must match: a mismatch fails with 400 and nothing is stored. Credentials are encrypted at rest with AES-256-GCM. For oauth2 client-credentials, a token is exchanged immediately; transport policy refusals fail with 400, while exchange failures store the material and report error status. User-delegated authorization-code flows go through the nested registry credential endpoints.",
   request: {
     params: registryIdParam,
     body: { content: jsonContent(RegistryAuthSetupSchema) },
@@ -3021,7 +3072,7 @@ registry.registerPath({
       content: jsonContent(RegistryAuthSetupResponseSchema),
     },
     400: apiErrorResponse(
-      "The request body was invalid, the method does not match the registry's advertisement, a requested scope is not advertised, or transport policy refused the credentials.",
+      "The request body was invalid, the scheme is not declared or the type does not match, a requested scope is not declared, or transport policy refused the credentials.",
     ),
     401: apiErrorResponse(
       "A bearer token was required but missing or invalid.",
@@ -3318,6 +3369,663 @@ registry.registerPath({
       "Log stream unavailable (logging disabled) or too many log stream subscribers.",
     ),
     ...rateLimitResponse(),
+  },
+});
+
+const OAuthClientRefSchema = z
+  .object({
+    id: z.string().describe("OAuth client row identifier."),
+    provider: z.string().describe("Display/grouping label for the provider."),
+    clientId: z.string().describe("OAuth2 client identifier."),
+    tokenUrl: z.string().describe("Token endpoint URL."),
+    authorizationUrl: z
+      .string()
+      .nullable()
+      .describe("Authorization endpoint URL, when configured."),
+  })
+  .describe("Public OAuth client reference attached to a credential.");
+
+const CredentialSchema = registry.register(
+  "Credential",
+  z
+    .object({
+      id: z
+        .string()
+        .describe("Credential identifier (stable across client switches)."),
+      schemeName: z.string().describe("Scheme name declared by the owner."),
+      schemeType: z
+        .enum(["apiKey", "basic", "bearer", "oauth2"])
+        .describe("Authentication material type of the credential."),
+      status: z
+        .enum(["active", "expired", "revoked", "error"])
+        .describe("Lifecycle status of the credential."),
+      oauthClientId: z
+        .string()
+        .nullable()
+        .describe("Backing OAuth client for oauth2 credentials, else null."),
+      requestedScopes: z
+        .array(z.string())
+        .describe("Scopes requested when the credential was created."),
+      grantedScopes: z
+        .array(z.string())
+        .nullable()
+        .describe(
+          "Scopes actually granted by the provider, else null before authorization.",
+        ),
+      grantedSource: z
+        .enum(["provider", "inferred"])
+        .nullable()
+        .describe(
+          "Whether granted scopes came from the provider response or were assumed from the request.",
+        ),
+      createdAt: z.string().describe("ISO-8601 creation timestamp."),
+      updatedAt: z.string().describe("ISO-8601 last-update timestamp."),
+      oauthClient: OAuthClientRefSchema.nullable().describe(
+        "Backing OAuth client, when the credential is oauth2.",
+      ),
+    })
+    .describe("Owner-scoped credential (secret values are never included)."),
+);
+
+const CredentialUpsertResponseSchema = registry.register(
+  "CredentialUpsertResponse",
+  z
+    .object({
+      credential: z.lazy(() => CredentialSchema),
+      replaced: z
+        .boolean()
+        .describe(
+          "True when an existing scheme slot was replaced (e.g. client switch).",
+        ),
+      warning: z
+        .object({
+          unknownScopes: z.array(z.string()),
+          message: z.string(),
+        })
+        .optional()
+        .describe(
+          "Present when requested scopes are not declared by the scheme; the credential is still created.",
+        ),
+    })
+    .describe("Response after creating or replacing a scheme credential."),
+);
+
+const OAuthClientSchema = registry.register(
+  "OAuthClient",
+  z
+    .object({
+      id: z.string().describe("OAuth client row identifier."),
+      provider: z
+        .string()
+        .describe(
+          "Display/grouping label for the provider (never used for resolution).",
+        ),
+      clientId: z.string().describe("OAuth2 client identifier."),
+      tokenUrl: z.string().describe("Absolute http(s) token endpoint URL."),
+      authorizationUrl: z
+        .string()
+        .nullable()
+        .describe(
+          "Absolute http(s) authorization endpoint URL, when configured.",
+        ),
+      clientAuthMethod: z
+        .string()
+        .describe("How the client authenticates at the token endpoint."),
+      redirectUris: z
+        .array(z.string())
+        .describe(
+          "Registered redirect URIs; the first is used for the authorization flow.",
+        ),
+      availableScopes: z
+        .array(z.string())
+        .describe(
+          "Allow-list for requested scopes ([] = unscoped-only client).",
+        ),
+      createdAt: z.string().describe("ISO-8601 creation timestamp."),
+      updatedAt: z.string().describe("ISO-8601 last-update timestamp."),
+    })
+    .describe(
+      "Shared OAuth application registration (the only global auth resource).",
+    ),
+);
+
+const CreateOAuthClientSchema = z
+  .object({
+    provider: z
+      .string()
+      .min(1)
+      .describe("Display/grouping label, e.g. google."),
+    clientId: z.string().min(1).describe("OAuth2 client identifier."),
+    clientSecret: z
+      .string()
+      .min(1)
+      .describe("OAuth2 client secret (encrypted at rest)."),
+    tokenUrl: z.string().describe("Absolute http(s) token endpoint URL."),
+    authorizationUrl: z
+      .string()
+      .optional()
+      .describe("Absolute http(s) authorization endpoint URL."),
+    clientAuthMethod: z
+      .enum(["client_secret_basic", "client_secret_post"])
+      .optional()
+      .describe("How the client authenticates at the token endpoint."),
+    redirectUris: z
+      .array(z.string())
+      .optional()
+      .describe(
+        "Registered redirect URIs; the first is used for the authorization flow.",
+      ),
+    availableScopes: z
+      .array(z.string())
+      .describe(
+        "Allow-list for requested scopes (required; [] = unscoped-only).",
+      ),
+  })
+  .describe("Register a shared OAuth client.");
+
+const PatchOAuthClientSchema = z
+  .object({
+    provider: z.string().min(1).optional(),
+    tokenUrl: z.string().optional(),
+    authorizationUrl: z.string().nullable().optional(),
+    clientAuthMethod: z
+      .enum(["client_secret_basic", "client_secret_post"])
+      .optional(),
+    redirectUris: z.array(z.string()).optional(),
+    availableScopes: z.array(z.string()).optional(),
+  })
+  .describe("Update a shared OAuth client (client secret is immutable).");
+
+const ResolvedOAuthClientSchema = registry.register(
+  "ResolvedOAuthClient",
+  OAuthClientSchema.extend({
+    scopeCompatible: z
+      .boolean()
+      .describe(
+        "Whether the client's available scopes cover the requested scopes.",
+      ),
+    tokenHost: z
+      .string()
+      .nullable()
+      .describe("Lowercased host of the token endpoint, for disambiguation."),
+    warning: z
+      .string()
+      .nullable()
+      .describe(
+        "Set when the client is excluded from automatic selection (e.g. cross-origin endpoints).",
+      ),
+  }).describe("Eligible OAuth client for an authorization URL."),
+);
+
+const UpsertOAuth2CredentialSchema = z
+  .object({
+    oauthClientId: z
+      .string()
+      .min(1)
+      .describe("Shared OAuth client to back this scheme."),
+    scopes: z
+      .array(z.string())
+      .optional()
+      .describe(
+        "Requested scopes; each must be in the client's availableScopes.",
+      ),
+  })
+  .describe("Create or replace (client switch) the OAuth2 shell for a scheme.");
+
+const OAuthAuthorizeResponseSchema = registry.register(
+  "OAuthAuthorizeResponse",
+  z
+    .object({
+      authorizationUrl: z
+        .string()
+        .describe(
+          "Authorization URL for the operator to visit (includes PKCE challenge and state).",
+        ),
+      state: z
+        .string()
+        .describe("Opaque state identifying the pending authorization."),
+    })
+    .describe("Initiated OAuth authorization flow."),
+);
+
+const OAuthCodeRequestSchema = z
+  .object({
+    code: z
+      .string()
+      .min(1)
+      .describe("Authorization code pasted by the operator."),
+    state: z
+      .string()
+      .optional()
+      .describe(
+        "Pending-authorization state. When omitted, the latest unexpired pending authorization for the credential is used.",
+      ),
+  })
+  .describe("Complete OAuth authorization with a manually pasted code.");
+
+const svcIdParam = z.object({
+  serviceId: z.string().min(1).describe("Service identifier."),
+});
+const modIdParam = z.object({
+  moduleId: z.string().min(1).describe("Module identifier."),
+});
+const regIdParam = z.object({
+  id: z.string().min(1).describe("Registry identifier."),
+});
+const svcSchemeParam = svcIdParam.extend({
+  schemeName: z
+    .string()
+    .min(1)
+    .describe("Scheme name declared by the service."),
+});
+const modSchemeParam = modIdParam.extend({
+  schemeName: z.string().min(1).describe("Scheme name declared by the module."),
+});
+const regSchemeParam = regIdParam.extend({
+  schemeName: z
+    .string()
+    .min(1)
+    .describe("Scheme name declared by the registry."),
+});
+
+function registerOwnerCredentialPaths(
+  owner: "services" | "modules" | "registries",
+  idParam: z.ZodTypeAny,
+  schemeParam: z.ZodTypeAny,
+  tag: string,
+  ownerLabel: string,
+): void {
+  const base =
+    owner === "services"
+      ? "/services/{serviceId}/credentials"
+      : owner === "modules"
+        ? "/modules/{moduleId}/credentials"
+        : "/registries/{id}/credentials";
+  const withScheme = `${base}/{schemeName}`;
+
+  registry.registerPath({
+    method: "get",
+    path: base,
+    tags: [tag],
+    summary: `List ${ownerLabel} credentials`,
+    description:
+      "Returns owner-scoped credentials (one slot per declared scheme). Secret values are never included.",
+    request: { params: idParam },
+    responses: {
+      200: {
+        description: "Matching credentials.",
+        content: jsonContent(z.array(z.lazy(() => CredentialSchema))),
+      },
+      401: apiErrorResponse(
+        "A bearer token was required but missing or invalid.",
+      ),
+      404: apiErrorResponse(`The ${ownerLabel} could not be found.`),
+      500: apiErrorResponse("The credentials could not be loaded."),
+    },
+  });
+
+  const upsert = (
+    suffix: string,
+    summary: string,
+    description: string,
+    body: z.ZodTypeAny,
+  ) => {
+    registry.registerPath({
+      method: "put",
+      path: `${withScheme}/${suffix}`,
+      tags: [tag],
+      summary,
+      description,
+      request: {
+        params: schemeParam,
+        body: { content: jsonContent(body) },
+      },
+      responses: {
+        200: {
+          description:
+            "The scheme credential was created or replaced (client switches replace in place).",
+          content: jsonContent(z.lazy(() => CredentialUpsertResponseSchema)),
+        },
+        400: apiErrorResponse(
+          "The scheme is not declared, the type is incompatible, or requested scopes exceed the client's available scopes.",
+        ),
+        401: apiErrorResponse(
+          "A bearer token was required but missing or invalid.",
+        ),
+        ...rateLimitResponse(),
+        404: apiErrorResponse(`The ${ownerLabel} could not be found.`),
+        500: apiErrorResponse("The credential could not be stored."),
+      },
+    });
+  };
+
+  upsert(
+    "api-key",
+    `Set ${ownerLabel} apiKey credential`,
+    "Stores an API key encrypted at rest with AES-256-GCM. Replaces any existing credential in the scheme slot.",
+    z.object({ apiKey: z.string().min(1) }),
+  );
+  upsert(
+    "basic",
+    `Set ${ownerLabel} basic credential`,
+    "Stores basic-auth credentials encrypted at rest. Replaces any existing credential in the scheme slot.",
+    z.object({ username: z.string().min(1), password: z.string().min(1) }),
+  );
+  upsert(
+    "bearer",
+    `Set ${ownerLabel} bearer credential`,
+    "Stores a bearer token encrypted at rest for http/bearer schemes. Replaces any existing credential in the scheme slot.",
+    z.object({ token: z.string().min(1) }),
+  );
+  upsert(
+    "oauth2",
+    `Set ${ownerLabel} OAuth2 credential`,
+    "Creates or replaces (client switch) the OAuth2 shell for a scheme: validates requested scopes against the shared client's availableScopes, wipes prior tokens, and resets granted scopes. Complete authorization via the authorize endpoint, /auth/callback, or the code endpoint.",
+    UpsertOAuth2CredentialSchema,
+  );
+
+  registry.registerPath({
+    method: "delete",
+    path: withScheme,
+    tags: [tag],
+    summary: `Disconnect ${ownerLabel} scheme`,
+    description:
+      "Deletes the scheme slot's credential, secrets, and pending authorizations. Shared OAuth clients are retained.",
+    request: { params: schemeParam },
+    responses: {
+      204: { description: "The scheme was disconnected." },
+      401: apiErrorResponse(
+        "A bearer token was required but missing or invalid.",
+      ),
+      404: apiErrorResponse("No credential is configured for the scheme."),
+      500: apiErrorResponse("The credential could not be deleted."),
+    },
+  });
+
+  registry.registerPath({
+    method: "post",
+    path: `${withScheme}/oauth/authorize`,
+    tags: [tag],
+    summary: "Begin OAuth authorization",
+    description:
+      "Starts the OAuth authorization-code flow with unconditionally enabled PKCE (S256). Returns the authorization URL for the operator to visit and a state identifying the pending authorization.",
+    request: { params: schemeParam },
+    responses: {
+      200: {
+        description: "The authorization flow was initiated.",
+        content: jsonContent(OAuthAuthorizeResponseSchema),
+      },
+      400: apiErrorResponse(
+        "The scheme is not an oauth2 credential or has no authorization URL configured.",
+      ),
+      401: apiErrorResponse(
+        "A bearer token was required but missing or invalid.",
+      ),
+      ...rateLimitResponse(),
+      404: apiErrorResponse(
+        "The credential or its OAuth client could not be found.",
+      ),
+      500: apiErrorResponse("The authorization flow could not be started."),
+    },
+  });
+
+  registry.registerPath({
+    method: "post",
+    path: `${withScheme}/oauth/code`,
+    tags: [tag],
+    summary: "Submit OAuth code (manual paste)",
+    description:
+      "Manual code-paste fallback for self-hosted deployments where the host is not publicly reachable: the operator visits the authorization URL externally and pastes the received code. The host exchanges it for tokens (including the PKCE verifier), records granted scopes, and stores them encrypted.",
+    request: {
+      params: schemeParam,
+      body: { content: jsonContent(OAuthCodeRequestSchema) },
+    },
+    responses: {
+      200: {
+        description: "The code was exchanged and tokens were stored.",
+        content: jsonContent(z.object({ credentialId: z.string().min(1) })),
+      },
+      400: apiErrorResponse(
+        "The request body was invalid or no matching pending authorization exists.",
+      ),
+      401: apiErrorResponse(
+        "A bearer token was required but missing or invalid.",
+      ),
+      ...rateLimitResponse(),
+      404: apiErrorResponse(
+        "The credential or its OAuth client could not be found.",
+      ),
+      502: apiErrorResponse("The token endpoint could not be reached."),
+      500: apiErrorResponse("The code exchange failed."),
+    },
+  });
+}
+
+registerOwnerCredentialPaths(
+  "services",
+  svcIdParam,
+  svcSchemeParam,
+  "Service Credentials",
+  "service",
+);
+registerOwnerCredentialPaths(
+  "modules",
+  modIdParam,
+  modSchemeParam,
+  "Module Credentials",
+  "module",
+);
+registerOwnerCredentialPaths(
+  "registries",
+  regIdParam,
+  regSchemeParam,
+  "Registry Credentials",
+  "registry",
+);
+
+registry.registerPath({
+  method: "get",
+  path: "/oauth-clients",
+  tags: ["OAuth Clients"],
+  summary: "List OAuth clients",
+  description:
+    "Returns shared OAuth application registrations (public fields only; secrets never included).",
+  responses: {
+    200: {
+      description: "Matching OAuth clients.",
+      content: jsonContent(z.array(OAuthClientSchema)),
+    },
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    500: apiErrorResponse("The OAuth client list could not be loaded."),
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/oauth-clients/resolve",
+  tags: ["OAuth Clients"],
+  summary: "Resolve OAuth clients for an authorization URL",
+  description:
+    "Returns eligible OAuth clients for an authorization URL (exact-match-after-normalization, same-origin filter, scope-compatibility rank). Ambiguity is returned, never hidden: differing token endpoints force manual selection.",
+  request: {
+    query: z.object({
+      authorizationUrl: z.string().min(1),
+      scopes: z.string().optional(),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Eligible clients in rank order.",
+      content: jsonContent(
+        z.object({ clients: z.array(ResolvedOAuthClientSchema) }),
+      ),
+    },
+    400: apiErrorResponse("The authorizationUrl query parameter was invalid."),
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    ...rateLimitResponse(),
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/oauth-clients",
+  tags: ["OAuth Clients"],
+  summary: "Create OAuth client",
+  description:
+    "Registers a shared OAuth application (secret encrypted at rest). provider and availableScopes are required; [] means an unscoped-only client.",
+  request: { body: { content: jsonContent(CreateOAuthClientSchema) } },
+  responses: {
+    201: {
+      description: "The OAuth client was created.",
+      content: jsonContent(z.object({ clientId: z.string().min(1) })),
+    },
+    400: apiErrorResponse("The request body was invalid."),
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    ...rateLimitResponse(),
+    500: apiErrorResponse("The OAuth client could not be created."),
+  },
+});
+
+registry.registerPath({
+  method: "patch",
+  path: "/oauth-clients/{id}",
+  tags: ["OAuth Clients"],
+  summary: "Update OAuth client",
+  description:
+    "Updates provider, endpoints, redirect URIs, or availableScopes. The client secret is immutable.",
+  request: {
+    params: z.object({ id: z.string().min(1) }),
+    body: { content: jsonContent(PatchOAuthClientSchema) },
+  },
+  responses: {
+    200: {
+      description: "The OAuth client.",
+      content: jsonContent(OAuthClientSchema),
+    },
+    400: apiErrorResponse("The request body was invalid."),
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    ...rateLimitResponse(),
+    404: apiErrorResponse("The OAuth client could not be found."),
+    500: apiErrorResponse("The OAuth client could not be updated."),
+  },
+});
+
+registry.registerPath({
+  method: "delete",
+  path: "/oauth-clients/{id}",
+  tags: ["OAuth Clients"],
+  summary: "Delete OAuth client",
+  description:
+    "Deletes an OAuth client registration. Refused with 409 while any owner-scoped credential references it.",
+  request: { params: z.object({ id: z.string().min(1) }) },
+  responses: {
+    204: { description: "The OAuth client was deleted." },
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    ...rateLimitResponse(),
+    404: apiErrorResponse("The OAuth client could not be found."),
+    409: apiErrorResponse(
+      "The client is still referenced by owner-scoped credentials.",
+    ),
+    500: apiErrorResponse("The OAuth client could not be deleted."),
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/auth/callback",
+  tags: ["Auth"],
+  summary: "OAuth redirect callback",
+  description:
+    "Redirect target for OAuth authorization-code flows. Validates state against the stored pending authorization, exchanges the code for tokens (including the PKCE verifier), and persists them encrypted. Prefer POST /auth/callback with a JSON body to keep authorization codes out of request URLs and logs.",
+  request: {
+    query: z.object({
+      code: z.string().min(1).describe("Authorization code from the provider."),
+      state: z
+        .string()
+        .min(1)
+        .describe("State identifying the pending authorization."),
+    }),
+  },
+  responses: {
+    200: {
+      description: "The code was exchanged and tokens were stored.",
+      content: jsonContent(
+        z.object({
+          ok: z.literal(true).describe("Always true on success."),
+          credentialId: z
+            .string()
+            .describe("The ID of the created or updated credential."),
+        }),
+      ),
+    },
+    400: apiErrorResponse(
+      "The query parameters were invalid or the authorization state is unknown or expired.",
+    ),
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    404: apiErrorResponse("The OAuth client could not be found."),
+    502: apiErrorResponse("The token endpoint could not be reached."),
+    500: apiErrorResponse("The code exchange failed."),
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/auth/callback",
+  tags: ["Auth"],
+  summary: "OAuth callback completion via body",
+  description:
+    "Preferred completion for OAuth authorization-code flows. Accepts code and state in the JSON request body so authorization material does not appear in request URLs or logs.",
+  request: {
+    body: {
+      content: jsonContent(
+        z
+          .object({
+            code: z
+              .string()
+              .min(1)
+              .describe("Authorization code from the provider."),
+            state: z
+              .string()
+              .min(1)
+              .describe("State identifying the pending authorization."),
+          })
+          .describe("OAuth callback completion payload."),
+      ),
+    },
+  },
+  responses: {
+    200: {
+      description: "The code was exchanged and tokens were stored.",
+      content: jsonContent(
+        z.object({
+          ok: z.literal(true).describe("Always true on success."),
+          credentialId: z
+            .string()
+            .describe("The ID of the created or updated credential."),
+        }),
+      ),
+    },
+    400: apiErrorResponse(
+      "The request body was invalid or the authorization state is unknown or expired.",
+    ),
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    404: apiErrorResponse("The OAuth client could not be found."),
+    502: apiErrorResponse("The token endpoint could not be reached."),
+    500: apiErrorResponse("The code exchange failed."),
   },
 });
 

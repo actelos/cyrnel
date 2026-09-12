@@ -36,13 +36,13 @@ describe("normalizeLogObject", () => {
     expect(normalizeLogObject(rawLog({ level: 60 }), 1).level).toBe("fatal");
   });
 
-  it("classifies request logs and keeps the full req/res objects", () => {
+  it("classifies request logs and redacts query strings from req objects", () => {
     const entry = normalizeLogObject(
       rawLog({
         req: {
           id: "abc123",
           method: "GET",
-          url: "/processes?limit=10",
+          url: "/processes?limit=10", // query is redacted from stored req.url
           headers: { host: "example.com" },
         },
         res: {
@@ -62,7 +62,7 @@ describe("normalizeLogObject", () => {
     expect(entry.req).toEqual({
       id: "abc123",
       method: "GET",
-      url: "/processes?limit=10",
+      url: "/processes",
       headers: { host: "example.com" },
     });
     expect(entry.res).toEqual({

@@ -6,6 +6,24 @@ import path from "node:path";
 import { zstdCompressSync } from "node:zlib";
 import { create } from "tar";
 
+function verifyPkce(
+  verifier: string,
+  challenge: string,
+  method: string | null,
+): boolean {
+  const normalized = method ?? "plain";
+  if (normalized === "plain") return verifier === challenge;
+  if (normalized === "S256") {
+    const computed = createHash("sha256").update(verifier).digest("base64url");
+    return computed === challenge;
+  }
+  return false;
+}
+
+// PKCE challenge bound to the static AC_CODE via the authorize endpoint.
+let acCodeChallenge: string | null = null;
+let acCodeChallengeMethod: string | null = null;
+
 const HOST = "127.0.0.1";
 const PORT = 9372;
 const BASE_URL = `http://${HOST}:${PORT}`;
@@ -15,53 +33,150 @@ const AUTH_MODE = (
 ).toLowerCase();
 const DRIFT_AUTH = process.env.CYRNEL_DEV_REGISTRY_DRIFT_AUTH === "1";
 const API_KEY = process.env.CYRNEL_DEV_REGISTRY_API_KEY ?? "dev-registry-key";
+const BASIC_USER = process.env.CYRNEL_DEV_REGISTRY_BASIC_USER ?? "dev";
+const BASIC_PASS = process.env.CYRNEL_DEV_REGISTRY_BASIC_PASS ?? "devpass";
 const BEARER_TOKEN =
   process.env.CYRNEL_DEV_REGISTRY_TOKEN ?? "dev-registry-token";
 const CLIENT_ID = process.env.CYRNEL_DEV_REGISTRY_CLIENT_ID ?? "dev-client";
 const CLIENT_SECRET =
   process.env.CYRNEL_DEV_REGISTRY_CLIENT_SECRET ?? "dev-secret";
+const AC_CODE = "dev-ac-code";
 const TOKEN_EXPIRES_IN = Number(
   process.env.CYRNEL_DEV_REGISTRY_TOKEN_EXPIRES_IN ?? 3600,
 );
-const SCOPES: Array<{ id: string; description: string }> = [
-  { id: "definitions:read", description: "Read registry definitions" },
-  { id: "modules:read", description: "Read registry modules" },
-];
+const SCOPES: Record<string, string> = {
+  "definitions:read": "Read registry definitions",
+  "modules:read": "Read registry modules",
+};
 
-function advertisedAuth():
-  | { type: "apiKey"; name: string }
-  | {
-      type: "oauth2";
-      grantType: "client_credentials";
-      tokenEndpoint: string;
-      scopes: Array<{ id: string; description: string }>;
-    }
-  | undefined {
+interface WellKnownAuth {
+  schemes: Record<string, unknown>;
+  security: Array<Record<string, string[]>>;
+}
+
+function advertisedAuth(): WellKnownAuth | undefined {
   if (AUTH_MODE === "apikey") {
     return {
-      type: "apiKey",
-      name: DRIFT_AUTH ? "X-Dev-Registry-Key-Drift" : "X-Dev-Registry-Key",
+      schemes: {
+        apiKey: {
+          type: "apiKey",
+          in: "header",
+          paramName: DRIFT_AUTH
+            ? "X-Dev-Registry-Key-Drift"
+            : "X-Dev-Registry-Key",
+        },
+      },
+      security: [{ apiKey: [] }],
+    };
+  }
+  if (AUTH_MODE === "basic") {
+    return {
+      schemes: { basic: { type: "basic" } },
+      security: [{ basic: [] }],
+    };
+  }
+  if (AUTH_MODE === "bearer") {
+    return {
+      schemes: { bearer: { type: "http", scheme: "bearer" } },
+      security: [{ bearer: [] }],
     };
   }
   if (AUTH_MODE === "oauth2") {
     return {
-      type: "oauth2",
-      grantType: "client_credentials",
-      tokenEndpoint: `${BASE_URL}${DRIFT_AUTH ? "/oauth/drift-token" : "/oauth/token"}`,
-      scopes: SCOPES,
+      schemes: {
+        oauth2: {
+          type: "oauth2",
+          grantTypes: ["client_credentials"],
+          tokenUrl: `${BASE_URL}${DRIFT_AUTH ? "/oauth/drift-token" : "/oauth/token"}`,
+          scopes: SCOPES,
+        },
+      },
+      security: [{ oauth2: ["definitions:read"] }],
+    };
+  }
+  if (AUTH_MODE === "oauth2-ac") {
+    return {
+      schemes: {
+        oauth2: {
+          type: "oauth2",
+          grantTypes: ["authorization_code", "refresh_token"],
+          authorizationUrl: `${BASE_URL}/oauth/authorize`,
+          tokenUrl: `${BASE_URL}/oauth/token`,
+          scopes: SCOPES,
+        },
+      },
+      security: [{ oauth2: ["definitions:read"] }],
+    };
+  }
+  if (AUTH_MODE === "multi") {
+    return {
+      schemes: {
+        apiKey: {
+          type: "apiKey",
+          in: "header",
+          paramName: "X-Dev-Registry-Key",
+        },
+        oauth2: {
+          type: "oauth2",
+          grantTypes: ["client_credentials"],
+          tokenUrl: `${BASE_URL}/oauth/token`,
+          scopes: SCOPES,
+        },
+      },
+      security: [{ apiKey: [] }],
     };
   }
   return undefined;
 }
 
-function isAuthorized(
+function capabilityValue(
+  capability: "definitions" | "modules",
+  path: string,
+): string | { url: string; security: Array<Record<string, string[]>> } {
+  if (AUTH_MODE === "multi" && capability === "modules") {
+    return { url: path, security: [{ oauth2: ["modules:read"] }] };
+  }
+  return path;
+}
+
+function authorizedByApiKey(
   headers: import("node:http").IncomingHttpHeaders,
 ): boolean {
-  if (AUTH_MODE === "apikey") {
-    return headers["x-dev-registry-key"] === API_KEY;
+  return headers["x-dev-registry-key"] === API_KEY;
+}
+
+function authorizedByBasic(
+  headers: import("node:http").IncomingHttpHeaders,
+): boolean {
+  const expected = `Basic ${Buffer.from(`${BASIC_USER}:${BASIC_PASS}`).toString("base64")}`;
+  return headers.authorization === expected;
+}
+
+function authorizedByBearer(
+  headers: import("node:http").IncomingHttpHeaders,
+): boolean {
+  return headers.authorization === `Bearer ${BEARER_TOKEN}`;
+}
+
+function isAuthorized(
+  headers: import("node:http").IncomingHttpHeaders,
+  pathname: string,
+): boolean {
+  if (AUTH_MODE === "multi" && pathname.startsWith("/definitions")) {
+    return true;
   }
-  if (AUTH_MODE === "oauth2") {
-    return headers.authorization === `Bearer ${BEARER_TOKEN}`;
+  if (AUTH_MODE === "apikey") return authorizedByApiKey(headers);
+  if (AUTH_MODE === "basic") return authorizedByBasic(headers);
+  if (AUTH_MODE === "bearer" || AUTH_MODE === "oauth2") {
+    return authorizedByBearer(headers);
+  }
+  if (AUTH_MODE === "oauth2-ac") return authorizedByBearer(headers);
+  if (AUTH_MODE === "multi") {
+    return (
+      authorizedByApiKey(headers) ||
+      authorizedByBearer(headers) ||
+      authorizedByBasic(headers)
+    );
   }
   return true;
 }
@@ -76,8 +191,8 @@ function handleTokenRequest(
   });
   req.on("end", () => {
     const params = new URLSearchParams(body);
+    const grantType = params.get("grant_type");
     if (
-      params.get("grant_type") !== "client_credentials" ||
       params.get("client_id") !== CLIENT_ID ||
       params.get("client_secret") !== CLIENT_SECRET
     ) {
@@ -85,9 +200,54 @@ function handleTokenRequest(
       res.end(JSON.stringify({ error: "invalid_client" }));
       return;
     }
+    if (grantType === "authorization_code") {
+      const verifier = params.get("code_verifier") ?? "";
+      if (params.get("code") !== AC_CODE || !verifier) {
+        res.writeHead(400, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "invalid_grant" }));
+        return;
+      }
+      if (
+        acCodeChallenge &&
+        !verifyPkce(verifier, acCodeChallenge, acCodeChallengeMethod)
+      ) {
+        res.writeHead(400, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "invalid_grant" }));
+        return;
+      }
+      const requestedScope = params.get("scope");
+      const granted = requestedScope ?? Object.keys(SCOPES).join(" ");
+      json(res, {
+        access_token: BEARER_TOKEN,
+        token_type: "Bearer",
+        expires_in: TOKEN_EXPIRES_IN,
+        refresh_token: "dev-refresh-token",
+        scope: granted,
+      });
+      return;
+    }
+    if (grantType === "refresh_token") {
+      if (params.get("refresh_token") !== "dev-refresh-token") {
+        res.writeHead(400, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "invalid_grant" }));
+        return;
+      }
+      json(res, {
+        access_token: BEARER_TOKEN,
+        token_type: "Bearer",
+        expires_in: TOKEN_EXPIRES_IN,
+        scope: Object.keys(SCOPES).join(" "),
+      });
+      return;
+    }
+    if (grantType !== "client_credentials") {
+      res.writeHead(400, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "unsupported_grant_type" }));
+      return;
+    }
     const requestedScope = params.get("scope");
     if (requestedScope !== null) {
-      const available = new Set(SCOPES.map((scope) => scope.id));
+      const available = new Set(Object.keys(SCOPES));
       const requested = requestedScope.split(" ").filter(Boolean);
       if (requested.some((scope) => !available.has(scope))) {
         res.writeHead(400, { "content-type": "application/json" });
@@ -101,6 +261,27 @@ function handleTokenRequest(
       expires_in: TOKEN_EXPIRES_IN,
     });
   });
+}
+
+function handleAuthorizeRequest(
+  req: import("node:http").IncomingMessage,
+  res: import("node:http").ServerResponse,
+): void {
+  const url = new URL(req.url ?? "/", BASE_URL);
+  const redirectUri = url.searchParams.get("redirect_uri") ?? "";
+  const state = url.searchParams.get("state") ?? "";
+  if (!redirectUri.startsWith("http")) {
+    res.writeHead(400, { "content-type": "application/json" });
+    res.end(JSON.stringify({ error: "invalid_request" }));
+    return;
+  }
+  acCodeChallenge = url.searchParams.get("code_challenge");
+  acCodeChallengeMethod = url.searchParams.get("code_challenge_method");
+  const target = new URL(redirectUri);
+  target.searchParams.set("code", AC_CODE);
+  target.searchParams.set("state", state);
+  res.writeHead(302, { location: target.toString() });
+  res.end();
 }
 
 function unauthorized(res: import("node:http").ServerResponse): void {
@@ -349,8 +530,19 @@ const server = createServer(async (req, res) => {
     return handleTokenRequest(req, res);
   }
 
+  if (
+    (AUTH_MODE === "oauth2-ac" || AUTH_MODE === "multi") &&
+    url.pathname === "/oauth/token"
+  ) {
+    return handleTokenRequest(req, res);
+  }
+
+  if (AUTH_MODE === "oauth2-ac" && url.pathname === "/oauth/authorize") {
+    return handleAuthorizeRequest(req, res);
+  }
+
   if (url.pathname !== "/.well-known/registry.json") {
-    if (!isAuthorized(req.headers)) return unauthorized(res);
+    if (!isAuthorized(req.headers, url.pathname)) return unauthorized(res);
   }
 
   if (url.pathname === "/.well-known/registry.json") {
@@ -358,8 +550,8 @@ const server = createServer(async (req, res) => {
     return json(res, {
       id: "cyrnel-dev",
       ...(auth ? { auth } : {}),
-      "definitions.v1": "/definitions/v1",
-      "modules.v1": "/modules/v1",
+      "definitions.v1": capabilityValue("definitions", "/definitions/v1"),
+      "modules.v1": capabilityValue("modules", "/modules/v1"),
     });
   }
 

@@ -36,13 +36,6 @@ function formatAjvErrors(validate: ValidateFunction): string {
   );
 }
 
-/**
- * Asserts that `value` is a plain JSON-safe object (no functions, class
- * instances, symbols, or Proxies). Throws an HttpError if not.
- *
- * This is used to verify that module-exported config/secrets schemas are
- * pure data and cannot execute code.
- */
 export function assertPlainJsonSchema(
   value: unknown,
   label = "Schema",
@@ -128,10 +121,6 @@ export function applyJsonSchemaDefaults<T extends Record<string, unknown>>(
   return normalized;
 }
 
-/**
- * Normalizes a summary for persistence: trims surrounding whitespace and
- * falls back to an empty string when absent.
- */
 export function normalizeSummary(value: string | undefined): string {
   return value?.trim() ?? "";
 }

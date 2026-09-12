@@ -1,0 +1,349 @@
+---
+title: "Authentication"
+description: "Owner-scoped credentials, OAuth clients, and per-scheme sign-in"
+---
+
+A **credential** is authentication material owned by exactly one
+**owner**: a service, a module, or a registry. Each owner declares the
+auth schemes it understands (`schemes` + `security`, see
+[Types](/cyrnel/sdk-spec/5.0.0/types)), and each declared scheme has
+**one slot** holding at most one credential. Adapters never see
+credential IDs — they resolve credentials on demand through
+`service.credentials?.getCredential(schemeName)`, while modules that
+declare `auth` resolve theirs through the setup-context
+`credentials?.getCredential(schemeName)`.
+
+There is no global credential pool and no separate credentials page.
+The only global auth surface is **OAuth clients** (shared app
+registrations). Everything else is configured on the owner it belongs
+to.
+
+<Warning>
+  Upgrading from the previous model destroys authentication secrets.
+  The migration drops the old auth tables with their contents — API
+  keys, passwords, bearer tokens, OAuth access/refresh tokens, and
+  in-flight authorizations are deleted, not converted. All credentials
+  must be reconnected through the per-scheme UI described below.
+  Registries advertising the old single-method `auth` shape stop
+  validating; see
+  [Well-known](/cyrnel/registry-specs/v1/well-known).
+</Warning>
+
+## Concepts
+
+- **Credential types:** `apiKey` | `basic` | `bearer` | `oauth2`.
+  Static credentials (`apiKey`, `basic`, `bearer`) never expire;
+  `oauth2` refreshes on demand (30s skew) plus a background sweep.
+- **Declaration vs material:** a scheme declaration (requirement) maps
+  to exactly one credential type:
+
+  | Scheme declaration | Credential type | Stored secret |
+  | --- | --- | --- |
+  | `apiKey` | `apiKey` | `{ apiKey }` |
+  | `basic` / `http/basic` | `basic` | `{ username, password }` |
+  | `http/bearer` | `bearer` | `{ token }` |
+  | `oauth2` | `oauth2` | `{ accessToken, refreshToken?, expiresAt }` |
+
+  A `bearer` credential satisfies only an `http` + `scheme: bearer`
+  declaration — never `apiKey`, `basic`, or `oauth2`. Writing the wrong
+  type to a scheme slot is a `400`; writing to a scheme the owner did
+  not declare is a `400`.
+- **One slot per `(owner, scheme)`.** Claiming an already-configured
+  scheme replaces it; there is never a second credential for the same
+  slot. Picking a different OAuth client for an `oauth2` scheme
+  replaces the slot in place (same credential id, requested scopes
+  overwritten, granted scopes cleared, tokens wiped) and starts a
+  fresh authorization.
+- **Per-owner status:** `GET /services/:serviceId` and
+  `GET /modules/:moduleId` surface configured slots as
+  `credentialSchemes?: Record<schemeName, { configured, status?,
+  grantedSource? }>`. `status` is `active` | `expired` | `revoked` |
+  `error`. `invalid_grant` during refresh marks the credential
+  `revoked`; other token failures mark `error`.
+- **OAuth clients** (`GET /oauth-clients`) are global, reusable app
+  registrations: `provider` (required display/grouping label only —
+  never used for resolution), `clientId`, encrypted `clientSecret`,
+  `tokenUrl`, optional `authorizationUrl`, `clientAuthMethod`,
+  `redirectUris: string[]`, and `availableScopes: string[]`
+  (required; `[]` means the client may only back unscoped
+  credentials). Deleting a client returns `409` while any owned
+  credential still references it. The list endpoint never emits
+  `clientSecret`.
+- **In-flight OAuth state** uses PKCE (`S256` always) with a 10-minute
+  TTL. The sweeper prunes expired rows alongside expiring tokens.
+
+Credential values never leave the server. List/detail endpoints return
+metadata only (configured flags, status, scopes) — never secrets.
+
+## Scopes: available vs requested vs granted vs required
+
+Four distinct concepts — each has one owner, one lifecycle, and one
+enforcement point:
+
+```text
+OAuth Client                  Credential                  Provider              Operation
+availableScopes               requestedScopes ──grant──▶  grantedScopes ──check▶ requiredScopes
+(what may be asked)           (what was asked)            (what was given)      (what is demanded)
+owner: client                 owner: credential           owner: credential     owner: tool/route
+enforced: at creation (400)   stored, never overwritten   parsed from `scope`   enforced: at invoke (refusal)
+```
+
+1. **Available** — scopes a client is configured to permit. The
+   operator picks from this list when claiming a scheme slot; the pick
+   is stored as the credential's **requested** scopes. Enforced:
+   `requested ⊆ available`, else `400`.
+2. **Requested** — scopes the credential wants. Stored at creation and
+   copied into the pending row at authorize time; the authorize call
+   sends `scope = requested.join(" ")`. Never overwritten by the
+   grant. A requested scope the scheme does not declare is a
+   **warning, not a refusal**: creation succeeds with
+   `warning: { unknownScopes }`, because a credential is valid material
+   even when it cannot satisfy every operation.
+3. **Granted** — scopes the provider actually granted, parsed from the
+   token response `scope` parameter (string or array). When the
+   response carries no `scope`, granted falls back to requested and is
+   marked `grantedSource: "inferred"` so the UI can show "assumed".
+   Refresh responses carrying `scope` update granted the same way.
+4. **Required** — scopes an operation demands (`security:
+   [{ scheme: [scopes] }]` on tools, per-capability `security` on
+   registries). Checked at invoke time as `required ⊆ granted`
+   against the granted scopes the host hands the adapter. A credential
+   that cannot satisfy an operation is still valid — it just cannot be
+   used for that operation (warning at connect time, refusal at invoke
+   time).
+
+## Static credentials (apiKey / basic / bearer)
+
+One `PUT` per `(owner, scheme)` slot. The same subtree exists under
+`/services/:serviceId/credentials`, `/modules/:moduleId/credentials`,
+and `/registries/:id/credentials`:
+
+```bash
+# Claim the "apiKey" scheme of a service
+curl -X PUT http://localhost:9371/services/petstore/credentials/apiKey/api-key \
+  -H 'content-type: application/json' \
+  -d '{"apiKey":"sk-..."}'
+
+# Claim the "basic" scheme of a module
+curl -X PUT http://localhost:9371/modules/oauth-demo-adapter/credentials/demoBasic/basic \
+  -H 'content-type: application/json' \
+  -d '{"username":"u","password":"p"}'
+
+# Claim the "bearer" scheme of a service (satisfies http/bearer declarations)
+curl -X PUT http://localhost:9371/services/petstore/credentials/token/bearer \
+  -H 'content-type: application/json' \
+  -d '{"token":"..."}'
+
+# List an owner's credentials (metadata only, never secrets)
+curl http://localhost:9371/services/petstore/credentials
+
+# Disconnect one scheme slot (that slot's rows only)
+curl -X DELETE http://localhost:9371/services/petstore/credentials/apiKey
+# → 204
+```
+
+All `PUT` routes are rate-limited to `10/min`.
+
+## OAuth2
+
+### 1. Register or pick a client
+
+Clients are global and shared. Create one on the **Authentication**
+page (`/authentication`) or via the API:
+
+```bash
+curl -X POST http://localhost:9371/oauth-clients \
+  -H 'content-type: application/json' \
+  -d '{
+    "provider": "GitHub",
+    "clientId": "...",
+    "clientSecret": "...",
+    "tokenUrl": "https://github.com/login/oauth/access_token",
+    "authorizationUrl": "https://github.com/login/oauth/authorize",
+    "availableScopes": ["repo"]
+  }'
+```
+
+`provider` and `availableScopes` are required. `availableScopes: []`
+means the client may only back unscoped credentials. Clients can also
+be listed, resolved, patched, and deleted:
+
+| Method | Path | Notes |
+| --- | --- | --- |
+| `GET` | `/oauth-clients` | Public fields only (never `clientSecret`) |
+| `GET` | `/oauth-clients/resolve?authorizationUrl=...&scopes=...` | Ranked candidates for a scheme, `30/min` |
+| `POST` | `/oauth-clients` | `{ provider, clientId, clientSecret, tokenUrl, authorizationUrl?, clientAuthMethod?, redirectUris?, availableScopes }` → `201`, `10/min` |
+| `PATCH` | `/oauth-clients/:id` | Update `provider`, endpoints, `availableScopes`, etc., `10/min` |
+| `DELETE` | `/oauth-clients/:id` | `204`; `409` while referenced by any owned credential, `10/min` |
+
+### 2. Claim the scheme slot
+
+```bash
+curl -X PUT http://localhost:9371/services/petstore/credentials/github/oauth2 \
+  -H 'content-type: application/json' \
+  -d '{"oauthClientId":"<client-id>","scopes":["repo"]}'
+# → 10/min
+```
+
+`scopes` becomes the credential's requested scopes (`[]` defaults to
+unscoped). Validation: unknown scheme → `400`; `requested ⊄
+available` → `400`; `requested ⊄ scheme.scopes keys` → success with
+`warning: { unknownScopes }`. Switching to another client replaces
+the slot in place (confirm in the UI — the current login for that
+scheme is disconnected and a new authorization starts).
+
+### 3. Authorize
+
+```bash
+curl -X POST http://localhost:9371/services/petstore/credentials/github/oauth/authorize
+# → { "authorizationUrl": "https://...?code_challenge=...&state=...", "state": "..." }
+# 5/min. 400 when the scheme is not oauth2 or has no authorization URL.
+```
+
+Visit `authorizationUrl` as the operator. Complete the flow one of two ways:
+
+- **Redirect (public host):** the provider calls
+  `GET /auth/callback?code=...&state=...` → `{ ok: true }`. The host
+  validates `state`, exchanges the code with the PKCE verifier (10s
+  timeout), and persists tokens plus granted scopes encrypted.
+- **Manual paste (self-hosted / non-public host):**
+  `POST /services/petstore/credentials/github/oauth/code { code, state? }`
+  (`5/min`; same subtree for modules and registries). `state` is
+  optional — when omitted the latest unexpired pending authorization
+  for the slot is used.
+
+`GET /auth/callback` dispatches through the pending row, so the path
+is unchanged across owner types. Exchange failures mark the
+credential `error`; `invalid_grant` marks `revoked` (`401` on next
+refresh, else `502`).
+
+### 4. Runtime resolution
+
+At invoke time the host resolves `(owner, schemeName)` → owned
+credential:
+
+- `apiKey` → `{ type: "apiKey", value }`
+- `basic` → `{ type: "basic", username, password }`
+- `bearer` → `{ type: "bearer", token }`
+- `oauth2` → `{ type: "oauth2", accessToken, expiresAt, scopes:
+  granted ?? [] }`, refreshing inline when `expiresAt - 30s <= now`.
+  Missing → `CredentialUnavailable`; revoked / no-token / no-refresh
+  → `404` / `409` and marks `expired` where applicable.
+
+Adapters enforce required scopes against the granted `scopes` the
+host provides and fail closed when no security group can be
+satisfied. Token exchange is single-flight per credential with one
+`401` retry. The background sweeper (`sweepAuth`) proactively
+refreshes tokens expiring within the horizon and prunes expired
+pending authorizations.
+
+## Sign-in resolution and the manual picker
+
+When an `oauth2` scheme declares an `authorizationUrl`, the UI
+resolves which shared clients can back it:
+
+1. **Match key is the authorization URL.** The scheme's
+   `authorizationUrl` is compared against each client's
+   `authorizationUrl` after normalization (lowercase scheme+host,
+   drop fragment and query, drop default ports, strip one trailing
+   `/`) and exact comparison. Close-but-different URLs never match.
+2. **Same-origin guard.** A candidate is eligible only if its own
+   authorization and token endpoints share an origin. Cross-origin
+   rows are excluded from auto-resolution and shown in the picker
+   with a warning.
+3. **Ranking, then choice.** Survivors are ranked by scope
+   compatibility (`availableScopes ⊇ requested` preferred) and recent
+   use. The token URL never ranks: if two survivors have differing
+   token endpoints, that is genuine ambiguity — no auto-pick. The UI
+   renders a primary `Sign in with {provider ?? hostname}` button only
+   when exactly one client survives (or several share byte-identical
+   endpoints, broken by recency), with a split-dropdown chevron for
+   "Choose another client…" / "Create new client…". Zero or ambiguous
+   matches render the picker list first, then the create affordance.
+
+The same resolution backs `GET /oauth-clients/resolve` and the
+`resolvedClients` map returned by `POST /registries`, so registry
+schemes render Sign in immediately after adding the registry.
+
+## Registries
+
+`POST /registries` takes `{ baseUrl, id? }` only — no auth payload.
+The server fetches the well-known document (which must use the v2
+multi-method `auth` shape; the old single-method shape is rejected),
+stores the registry, and returns `{ registry, auth, resolvedClients }`
+so the UI can render per-scheme Sign in at once. Registry schemes
+then use the same nested credential routes
+(`/registries/:id/credentials/:scheme/...`), including `oauth2`
+`authorization_code` schemes resolved against shared clients and
+`client_credentials` schemes holding a per-registry machine secret.
+See [Authentication](/cyrnel/registry-specs/v1/authentication).
+
+## Endpoints
+
+`{owner}` is `/services/:serviceId`, `/modules/:moduleId`, or
+`/registries/:id`:
+
+| Method | Path | Notes |
+| --- | --- | --- |
+| `GET` | `{owner}/credentials` | Slot metadata, never secrets |
+| `PUT` | `{owner}/credentials/:scheme/api-key` | `{ apiKey }`, `10/min` |
+| `PUT` | `{owner}/credentials/:scheme/basic` | `{ username, password }`, `10/min` |
+| `PUT` | `{owner}/credentials/:scheme/bearer` | `{ token }`, `10/min` |
+| `PUT` | `{owner}/credentials/:scheme/oauth2` | `{ oauthClientId, scopes? }` (+ `warning.unknownScopes`), `10/min` |
+| `DELETE` | `{owner}/credentials/:scheme` | Disconnect that slot, `204` |
+| `POST` | `{owner}/credentials/:scheme/oauth/authorize` | → `{ authorizationUrl, state }`, `5/min` |
+| `POST` | `{owner}/credentials/:scheme/oauth/code` | `{ code, state? }` manual fallback, `5/min` |
+| `GET` | `/auth/callback` | `?code&state` redirect target → `{ ok: true }` |
+| `GET` | `/oauth-clients` | List (public fields) |
+| `GET` | `/oauth-clients/resolve` | Ranked candidates, `30/min` |
+| `POST` | `/oauth-clients` | Register a client, `10/min` |
+| `PATCH` | `/oauth-clients/:id` | Update a client, `10/min` |
+| `DELETE` | `/oauth-clients/:id` | `204`, `409` if referenced, `10/min` |
+
+Full request/response schemas are in the
+[API Reference](/cyrnel-api-reference) (generated from
+`apps/api/openapi/cyrnel.v1.openapi.json`).
+
+## Configuration
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `CYRNEL_OAUTH_REDIRECT_BASE` | `http://localhost:9371` | Base URL for OAuth redirect URIs when a client has no explicit `redirectUris`. Must be an absolute URL; override behind reverse proxies. The effective redirect is `<base>/auth/callback` unless `redirectUris[0]` is set. |
+| `CYRNEL_AUTH_REFRESH_INTERVAL_MS` | `300000` | Background OAuth refresh sweep interval in ms. `0` disables the interval (on-demand refresh still runs; startup sweep still runs). Valid `0–2147483647`. Also prunes expired pending authorizations. |
+
+## Deletion behavior
+
+- Delete a service, module, or registry → cascades its credentials,
+  secrets, and pending authorizations. OAuth clients are untouched.
+- Disconnect a scheme (`DELETE {owner}/credentials/:scheme`) →
+  that slot's rows only. No garbage collection beyond this.
+- Delete an OAuth client → `409` while referenced by any owned
+  credential (the response lists referencing owners), else `204`.
+
+## Web UI
+
+- **`/authentication` page:** OAuth clients table only (`provider`,
+  `clientId`, `tokenUrl`, `authorizationUrl`, `availableScopes`,
+  used-by counts, create/edit/delete). There is no global
+  credentials page.
+- **Service / module / registry detail → Authentication card:** shown
+  only when the owner declares non-empty `schemes`. Per-scheme status
+  plus granted scopes; inputs for `apiKey` / `basic` / `bearer`;
+  scope multi-select plus the `Sign in with X` button / picker flow
+  described above. The OAuth popup polls the owned credential until
+  tokens land. Declared scheme `scopes` maps render as help text.
+- **Module detail:** same card as services, driven by the module's
+  declared `auth`. Modules without schemes show an explanatory empty
+  state.
+
+## Security notes
+
+- Credentials and OAuth client secrets are AES-256-GCM encrypted with
+  `CYRNEL_SECRETS_KEY` (same key ring + silent re-encryption as service
+  secrets). Metadata (`provider`, `redirectUris`, scopes, slot status)
+  is plaintext — never put secret values there.
+- The host always enforces PKCE `S256`; there is no challenge-method field.
+- Credential-bearing registry requests require https except loopback /
+  `CYRNEL_REGISTRY_AUTH_INSECURE_CIDRS`.
+- See [Security](/cyrnel/docs/v1/security) for key rotation, log scrubbing, and
+  hardening defaults.

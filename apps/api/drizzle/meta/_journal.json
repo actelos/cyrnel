@@ -1,90 +1,139 @@
 {
-  "version": "7",
-  "dialect": "sqlite",
-  "entries": [
-    {
-      "idx": 0,
-      "version": "6",
-      "when": 1782390160112,
-      "tag": "0000_brainy_frog_thor",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "6",
-      "when": 1782390160113,
-      "tag": "0001_add_timeout_ms_and_env_config",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "6",
-      "when": 1783512000000,
-      "tag": "0002_add_module_service_versions",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "6",
-      "when": 1785741944901,
-      "tag": "0003_open_the_enforcers",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "6",
-      "when": 1785812805888,
-      "tag": "0004_perpetual_shadowcat",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "6",
-      "when": 1786117050459,
-      "tag": "0005_modern_jetstream",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "6",
-      "when": 1786128689829,
-      "tag": "0006_youthful_matthew_murdock",
-      "breakpoints": true
-    },
-    {
-      "idx": 7,
-      "version": "6",
-      "when": 1786232788147,
-      "tag": "0007_next_rattler",
-      "breakpoints": true
-    },
-    {
-      "idx": 8,
-      "version": "6",
-      "when": 1786256127124,
-      "tag": "0008_rapid_warhawk",
-      "breakpoints": true
-    },
-    {
-      "idx": 9,
-      "version": "6",
-      "when": 1786741200000,
-      "tag": "0009_add_auto_update_columns",
-      "breakpoints": true
-    },
-    {
-      "idx": 10,
-      "version": "6",
-      "when": 1787093524184,
-      "tag": "0010_sparkling_supreme_intelligence",
-      "breakpoints": true
-    },
-    {
-      "idx": 11,
-      "version": "6",
-      "when": 1788482957996,
-      "tag": "0011_next_robin_chapel",
-      "breakpoints": true
-    }
-  ]
+ "version": "7",
+ "dialect": "sqlite",
+ "entries": [
+  {
+   "idx": 0,
+   "version": "6",
+   "when": 1782390160112,
+   "tag": "0000_brainy_frog_thor",
+   "breakpoints": true
+  },
+  {
+   "idx": 1,
+   "version": "6",
+   "when": 1782390160113,
+   "tag": "0001_add_timeout_ms_and_env_config",
+   "breakpoints": true
+  },
+  {
+   "idx": 2,
+   "version": "6",
+   "when": 1783512000000,
+   "tag": "0002_add_module_service_versions",
+   "breakpoints": true
+  },
+  {
+   "idx": 3,
+   "version": "6",
+   "when": 1785741944901,
+   "tag": "0003_open_the_enforcers",
+   "breakpoints": true
+  },
+  {
+   "idx": 4,
+   "version": "6",
+   "when": 1785812805888,
+   "tag": "0004_perpetual_shadowcat",
+   "breakpoints": true
+  },
+  {
+   "idx": 5,
+   "version": "6",
+   "when": 1786117050459,
+   "tag": "0005_modern_jetstream",
+   "breakpoints": true
+  },
+  {
+   "idx": 6,
+   "version": "6",
+   "when": 1786128689829,
+   "tag": "0006_youthful_matthew_murdock",
+   "breakpoints": true
+  },
+  {
+   "idx": 7,
+   "version": "6",
+   "when": 1786232788147,
+   "tag": "0007_next_rattler",
+   "breakpoints": true
+  },
+  {
+   "idx": 8,
+   "version": "6",
+   "when": 1786256127124,
+   "tag": "0008_rapid_warhawk",
+   "breakpoints": true
+  },
+  {
+   "idx": 9,
+   "version": "6",
+   "when": 1786741200000,
+   "tag": "0009_add_auto_update_columns",
+   "breakpoints": true
+  },
+  {
+   "idx": 10,
+   "version": "6",
+   "when": 1787093524184,
+   "tag": "0010_sparkling_supreme_intelligence",
+   "breakpoints": true
+  },
+  {
+   "idx": 11,
+   "version": "6",
+   "when": 1788482957996,
+   "tag": "0011_next_robin_chapel",
+   "breakpoints": true
+  },
+  {
+   "idx": 12,
+   "version": "6",
+   "when": 1788730791228,
+   "tag": "0012_tan_thunderbolt",
+   "breakpoints": true
+  },
+  {
+   "idx": 13,
+   "version": "6",
+   "when": 1788734719601,
+   "tag": "0013_loud_sunset_bain",
+   "breakpoints": true
+  },
+  {
+   "idx": 14,
+   "version": "6",
+   "when": 1788825108539,
+   "tag": "0014_lying_sandman",
+   "breakpoints": true
+  },
+  {
+   "idx": 15,
+   "version": "6",
+   "when": 1788997225458,
+   "tag": "0015_solid_boom_boom",
+   "breakpoints": true
+  },
+  {
+   "idx": 16,
+   "version": "6",
+   "when": 1789046453358,
+   "tag": "0016_connection-schemes-unique",
+   "breakpoints": true
+  },
+  {
+   "idx": 17,
+   "version": "6",
+   "when": 1789047401312,
+   "tag": "0017_bumpy_robbie_robertson",
+   "breakpoints": true
+  },
+  {
+   "idx": 18,
+   "version": "6",
+   "when": 1789089068500,
+   "tag": "0018_owner_scoped_auth",
+   "breakpoints": true
+  }
+ ]
 }

@@ -245,7 +245,7 @@ export async function resolveApproval(
       if (outcome.shouldExpireStale) {
         try {
           const { resolveApprovalWaiter } = await import(
-            "@/services/approval-waiter"
+            "@/services/approval.waiter"
           );
           resolveApprovalWaiter(id, "expired");
         } catch {}
@@ -253,14 +253,14 @@ export async function resolveApproval(
       if (outcome.resolved) {
         try {
           const { resolveApprovalWaiter } = await import(
-            "@/services/approval-waiter"
+            "@/services/approval.waiter"
           );
           resolveApprovalWaiter(id, targetState);
         } catch {}
         if (outcome.processId != null) {
           try {
             const { getProcessService } = await import(
-              "@/services/process-holder"
+              "@/services/process.holder"
             );
             const ps = getProcessService();
             if (ps) {
@@ -321,7 +321,7 @@ export async function sweepExpiredApprovals(): Promise<number> {
     for (const row of expired) {
       try {
         const { resolveApprovalWaiter } = await import(
-          "@/services/approval-waiter"
+          "@/services/approval.waiter"
         );
         resolveApprovalWaiter(row.id, "expired");
       } catch {}
@@ -341,7 +341,7 @@ export async function sweepExpiredApprovals(): Promise<number> {
             ),
           )
           .then((rows) => rows[0].count);
-        const { getProcessService } = await import("@/services/process-holder");
+        const { getProcessService } = await import("@/services/process.holder");
         const ps = getProcessService();
         if (ps) {
           await ps.notifyApprovalResolved(pid, pending, "expired");

@@ -91,7 +91,7 @@ describe("registry.controller", () => {
     it("returns 200 with the paginated envelope", async () => {
       const res = makeRes();
       const page = {
-        items: [sampleRecord],
+        items: [{ ...sampleRecord, configuredSchemes: [] }],
         nextCursor: null,
         hasMore: false,
       };
@@ -215,25 +215,25 @@ describe("registry.controller", () => {
   });
 });
 
-const samplePage = {
-  entries: [
-    {
-      id: "github",
-      name: "GitHub",
-      source: "https://registry.github.com/definitions/github",
-      kind: "openapi@3.0",
+const sampleAddedRecord = {
+  ...sampleRecord,
+  auth: {
+    schemes: {
+      apiKey: { type: "apiKey", in: "header", paramName: "X-Key" },
     },
-  ],
-  nextCursor: null,
+    security: [{ apiKey: [] }],
+  },
+  resolvedClients: {},
 };
 
 describe("addRegistry", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
+
   it("adds a registry from baseUrl alone", async () => {
     const res = makeRes();
-    registriesService.addRegistry.mockResolvedValue(sampleRecord);
+    registriesService.addRegistry.mockResolvedValue(sampleAddedRecord);
 
     await addRegistry(
       makeReq({ body: { baseUrl: "  https://registry.example.com  " } }),
@@ -243,15 +243,14 @@ describe("addRegistry", () => {
     expect(registriesService.addRegistry).toHaveBeenCalledWith(
       "https://registry.example.com",
       undefined,
-      undefined,
     );
     expect(res.status).toHaveBeenCalledWith(201);
-    expect(res.json).toHaveBeenCalledWith(sampleRecord);
+    expect(res.json).toHaveBeenCalledWith(sampleAddedRecord);
   });
 
   it("forwards an id override", async () => {
     const res = makeRes();
-    registriesService.addRegistry.mockResolvedValue(sampleRecord);
+    registriesService.addRegistry.mockResolvedValue(sampleAddedRecord);
 
     await addRegistry(
       makeReq({
@@ -263,7 +262,6 @@ describe("addRegistry", () => {
     expect(registriesService.addRegistry).toHaveBeenCalledWith(
       "https://registry.example.com",
       "alias",
-      undefined,
     );
   });
 
@@ -308,21 +306,44 @@ describe("refreshRegistry", () => {
   });
 });
 
+const sampleAuthState = {
+  schemes: {
+    apiKey: { type: "apiKey", in: "header", paramName: "X-Key" },
+    oauth2: {
+      type: "oauth2",
+      grantTypes: ["client_credentials"],
+      tokenUrl: "https://registry.example.com/oauth/token",
+      scopes: { read: "Read catalog" },
+    },
+  },
+  security: [{ apiKey: [] }],
+  credentials: [
+    {
+      id: "cred-1",
+      kind: "registry",
+      ownerId: "github",
+      schemeName: "apiKey",
+      schemeType: "apiKey",
+      status: "active",
+      oauthClientId: null,
+      requestedScopes: [],
+      grantedScopes: null,
+      grantedSource: null,
+      createdAt: "2024-01-01T00:00:00.000Z",
+      updatedAt: "2024-01-01T00:00:00.000Z",
+      oauthClient: null,
+    },
+  ],
+};
+
 describe("getRegistryAuth", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
-  it("returns 200 with the auth state and scopes", async () => {
+
+  it("returns 200 with schemes, security, and credentials", async () => {
     const res = makeRes();
-    const state = {
-      authType: "oauth2" as const,
-      tokenEndpoint: "https://registry.example.com/oauth/token",
-      headerName: null,
-      tokenExpiresAt: 1234,
-      availableScopes: [{ id: "registry:read", description: "Read" }],
-      configuredScopes: ["registry:read"],
-    };
-    registriesService.getRegistryAuthState.mockResolvedValue(state);
+    registriesService.getRegistryAuthState.mockResolvedValue(sampleAuthState);
 
     await getRegistryAuth(makeReq({ params: { id: "github" } }), cast(res));
 
@@ -330,7 +351,7 @@ describe("getRegistryAuth", () => {
       "github",
     );
     expect(res.status).toHaveBeenCalledWith(200);
-    expect(res.json).toHaveBeenCalledWith(state);
+    expect(res.json).toHaveBeenCalledWith(sampleAuthState);
   });
 
   it("rejects a missing id", async () => {
@@ -346,13 +367,75 @@ describe("setRegistryAuth", () => {
     vi.clearAllMocks();
   });
 
-  it("validates the body and delegates to the service with a 200", async () => {
+  it("accepts apiKey material and returns 200", async () => {
     const res = makeRes();
-    const body = { type: "apiKey", apiKey: "secret" };
-    registriesService.setRegistryAuth.mockResolvedValue({
-      type: "apiKey",
-      status: "configured",
-    });
+    const body = { schemeName: "apiKey", type: "apiKey", apiKey: "secret" };
+    const result = { auth: { credential: { id: "c1" }, status: "configured" } };
+    registriesService.setRegistryAuth.mockResolvedValue(result);
+
+    await setRegistryAuth(
+      makeReq({ params: { id: "github" }, body }),
+      cast(res),
+    );
+
+    expect(registriesService.setRegistryAuth).toHaveBeenCalledWith(
+      "github",
+      body,
+    );
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith(result);
+  });
+
+  it("accepts basic material", async () => {
+    const res = makeRes();
+    const body = {
+      schemeName: "basic",
+      type: "basic",
+      username: "dev",
+      password: "devpass",
+    };
+    registriesService.setRegistryAuth.mockResolvedValue({ auth: {} });
+
+    await setRegistryAuth(
+      makeReq({ params: { id: "github" }, body }),
+      cast(res),
+    );
+
+    expect(registriesService.setRegistryAuth).toHaveBeenCalledWith(
+      "github",
+      body,
+    );
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it("accepts bearer material", async () => {
+    const res = makeRes();
+    const body = { schemeName: "bearer", type: "bearer", token: "tok" };
+    registriesService.setRegistryAuth.mockResolvedValue({ auth: {} });
+
+    await setRegistryAuth(
+      makeReq({ params: { id: "github" }, body }),
+      cast(res),
+    );
+
+    expect(registriesService.setRegistryAuth).toHaveBeenCalledWith(
+      "github",
+      body,
+    );
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it("accepts oauth2 client_credentials material with scopes", async () => {
+    const res = makeRes();
+    const body = {
+      schemeName: "oauth2",
+      type: "oauth2",
+      grant: "client_credentials",
+      clientId: "c",
+      clientSecret: "s",
+      scopes: ["read"],
+    };
+    registriesService.setRegistryAuth.mockResolvedValue({ auth: {} });
 
     await setRegistryAuth(
       makeReq({ params: { id: "github" }, body }),
@@ -370,20 +453,55 @@ describe("setRegistryAuth", () => {
     const res = makeRes();
     await expect(
       setRegistryAuth(
-        makeReq({ params: {}, body: { type: "apiKey", apiKey: "s" } }),
+        makeReq({
+          params: {},
+          body: { schemeName: "apiKey", type: "apiKey", apiKey: "s" },
+        }),
         cast(res),
       ),
     ).rejects.toBeInstanceOf(HttpError);
   });
 
-  it("rejects an invalid auth body", async () => {
+  it.each([
+    { body: { type: "apiKey", apiKey: "s" }, why: "missing schemeName" },
+    { body: { schemeName: "k", type: "apiKey" }, why: "missing apiKey" },
+    {
+      body: { schemeName: "b", type: "basic", username: "u" },
+      why: "missing password",
+    },
+    { body: { schemeName: "b", type: "bearer" }, why: "missing token" },
+    {
+      body: { schemeName: "o", type: "oauth2", grant: "authorization_code" },
+      why: "authorization_code grant",
+    },
+    {
+      body: {
+        schemeName: "o",
+        type: "oauth2",
+        grant: "client_credentials",
+        clientId: "c",
+      },
+      why: "missing clientSecret",
+    },
+    {
+      body: {
+        schemeName: "o",
+        type: "oauth2",
+        grant: "client_credentials",
+        clientId: "c",
+        clientSecret: "s",
+        scopes: "read",
+      },
+      why: "non-array scopes",
+    },
+    { body: { schemeName: "k", type: "weird" }, why: "unknown type" },
+    { body: "not-an-object", why: "non-object body" },
+  ])("rejects $why", async ({ body }) => {
     const res = makeRes();
     await expect(
-      setRegistryAuth(
-        makeReq({ params: { id: "github" }, body: { type: "apiKey" } }),
-        cast(res),
-      ),
+      setRegistryAuth(makeReq({ params: { id: "github" }, body }), cast(res)),
     ).rejects.toBeInstanceOf(HttpError);
+    expect(registriesService.setRegistryAuth).not.toHaveBeenCalled();
   });
 });
 
@@ -392,11 +510,38 @@ describe("deleteRegistryAuth", () => {
     vi.clearAllMocks();
   });
 
-  it("delegates to the service and responds 204", async () => {
+  it("delegates without a scheme and responds 204", async () => {
     const res = makeRes();
     await deleteRegistryAuth(makeReq({ params: { id: "github" } }), cast(res));
-    expect(registriesService.deleteRegistryAuth).toHaveBeenCalledWith("github");
+    expect(registriesService.deleteRegistryAuth).toHaveBeenCalledWith(
+      "github",
+      undefined,
+    );
     expect(res.status).toHaveBeenCalledWith(204);
+  });
+
+  it("forwards a schemeName query param", async () => {
+    const res = makeRes();
+    await deleteRegistryAuth(
+      makeReq({ params: { id: "github" }, query: { schemeName: "apiKey" } }),
+      cast(res),
+    );
+    expect(registriesService.deleteRegistryAuth).toHaveBeenCalledWith(
+      "github",
+      "apiKey",
+    );
+    expect(res.status).toHaveBeenCalledWith(204);
+  });
+
+  it("rejects a blank schemeName", async () => {
+    const res = makeRes();
+    await expect(
+      deleteRegistryAuth(
+        makeReq({ params: { id: "github" }, query: { schemeName: "  " } }),
+        cast(res),
+      ),
+    ).rejects.toBeInstanceOf(HttpError);
+    expect(registriesService.deleteRegistryAuth).not.toHaveBeenCalled();
   });
 
   it("rejects a missing id", async () => {
@@ -406,6 +551,18 @@ describe("deleteRegistryAuth", () => {
     ).rejects.toBeInstanceOf(HttpError);
   });
 });
+
+const samplePage = {
+  entries: [
+    {
+      id: "github",
+      name: "GitHub",
+      source: "https://registry.github.com/definitions/github",
+      kind: "openapi@3.0",
+    },
+  ],
+  nextCursor: null,
+};
 
 describe("browseDefinitions", () => {
   beforeEach(() => {

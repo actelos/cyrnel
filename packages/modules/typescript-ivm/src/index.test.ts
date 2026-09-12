@@ -1,8 +1,10 @@
 import type {
+  ConfigProvider,
   EnvironmentBindings,
   ExecutionInput,
   ModuleLogBindings,
   ModuleLogger,
+  SecretsProvider,
 } from "@cyrnel/sdk";
 import { describe, expect, it, vi } from "vitest";
 
@@ -26,6 +28,32 @@ const stubLogger: ModuleLogger<ModuleLogBindings> = {
   error: () => {},
   fatal: () => {},
 };
+
+function createConfigProvider(
+  values: Record<string, unknown> = {},
+): ConfigProvider<any> {
+  return {
+    get: async (key: keyof any) => {
+      const name = String(key);
+      if (!(name in values)) {
+        const err = new Error(`ProviderKeyNotConfigured: ${name}`);
+        err.name = "ProviderKeyNotConfigured";
+        throw err;
+      }
+      return values[name];
+    },
+  };
+}
+
+function createSecretsProvider(): SecretsProvider<any> {
+  return {
+    get: async (_key: keyof any) => {
+      const err = new Error("ProviderKeyNotConfigured");
+      err.name = "ProviderKeyNotConfigured";
+      throw err;
+    },
+  };
+}
 
 describe("typescript-ivm default export", () => {
   it("declares the supported configSchema", () => {
@@ -54,9 +82,22 @@ describe("typescript-ivm default export", () => {
     });
   });
 
-  it("declares a null secretsSchema", () => {
-    expect(tsivm.secretsSchema).toMatchObject({
-      type: "null",
+  it("declares a canonical empty secretsSchema", () => {
+    expect(tsivm.secretsSchema).toEqual({
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    });
+  });
+
+  it("declares the executionConfigSchema", () => {
+    expect(tsivm.executionConfigSchema).toMatchObject({
+      type: "object",
+      properties: {
+        timeoutMs: { type: "integer", minimum: 1 },
+        memoryLimitMb: { type: "integer", minimum: 16 },
+      },
+      additionalProperties: false,
     });
   });
 });
@@ -142,13 +183,14 @@ describe("environment module", () => {
 
     await environment.setup({
       bindings,
-      config: {},
-      secrets: {},
+      config: createConfigProvider({}),
+      secrets: createSecretsProvider(),
       logger: stubLogger,
     });
 
     const promise = environment.execute({
-      eid: 42,
+      executionId: 42,
+      processId: 1,
       code: "const answer = 40 + 2;",
       envConfig: {
         timeoutMs: 30_000,
@@ -168,27 +210,30 @@ describe("environment module", () => {
 
     await environment.setup({
       bindings,
-      config: {},
-      secrets: {},
+      config: createConfigProvider({}),
+      secrets: createSecretsProvider(),
       logger: stubLogger,
     });
 
     const exec1 = environment.execute({
-      eid: 1,
+      executionId: 1,
+      processId: 1,
       code: infiniteCode,
       envConfig: {
         timeoutMs: 30_000,
       },
     } satisfies ExecutionInput);
     const exec2 = environment.execute({
-      eid: 2,
+      executionId: 2,
+      processId: 1,
       code: infiniteCode,
       envConfig: {
         timeoutMs: 30_000,
       },
     } satisfies ExecutionInput);
     const exec3 = environment.execute({
-      eid: 3,
+      executionId: 3,
+      processId: 1,
       code: "const done = true;",
       envConfig: {
         timeoutMs: 30_000,
@@ -223,13 +268,14 @@ describe("environment module", () => {
 
     await environment.setup({
       bindings,
-      config: {},
-      secrets: {},
+      config: createConfigProvider({}),
+      secrets: createSecretsProvider(),
       logger: stubLogger,
     });
 
     await environment.execute({
-      eid: 4,
+      executionId: 4,
+      processId: 1,
       code: busyCode,
       envConfig: {
         timeoutMs: 30_000,
@@ -240,13 +286,14 @@ describe("environment module", () => {
 
     await environment.setup({
       bindings,
-      config: {},
-      secrets: {},
+      config: createConfigProvider({}),
+      secrets: createSecretsProvider(),
       logger: stubLogger,
     });
 
     const result = await environment.execute({
-      eid: 5,
+      executionId: 5,
+      processId: 1,
       code: "const ok = true;",
       envConfig: {
         timeoutMs: 30_000,
@@ -262,13 +309,14 @@ describe("environment module", () => {
 
     await environment.setup({
       bindings,
-      config: {},
-      secrets: {},
+      config: createConfigProvider({}),
+      secrets: createSecretsProvider(),
       logger: stubLogger,
     });
 
     const result = await environment.execute({
-      eid: 7,
+      executionId: 7,
+      processId: 1,
       code: "throw new Error('boom');",
       envConfig: {
         timeoutMs: 30_000,
@@ -284,13 +332,14 @@ describe("environment module", () => {
 
     await environment.setup({
       bindings,
-      config: {},
-      secrets: {},
+      config: createConfigProvider({}),
+      secrets: createSecretsProvider(),
       logger: stubLogger,
     });
 
     const result = await environment.execute({
-      eid: 8,
+      executionId: 8,
+      processId: 1,
       code: "const =",
       envConfig: {
         timeoutMs: 30_000,
@@ -306,13 +355,14 @@ describe("environment module", () => {
 
     await environment.setup({
       bindings,
-      config: { maxCodeSizeBytes: 1024 },
-      secrets: {},
+      config: createConfigProvider({ maxCodeSizeBytes: 1024 }),
+      secrets: createSecretsProvider(),
       logger: stubLogger,
     });
 
     const result = await environment.execute({
-      eid: 18,
+      executionId: 18,
+      processId: 1,
       code: "é".repeat(600),
       envConfig: { timeoutMs: 30_000 },
     } satisfies ExecutionInput);
@@ -330,27 +380,30 @@ describe("environment module", () => {
 
     await environment.setup({
       bindings,
-      config: {},
-      secrets: {},
+      config: createConfigProvider({}),
+      secrets: createSecretsProvider(),
       logger: stubLogger,
     });
 
     const exec1 = environment.execute({
-      eid: 1,
+      executionId: 1,
+      processId: 1,
       code: longBusyCode,
       envConfig: {
         timeoutMs: 30_000,
       },
     } satisfies ExecutionInput);
     const exec2 = environment.execute({
-      eid: 2,
+      executionId: 2,
+      processId: 1,
       code: longBusyCode,
       envConfig: {
         timeoutMs: 30_000,
       },
     } satisfies ExecutionInput);
     const exec3 = environment.execute({
-      eid: 3,
+      executionId: 3,
+      processId: 1,
       code: "const queued = true;",
       envConfig: {
         timeoutMs: 30_000,
@@ -371,13 +424,14 @@ describe("environment module", () => {
 
     await environment.setup({
       bindings,
-      config: {},
-      secrets: {},
+      config: createConfigProvider({}),
+      secrets: createSecretsProvider(),
       logger: stubLogger,
     });
 
     const promise = environment.execute({
-      eid: 9,
+      executionId: 9,
+      processId: 1,
       code: infiniteCode,
       envConfig: { timeoutMs: 30_000 },
     } satisfies ExecutionInput);
@@ -396,13 +450,14 @@ describe("environment module", () => {
 
     await environment.setup({
       bindings,
-      config: {},
-      secrets: {},
+      config: createConfigProvider({}),
+      secrets: createSecretsProvider(),
       logger: stubLogger,
     });
 
     const promise = environment.execute({
-      eid: 10,
+      executionId: 10,
+      processId: 1,
       code: infiniteCode,
       envConfig: { timeoutMs: 30_000 },
     } satisfies ExecutionInput);
@@ -412,7 +467,8 @@ describe("environment module", () => {
     await promise;
 
     const followup = await environment.execute({
-      eid: 11,
+      executionId: 11,
+      processId: 1,
       code: "const ok = true;",
       envConfig: { timeoutMs: 30_000 },
     } satisfies ExecutionInput);
@@ -426,13 +482,14 @@ describe("environment module", () => {
 
     await environment.setup({
       bindings,
-      config: {},
-      secrets: {},
+      config: createConfigProvider({}),
+      secrets: createSecretsProvider(),
       logger: stubLogger,
     });
 
     const result = await environment.execute({
-      eid: 12,
+      executionId: 12,
+      processId: 1,
       code: infiniteCode,
       envConfig: { timeoutMs: 5 },
     } satisfies ExecutionInput);
@@ -446,13 +503,14 @@ describe("environment module", () => {
 
     await environment.setup({
       bindings,
-      config: {},
-      secrets: {},
+      config: createConfigProvider({}),
+      secrets: createSecretsProvider(),
       logger: stubLogger,
     });
 
     const result = await environment.execute({
-      eid: 13,
+      executionId: 13,
+      processId: 1,
       code: "throw new Error('intentional failure');",
       envConfig: { timeoutMs: 30_000 },
     } satisfies ExecutionInput);
@@ -466,13 +524,14 @@ describe("environment module", () => {
 
     await environment.setup({
       bindings,
-      config: {},
-      secrets: {},
+      config: createConfigProvider({}),
+      secrets: createSecretsProvider(),
       logger: stubLogger,
     });
 
     const promise = environment.execute({
-      eid: 20,
+      executionId: 20,
+      processId: 1,
       code: infiniteCode,
       envConfig: { timeoutMs: 30_000 },
     } satisfies ExecutionInput);
@@ -481,7 +540,8 @@ describe("environment module", () => {
 
     await expect(
       environment.execute({
-        eid: 20,
+        executionId: 20,
+        processId: 1,
         code: "const second = true;",
         envConfig: { timeoutMs: 30_000 },
       } satisfies ExecutionInput),
@@ -496,7 +556,8 @@ describe("environment module", () => {
 
     await expect(
       environment.execute({
-        eid: 30,
+        executionId: 30,
+        processId: 1,
         code: "const x = 1;",
         envConfig: { timeoutMs: 30_000 },
       } satisfies ExecutionInput),
@@ -509,23 +570,26 @@ describe("environment module", () => {
 
     await environment.setup({
       bindings,
-      config: {},
-      secrets: {},
+      config: createConfigProvider({}),
+      secrets: createSecretsProvider(),
       logger: stubLogger,
     });
 
     const exec1 = environment.execute({
-      eid: 31,
+      executionId: 31,
+      processId: 1,
       code: longBusyCode,
       envConfig: { timeoutMs: 30_000 },
     } satisfies ExecutionInput);
     const exec2 = environment.execute({
-      eid: 32,
+      executionId: 32,
+      processId: 1,
       code: longBusyCode,
       envConfig: { timeoutMs: 30_000 },
     } satisfies ExecutionInput);
     const exec3 = environment.execute({
-      eid: 33,
+      executionId: 33,
+      processId: 1,
       code: "const queued = true;",
       envConfig: {
         timeoutMs: 30_000,
@@ -546,18 +610,20 @@ describe("environment module", () => {
 
     await environment.setup({
       bindings,
-      config: { poolSize: 1, queueTtlMs: 1 },
-      secrets: {},
+      config: createConfigProvider({ poolSize: 1, queueTtlMs: 1 }),
+      secrets: createSecretsProvider(),
       logger: stubLogger,
     });
 
     const exec1 = environment.execute({
-      eid: 34,
+      executionId: 34,
+      processId: 1,
       code: infiniteCode,
       envConfig: { timeoutMs: 30_000 },
     } satisfies ExecutionInput);
     const exec2 = environment.execute({
-      eid: 35,
+      executionId: 35,
+      processId: 1,
       code: "const queued = true;",
       envConfig: { timeoutMs: 30_000 },
     } satisfies ExecutionInput);
@@ -580,18 +646,20 @@ describe("environment module", () => {
 
     await environment.setup({
       bindings,
-      config: { poolSize: 1 },
-      secrets: {},
+      config: createConfigProvider({ poolSize: 1 }),
+      secrets: createSecretsProvider(),
       logger: stubLogger,
     });
 
     const exec1 = environment.execute({
-      eid: 41,
+      executionId: 41,
+      processId: 1,
       code: infiniteCode,
       envConfig: { timeoutMs: 30_000 },
     } satisfies ExecutionInput);
     const exec2 = environment.execute({
-      eid: 42,
+      executionId: 42,
+      processId: 1,
       code: infiniteCode,
       envConfig: { timeoutMs: 30_000 },
     } satisfies ExecutionInput);
@@ -616,18 +684,20 @@ describe("environment module", () => {
 
     await environment.setup({
       bindings,
-      config: { poolSize: 1, maxQueueSize: 1 },
-      secrets: {},
+      config: createConfigProvider({ poolSize: 1, maxQueueSize: 1 }),
+      secrets: createSecretsProvider(),
       logger: stubLogger,
     });
 
     const exec1 = environment.execute({
-      eid: 51,
+      executionId: 51,
+      processId: 1,
       code: infiniteCode,
       envConfig: { timeoutMs: 30_000 },
     } satisfies ExecutionInput);
     const exec2 = environment.execute({
-      eid: 52,
+      executionId: 52,
+      processId: 1,
       code: infiniteCode,
       envConfig: { timeoutMs: 30_000 },
     } satisfies ExecutionInput);
@@ -636,7 +706,8 @@ describe("environment module", () => {
 
     await expect(
       environment.execute({
-        eid: 53,
+        executionId: 53,
+        processId: 1,
         code: "const x = 1;",
         envConfig: { timeoutMs: 30_000 },
       } satisfies ExecutionInput),
@@ -653,8 +724,8 @@ describe("environment module", () => {
 
     await environment.setup({
       bindings,
-      config: {},
-      secrets: {},
+      config: createConfigProvider({}),
+      secrets: createSecretsProvider(),
       logger: stubLogger,
     });
 
@@ -684,8 +755,10 @@ describe("environment module", () => {
 
     await environment.setup({
       bindings,
-      config: { bindings: { base64: true, fullConsole: true } },
-      secrets: {},
+      config: createConfigProvider({
+        bindings: { base64: true, fullConsole: true },
+      }),
+      secrets: createSecretsProvider(),
       logger: stubLogger,
     });
 
@@ -706,8 +779,8 @@ describe("environment module", () => {
 
     await environment.setup({
       bindings,
-      config: { bindings: { url: true } },
-      secrets: {},
+      config: createConfigProvider({ bindings: { url: true } }),
+      secrets: createSecretsProvider(),
       logger: stubLogger,
     });
 
@@ -724,25 +797,27 @@ describe("environment module", () => {
 
     await urlEnvironment.setup({
       bindings,
-      config: { bindings: { url: true } },
-      secrets: {},
+      config: createConfigProvider({ bindings: { url: true } }),
+      secrets: createSecretsProvider(),
       logger: stubLogger,
     });
     await base64Environment.setup({
       bindings,
-      config: { bindings: { base64: true } },
-      secrets: {},
+      config: createConfigProvider({ bindings: { base64: true } }),
+      secrets: createSecretsProvider(),
       logger: stubLogger,
     });
 
     const urlResult = await urlEnvironment.execute({
-      eid: 61,
+      executionId: 61,
+      processId: 1,
       code: `const u = new URL("https://example.com/x");
 console.log(typeof btoa === "undefined", u.pathname);`,
       envConfig: { timeoutMs: 30_000 },
     } satisfies ExecutionInput);
     const base64Result = await base64Environment.execute({
-      eid: 62,
+      executionId: 62,
+      processId: 1,
       code: `console.log(typeof URL === "undefined", btoa("ok"));`,
       envConfig: { timeoutMs: 30_000 },
     } satisfies ExecutionInput);

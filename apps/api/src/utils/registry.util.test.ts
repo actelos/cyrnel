@@ -10,8 +10,12 @@ vi.mock("@/utils/download.util", () => ({
 }));
 
 import {
+  effectiveSecurityForUrl,
+  fetchCachedRegistryIndex,
   fetchRegistryCapabilityPage,
   fetchRegistryIndex,
+  invalidateRegistryIndexCache,
+  type RegistryIndexInfo,
   resolveModuleRegistry,
   resolveServiceRegistry,
 } from "@/utils/registry.util";
@@ -374,6 +378,11 @@ const WELL_KNOWN = {
 describe("fetchRegistryIndex", () => {
   beforeEach(() => {
     assertMock.mockResolvedValue(undefined);
+    invalidateRegistryIndexCache();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("parses the capability map and negotiates the highest supported version", async () => {
@@ -551,12 +560,15 @@ describe("fetchRegistryIndex", () => {
     ).rejects.toMatchObject({ statusCode: 502 });
   });
 
-  describe("well-known auth advertisement", () => {
+  describe("v2 well-known auth advertisement", () => {
+    const ORIGIN = "https://registry.example.com";
+
     function indexBodyWithAuth(auth: unknown): Record<string, unknown> {
       return {
         id: "cyrnel-dev",
         ...(auth === undefined ? {} : { auth }),
         "definitions.v1": "/definitions/v1",
+        "modules.v1": "/modules/v1",
       };
     }
 
@@ -565,7 +577,31 @@ describe("fetchRegistryIndex", () => {
         "fetch",
         vi.fn(async () => jsonResponse(indexBodyWithAuth(auth))),
       );
-      return fetchRegistryIndex("https://registry.example.com");
+      return fetchRegistryIndex(ORIGIN);
+    }
+
+    function oauth2CcScheme(overrides: Record<string, unknown> = {}) {
+      return {
+        type: "oauth2",
+        grantTypes: ["client_credentials"],
+        tokenUrl: `${ORIGIN}/oauth/token`,
+        scopes: { read: "Read catalog" },
+        ...overrides,
+      };
+    }
+
+    function v2Auth(overrides: Record<string, unknown> = {}) {
+      return {
+        schemes: {
+          apiKey: {
+            type: "apiKey",
+            in: "header",
+            paramName: "X-Key",
+          },
+        },
+        security: [{ apiKey: [] }],
+        ...overrides,
+      };
     }
 
     it("returns null when no auth key is advertised", async () => {
@@ -573,147 +609,93 @@ describe("fetchRegistryIndex", () => {
       expect(index.auth).toBeNull();
     });
 
-    it("parses an apiKey advertisement and trims the header name", async () => {
+    it("parses a multi-scheme auth declaration with global security", async () => {
       const index = await fetchIndexWithAuth({
+        schemes: {
+          apiKey: {
+            type: "apiKey",
+            in: "header",
+            paramName: "  X-Key  ",
+            prefix: " ApiKey ",
+          },
+          basic: { type: "basic" },
+          bearer: { type: "http", scheme: "bearer" },
+          oauth2: {
+            type: "oauth2",
+            grantTypes: ["authorization_code", "client_credentials"],
+            authorizationUrl: `${ORIGIN}/oauth/authorize`,
+            tokenUrl: `${ORIGIN}/oauth/token`,
+            scopes: { read: "Read catalog" },
+          },
+        },
+        security: [{ oauth2: ["read"] }, { apiKey: [] }],
+      });
+
+      expect(index.auth?.schemes.apiKey).toMatchObject({
         type: "apiKey",
-        name: "  X-Dev-Key  ",
+        in: "header",
+        paramName: "X-Key",
+        prefix: "ApiKey",
       });
-      expect(index.auth).toEqual({ type: "apiKey", name: "X-Dev-Key" });
-    });
-
-    it("accepts apiKey without an 'in' key", async () => {
-      const index = await fetchIndexWithAuth({
-        type: "apiKey",
-        name: "X-Dev-Key",
+      expect(index.auth?.schemes.basic).toEqual({ type: "basic" });
+      expect(index.auth?.schemes.bearer).toEqual({
+        type: "http",
+        scheme: "bearer",
       });
-      expect(index.auth).toEqual({ type: "apiKey", name: "X-Dev-Key" });
-    });
-
-    it("marks query-param api keys as unsupported", async () => {
-      const index = await fetchIndexWithAuth({
-        type: "apiKey",
-        name: "key",
-        in: "query",
-      });
-      expect(index.auth).toMatchObject({
-        type: "unsupported",
-        declaredType: "apiKey",
-      });
-    });
-
-    it("parses an oauth2 client-credentials advertisement with scopes", async () => {
-      const index = await fetchIndexWithAuth({
+      expect(index.auth?.schemes.oauth2).toMatchObject({
         type: "oauth2",
-        grantType: "client_credentials",
-        tokenEndpoint: "https://registry.example.com/oauth/token",
-        scopes: [
-          { id: "definitions:read", description: "Read definitions" },
-          { id: " modules:read " },
-        ],
+        grantTypes: ["authorization_code", "client_credentials"],
+        authorizationUrl: `${ORIGIN}/oauth/authorize`,
+        tokenUrl: `${ORIGIN}/oauth/token`,
+        scopes: { read: "Read catalog" },
       });
-      expect(index.auth).toEqual({
-        type: "oauth2",
-        grantType: "client_credentials",
-        tokenEndpoint: "https://registry.example.com/oauth/token",
-        scopes: [
-          { id: "definitions:read", description: "Read definitions" },
-          { id: "modules:read" },
-        ],
-      });
+      expect(index.auth?.security).toEqual([
+        { oauth2: ["read"] },
+        { apiKey: [] },
+      ]);
     });
 
-    it("omits scopes when not advertised", async () => {
-      const index = await fetchIndexWithAuth({
-        type: "oauth2",
-        grantType: "client_credentials",
-        tokenEndpoint: "https://registry.example.com/oauth/token",
-      });
-      expect(index.auth).toEqual({
-        type: "oauth2",
-        grantType: "client_credentials",
-        tokenEndpoint: "https://registry.example.com/oauth/token",
-      });
+    it("accepts a public registry with empty global security", async () => {
+      const index = await fetchIndexWithAuth(v2Auth({ security: [] }));
+      expect(index.auth?.security).toEqual([]);
     });
 
-    it("marks non-client-credentials grants as unsupported", async () => {
-      const index = await fetchIndexWithAuth({
-        type: "oauth2",
-        grantType: "authorization_code",
-        tokenEndpoint: "https://registry.example.com/oauth/token",
-      });
-      expect(index.auth).toMatchObject({
-        type: "unsupported",
-        declaredType: "oauth2",
-      });
+    it("rejects the old single-method apiKey shape", async () => {
+      await expect(
+        fetchIndexWithAuth({ type: "apiKey", name: "X-Dev-Key" }),
+      ).rejects.toMatchObject({ statusCode: 400 });
     });
 
-    it("rejects an oauth2 advertisement with a non-absolute token endpoint", async () => {
+    it("rejects the old single-method oauth2 shape", async () => {
       await expect(
         fetchIndexWithAuth({
           type: "oauth2",
           grantType: "client_credentials",
-          tokenEndpoint: "/oauth/token",
+          tokenEndpoint: `${ORIGIN}/oauth/token`,
+          scopes: [{ id: "read", description: "Read" }],
         }),
       ).rejects.toMatchObject({ statusCode: 400 });
     });
 
-    it("rejects an oauth2 advertisement with a non-http(s) token endpoint", async () => {
+    it("rejects an unknown scheme type", async () => {
       await expect(
-        fetchIndexWithAuth({
-          type: "oauth2",
-          grantType: "client_credentials",
-          tokenEndpoint: "mailto:token@example.com",
-        }),
+        fetchIndexWithAuth(
+          v2Auth({ schemes: { jwt: { type: "jwt", issuer: "https://x" } } }),
+        ),
       ).rejects.toMatchObject({ statusCode: 400 });
     });
 
-    it("rejects an oauth2 advertisement with non-string scopes", async () => {
+    it("rejects an empty schemes map", async () => {
       await expect(
-        fetchIndexWithAuth({
-          type: "oauth2",
-          grantType: "client_credentials",
-          tokenEndpoint: "https://registry.example.com/oauth/token",
-          scopes: [42],
-        }),
+        fetchIndexWithAuth(v2Auth({ schemes: {} })),
       ).rejects.toMatchObject({ statusCode: 400 });
     });
 
-    it("rejects an oauth2 advertisement with a scope lacking an id", async () => {
-      await expect(
-        fetchIndexWithAuth({
-          type: "oauth2",
-          grantType: "client_credentials",
-          tokenEndpoint: "https://registry.example.com/oauth/token",
-          scopes: [{ description: "no id" }],
-        }),
-      ).rejects.toMatchObject({ statusCode: 400 });
-    });
-
-    it("rejects an oauth2 advertisement with a non-string scope description", async () => {
-      await expect(
-        fetchIndexWithAuth({
-          type: "oauth2",
-          grantType: "client_credentials",
-          tokenEndpoint: "https://registry.example.com/oauth/token",
-          scopes: [{ id: "definitions:read", description: 42 }],
-        }),
-      ).rejects.toMatchObject({ statusCode: 400 });
-    });
-
-    it("rejects an apiKey advertisement without a name", async () => {
-      await expect(
-        fetchIndexWithAuth({ type: "apiKey" }),
-      ).rejects.toMatchObject({ statusCode: 400 });
-    });
-
-    it("marks unknown auth types as unsupported for forward compatibility", async () => {
-      const index = await fetchIndexWithAuth({
-        type: "jwt",
-        issuer: "https://x",
-      });
-      expect(index.auth).toEqual({
-        type: "unsupported",
-        declaredType: "jwt",
+    it("rejects a missing security array", async () => {
+      const { security: _dropped, ...withoutSecurity } = v2Auth();
+      void _dropped;
+      await expect(fetchIndexWithAuth(withoutSecurity)).rejects.toMatchObject({
+        statusCode: 400,
       });
     });
 
@@ -723,10 +705,431 @@ describe("fetchRegistryIndex", () => {
       });
     });
 
-    it("rejects an auth value with a blank type", async () => {
+    it("rejects security referencing an undeclared scheme", async () => {
       await expect(
-        fetchIndexWithAuth({ type: " ", name: "X-Key" }),
+        fetchIndexWithAuth(v2Auth({ security: [{ nope: [] }] })),
       ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it("rejects non-empty scopes on a non-oauth2 scheme", async () => {
+      await expect(
+        fetchIndexWithAuth(v2Auth({ security: [{ apiKey: ["read"] }] })),
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it("rejects oauth2 scopes that the scheme does not declare", async () => {
+      await expect(
+        fetchIndexWithAuth({
+          schemes: { oauth2: oauth2CcScheme() },
+          security: [{ oauth2: ["admin"] }],
+        }),
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it("rejects an oauth2 scheme with an unsupported grant", async () => {
+      await expect(
+        fetchIndexWithAuth({
+          schemes: { oauth2: oauth2CcScheme({ grantTypes: ["implicit"] }) },
+          security: [],
+        }),
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it("rejects an oauth2 scheme with an empty grant list", async () => {
+      await expect(
+        fetchIndexWithAuth({
+          schemes: { oauth2: oauth2CcScheme({ grantTypes: [] }) },
+          security: [],
+        }),
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it("rejects an oauth2 scheme without a tokenUrl", async () => {
+      const { tokenUrl: _dropped, ...withoutTokenUrl } = oauth2CcScheme();
+      void _dropped;
+      await expect(
+        fetchIndexWithAuth({
+          schemes: { oauth2: withoutTokenUrl },
+          security: [],
+        }),
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it("rejects an oauth2 tokenUrl off the registry origin", async () => {
+      await expect(
+        fetchIndexWithAuth({
+          schemes: {
+            oauth2: oauth2CcScheme({
+              tokenUrl: "https://evil.example.com/oauth/token",
+            }),
+          },
+          security: [],
+        }),
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it("rejects an oauth2 scheme with a relative tokenUrl", async () => {
+      await expect(
+        fetchIndexWithAuth({
+          schemes: { oauth2: oauth2CcScheme({ tokenUrl: "/oauth/token" }) },
+          security: [],
+        }),
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it("requires authorizationUrl when authorization_code is granted", async () => {
+      await expect(
+        fetchIndexWithAuth({
+          schemes: {
+            oauth2: {
+              type: "oauth2",
+              grantTypes: ["authorization_code"],
+              tokenUrl: `${ORIGIN}/oauth/token`,
+              scopes: {},
+            },
+          },
+          security: [],
+        }),
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it("rejects an authorizationUrl off the registry origin", async () => {
+      await expect(
+        fetchIndexWithAuth({
+          schemes: {
+            oauth2: {
+              type: "oauth2",
+              grantTypes: ["authorization_code"],
+              authorizationUrl: "https://evil.example.com/oauth/authorize",
+              tokenUrl: `${ORIGIN}/oauth/token`,
+              scopes: {},
+            },
+          },
+          security: [],
+        }),
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it("rejects an http scheme that is not bearer", async () => {
+      await expect(
+        fetchIndexWithAuth(
+          v2Auth({ schemes: { h: { type: "http", scheme: "basic" } } }),
+        ),
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it("rejects an apiKey scheme without a paramName", async () => {
+      await expect(
+        fetchIndexWithAuth(
+          v2Auth({ schemes: { k: { type: "apiKey", in: "header" } } }),
+        ),
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it("rejects an apiKey scheme with a non-header placement", async () => {
+      await expect(
+        fetchIndexWithAuth(
+          v2Auth({
+            schemes: { k: { type: "apiKey", in: "query", paramName: "key" } },
+            security: [{ k: [] }],
+          }),
+        ),
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it("parses per-capability string and object forms", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () =>
+          jsonResponse({
+            id: "cyrnel-dev",
+            auth: {
+              schemes: {
+                apiKey: { type: "apiKey", in: "header", paramName: "X-Key" },
+                oauth2: oauth2CcScheme(),
+              },
+              security: [{ apiKey: [] }],
+            },
+            "definitions.v1": {
+              url: "/definitions/v1",
+              security: [],
+            },
+            "modules.v1": "/modules/v1",
+          }),
+        ),
+      );
+      const index = await fetchRegistryIndex(ORIGIN);
+
+      expect(index.definitions).toEqual({
+        version: 1,
+        url: "https://registry.example.com/definitions/v1",
+        security: [],
+      });
+      expect(index.modules).toEqual({
+        version: 1,
+        url: "https://registry.example.com/modules/v1",
+      });
+    });
+
+    it("rejects a per-capability object without a url", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () =>
+          jsonResponse({
+            id: "cyrnel-dev",
+            "definitions.v1": { security: [] },
+          }),
+        ),
+      );
+      await expect(fetchRegistryIndex(ORIGIN)).rejects.toMatchObject({
+        statusCode: 400,
+      });
+    });
+
+    it("rejects a non-string non-object capability value", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () =>
+          jsonResponse({
+            id: "cyrnel-dev",
+            "definitions.v1": 42,
+          }),
+        ),
+      );
+      await expect(fetchRegistryIndex(ORIGIN)).rejects.toMatchObject({
+        statusCode: 400,
+      });
+    });
+
+    it("rejects a per-capability url resolving cross-origin", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () =>
+          jsonResponse({
+            id: "cyrnel-dev",
+            "definitions.v1": {
+              url: "https://evil.example.com/definitions/v1",
+              security: [],
+            },
+          }),
+        ),
+      );
+      await expect(fetchRegistryIndex(ORIGIN)).rejects.toMatchObject({
+        statusCode: 400,
+      });
+    });
+
+    it("rejects per-capability security referencing an undeclared scheme", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () =>
+          jsonResponse({
+            id: "cyrnel-dev",
+            auth: v2Auth(),
+            "definitions.v1": {
+              url: "/definitions/v1",
+              security: [{ nope: [] }],
+            },
+          }),
+        ),
+      );
+      await expect(fetchRegistryIndex(ORIGIN)).rejects.toMatchObject({
+        statusCode: 400,
+      });
+    });
+  });
+
+  describe("effectiveSecurityForUrl", () => {
+    function guardedIndex(): RegistryIndexInfo {
+      return {
+        id: "cyrnel-dev",
+        finalUrl: "https://registry.example.com/.well-known/registry.json",
+        definitions: {
+          version: 1,
+          url: "https://registry.example.com/definitions/v1",
+        },
+        modules: {
+          version: 1,
+          url: "https://registry.example.com/modules/v1",
+          security: [{ oauth2: ["read"] }],
+        },
+        auth: {
+          schemes: {
+            apiKey: { type: "apiKey", in: "header", paramName: "X-Key" },
+            oauth2: {
+              type: "oauth2",
+              grantTypes: ["client_credentials"],
+              tokenUrl: "https://registry.example.com/oauth/token",
+              scopes: { read: "Read" },
+              tokenPlacement: {
+                in: "header",
+                paramName: "Authorization",
+                prefix: "Bearer",
+              },
+            },
+          },
+          security: [{ apiKey: [] }],
+        },
+      };
+    }
+
+    it("returns the global security for an inherited capability route", () => {
+      const index = guardedIndex();
+      expect(
+        effectiveSecurityForUrl(
+          index,
+          "https://registry.example.com/definitions/v1",
+        ),
+      ).toEqual([{ apiKey: [] }]);
+    });
+
+    it("returns the per-capability override for an overridden route", () => {
+      const index = guardedIndex();
+      expect(
+        effectiveSecurityForUrl(
+          index,
+          "https://registry.example.com/modules/v1?limit=10",
+        ),
+      ).toEqual([{ oauth2: ["read"] }]);
+    });
+
+    it("returns the override for entry downloads under the capability path", () => {
+      const index = guardedIndex();
+      expect(
+        effectiveSecurityForUrl(
+          index,
+          "https://registry.example.com/modules/github/archive.tar.zst",
+        ),
+      ).toEqual([{ oauth2: ["read"] }]);
+    });
+
+    it("returns [] for a public registry without auth", () => {
+      const index: RegistryIndexInfo = {
+        id: "bare",
+        finalUrl: "https://registry.example.com/.well-known/registry.json",
+        definitions: {
+          version: 1,
+          url: "https://registry.example.com/definitions/v1",
+        },
+        modules: null,
+        auth: null,
+      };
+      expect(
+        effectiveSecurityForUrl(
+          index,
+          "https://registry.example.com/definitions/v1",
+        ),
+      ).toEqual([]);
+    });
+
+    it("falls back to global security for unknown paths and bad URLs", () => {
+      const index = guardedIndex();
+      expect(
+        effectiveSecurityForUrl(index, "https://registry.example.com/other"),
+      ).toEqual([{ apiKey: [] }]);
+      expect(effectiveSecurityForUrl(index, "not-a-url")).toEqual([
+        { apiKey: [] },
+      ]);
+    });
+
+    it("preserves capability security for custom same-origin paths", () => {
+      const index: RegistryIndexInfo = {
+        id: "custom",
+        finalUrl: "https://registry.example.com/.well-known/registry.json",
+        definitions: {
+          version: 1,
+          url: "https://registry.example.com/api/v1/defs",
+          security: [{ oauth2: ["definitions:read"] }],
+        },
+        modules: {
+          version: 1,
+          url: "https://registry.example.com/api/v1/mods",
+          security: [{ oauth2: ["modules:read"] }],
+        },
+        auth: {
+          schemes: {
+            oauth2: {
+              type: "oauth2",
+              grantTypes: ["client_credentials"],
+              tokenUrl: "https://registry.example.com/oauth/token",
+              scopes: {
+                "definitions:read": "Read defs",
+                "modules:read": "Read mods",
+              },
+              tokenPlacement: {
+                in: "header",
+                paramName: "Authorization",
+                prefix: "Bearer",
+              },
+            },
+          },
+          security: [],
+        },
+      };
+      expect(
+        effectiveSecurityForUrl(
+          index,
+          "https://registry.example.com/api/v1/defs?limit=10",
+        ),
+      ).toEqual([{ oauth2: ["definitions:read"] }]);
+      expect(
+        effectiveSecurityForUrl(
+          index,
+          "https://registry.example.com/api/v1/mods/github/archive.tar.zst",
+        ),
+      ).toEqual([{ oauth2: ["modules:read"] }]);
+    });
+  });
+
+  describe("fetchCachedRegistryIndex", () => {
+    beforeEach(() => {
+      assertMock.mockResolvedValue(undefined);
+      invalidateRegistryIndexCache();
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it("caches the well-known document per base URL", async () => {
+      const fetchMock = vi.fn(async () => jsonResponse(WELL_KNOWN));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const first = await fetchCachedRegistryIndex(
+        "https://registry.example.com",
+      );
+      const second = await fetchCachedRegistryIndex(
+        "https://registry.example.com",
+      );
+
+      expect(first.id).toBe("cyrnel-dev");
+      expect(second).toBe(first);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("refetches after invalidateRegistryIndexCache(baseUrl)", async () => {
+      const fetchMock = vi.fn(async () => jsonResponse(WELL_KNOWN));
+      vi.stubGlobal("fetch", fetchMock);
+
+      await fetchCachedRegistryIndex("https://registry.example.com");
+      invalidateRegistryIndexCache("https://registry.example.com");
+      await fetchCachedRegistryIndex("https://registry.example.com");
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it("invalidateRegistryIndexCache() clears every entry", async () => {
+      const fetchMock = vi.fn(async () => jsonResponse(WELL_KNOWN));
+      vi.stubGlobal("fetch", fetchMock);
+
+      await fetchCachedRegistryIndex("https://a.example.com");
+      await fetchCachedRegistryIndex("https://b.example.com");
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+
+      invalidateRegistryIndexCache();
+      await fetchCachedRegistryIndex("https://a.example.com");
+      await fetchCachedRegistryIndex("https://b.example.com");
+      expect(fetchMock).toHaveBeenCalledTimes(4);
     });
   });
 });
@@ -747,6 +1150,10 @@ const DEFINITIONS_PAGE = {
 describe("fetchRegistryCapabilityPage", () => {
   beforeEach(() => {
     assertMock.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("parses a valid page and round-trips nextCursor", async () => {

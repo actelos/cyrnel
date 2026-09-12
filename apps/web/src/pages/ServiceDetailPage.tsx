@@ -12,6 +12,7 @@ import { useNavigate, useParams } from "react-router";
 import remarkGfm from "remark-gfm";
 import useSWR, { useSWRConfig } from "swr";
 import { z } from "zod";
+import AuthSection from "@/components/AuthSection";
 import { EntityIcon } from "@/components/entity-icon";
 import JsonSchemaForm from "@/components/JsonSchemaForm";
 import {
@@ -43,7 +44,6 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useNotification } from "@/hooks/use-notification";
 import { apiFetch, apiFetchJson, buildUrl, errorMessageFrom } from "@/lib/api";
-import { cn } from "@/lib/utils";
 
 const serviceSchema = z.object({
   id: z.string(),
@@ -63,6 +63,19 @@ const serviceDetailsSchema = serviceSchema.extend({
   source: z.string(),
   configSchema: z.record(z.string(), z.unknown()),
   secretsSchema: z.record(z.string(), z.unknown()),
+  schemes: z
+    .record(z.string(), z.object({ type: z.string() }).passthrough())
+    .optional(),
+  credentialSchemes: z
+    .record(
+      z.string(),
+      z.object({
+        configured: z.boolean(),
+        status: z.string().optional(),
+        grantedSource: z.string().nullable().optional(),
+      }),
+    )
+    .optional(),
 });
 
 const serviceConfigSchema = z.object({
@@ -89,8 +102,6 @@ const toolSchema = z.object({
   summary: z.string(),
   description: z.string(),
   serviceId: z.string(),
-  enabled: z.boolean(),
-  effectivelyEnabled: z.boolean(),
   policy: z
     .object({
       decision: z.enum(["allow", "block", "ask"]),
@@ -195,7 +206,7 @@ export default function ServiceDetailPage() {
   const { data: serviceDetails, error: detailsError } = useSWR(
     serviceDetailsUrl,
     (url) => apiFetchJson(url, serviceDetailsSchema),
-    { refreshInterval: 8000 },
+    { refreshInterval: 12000 },
   );
 
   const { data: updateCheck } = useSWR(
@@ -226,7 +237,7 @@ export default function ServiceDetailPage() {
     isLoading: isLoadingTools,
     isValidating: isToolListValidating,
   } = useSWR(toolsUrl, (url) => apiFetchJson(url, toolListSchema), {
-    refreshInterval: 8000,
+    refreshInterval: 12000,
   });
 
   const [extraTools, setExtraTools] = useState<Tool[]>([]);
@@ -313,25 +324,25 @@ export default function ServiceDetailPage() {
   const { data: serviceConfig } = useSWR(
     configUrl,
     (url) => apiFetchJson(url, serviceConfigSchema),
-    { refreshInterval: 8000 },
+    { refreshInterval: 12000 },
   );
 
   const { data: serviceConfigSchemaPayload } = useSWR(
     configSchemaUrl,
     (url) => apiFetchJson(url, serviceConfigSchemaSchema),
-    { refreshInterval: 8000 },
+    { refreshInterval: 12000 },
   );
 
   const { data: serviceSecretsPresence } = useSWR(
     secretsUrl,
     (url) => apiFetchJson(url, secretsPresenceSchema),
-    { refreshInterval: 8000 },
+    { refreshInterval: 12000 },
   );
 
   const { data: serviceSecretsSchemaPayload } = useSWR(
     secretsSchemaUrl,
     (url) => apiFetchJson(url, serviceSecretsSchemaSchema),
-    { refreshInterval: 8000 },
+    { refreshInterval: 12000 },
   );
 
   const presentSet = useMemo(
@@ -515,36 +526,6 @@ export default function ServiceDetailPage() {
         type: "error",
         title: "Error",
         message: errorMessageFrom(error, "Unable to update service state."),
-      });
-    }
-  };
-
-  const handleSetToolEnabled = async (
-    serviceId: string,
-    toolId: string,
-    enabled: boolean,
-  ) => {
-    try {
-      await apiFetch(buildUrl(`/tools/${serviceId}/${toolId}/enabled`), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ enabled }),
-      });
-
-      if (toolsUrl) {
-        await mutate(toolsUrl);
-      }
-      await mutate(buildUrl("/services"));
-      addNotification({
-        type: "success",
-        title: "Success",
-        message: `Tool ${enabled ? "enabled" : "disabled"}.`,
-      });
-    } catch (error) {
-      addNotification({
-        type: "error",
-        title: "Error",
-        message: errorMessageFrom(error, "Unable to update tool state."),
       });
     }
   };
@@ -915,35 +896,6 @@ export default function ServiceDetailPage() {
                                 <option value="ask">ask</option>
                               </select>
                             </div>
-                            <button
-                              type="button"
-                              role="switch"
-                              aria-checked={tool.enabled}
-                              className={cn(
-                                "relative inline-flex h-6 w-11 items-center transition",
-                                tool.enabled ? "bg-primary" : "bg-muted",
-                                "disabled:opacity-50 disabled:cursor-not-allowed",
-                              )}
-                              disabled={
-                                !tool.effectivelyEnabled && tool.enabled
-                              }
-                              onClick={() => {
-                                void handleSetToolEnabled(
-                                  serviceDetails.id,
-                                  tool.id,
-                                  !tool.enabled,
-                                );
-                              }}
-                            >
-                              <span
-                                className={cn(
-                                  "inline-block h-4 w-4 transform bg-background shadow transition",
-                                  tool.enabled
-                                    ? "translate-x-6"
-                                    : "translate-x-1",
-                                )}
-                              />
-                            </button>
                           </div>
                         ))}
                       </div>
@@ -970,7 +922,16 @@ export default function ServiceDetailPage() {
                   </ScrollArea>
                 </CardContent>
               </Card>
-              <div className="max-h-[calc(100vh-3rem)] flex flex-1 flex-col gap-6 h-full min-h-0">
+              <div className="max-h-[calc(100vh-3rem)] flex flex-1 flex-col gap-6 h-full min-h-0 overflow-y-auto">
+                {serviceDetails.schemes &&
+                Object.keys(serviceDetails.schemes).length > 0 ? (
+                  <AuthSection
+                    target={{ kind: "service", id: serviceDetails.id }}
+                    authSchemes={serviceDetails.schemes}
+                    credentialSchemes={serviceDetails.credentialSchemes}
+                    secretsSchema={serviceDetails.secretsSchema}
+                  />
+                ) : null}
                 <JsonSchemaForm
                   title="Configuration"
                   schema={serviceConfigSchemaPayload?.configSchema ?? {}}

@@ -1,15 +1,52 @@
-import type { JSONSchema } from "@cyrnel/sdk";
+import type { AuthScheme, JSONSchema, SecurityRequirements } from "@cyrnel/sdk";
+import { sql } from "drizzle-orm";
 import {
   blob,
+  check,
   index,
   integer,
   primaryKey,
   sqliteTable,
   text,
+  uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
 import type { ModuleType } from "@/models/modules.model";
 import type { EncryptedSecretsPayload } from "@/models/secrets.model";
+
+export const modules = sqliteTable(
+  "modules",
+  {
+    id: text("id").primaryKey(),
+    createdAt: text("created_at").notNull().default("1970-01-01T00:00:00.000Z"),
+    name: text("name").notNull(),
+    type: text("type").$type<ModuleType>().notNull(),
+    summary: text("summary").notNull().default(""),
+    description: text("description").notNull().default(""),
+    hash: text("hash").notNull().default(""),
+    version: text("version").notNull().default("0.0.0"),
+    source: text("source").notNull().default(""),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    missing: integer("missing", { mode: "boolean" }).notNull().default(false),
+    autoUpdate: integer("auto_update", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    autoUpdateConstraint: text("auto_update_constraint"),
+    iconData: blob("icon_data", { mode: "buffer" }),
+    iconMime: text("icon_mime"),
+    iconHash: text("icon_hash"),
+    schemes: text("auth_schemes", { mode: "json" }).$type<
+      Record<string, AuthScheme>
+    >(),
+    security: text("default_security", {
+      mode: "json",
+    }).$type<SecurityRequirements>(),
+  },
+  (table) => [
+    index("modules_type_idx").on(table.type),
+    index("modules_created_at_idx").on(table.createdAt, table.id),
+  ],
+);
 
 export const services = sqliteTable(
   "services",
@@ -35,6 +72,12 @@ export const services = sqliteTable(
     adapterDomain: text("adapter_domain", { mode: "json" })
       .$type<Record<string, unknown>>()
       .notNull(),
+    schemes: text("auth_schemes", { mode: "json" }).$type<
+      Record<string, AuthScheme>
+    >(),
+    security: text("default_security", {
+      mode: "json",
+    }).$type<SecurityRequirements>(),
     definitionContent: text("definition_content").notNull().default(""),
     stale: integer("stale", { mode: "boolean" }).notNull().default(false),
     autoUpdate: integer("auto_update", { mode: "boolean" })
@@ -46,6 +89,34 @@ export const services = sqliteTable(
     iconHash: text("icon_hash"),
   },
   (table) => [index("services_created_at_idx").on(table.createdAt, table.id)],
+);
+
+export const tools = sqliteTable(
+  "tools",
+  {
+    serviceId: text("service_id")
+      .notNull()
+      .references(() => services.id, { onDelete: "cascade" }),
+    id: text("id").notNull(),
+    name: text("name").notNull(),
+    summary: text("summary").notNull().default(""),
+    description: text("description").notNull().default(""),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    inputSchema: text("input_schema", { mode: "json" })
+      .$type<JSONSchema>()
+      .notNull(),
+    outputSchema: text("output_schema", { mode: "json" })
+      .$type<JSONSchema>()
+      .notNull(),
+    adapterDomain: text("adapter_domain", { mode: "json" })
+      .$type<Record<string, unknown>>()
+      .notNull(),
+    security: text("security", { mode: "json" }).$type<SecurityRequirements>(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.serviceId, table.id] }),
+    index("tools_name_idx").on(table.name),
+  ],
 );
 
 export const serviceConfigurations = sqliteTable("service_configurations", {
@@ -69,61 +140,6 @@ export const serviceSecrets = sqliteTable("service_secrets", {
   updatedAt: integer("updated_at").notNull(),
 });
 
-export const tools = sqliteTable(
-  "tools",
-  {
-    serviceId: text("service_id")
-      .notNull()
-      .references(() => services.id, { onDelete: "cascade" }),
-    id: text("id").notNull(),
-    name: text("name").notNull(),
-    summary: text("summary").notNull().default(""),
-    description: text("description").notNull().default(""),
-    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
-    inputSchema: text("input_schema", { mode: "json" })
-      .$type<JSONSchema>()
-      .notNull(),
-    outputSchema: text("output_schema", { mode: "json" })
-      .$type<JSONSchema>()
-      .notNull(),
-    adapterDomain: text("adapter_domain", { mode: "json" })
-      .$type<Record<string, unknown>>()
-      .notNull(),
-  },
-  (table) => [
-    primaryKey({ columns: [table.serviceId, table.id] }),
-    index("tools_name_idx").on(table.name),
-  ],
-);
-
-export const modules = sqliteTable(
-  "modules",
-  {
-    id: text("id").primaryKey(),
-    createdAt: text("created_at").notNull().default("1970-01-01T00:00:00.000Z"),
-    name: text("name").notNull(),
-    type: text("type").$type<ModuleType>().notNull(),
-    summary: text("summary").notNull().default(""),
-    description: text("description").notNull().default(""),
-    hash: text("hash").notNull().default(""),
-    version: text("version").notNull().default("0.0.0"),
-    source: text("source").notNull().default(""),
-    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
-    missing: integer("missing", { mode: "boolean" }).notNull().default(false),
-    autoUpdate: integer("auto_update", { mode: "boolean" })
-      .notNull()
-      .default(false),
-    autoUpdateConstraint: text("auto_update_constraint"),
-    iconData: blob("icon_data", { mode: "buffer" }),
-    iconMime: text("icon_mime"),
-    iconHash: text("icon_hash"),
-  },
-  (table) => [
-    index("modules_type_idx").on(table.type),
-    index("modules_created_at_idx").on(table.createdAt, table.id),
-  ],
-);
-
 export const moduleConfigurations = sqliteTable("module_configurations", {
   moduleId: text("module_id")
     .primaryKey()
@@ -144,31 +160,6 @@ export const moduleSecrets = sqliteTable("module_secrets", {
     .notNull(),
   updatedAt: integer("updated_at").notNull(),
 });
-
-export type ServiceRecord = typeof services.$inferSelect;
-export type NewServiceRecord = typeof services.$inferInsert;
-
-export type ServiceConfigurationRecord =
-  typeof serviceConfigurations.$inferSelect;
-export type NewServiceConfigurationRecord =
-  typeof serviceConfigurations.$inferInsert;
-
-export type ServiceSecretsRecord = typeof serviceSecrets.$inferSelect;
-export type NewServiceSecretsRecord = typeof serviceSecrets.$inferInsert;
-
-export type ToolRecord = typeof tools.$inferSelect;
-export type NewToolRecord = typeof tools.$inferInsert;
-
-export type ModuleRecord = typeof modules.$inferSelect;
-export type NewModuleRecord = typeof modules.$inferInsert;
-
-export type ModuleConfigurationRecord =
-  typeof moduleConfigurations.$inferSelect;
-export type NewModuleConfigurationRecord =
-  typeof moduleConfigurations.$inferInsert;
-
-export type ModuleSecretsRecord = typeof moduleSecrets.$inferSelect;
-export type NewModuleSecretsRecord = typeof moduleSecrets.$inferInsert;
 
 export const registries = sqliteTable("registries", {
   id: text("id").primaryKey(),
@@ -192,11 +183,6 @@ export const registryAuth = sqliteTable("registry_auth", {
   tokenExpiresAt: integer("token_expires_at"),
   updatedAt: integer("updated_at").notNull(),
 });
-
-export type RegistryRecord = typeof registries.$inferSelect;
-export type NewRegistryRecord = typeof registries.$inferInsert;
-export type RegistryAuthRecord = typeof registryAuth.$inferSelect;
-export type NewRegistryAuthRecord = typeof registryAuth.$inferInsert;
 
 export const processes = sqliteTable("processes", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -277,12 +263,275 @@ export const approvalRequests = sqliteTable(
   ],
 );
 
-export type ToolPolicyRecord = typeof toolPolicies.$inferSelect;
-export type NewToolPolicyRecord = typeof toolPolicies.$inferInsert;
-export type ApprovalRequestRecord = typeof approvalRequests.$inferSelect;
-export type NewApprovalRequestRecord = typeof approvalRequests.$inferInsert;
+export const serviceCredentials = sqliteTable(
+  "service_credentials",
+  {
+    id: text("id").primaryKey(),
+    serviceId: text("service_id")
+      .notNull()
+      .references(() => services.id, { onDelete: "cascade" }),
+    schemeName: text("scheme_name").notNull(),
+    schemeType: text("scheme_type")
+      .notNull()
+      .$type<"apiKey" | "basic" | "bearer" | "oauth2">(),
+    status: text("status")
+      .notNull()
+      .default("active")
+      .$type<"active" | "expired" | "revoked" | "error">(),
+    oauthClientId: text("oauth_client_id").references(() => oauthClients.id, {
+      onDelete: "restrict",
+    }),
+    requestedScopes: text("requested_scopes", { mode: "json" })
+      .$type<string[]>()
+      .default(sql`'[]'`),
+    grantedScopes: text("granted_scopes", { mode: "json" }).$type<string[]>(),
+    grantedSource: text("granted_source").$type<"provider" | "inferred">(),
+    createdAt: text("created_at").notNull().default("1970-01-01T00:00:00.000Z"),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("service_credentials_owner_scheme_unique").on(
+      table.serviceId,
+      table.schemeName,
+    ),
+    index("service_credentials_client_idx").on(table.oauthClientId),
+  ],
+);
+
+export const serviceCredentialAuth = sqliteTable("service_credential_auth", {
+  credentialId: text("credential_id")
+    .primaryKey()
+    .references(() => serviceCredentials.id, { onDelete: "cascade" }),
+  schemeType: text("scheme_type")
+    .notNull()
+    .$type<"apiKey" | "basic" | "bearer" | "oauth2">(),
+  payload: text("payload", { mode: "json" })
+    .$type<EncryptedSecretsPayload>()
+    .notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
+export const moduleCredentials = sqliteTable(
+  "module_credentials",
+  {
+    id: text("id").primaryKey(),
+    moduleId: text("module_id")
+      .notNull()
+      .references(() => modules.id, { onDelete: "cascade" }),
+    schemeName: text("scheme_name").notNull(),
+    schemeType: text("scheme_type")
+      .notNull()
+      .$type<"apiKey" | "basic" | "bearer" | "oauth2">(),
+    status: text("status")
+      .notNull()
+      .default("active")
+      .$type<"active" | "expired" | "revoked" | "error">(),
+    oauthClientId: text("oauth_client_id").references(() => oauthClients.id, {
+      onDelete: "restrict",
+    }),
+    requestedScopes: text("requested_scopes", { mode: "json" })
+      .$type<string[]>()
+      .default(sql`'[]'`),
+    grantedScopes: text("granted_scopes", { mode: "json" }).$type<string[]>(),
+    grantedSource: text("granted_source").$type<"provider" | "inferred">(),
+    createdAt: text("created_at").notNull().default("1970-01-01T00:00:00.000Z"),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("module_credentials_owner_scheme_unique").on(
+      table.moduleId,
+      table.schemeName,
+    ),
+    index("module_credentials_client_idx").on(table.oauthClientId),
+  ],
+);
+
+export const moduleCredentialAuth = sqliteTable("module_credential_auth", {
+  credentialId: text("credential_id")
+    .primaryKey()
+    .references(() => moduleCredentials.id, { onDelete: "cascade" }),
+  schemeType: text("scheme_type")
+    .notNull()
+    .$type<"apiKey" | "basic" | "bearer" | "oauth2">(),
+  payload: text("payload", { mode: "json" })
+    .$type<EncryptedSecretsPayload>()
+    .notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
+export const registryCredentials = sqliteTable(
+  "registry_credentials",
+  {
+    id: text("id").primaryKey(),
+    registryId: text("registry_id")
+      .notNull()
+      .references(() => registries.id, { onDelete: "cascade" }),
+    schemeName: text("scheme_name").notNull(),
+    schemeType: text("scheme_type")
+      .notNull()
+      .$type<"apiKey" | "basic" | "bearer" | "oauth2">(),
+    status: text("status")
+      .notNull()
+      .default("active")
+      .$type<"active" | "expired" | "revoked" | "error">(),
+    oauthClientId: text("oauth_client_id").references(() => oauthClients.id, {
+      onDelete: "restrict",
+    }),
+    requestedScopes: text("requested_scopes", { mode: "json" })
+      .$type<string[]>()
+      .default(sql`'[]'`),
+    grantedScopes: text("granted_scopes", { mode: "json" }).$type<string[]>(),
+    grantedSource: text("granted_source").$type<"provider" | "inferred">(),
+    createdAt: text("created_at").notNull().default("1970-01-01T00:00:00.000Z"),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("registry_credentials_owner_scheme_unique").on(
+      table.registryId,
+      table.schemeName,
+    ),
+    index("registry_credentials_client_idx").on(table.oauthClientId),
+  ],
+);
+
+export const registryCredentialAuth = sqliteTable("registry_credential_auth", {
+  credentialId: text("credential_id")
+    .primaryKey()
+    .references(() => registryCredentials.id, { onDelete: "cascade" }),
+  schemeType: text("scheme_type")
+    .notNull()
+    .$type<"apiKey" | "basic" | "bearer" | "oauth2">(),
+  payload: text("payload", { mode: "json" })
+    .$type<EncryptedSecretsPayload>()
+    .notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
+export const oauthClients = sqliteTable("oauth_clients", {
+  id: text("id").primaryKey(),
+  provider: text("provider").notNull(),
+  clientId: text("client_id").notNull(),
+  clientSecret: text("client_secret", { mode: "json" })
+    .$type<EncryptedSecretsPayload>()
+    .notNull(),
+  tokenUrl: text("token_url").notNull(),
+  authorizationUrl: text("authorization_url"),
+  clientAuthMethod: text("client_auth_method")
+    .notNull()
+    .default("client_secret_basic"),
+  redirectUris: text("redirect_uris", { mode: "json" })
+    .$type<string[]>()
+    .notNull()
+    .default(sql`'[]'`),
+  availableScopes: text("available_scopes", { mode: "json" })
+    .$type<string[]>()
+    .notNull()
+    .default(sql`'[]'`),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const oauthPendings = sqliteTable(
+  "oauth_pendings",
+  {
+    state: text("state").primaryKey(),
+    serviceCredentialId: text("service_credential_id").references(
+      () => serviceCredentials.id,
+      { onDelete: "cascade" },
+    ),
+    moduleCredentialId: text("module_credential_id").references(
+      () => moduleCredentials.id,
+      { onDelete: "cascade" },
+    ),
+    registryCredentialId: text("registry_credential_id").references(
+      () => registryCredentials.id,
+      { onDelete: "cascade" },
+    ),
+    codeVerifier: text("code_verifier").notNull(),
+    codeChallenge: text("code_challenge").notNull(),
+    redirectUri: text("redirect_uri").notNull(),
+    requestedScopes: text("requested_scopes", { mode: "json" }).$type<
+      string[]
+    >(),
+    createdAt: integer("created_at").notNull(),
+    expiresAt: integer("expires_at").notNull(),
+  },
+  (table) => [
+    index("oauth_pendings_expiry_idx").on(table.expiresAt),
+    check(
+      "oauth_pendings_single_owner",
+      sql`(( ${table.serviceCredentialId} IS NOT NULL) + ( ${table.moduleCredentialId} IS NOT NULL) + ( ${table.registryCredentialId} IS NOT NULL)) = 1`,
+    ),
+  ],
+);
+
+export type ModuleRecord = typeof modules.$inferSelect;
+export type NewModuleRecord = typeof modules.$inferInsert;
+
+export type ServiceRecord = typeof services.$inferSelect;
+export type NewServiceRecord = typeof services.$inferInsert;
+
+export type ToolRecord = typeof tools.$inferSelect;
+export type NewToolRecord = typeof tools.$inferInsert;
+
+export type ServiceConfigurationRecord =
+  typeof serviceConfigurations.$inferSelect;
+export type NewServiceConfigurationRecord =
+  typeof serviceConfigurations.$inferInsert;
+
+export type ServiceSecretsRecord = typeof serviceSecrets.$inferSelect;
+export type NewServiceSecretsRecord = typeof serviceSecrets.$inferInsert;
+
+export type ModuleConfigurationRecord =
+  typeof moduleConfigurations.$inferSelect;
+export type NewModuleConfigurationRecord =
+  typeof moduleConfigurations.$inferInsert;
+
+export type ModuleSecretsRecord = typeof moduleSecrets.$inferSelect;
+export type NewModuleSecretsRecord = typeof moduleSecrets.$inferInsert;
+
+export type RegistryRecord = typeof registries.$inferSelect;
+export type NewRegistryRecord = typeof registries.$inferInsert;
+export type RegistryAuthRecord = typeof registryAuth.$inferSelect;
+export type NewRegistryAuthRecord = typeof registryAuth.$inferInsert;
 
 export type ProcessRow = typeof processes.$inferSelect;
 export type NewProcessRow = typeof processes.$inferInsert;
 export type ProcessDataRow = typeof processData.$inferSelect;
 export type NewProcessDataRow = typeof processData.$inferInsert;
+
+export type ToolPolicyRecord = typeof toolPolicies.$inferSelect;
+export type NewToolPolicyRecord = typeof toolPolicies.$inferInsert;
+export type ApprovalRequestRecord = typeof approvalRequests.$inferSelect;
+export type NewApprovalRequestRecord = typeof approvalRequests.$inferInsert;
+
+export type ServiceCredentialRecord = typeof serviceCredentials.$inferSelect;
+export type NewServiceCredentialRecord = typeof serviceCredentials.$inferInsert;
+
+export type ServiceCredentialAuthRecord =
+  typeof serviceCredentialAuth.$inferSelect;
+export type NewServiceCredentialAuthRecord =
+  typeof serviceCredentialAuth.$inferInsert;
+
+export type ModuleCredentialRecord = typeof moduleCredentials.$inferSelect;
+export type NewModuleCredentialRecord = typeof moduleCredentials.$inferInsert;
+
+export type ModuleCredentialAuthRecord =
+  typeof moduleCredentialAuth.$inferSelect;
+export type NewModuleCredentialAuthRecord =
+  typeof moduleCredentialAuth.$inferInsert;
+
+export type RegistryCredentialRecord = typeof registryCredentials.$inferSelect;
+export type NewRegistryCredentialRecord =
+  typeof registryCredentials.$inferInsert;
+
+export type RegistryCredentialAuthRecord =
+  typeof registryCredentialAuth.$inferSelect;
+export type NewRegistryCredentialAuthRecord =
+  typeof registryCredentialAuth.$inferInsert;
+
+export type OAuthClientRecord = typeof oauthClients.$inferSelect;
+export type NewOAuthClientRecord = typeof oauthClients.$inferInsert;
+
+export type OAuthPendingRecord = typeof oauthPendings.$inferSelect;
+export type NewOAuthPendingRecord = typeof oauthPendings.$inferInsert;

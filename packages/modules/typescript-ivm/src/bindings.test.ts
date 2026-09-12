@@ -1,9 +1,11 @@
 import type {
+  ConfigProvider,
   EnvironmentBindings,
   ExecutionInput,
   InvokeInput,
   ModuleLogBindings,
   ModuleLogger,
+  SecretsProvider,
 } from "@cyrnel/sdk";
 import { describe, expect, it, vi } from "vitest";
 
@@ -27,6 +29,32 @@ const stubLogger: ModuleLogger<ModuleLogBindings> = {
   error: () => {},
   fatal: () => {},
 };
+
+function createConfigProvider(
+  values: Record<string, unknown> = {},
+): ConfigProvider<any> {
+  return {
+    get: async (key: keyof any) => {
+      const name = String(key);
+      if (!(name in values)) {
+        const err = new Error(`ProviderKeyNotConfigured: ${name}`);
+        err.name = "ProviderKeyNotConfigured";
+        throw err;
+      }
+      return values[name];
+    },
+  };
+}
+
+function createSecretsProvider(): SecretsProvider<any> {
+  return {
+    get: async (_key: keyof any) => {
+      const err = new Error("ProviderKeyNotConfigured");
+      err.name = "ProviderKeyNotConfigured";
+      throw err;
+    },
+  };
+}
 
 describe("bindings", () => {
   const createBindings = () => {
@@ -58,13 +86,14 @@ describe("bindings", () => {
 
       await environment.setup({
         bindings,
-        config: {},
-        secrets: {},
+        config: createConfigProvider({}),
+        secrets: createSecretsProvider(),
         logger: stubLogger,
       });
 
       await environment.execute({
-        eid: 1,
+        executionId: 1,
+        processId: 1,
         code: 'console.log("Hello, world!");',
         envConfig: { timeoutMs: 30_000 },
       } satisfies ExecutionInput);
@@ -81,13 +110,14 @@ describe("bindings", () => {
 
       await environment.setup({
         bindings,
-        config: {},
-        secrets: {},
+        config: createConfigProvider({}),
+        secrets: createSecretsProvider(),
         logger: stubLogger,
       });
 
       await environment.execute({
-        eid: 1,
+        executionId: 1,
+        processId: 1,
         code: 'console.error("Error occurred");',
         envConfig: { timeoutMs: 30_000 },
       } satisfies ExecutionInput);
@@ -104,13 +134,14 @@ describe("bindings", () => {
 
       await environment.setup({
         bindings,
-        config: {},
-        secrets: {},
+        config: createConfigProvider({}),
+        secrets: createSecretsProvider(),
         logger: stubLogger,
       });
 
       await environment.execute({
-        eid: 1,
+        executionId: 1,
+        processId: 1,
         code: 'console.log("Count:", 42, { foo: "bar" });',
         envConfig: { timeoutMs: 30_000 },
       } satisfies ExecutionInput);
@@ -130,13 +161,14 @@ describe("bindings", () => {
 
       await environment.setup({
         bindings,
-        config: {},
-        secrets: {},
+        config: createConfigProvider({}),
+        secrets: createSecretsProvider(),
         logger: stubLogger,
       });
 
       await environment.execute({
-        eid: 1,
+        executionId: 1,
+        processId: 1,
         code: "console.log(null, undefined);",
         envConfig: { timeoutMs: 30_000 },
       } satisfies ExecutionInput);
@@ -155,13 +187,14 @@ describe("bindings", () => {
 
       await environment.setup({
         bindings,
-        config: {},
-        secrets: {},
+        config: createConfigProvider({}),
+        secrets: createSecretsProvider(),
         logger: stubLogger,
       });
 
       await environment.execute({
-        eid: 1,
+        executionId: 1,
+        processId: 1,
         code: 'cyrnel.output({ result: "success", count: 42 });',
         envConfig: { timeoutMs: 30_000 },
       } satisfies ExecutionInput);
@@ -178,13 +211,14 @@ describe("bindings", () => {
 
       await environment.setup({
         bindings,
-        config: {},
-        secrets: {},
+        config: createConfigProvider({}),
+        secrets: createSecretsProvider(),
         logger: stubLogger,
       });
 
       await environment.execute({
-        eid: 99,
+        executionId: 99,
+        processId: 1,
         code: 'cyrnel.output({ data: "test" });',
         envConfig: { timeoutMs: 30_000 },
       } satisfies ExecutionInput);
@@ -202,22 +236,26 @@ describe("bindings", () => {
 
       await environment.setup({
         bindings,
-        config: {},
-        secrets: {},
+        config: createConfigProvider({}),
+        secrets: createSecretsProvider(),
         logger: stubLogger,
       });
 
       await environment.execute({
-        eid: 1,
+        executionId: 1,
+        processId: 1,
         code: "const result = await cyrnel.services.calc.tools.add.invoke({ a: 1, b: 2 }); console.log(JSON.stringify(result));",
       } satisfies ExecutionInput);
 
-      expect(invokeTool).toHaveBeenCalledWith({
-        serviceId: "calc",
-        toolId: "add",
-        parameters: { a: 1, b: 2 },
-        eid: 1,
-      } satisfies InvokeInput & { eid: number });
+      expect(invokeTool).toHaveBeenCalledWith(
+        expect.objectContaining({
+          serviceId: "calc",
+          toolId: "add",
+          parameters: { a: 1, b: 2 },
+          executionId: 1,
+          processId: 1,
+        }),
+      );
     });
 
     it("throws TypeError when service id is a symbol", async () => {
@@ -226,13 +264,14 @@ describe("bindings", () => {
 
       await environment.setup({
         bindings,
-        config: {},
-        secrets: {},
+        config: createConfigProvider({}),
+        secrets: createSecretsProvider(),
         logger: stubLogger,
       });
 
       const result = await environment.execute({
-        eid: 1,
+        executionId: 1,
+        processId: 1,
         code: 'try { cyrnel.services[Symbol("test")]; } catch(e) { console.error(e.message); }',
       } satisfies ExecutionInput);
 
@@ -247,13 +286,14 @@ describe("bindings", () => {
 
       await environment.setup({
         bindings,
-        config: {},
-        secrets: {},
+        config: createConfigProvider({}),
+        secrets: createSecretsProvider(),
         logger: stubLogger,
       });
 
       const result = await environment.execute({
-        eid: 1,
+        executionId: 1,
+        processId: 1,
         code: `
           try {
             await cyrnel.services.calc.tools.add.invoke({ x: 1 });
@@ -281,13 +321,14 @@ describe("bindings", () => {
 
       await environment.setup({
         bindings,
-        config: {},
-        secrets: {},
+        config: createConfigProvider({}),
+        secrets: createSecretsProvider(),
         logger: stubLogger,
       });
 
       const result = await environment.execute({
-        eid: 1,
+        executionId: 1,
+        processId: 1,
         code: `
           try {
             await cyrnel.services.calc.tools.add.invoke({ x: 1 });
@@ -311,13 +352,14 @@ describe("bindings", () => {
 
       await environment.setup({
         bindings,
-        config: {},
-        secrets: {},
+        config: createConfigProvider({}),
+        secrets: createSecretsProvider(),
         logger: stubLogger,
       });
 
       const result = await environment.execute({
-        eid: 1,
+        executionId: 1,
+        processId: 1,
         code: 'try { cyrnel.services.test.tools[Symbol("tool")]; } catch(e) { console.error(e.message); }',
       } satisfies ExecutionInput);
 
@@ -332,19 +374,21 @@ describe("bindings", () => {
 
       await environment.setup({
         bindings,
-        config: {},
-        secrets: {},
+        config: createConfigProvider({}),
+        secrets: createSecretsProvider(),
         logger: stubLogger,
       });
 
       await environment.execute({
-        eid: 10,
+        executionId: 10,
+        processId: 1,
         code: 'console.log("first");',
         envConfig: { timeoutMs: 30_000 },
       } satisfies ExecutionInput);
 
       await environment.execute({
-        eid: 20,
+        executionId: 20,
+        processId: 1,
         code: 'console.log("second");',
         envConfig: { timeoutMs: 30_000 },
       } satisfies ExecutionInput);
@@ -367,13 +411,14 @@ describe("bindings", () => {
 
       await environment.setup({
         bindings,
-        config: {},
-        secrets: {},
+        config: createConfigProvider({}),
+        secrets: createSecretsProvider(),
         logger: stubLogger,
       });
 
       await environment.execute({
-        eid: 42,
+        executionId: 42,
+        processId: 1,
         code: `
           console.log("test");
           cyrnel.output({ data: "result" });
@@ -401,13 +446,14 @@ describe("bindings", () => {
 
       await environment.setup({
         bindings,
-        config: {},
-        secrets: {},
+        config: createConfigProvider({}),
+        secrets: createSecretsProvider(),
         logger: stubLogger,
       });
 
       const result = await environment.execute({
-        eid: 1,
+        executionId: 1,
+        processId: 1,
         code: `
           try {
             cyrnel.newProperty = "test";
@@ -428,13 +474,14 @@ describe("bindings", () => {
 
       await environment.setup({
         bindings,
-        config: {},
-        secrets: {},
+        config: createConfigProvider({}),
+        secrets: createSecretsProvider(),
         logger: stubLogger,
       });
 
       const result = await environment.execute({
-        eid: 1,
+        executionId: 1,
+        processId: 1,
         code: `
           try {
             cyrnel = {};
@@ -455,13 +502,14 @@ describe("bindings", () => {
 
       await environment.setup({
         bindings,
-        config: {},
-        secrets: {},
+        config: createConfigProvider({}),
+        secrets: createSecretsProvider(),
         logger: stubLogger,
       });
 
       await environment.execute({
-        eid: 1,
+        executionId: 1,
+        processId: 1,
         code: 'console.log("cyrnel" in globalThis);',
         envConfig: { timeoutMs: 30_000 },
       } satisfies ExecutionInput);
@@ -481,8 +529,8 @@ describe("bindings", () => {
       const environment = tsivm.instantiate();
       await environment.setup({
         bindings: bindingMocks,
-        config: { bindings },
-        secrets: {},
+        config: createConfigProvider({ bindings }),
+        secrets: createSecretsProvider(),
         logger: stubLogger,
       });
       return { bindings: bindingMocks, environment };
@@ -495,7 +543,8 @@ describe("bindings", () => {
         });
 
         const result = await environment.execute({
-          eid: 1,
+          executionId: 1,
+          processId: 1,
           code: `
             const enc = btoa("Hello, Cyrnel!");
             console.log(enc, atob(enc));
@@ -514,7 +563,8 @@ describe("bindings", () => {
         });
 
         const result = await environment.execute({
-          eid: 1,
+          executionId: 1,
+          processId: 1,
           code: `
             try {
               btoa("e\u20AC");
@@ -537,7 +587,8 @@ describe("bindings", () => {
         });
 
         const result = await environment.execute({
-          eid: 1,
+          executionId: 1,
+          processId: 1,
           code: `
             try {
               atob("not-base64!!");
@@ -558,7 +609,8 @@ describe("bindings", () => {
         const { bindings, environment } = await setupWithBindings({});
 
         const result = await environment.execute({
-          eid: 1,
+          executionId: 1,
+          processId: 1,
           code: 'console.log("btoa:", typeof btoa, "atob:", typeof atob);',
           envConfig: { timeoutMs: 30_000 },
         } satisfies ExecutionInput);
@@ -576,7 +628,8 @@ describe("bindings", () => {
         });
 
         const result = await environment.execute({
-          eid: 1,
+          executionId: 1,
+          processId: 1,
           code: `
             const bytes = new TextEncoder().encode("héllo 🎉");
             console.log(JSON.stringify([...bytes]));
@@ -601,7 +654,8 @@ describe("bindings", () => {
         });
 
         const result = await environment.execute({
-          eid: 1,
+          executionId: 1,
+          processId: 1,
           code: `
             const decoder = new TextDecoder();
             console.log(decoder.decode(new Uint8Array([0x41, 0xff, 0x42])));
@@ -618,7 +672,8 @@ describe("bindings", () => {
         const { bindings, environment } = await setupWithBindings({});
 
         const result = await environment.execute({
-          eid: 1,
+          executionId: 1,
+          processId: 1,
           code: "console.log(typeof TextEncoder, typeof TextDecoder);",
           envConfig: { timeoutMs: 30_000 },
         } satisfies ExecutionInput);
@@ -636,7 +691,8 @@ describe("bindings", () => {
         });
 
         const result = await environment.execute({
-          eid: 1,
+          executionId: 1,
+          processId: 1,
           code: `
             const u = new URL("https://user:pw@example.com:8080/p/a?x=1&y=2#frag");
             console.log(u.protocol, u.hostname, u.port, u.pathname, u.hash);
@@ -664,7 +720,8 @@ describe("bindings", () => {
         });
 
         const result = await environment.execute({
-          eid: 1,
+          executionId: 1,
+          processId: 1,
           code: `
             const u = new URL("../b?c=d", "https://example.com/a/x");
             console.log(u.href);
@@ -681,7 +738,8 @@ describe("bindings", () => {
         const { bindings, environment } = await setupWithBindings({});
 
         const result = await environment.execute({
-          eid: 1,
+          executionId: 1,
+          processId: 1,
           code: "console.log(typeof URL, typeof URLSearchParams);",
           envConfig: { timeoutMs: 30_000 },
         } satisfies ExecutionInput);
@@ -699,7 +757,8 @@ describe("bindings", () => {
         });
 
         const result = await environment.execute({
-          eid: 1,
+          executionId: 1,
+          processId: 1,
           code: `
             const started = Date.now();
             const value = await new Promise((resolve) => {
@@ -721,7 +780,8 @@ describe("bindings", () => {
         });
 
         const result = await environment.execute({
-          eid: 1,
+          executionId: 1,
+          processId: 1,
           code: `
             const value = await new Promise((resolve) => {
               setTimeout((a, b) => resolve(a + " " + b), 20, "hello", "world");
@@ -742,7 +802,8 @@ describe("bindings", () => {
         });
 
         const result = await environment.execute({
-          eid: 1,
+          executionId: 1,
+          processId: 1,
           code: `
             let ticks = 0;
             await new Promise((resolve) => {
@@ -770,7 +831,8 @@ describe("bindings", () => {
         });
 
         const result = await environment.execute({
-          eid: 1,
+          executionId: 1,
+          processId: 1,
           code: `
             const order = [];
             queueMicrotask(() => order.push(2));
@@ -792,7 +854,8 @@ describe("bindings", () => {
         });
 
         const result = await environment.execute({
-          eid: 1,
+          executionId: 1,
+          processId: 1,
           code: `
             try {
               setTimeout(() => {}, 99999999);
@@ -816,7 +879,8 @@ describe("bindings", () => {
         });
 
         const result = await environment.execute({
-          eid: 1,
+          executionId: 1,
+          processId: 1,
           code: `
             setTimeout(() => console.log("should never print"), 20);
           `,
@@ -833,7 +897,8 @@ describe("bindings", () => {
         const { bindings, environment } = await setupWithBindings({});
 
         const result = await environment.execute({
-          eid: 1,
+          executionId: 1,
+          processId: 1,
           code: "console.log(typeof setTimeout, typeof queueMicrotask);",
           envConfig: { timeoutMs: 30_000 },
         } satisfies ExecutionInput);
@@ -851,7 +916,8 @@ describe("bindings", () => {
         });
 
         const result = await environment.execute({
-          eid: 1,
+          executionId: 1,
+          processId: 1,
           code: `
             const arr = new Uint8Array(32);
             crypto.getRandomValues(arr);
@@ -878,7 +944,8 @@ describe("bindings", () => {
         });
 
         const result = await environment.execute({
-          eid: 1,
+          executionId: 1,
+          processId: 1,
           code: `
             try {
               crypto.getRandomValues(new Uint8Array(65537));
@@ -899,7 +966,8 @@ describe("bindings", () => {
         const { bindings, environment } = await setupWithBindings({});
 
         const result = await environment.execute({
-          eid: 1,
+          executionId: 1,
+          processId: 1,
           code: "console.log(typeof crypto);",
           envConfig: { timeoutMs: 30_000 },
         } satisfies ExecutionInput);
@@ -917,7 +985,8 @@ describe("bindings", () => {
         });
 
         const result = await environment.execute({
-          eid: 1,
+          executionId: 1,
+          processId: 1,
           code: `
             console.warn("watch out");
             console.info("just info");
@@ -941,7 +1010,8 @@ describe("bindings", () => {
         });
 
         const result = await environment.execute({
-          eid: 1,
+          executionId: 1,
+          processId: 1,
           code: 'console.log("plain", 42);',
           envConfig: { timeoutMs: 30_000 },
         } satisfies ExecutionInput);
@@ -955,7 +1025,8 @@ describe("bindings", () => {
         const { bindings, environment } = await setupWithBindings({});
 
         const result = await environment.execute({
-          eid: 1,
+          executionId: 1,
+          processId: 1,
           code: 'console.warn("nothing"); console.log("after");',
           envConfig: { timeoutMs: 30_000 },
         } satisfies ExecutionInput);

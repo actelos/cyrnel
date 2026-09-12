@@ -204,6 +204,14 @@ async function fetchStream(
       );
     }
 
+    if (!nextUrl.startsWith("https://") && !nextUrl.startsWith("http://")) {
+      throw new HttpError(
+        502,
+        `${label} download redirected to a non-http(s) URL.`,
+      );
+    }
+    await assertRegistryAddressAllowed(nextUrl);
+
     await hopResponse.body?.cancel().catch(() => {});
     currentUrl = nextUrl;
   }

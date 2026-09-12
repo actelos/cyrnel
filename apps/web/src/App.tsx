@@ -1,6 +1,7 @@
 import {
   Blocks,
   Braces,
+  KeyRound,
   Library,
   ScrollText,
   Server,
@@ -27,6 +28,8 @@ import {
 } from "@/components/ui/sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import ApprovalsPage from "@/pages/ApprovalsPage";
+import AuthCallbackPage from "@/pages/AuthCallbackPage";
+import AuthenticationPage from "@/pages/AuthenticationPage";
 import LogsPage from "@/pages/LogsPage";
 import ModuleDetailPage from "@/pages/ModuleDetailPage";
 import ModulesPage from "@/pages/ModulesPage";
@@ -40,6 +43,7 @@ const navItems = [
   { to: "/services", icon: Server, label: "Services" },
   { to: "/modules", icon: Blocks, label: "Modules" },
   { to: "/registries", icon: Library, label: "Registries" },
+  { to: "/authentication", icon: KeyRound, label: "Authentication" },
   { to: "/approvals", icon: ShieldCheck, label: "Approvals" },
   { to: "/logs", icon: ScrollText, label: "Logs" },
 ] as const;
@@ -104,8 +108,14 @@ function App() {
               <Route path="/modules" element={<ModulesPage />} />
               <Route path="/modules/:moduleId" element={<ModuleDetailPage />} />
               <Route path="/registries" element={<RegistriesPage />} />
+              <Route path="/authentication" element={<AuthenticationPage />} />
+              <Route
+                path="/connections"
+                element={<Navigate to="/authentication" replace />}
+              />
               <Route path="/approvals" element={<ApprovalsPage />} />
               <Route path="/logs" element={<LogsPage />} />
+              <Route path="/auth/callback" element={<AuthCallbackPage />} />
             </Routes>
           </div>
         </SidebarInset>

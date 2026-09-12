@@ -44,6 +44,7 @@ const originalInsecureCIDRs = process.env.CYRNEL_REGISTRY_AUTH_INSECURE_CIDRS;
 describe("isCredentialTransportAllowed", () => {
   beforeEach(() => {
     delete process.env.CYRNEL_REGISTRY_AUTH_INSECURE_CIDRS;
+    vi.unstubAllGlobals();
   });
 
   afterEach(() => {
@@ -52,6 +53,7 @@ describe("isCredentialTransportAllowed", () => {
     } else {
       process.env.CYRNEL_REGISTRY_AUTH_INSECURE_CIDRS = originalInsecureCIDRs;
     }
+    vi.unstubAllGlobals();
   });
 
   it("always allows https", async () => {
@@ -126,6 +128,7 @@ describe("exchangeClientCredentials", () => {
   const originalAllowedIPs = process.env.CYRNEL_REGISTRY_ALLOWED_IPS;
 
   beforeEach(async () => {
+    vi.unstubAllGlobals();
     process.env.CYRNEL_REGISTRY_ALLOWED_IPS = "127.0.0.1/32";
     requestBodies = [];
     exchangeCount = 0;
@@ -178,6 +181,7 @@ describe("exchangeClientCredentials", () => {
     } else {
       process.env.CYRNEL_REGISTRY_ALLOWED_IPS = originalAllowedIPs;
     }
+    vi.unstubAllGlobals();
     await new Promise<void>((resolve, reject) => {
       server.close((err) => (err ? reject(err) : resolve()));
     });
@@ -185,10 +189,9 @@ describe("exchangeClientCredentials", () => {
 
   it("exchanges client credentials and returns the token state", async () => {
     const state = await exchangeClientCredentials({
-      type: "oauth2",
+      tokenEndpoint: `${baseUrl}/oauth/token`,
       clientId: "valid-client",
       clientSecret: "valid-secret",
-      tokenEndpoint: `${baseUrl}/oauth/token`,
     });
 
     expect(state.accessToken).toBe("issued-token");
@@ -205,10 +208,9 @@ describe("exchangeClientCredentials", () => {
 
   it("sends the requested scopes space-joined", async () => {
     await exchangeClientCredentials({
-      type: "oauth2",
+      tokenEndpoint: `${baseUrl}/oauth/token`,
       clientId: "valid-client",
       clientSecret: "valid-secret",
-      tokenEndpoint: `${baseUrl}/oauth/token`,
       scopes: ["definitions:read", "modules:read"],
     });
 
@@ -219,10 +221,9 @@ describe("exchangeClientCredentials", () => {
   it("throws a 502 when the endpoint response is not ok", async () => {
     await expect(
       exchangeClientCredentials({
-        type: "oauth2",
+        tokenEndpoint: `${baseUrl}/oauth/token`,
         clientId: "wrong-client",
         clientSecret: "valid-secret",
-        tokenEndpoint: `${baseUrl}/oauth/token`,
       }),
     ).rejects.toMatchObject({
       statusCode: 502,
@@ -245,10 +246,9 @@ describe("exchangeClientCredentials", () => {
     try {
       await expect(
         exchangeClientCredentials({
-          type: "oauth2",
+          tokenEndpoint: `http://127.0.0.1:${address.port}/oauth/token`,
           clientId: "valid-client",
           clientSecret: "valid-secret",
-          tokenEndpoint: `http://127.0.0.1:${address.port}/oauth/token`,
         }),
       ).rejects.toMatchObject({
         statusCode: 502,
@@ -276,10 +276,39 @@ describe("exchangeClientCredentials", () => {
     try {
       await expect(
         exchangeClientCredentials({
-          type: "oauth2",
+          tokenEndpoint: `http://127.0.0.1:${address.port}/oauth/token`,
           clientId: "valid-client",
           clientSecret: "valid-secret",
+        }),
+      ).rejects.toMatchObject({
+        statusCode: 502,
+        message: expect.stringContaining("missing an access token"),
+      });
+    } finally {
+      await new Promise<void>((resolve) => {
+        rawServer.close(() => resolve());
+      });
+    }
+  });
+
+  it("throws a 502 when the access token is empty", async () => {
+    const rawServer = createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ access_token: "" }));
+    });
+    await new Promise<void>((resolve) => {
+      rawServer.listen(0, "127.0.0.1", resolve);
+    });
+    const address = rawServer.address();
+    if (address === null || typeof address === "string") {
+      throw new Error("raw fixture server did not bind a port");
+    }
+    try {
+      await expect(
+        exchangeClientCredentials({
           tokenEndpoint: `http://127.0.0.1:${address.port}/oauth/token`,
+          clientId: "valid-client",
+          clientSecret: "valid-secret",
         }),
       ).rejects.toMatchObject({
         statusCode: 502,
@@ -295,10 +324,9 @@ describe("exchangeClientCredentials", () => {
   it("throws a 400 when the token endpoint transport refuses credentials", async () => {
     await expect(
       exchangeClientCredentials({
-        type: "oauth2",
+        tokenEndpoint: "http://public.fixture/oauth/token",
         clientId: "valid-client",
         clientSecret: "valid-secret",
-        tokenEndpoint: "http://public.fixture/oauth/token",
       }),
     ).rejects.toMatchObject({
       statusCode: 400,
@@ -321,10 +349,9 @@ describe("exchangeClientCredentials", () => {
 
     await expect(
       exchangeClientCredentials({
-        type: "oauth2",
+        tokenEndpoint: `http://127.0.0.1:${address.port}/oauth/token`,
         clientId: "valid-client",
         clientSecret: "valid-secret",
-        tokenEndpoint: `http://127.0.0.1:${address.port}/oauth/token`,
       }),
     ).rejects.toMatchObject({
       statusCode: 502,
@@ -334,8 +361,6 @@ describe("exchangeClientCredentials", () => {
   });
 
   it("coerces expires_in into an epoch-millisecond expiry", async () => {
-    const serverPort = baseUrl.split(":").pop();
-    void serverPort;
     const noExpiryServer = createServer((_req, res) => {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({ access_token: "tok" }));
@@ -349,10 +374,9 @@ describe("exchangeClientCredentials", () => {
     }
     try {
       const state = await exchangeClientCredentials({
-        type: "oauth2",
+        tokenEndpoint: `http://127.0.0.1:${address.port}/oauth/token`,
         clientId: "valid-client",
         clientSecret: "valid-secret",
-        tokenEndpoint: `http://127.0.0.1:${address.port}/oauth/token`,
       });
       expect(state.expiresAt).toBeGreaterThan(Date.now() + 3_590_000);
       expect(state.expiresAt).toBeLessThanOrEqual(Date.now() + 3_601_000);

@@ -1,0 +1,54 @@
+---
+title: "Specification Overview"
+description: "What the cyrnel sdk is and how to use it"
+sidebarTitle: "Overview"
+---
+
+`@cyrnel/sdk` is the TypeScript package every cyrnel module is written against.
+It defines the data shapes cyrnel exchanges (services, tools, execution
+state) and the interfaces that adapter and environment modules implement.
+
+This section covers version `5.0.0` of the SDK. Select a different version
+from the version switcher dropdown when older versions are published.
+
+## Who implements what
+
+- **Adapter authors** implement [`AdapterModule`](/cyrnel/sdk-spec/5.0.0/adapter-module).
+- **Environment authors** implement
+  [`EnvironmentModule`](/cyrnel/sdk-spec/5.0.0/environment-module).
+- **Cyrnel itself** implements [`EnvironmentBindings`](/cyrnel/sdk-spec/5.0.0/environment-bindings),
+  which is what an environment module *calls into*.
+
+## Module Manifests
+
+Every module exposes metadata (id, name, type, description) via a
+`module.json` file on disk, plus schemas and a factory via a default
+code export.
+
+- **Built-in modules** use a default export that bundles both schemas
+  and `instantiate`:
+  
+  ```ts
+  export default {
+    configSchema: { type: "object", properties: {} },
+    secretsSchema: { type: "object", properties: {}, additionalProperties: false },
+    instantiate(): AdapterModule {
+      return new MyAdapter();
+    },
+  };
+  ```
+
+- **Custom modules** declare basic metadata in `module.json` and the
+  schemas + factory in a default export from their entry file.  See
+  [Writing a custom module](/cyrnel/sdk-spec/5.0.0/writing-custom-modules) for
+  the full layout.
+
+Config and secrets schemas are **not** part of `module.json`; they come
+from the code export instead. This ensures schemas are kept close to the
+logic that consumes them.
+
+Modules that need end-service credentials also declare `auth`
+(`{ schemes, security }`) on the default export; environment modules
+additionally declare a required `executionConfigSchema` for per-execution
+`envConfig`. See [`Module`](/cyrnel/sdk-spec/5.0.0/module) and
+[`Types`](/cyrnel/sdk-spec/5.0.0/types) for the full export contract.

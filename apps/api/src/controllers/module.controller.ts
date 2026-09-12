@@ -1,7 +1,7 @@
+import type { AuthScheme, SecurityRequirements } from "@cyrnel/sdk";
 import type { Request, Response } from "express";
 import type { Operation } from "fast-json-patch";
 import { z } from "zod";
-import { sendIconResponse } from "@/controllers/icon-response.util";
 import { HttpError } from "@/models/error.model";
 import {
   type FilterModuleManifestInput,
@@ -10,6 +10,7 @@ import {
   type ModuleType,
 } from "@/models/modules.model";
 import type { ModuleService } from "@/services/modules.service";
+import { sendIconResponse } from "@/utils/icon-response.util";
 import { paginationQuerySchema } from "@/utils/pagination.util";
 import { parseOrHttpError } from "@/utils/validation.util";
 
@@ -329,5 +330,108 @@ export async function patchModuleSecrets(
   );
 
   await moduleService.patchSecrets({ id: moduleId, patch });
+  res.status(200).json({ updated: true });
+}
+
+export async function restartModule(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const moduleService = getModuleService(req);
+  const moduleId = parseOrHttpError(moduleIdSchema, req.params.moduleId);
+
+  await moduleService.restartModule(moduleId);
+  res.status(200).end();
+}
+
+export async function setModuleAuth(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const moduleService = getModuleService(req);
+  const moduleId = parseOrHttpError(moduleIdSchema, req.params.moduleId);
+  const apiKeySchemeSchema = z.object({
+    type: z.literal("apiKey"),
+    in: z.enum(["header", "query", "cookie"]),
+    paramName: z.string().min(1),
+    prefix: z.string().optional(),
+  });
+  const basicSchemeSchema = z.object({ type: z.literal("basic") });
+  const httpSchemeSchema = z.object({
+    type: z.literal("http"),
+    scheme: z.literal("bearer"),
+    bearerFormat: z.string().optional(),
+  });
+  const oauth2SchemeSchema = z
+    .object({
+      type: z.literal("oauth2"),
+      grantTypes: z
+        .array(z.enum(["authorizationCode", "clientCredentials", "deviceCode"]))
+        .min(1),
+      authorizationUrl: z.string().optional(),
+      deviceAuthorizationUrl: z.string().optional(),
+      tokenUrl: z.string().min(1),
+      scopes: z.record(z.string(), z.string()).optional().default({}),
+      clientAuthMethod: z
+        .enum([
+          "client_secret_basic",
+          "client_secret_post",
+          "private_key_jwt",
+          "none",
+        ])
+        .optional(),
+      additionalTokenParams: z.record(z.string(), z.string()).optional(),
+      tokenPlacement: z.object({
+        in: z.literal("header"),
+        paramName: z.string().min(1),
+        prefix: z.string().optional(),
+      }),
+    })
+    .refine(
+      (val) => {
+        if (
+          val.grantTypes.includes("authorizationCode") &&
+          !val.authorizationUrl
+        ) {
+          return false;
+        }
+        if (
+          val.grantTypes.includes("deviceCode") &&
+          !val.deviceAuthorizationUrl
+        ) {
+          return false;
+        }
+        return true;
+      },
+      {
+        message:
+          "authorizationUrl is required when grantTypes includes authorizationCode; deviceAuthorizationUrl is required when grantTypes includes deviceCode",
+        path: ["authorizationUrl", "deviceAuthorizationUrl"],
+      },
+    );
+  const authSchemeSchema = z.discriminatedUnion("type", [
+    apiKeySchemeSchema,
+    basicSchemeSchema,
+    httpSchemeSchema,
+    oauth2SchemeSchema,
+  ]);
+  const body = parseOrHttpError(
+    z.object({
+      schemes: z
+        .record(z.string(), authSchemeSchema)
+        .refine((val) => Object.keys(val).length > 0, {
+          error: "Field 'schemes' must declare at least one scheme.",
+        }),
+      security: z.array(z.record(z.string(), z.array(z.string()))),
+    }),
+    req.body,
+    "Request body must be an object.",
+  );
+
+  await moduleService.setModuleAuth({
+    id: moduleId,
+    schemes: body.schemes as unknown as Record<string, AuthScheme>,
+    security: body.security as SecurityRequirements,
+  });
   res.status(200).json({ updated: true });
 }

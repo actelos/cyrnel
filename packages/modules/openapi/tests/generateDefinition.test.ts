@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import { generateDefinition } from "@/generateDefinition";
+import { generateService } from "@/generateDefinition";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const fixturesDir = join(__dirname, "fixtures");
@@ -18,7 +18,7 @@ describe("generateDefinition integration", () => {
     it("generates correct service definition from full petstore spec", async () => {
       const spec = await loadFixture("petstore.json");
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.name).toBe("Petstore API");
       expect(result.description).toBe(
@@ -29,7 +29,7 @@ describe("generateDefinition integration", () => {
     it("extracts all 5 tools from petstore paths", async () => {
       const spec = await loadFixture("petstore.json");
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.tools).toHaveLength(5);
       expect(result.tools.map((t) => t.id).sort()).toEqual([
@@ -44,7 +44,7 @@ describe("generateDefinition integration", () => {
     it("resolves $ref in parameters correctly", async () => {
       const spec = await loadFixture("petstore.json");
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       const getPetTool = result.tools.find((t) => t.id === "getPetById");
       expect(getPetTool).toBeDefined();
@@ -64,7 +64,7 @@ describe("generateDefinition integration", () => {
     it("resolves nested $ref in response schema", async () => {
       const spec = await loadFixture("petstore.json");
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       const getPetTool = result.tools.find((t) => t.id === "getPetById");
       expect(getPetTool).toBeDefined();
@@ -107,7 +107,7 @@ describe("generateDefinition integration", () => {
     it("correctly builds inputSchema with path params and requestBody", async () => {
       const spec = await loadFixture("petstore.json");
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       const updatePetTool = result.tools.find((t) => t.id === "updatePet");
       expect(updatePetTool).toBeDefined();
@@ -136,7 +136,7 @@ describe("generateDefinition integration", () => {
     it("extracts tool description from requestBody.description", async () => {
       const spec = await loadFixture("petstore.json");
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       const createPetTool = result.tools.find((t) => t.id === "createPet");
       expect(createPetTool).toBeDefined();
@@ -146,7 +146,7 @@ describe("generateDefinition integration", () => {
     it("uses operation description when requestBody.description is missing", async () => {
       const spec = await loadFixture("petstore.json");
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       const listPetsTool = result.tools.find((t) => t.id === "listPets");
       expect(listPetsTool).toBeDefined();
@@ -158,7 +158,7 @@ describe("generateDefinition integration", () => {
     it("includes servers in adapterDomain", async () => {
       const spec = await loadFixture("petstore.json");
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.adapterDomain).toEqual({
         openapi: "3.0.3",
@@ -169,7 +169,7 @@ describe("generateDefinition integration", () => {
     it("includes path and method in tool adapterDomain", async () => {
       const spec = await loadFixture("petstore.json");
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       const deletePetTool = result.tools.find((t) => t.id === "deletePet");
       expect(deletePetTool).toBeDefined();
@@ -182,7 +182,7 @@ describe("generateDefinition integration", () => {
     it("handles operations without response content (204)", async () => {
       const spec = await loadFixture("petstore.json");
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       const deletePetTool = result.tools.find((t) => t.id === "deletePet");
       expect(deletePetTool).toBeDefined();
@@ -198,7 +198,7 @@ describe("generateDefinition integration", () => {
     it("parses YAML format correctly", async () => {
       const spec = await loadFixture("petstore.yaml");
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       expect(result.name).toBe("Petstore API (YAML)");
       expect(result.description).toBe("A sample API in YAML format");
@@ -207,7 +207,7 @@ describe("generateDefinition integration", () => {
     it("resolves $ref in YAML format", async () => {
       const spec = await loadFixture("petstore.yaml");
 
-      const result = await generateDefinition(spec);
+      const result = await generateService(spec);
 
       const listPetsTool = result.tools.find((t) => t.id === "listPets");
       expect(listPetsTool).toBeDefined();

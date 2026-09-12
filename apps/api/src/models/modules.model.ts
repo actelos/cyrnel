@@ -1,4 +1,4 @@
-import type { JSONSchema } from "@cyrnel/sdk";
+import type { AuthScheme, JSONSchema, SecurityRequirements } from "@cyrnel/sdk";
 import type { Operation } from "fast-json-patch";
 import { valid, validRange } from "semver";
 import { z } from "zod";
@@ -36,6 +36,12 @@ export interface ModuleManifestRecord {
   compatibility?: { identifier: string; version: string }[];
   configSchema: JSONSchema;
   secretsSchema: JSONSchema;
+  schemes: Record<string, AuthScheme>;
+  security: SecurityRequirements;
+  credentialSchemes?: Record<
+    string,
+    { configured: boolean; status?: string; grantedSource?: string | null }
+  >;
 }
 
 export interface FilterModuleManifestInput {

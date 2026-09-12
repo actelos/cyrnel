@@ -22,12 +22,21 @@ const redactConfig = {
     "req.headers.cookie",
     'req.headers["set-cookie"]',
     "*secret*",
+    "*Secret*",
     "*token*",
+    "*Token*",
     "*password*",
+    "*Password*",
     "*passwd*",
     "*apiKey*",
+    "*ApiKey*",
     "*api_key*",
     "*authorization*",
+    "*Authorization*",
+    "*verifier*",
+    "*Verifier*",
+    "*refresh*",
+    "*Refresh*",
     "*cookie*",
   ],
   censor: "***REDACTED***",
@@ -137,12 +146,6 @@ function createLogger() {
   );
 }
 
-/**
- * Initializes the file-backed log sink. Idempotent; safe to call from every
- * entrypoint (server bootstrap, migration runner). Until called, log lines
- * are dropped (nothing logs before bootstrap). Failure to open the log file
- * degrades to in-memory logging instead of throwing.
- */
 export function initLogger(): void {
   if (NODE_ENV === "test") return;
   if (sink !== null) return;

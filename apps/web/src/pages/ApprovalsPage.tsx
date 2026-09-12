@@ -104,7 +104,7 @@ export default function ApprovalsPage() {
     isLoading: isLoadingApprovals,
     isValidating: isApprovalsValidating,
   } = useSWR(approvalsUrl, (url) => apiFetchJson(url, approvalListSchema), {
-    refreshInterval: 4000,
+    refreshInterval: 8000,
   });
 
   const [extraApprovals, setExtraApprovals] = useState<Approval[]>([]);

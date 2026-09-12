@@ -112,7 +112,7 @@ openssl rand -base64 32
 set the env var to the old key (comma-separated if multiple), replace
 `CYRNEL_SECRETS_KEY` with a new key, and restart. Existing ciphertext is
 decrypted using the fallback keys and re-encrypted with the primary key on
-first read. See the [security docs](docs/cyrnel/docs/security.mdx) for the
+first read. See the [security docs](https://actelos.mintlify.app/cyrnel/docs/security) for the
 full procedure.
 
 Open `apps/api/.example.env` directly to read the full list of variables and
@@ -123,10 +123,6 @@ what each one does. The two most important ones beyond the secrets key are:
 - `CYRNEL_API_KEY`: If set, every request to the API must include
   `Authorization: Bearer <key>`. Leave it unset for unauthenticated local
   development on `127.0.0.1`.
-- `CYRNEL_EMBEDDING_MODEL`: Local ONNX embedding model (defaults to `Xenova/bge-small-en-v1.5`)
-- `CYRNEL_RECONCILE_INTERVAL_MS`: Background search vector reconciliation sweep interval in ms. `0` disables the recurring interval, and valid values are integers from `0` through `2147483647` (defaults to `1800000`)
-- `CYRNEL_APPROVAL_TIMEOUT_MS`: Approval request expiry in ms (default `300000`; `0` is invalid and falls back to default; `expiresAt` frozen at creation, swept every minute)
-- `CYRNEL_APPROVAL_RETENTION_MS`: Retention for terminal `approval_requests` rows in ms (default `2592000000` = 30 days; `0` = keep forever; swept hourly)
 
 ### Initialise the database
 

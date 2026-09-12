@@ -1,27 +1,57 @@
 import type {
   AdapterModule,
+  ConfigProvider,
   InvokeInput,
+  ModuleLogger,
   ModuleSetupContext,
+  SecurityRequirements,
   ServiceDefinition,
-  ServiceState,
+  ServiceRuntime,
 } from "@cyrnel/sdk";
 
 import {
-  buildAuthHeaders,
   buildQueryString,
   makeRequest,
+  readOptionalConfig,
+  resolveAuthPlacements,
   resolveServerUrl,
   substitutePathParams,
 } from "./client";
-import { generateDefinition } from "./generateDefinition";
+import { generateService } from "./generateDefinition";
+
+type ServiceDomain = {
+  servers: Array<{
+    url: string;
+    variables?: Record<
+      string,
+      { default: string; enum?: string[]; description?: string }
+    >;
+  }>;
+  securitySchemes?: Record<string, unknown>;
+};
+
+type ToolDomain = {
+  path: string;
+  method: string;
+  security?: Array<Record<string, string[]>>;
+};
+
+type Service = ServiceRuntime<
+  ServiceDomain,
+  ToolDomain,
+  Record<string, unknown>
+>;
 
 class OpenapiAdapter implements AdapterModule {
-  private readonly services = new Map<string, ServiceState>();
-  private logger: ModuleSetupContext["logger"] | null = null;
+  private readonly services = new Map<string, Service>();
+  private logger: ModuleLogger | null = null;
 
   async setup(context: ModuleSetupContext): Promise<void> {
-    const patterns =
-      (context.config.redactionPatterns as string[] | undefined) ?? [];
+    const config = context.config as ConfigProvider<Record<string, unknown>>;
+    const rawPatterns = await readOptionalConfig(config, "redactionPatterns");
+    const patterns = Array.isArray(rawPatterns)
+      ? rawPatterns.filter((p): p is string => typeof p === "string")
+      : [];
     this.logger = context.logger.redact(patterns).child({
       phase: "adapter-setup",
     });
@@ -31,12 +61,12 @@ class OpenapiAdapter implements AdapterModule {
     this.services.clear();
   }
 
-  generateDefinition(input: string): Promise<ServiceDefinition> {
-    return generateDefinition(input);
+  generateService(input: string): Promise<ServiceDefinition> {
+    return generateService(input);
   }
 
-  async hydrateService(state: ServiceState): Promise<void> {
-    this.services.set(state.id, state);
+  async hydrateService(service: Service): Promise<void> {
+    this.services.set(service.id, service);
   }
 
   async dehydrateService(id: string): Promise<void> {
@@ -58,51 +88,98 @@ class OpenapiAdapter implements AdapterModule {
       );
     }
 
-    const toolDomain = toolState.adapterDomain as {
-      path: string;
-      method: string;
-      security?: Array<Record<string, string[]>>;
-    };
-    const serviceDomain = service.adapterDomain as {
-      servers: Array<{
-        url: string;
-        variables?: Record<
-          string,
-          { default: string; enum?: string[]; description?: string }
-        >;
-      }>;
-      securitySchemes?: Record<string, unknown>;
-    };
+    const toolDomain = toolState.adapterDomain as ToolDomain;
+    const toolSecurity: SecurityRequirements | undefined = toolState.security;
+    const serviceSecurity: SecurityRequirements | undefined = service.security;
+    const effectiveSecurity = toolSecurity ?? serviceSecurity;
+    const serviceDomain = service.adapterDomain as ServiceDomain;
 
     const params = input.parameters as Record<string, Record<string, unknown>>;
 
-    const baseUrl = resolveServerUrl(
-      serviceDomain.servers ?? [],
-      service.config,
-    );
+    let authHeaders: Record<string, string> = {};
+    let authQuery: Record<string, string> = {};
+    let authCookies: Record<string, string> = {};
+    if (effectiveSecurity && effectiveSecurity.length > 0) {
+      if (!service.credentials) {
+        throw new Error(
+          `No credential provider is available for service '${input.serviceId}'.`,
+        );
+      }
+      const placements = await resolveAuthPlacements(
+        service.schemes,
+        effectiveSecurity,
+        service.credentials,
+      );
+      authHeaders = placements.headers;
+      authQuery = placements.query;
+      authCookies = placements.cookies;
+    }
+
+    const config = service.config as ConfigProvider<Record<string, unknown>>;
+    const baseUrl = await resolveServerUrl(serviceDomain.servers ?? [], config);
     const path = substitutePathParams(toolDomain.path, params.path);
-    const qs = buildQueryString(params.query);
+    const invokeLogger = this.logger?.child({
+      phase: "adapter-invoke",
+    });
+    for (const key of Object.keys(authQuery)) {
+      if ((params.query ?? {})[key] !== undefined) {
+        invokeLogger?.debug(
+          { event: "auth-param-collision", location: "query", key },
+          "Auth query param overwrites user-supplied value",
+        );
+      }
+    }
+    for (const key of Object.keys(authCookies)) {
+      if ((params.cookies ?? {})[key] !== undefined) {
+        invokeLogger?.debug(
+          { event: "auth-param-collision", location: "cookie", key },
+          "Auth cookie overwrites user-supplied value",
+        );
+      }
+    }
+    const headerParamKeys = new Map(
+      Object.keys(params.headers ?? {}).map((k) => [k.toLowerCase(), k]),
+    );
+    for (const key of Object.keys(authHeaders)) {
+      if (headerParamKeys.has(key.toLowerCase())) {
+        invokeLogger?.debug(
+          { event: "auth-param-collision", location: "header", key },
+          "Auth header overwrites user-supplied value",
+        );
+      }
+    }
+    const qs = buildQueryString({ ...(params.query ?? {}), ...authQuery });
     const url = `${baseUrl.replace(/\/+$/, "")}${path}${qs}`;
 
     const headerParams = (params.headers ?? {}) as Record<string, string>;
-    const authHeaders = buildAuthHeaders(
-      service.secrets,
-      serviceDomain.securitySchemes,
-      toolDomain.security,
+    const shadowed = new Set<string>(
+      Object.keys(authHeaders)
+        .map((k) => headerParamKeys.get(k.toLowerCase()))
+        .filter((v): v is string => v !== undefined),
     );
+    const filteredParams: Record<string, string> = {};
+    for (const [k, v] of Object.entries(headerParams)) {
+      if (!shadowed.has(k)) filteredParams[k] = v;
+    }
 
-    const headers: Record<string, string> = { ...headerParams, ...authHeaders };
+    const headers: Record<string, string> = {
+      ...filteredParams,
+      ...authHeaders,
+    };
 
-    if (params.cookies && Object.keys(params.cookies).length > 0) {
-      headers.Cookie = Object.entries(params.cookies)
+    const cookies: Record<string, unknown> = {
+      ...(params.cookies ?? {}),
+      ...authCookies,
+    };
+    if (Object.keys(cookies).length > 0) {
+      headers.Cookie = Object.entries(cookies)
         .map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`)
         .join("; ");
     }
 
+    const configuredTimeout = await readOptionalConfig(config, "timeoutMs");
     const timeoutMs =
-      typeof service.config.timeoutMs === "number"
-        ? service.config.timeoutMs
-        : 30000;
+      typeof configuredTimeout === "number" ? configuredTimeout : 30000;
 
     const logger = this.logger?.child({
       phase: "adapter-invoke",
@@ -170,6 +247,10 @@ export default {
     },
     additionalProperties: false,
   },
-  secretsSchema: { type: "null" },
+  secretsSchema: {
+    type: "object",
+    properties: {},
+    additionalProperties: false,
+  },
   instantiate: () => new OpenapiAdapter(),
 };

@@ -2,6 +2,8 @@
 
 Cyrnel is a Turbo + pnpm monorepo. Every workspace is TypeScript (6.0).
 
+**Prerequisites:** Node.js `^24` (`engines: >=24.0.0`, flake pins `nodejs_24`, CI uses 24), pnpm `^10.30.3` (via Corepack: `corepack enable && corepack prepare pnpm@10.30.3 --activate`). Nix flake available (`flake.nix` + `.envrc` for direnv).
+
 ## Workspaces
 
 | Directory | Package | Port | Role |
@@ -9,90 +11,72 @@ Cyrnel is a Turbo + pnpm monorepo. Every workspace is TypeScript (6.0).
 | `apps/api` | `@cyrnel/api` | 9371 | Express 5 + Drizzle (SQLite/libsql) |
 | `apps/web` | `@cyrnel/web` | 5173 | Vite + React 19 + shadcn + SSR |
 | `apps/mcp` | `@cyrnel/mcp` | 9373 | fastmcp MCP server |
-| `packages/libs/sdk` | `@cyrnel/sdk` | — | Published npm package (2.0.0) |
-| `packages/modules/openapi` | `@cyrnel/openapi` | — | OpenAPI generator (private) |
-| `packages/modules/typescript-ivm` | `@cyrnel/typescript-ivm` | — | isolated-vm sandbox (private) |
+| `packages/libs/sdk` | `@cyrnel/sdk` | — | Published npm package (4.0.0) |
+| `packages/modules/openapi` | `@cyrnel/openapi` | — | OpenAPI adapter module (private) |
+| `packages/modules/typescript-ivm` | `@cyrnel/typescript-ivm` | — | isolated-vm environment module (private) |
 
 Tooling: pnpm 10.30.3 / turbo / Biome 2.5 / Vitest.
 
 ## Setup & root commands
 
 ```bash
-pnpm i -r                 # install
-pnpm dev / build / start  # turbo proxies (start depends on build)
-pnpm test                 # turbo test
-pnpm check / check:fix    # Biome (root only, NOT per-package)
-pnpm typecheck            # tsc --noEmit per package
+pnpm i                      # install (never npm/yarn)
+pnpm dev / build / start    # turbo proxies (start depends on build)
+pnpm test                   # turbo test (api + module packages only — web/mcp/sdk have no test script)
+pnpm check / check:fix      # Biome (root only, NOT per-package)
+pnpm typecheck              # tsc --noEmit per package
 ```
 
 ## Per-package shortcuts
 
 ```bash
-pnpm -C apps/api dev                       # tsx watch (hot reload)
+pnpm -C apps/api dev                       # tsx watch + dev registry (port 9372) via concurrently
 pnpm -C apps/api test                      # vitest run
 pnpm -C apps/api test src/foo.test.ts      # single file
+pnpm -C apps/api test -t "should reject"   # filter by name
 pnpm -C apps/api exec vitest               # watch mode
-pnpm -C apps/api db:push                   # Drizzle: schema→DB (dev)
-pnpm -C apps/api db:generate / db:migrate  # migration workflow (prod)
+pnpm -C apps/api db:push                   # Drizzle: schema→DB (first-time setup only)
+pnpm -C apps/api db:generate / db:migrate  # migration workflow (schema changes; commit both)
 pnpm -C apps/api db:studio                 # Drizzle Studio
-pnpm -C apps/api openapi:generate          # emit openapi.json
+pnpm -C apps/api openapi:generate          # regenerate apps/api/openapi/*.v*.json + docs/openapi/*.v*.json (API + registry specs)
 pnpm -C apps/web dev                       # Vite dev (client only)
 pnpm -C apps/web start                     # SSR prod (node dist/server/index.js)
 pnpm -C apps/mcp dev                       # tsx watch
-pnpm -C packages/modules/openapi test
-pnpm -C packages/modules/typescript-ivm test
 ```
 
 ## Validation gauntlet (before committing)
 
 ```bash
-pnpm check:fix && pnpm test && pnpm typecheck && pnpm build
+pnpm build && pnpm check:fix && pnpm typecheck && pnpm test
 ```
 
-Iterating during dev? Use scoped forms (`pnpm -C <pkg> ...`), run full gauntlet before commit.
+If you touched API routes/schemas, also run `pnpm -C apps/api openapi:generate` and commit the regenerated specs — CI (`check.yml`) fails on a stale `apps/api/openapi/` or `docs/openapi/`. Same for registry protocol changes (`src/utils/registry.util.ts` wire types feed `openapi/registry.v1.openapi.json`). Iterating? Use scoped `pnpm -C <pkg> ...` forms, full gauntlet before commit. CI runs `biome ci` + `turbo typecheck test build`; `checks` is the required gate (Docker builds gate `main` only).
 
 ## Branch workflow
 
-`develop` is the integration branch (default on GitHub) and the only branch kept locally most of the time. `main` is production and receives only `develop` → `main` release PRs.
+`develop` is the integration branch (default) — PRs target it. `main` is production, only via `develop` → `main` release PRs.
 
-**Implementing a change (feature / fix / chore / docs):**
-
-1. Start from latest develop: `git switch develop && git pull token-origin develop`
-2. Create a short-lived branch: `git switch -c feat/<name>` / `fix/<name>` / `chore/<name>` / `docs/<name>`
-3. Implement, then run the validation gauntlet above
-4. Commit with conventional style matching history — `feat(scope): …`, `fix(scope): …`, `chore(deps): …`, `docs: …`
-5. Push: `git push -u token-origin <branch>` (use `token-origin` — `origin` is SSH and may not have a working key)
-6. Open a PR → `develop` (the default target). CI gates: `checks` (biome / typecheck / test / build) is the required check; Docker image builds (`build (api/web/mcp)`) also run on develop PRs but are informational there — they only gate `main`
-7. Merge to `develop` (squash, matching history). No review approval required on `develop`
-8. Delete the branch locally and on the remote
-
-**Promoting to main (release):**
-
-1. Open a PR `develop` → `main` (e.g. `release: vX.Y.Z`)
-2. Gates: all checks + Docker builds, **1 required approval**, branch up-to-date
-3. Merge → CI (`publish.yml`) publishes the SDK to npm and pushes Docker images
-4. Merge `main` back into `develop` immediately after, so the next release PR is clean
-
-**Branch protection (GitHub):**
-
-- `main` — PR required + 1 approval, required checks: `checks`, `build (api)`, `build (web)`, `build (mcp)`; strict; force-push and deletion blocked; enforced for admins
-- `develop` — PR required (no approval), required check: `checks`; strict; force-push and deletion blocked
+1. `git switch develop && git pull token-origin develop` (use `token-origin` — `origin` is SSH and may lack a working key)
+2. Short-lived branch: `feat/<name>` / `fix/<name>` / `chore/<name>` / `docs/<name>`
+3. Implement + run the gauntlet; conventional commits (`feat(scope): …`, `fix(scope): …`, …)
+4. Push `git push -u token-origin <branch>`, open PR → `develop` (squash-merge, no approval required), delete the branch
+5. Release: PR `develop` → `main` needs 1 approval + all checks + Docker builds; merge `main` back into `develop` right after
 
 ## Quirks & gotchas
 
-- **Express 5** — API uses Express v5; verify `@types/express` version if adding type augmentations
-- **tsc-alias** — `apps/api` and `apps/mcp` builds use `tsc + tsc-alias` because tsc doesn't resolve `@/` path aliases
-- **Web SSR** — `pnpm build` compiles client (Vite) + server (tsc); `pnpm start` runs `dist/server/index.js`
-- **Web tsconfigs** — three files: `tsconfig.app.json` (React), `tsconfig.node.json` (Vite config), `tsconfig.server.json` (SSR)
+- **Express 5** — verify `@types/express` version if adding type augmentations
+- **tsc-alias** — `apps/api` and `apps/mcp` builds use `tsc + tsc-alias` (tsc doesn't resolve `@/` aliases)
+- **Web SSR** — build is `vite build && tsc -p tsconfig.server.json`; three tsconfigs (`app` = React, `node` = Vite config, `server` = SSR)
 - **`inject-workspace-packages: true`** — workspace deps are symlinked, SDK changes propagate instantly
 - **`.npmrc`**: `auto-install-peers=false`
-- **Environment** — copy `apps/api/.example.env` → `apps/api/.env`. `CYRNEL_SECRETS_KEY` is AES-256-GCM, 32 bytes base64: `openssl rand -base64 32`. Unset `CYRNEL_API_KEY` = unauthenticated access.
-- **Search & Vector Engine** — uses `@xenova/transformers` (local ONNX model, default `Xenova/bge-small-en-v1.5`) and `sqlite-vec` native extension alongside SQLite FTS5 for hybrid tool search.
-- **Registry protocol** — `GET <baseUrl>/.well-known/registry.json` advertises capabilities as a keyed map (`definitions.v1`, `modules.v1`); Cyrnel negotiates the highest supported version, resolves relative URLs against the post-redirect discovery URL, and enforces same-origin for capability URLs and entry sources. Unknown well-known keys are ignored for forward compatibility. Registry definitions entries carry a `kind` string (`<identifier>@<version>`, e.g. `openapi@3.0`) instead of an `adapter` field; the browse `kind` query param is advisory. Adapter modules declare a `compatibility` list (`[{ identifier, version: <semver range> }]`) so the server can rank them for install (`GET /services/install/adapters?kind=…`) and auto-select the best compatible active adapter when `POST /services/install` omits `adapter`. `apps/api/scripts/dev-registry.ts` (`pnpm -C apps/api registry:dev`, port 9372) is the local fixture registry.
-- **Registry auth** — the well-known doc may advertise a public `auth` key (`{type:"apiKey",name}` or `{type:"oauth2",grantType:"client_credentials",tokenEndpoint,scopes?:[{id,description?}]}`); it is advisory and never required. `scopes` lists the oauth2 scopes the registry offers; a setup request may select any subset of them (anything else is a 400 safety refusal), and omitting `scopes` requests the full advertised set. Credentials are stored per registry in a `registry_auth` table (FK cascade, encrypted at rest via `secrets.util.ts`, `apiKey` + `headerName` or `clientId`/`clientSecret` + optional `scopes` as `config`, cached OAuth2 `token` + `tokenExpiresAt`). The `tokenEndpoint` and apiKey `headerName` are pinned from the advertisement at store time; drift on refresh only logs a warning. Credential-bearing requests require https unless the resolved address is loopback or matches `CYRNEL_REGISTRY_AUTH_INSECURE_CIDRS`. Auth is attached only within the registry's origin + base-path scope and stripped on cross-origin hops. Token exchange is single-flight with one 401 retry. Setup/removal routes: `POST /registries` (optional `auth`), `POST /registries/:id/auth`, `DELETE /registries/:id/auth` (configured via well-known validation; safety refusals — plaintext transport, method mismatch, unadvertised scope, unsupported method — fail 400 with nothing stored; exchange failures store credentials with `status:"error"`). `GET /registries/:id/auth` returns the configured state plus the registry's currently advertised `availableScopes` (fetched live, never cached) and decrypted `configuredScopes`.
-- **Per-tool permissions** — every tool invocation is gated centrally in `ModuleService.invoke` against `tool_policies` (`allow|block|ask`, default `ask` when no row). `ask` creates a durable `approval_requests` row (`pending→approved|denied|expired` via CAS, `expiresAt` frozen at creation from `CYRNEL_APPROVAL_TIMEOUT_MS`, swept every minute, retention hourly via `CYRNEL_APPROVAL_RETENTION_MS`). The waiting process enters `suspended` (persisted in `processes.state`, with `pendingApprovalIds`), is excluded from `trimIdleProcesses`, and resumes only via `ProcessService.notifyApprovalResolved` (per-process lock, timeout re-arm). `suspended` is a host-only `ProcessState` (not an `ExecutionState` for `EnvironmentBindings.setState`); modules never set it themselves.
-- **Migrations don't auto-run** — run `pnpm -C apps/api db:migrate` explicitly before `pnpm -C apps/api dev` if schema changed
-- **`@cyrnel/sdk` has no tests** (no vitest dep, no test script)
+- **Environment** — copy `apps/api/.example.env` → `apps/api/.env` (source of truth for all vars). Non-obvious: `CYRNEL_SECRETS_KEY` is AES-256-GCM, 32 bytes base64 (`openssl rand -base64 32`; the shipped value is zero bytes = no encryption); `CYRNEL_SECRETS_PREVIOUS_KEYS` holds old keys for rotation; unset `CYRNEL_API_KEY` = unauthenticated access
+- **Migrations don't auto-run** — run `db:push` (first time) or `db:migrate` explicitly before `dev`; prod migrates via `node dist/migrate.js`
+- **Search engine** — local ONNX embeddings (`@xenova/transformers`, default `Xenova/bge-small-en-v1.5`) + `sqlite-vec` + SQLite FTS5 hybrid search; changing models requires rebuilding `tool_embeddings`
+- **Registry protocol** — `GET <baseUrl>/.well-known/registry.json` advertises capabilities as a keyed map (`definitions.v1`, `modules.v1`); negotiate highest supported version, resolve relative URLs against the post-redirect URL, enforce same-origin for capability URLs/entry sources, ignore unknown keys. Definition entries carry `kind` (`<identifier>@<version>`, e.g. `openapi@3.0`); the browse `kind` param is advisory. Adapter modules declare `compatibility: [{ identifier, version: <semver range> }]` for ranking (`GET /services/install/adapters?kind=…`) and auto-select when `POST /services/install` omits `adapter`. Local fixture: `apps/api/scripts/dev-registry.ts` (port 9372)
+- **Registry auth** — well-known `auth: {schemes, security}` (multi-method: `apiKey`/`basic`/`http-bearer`/`oauth2` + per-capability `{url, security}` overrides; `[]` = public; absent `auth` = fully public). Owner-scoped `registry_credentials` + `registry_credential_auth` (≤1 per `(registry, scheme)`, AES-256-GCM); `authorization_code` tokens delegate to shared `oauth_clients`. Setup: `POST /registries {id, baseUrl}`, `POST /registries/:id/auth`, nested `PUT|DELETE /registries/:id/credentials/:scheme/...` + authorize/code, `GET /registries/:id/auth` (declaration + summaries, never secrets). Credential requests need https unless loopback or `CYRNEL_REGISTRY_AUTH_INSECURE_CIDRS`; discovery itself never attaches auth
+- **Per-tool permissions** — `ModuleService.invoke` gates every call against `tool_policies` (`allow|block|ask`, default `ask`). `ask` → durable `approval_requests` row (`expiresAt` frozen at creation; swept every minute); process enters host-only `suspended` state (`pendingApprovalIds`, excluded from idle trim) and resumes via `ProcessService.notifyApprovalResolved`. Modules never set `suspended` themselves
+- **Host-level auth** — services declare `schemes` + `security` (`ServiceDefinition extends AuthDefinition`; tool `security`: `undefined` = inherit, `[]` = anonymous). Credentials are owner-scoped (`service_credentials`/`module_credentials` + `*_credential_auth`, ≤1 per `(owner, scheme)`); oauth2 via shared `oauth_clients` (`provider` label + `availableScopes` required; PKCE `S256`, 10-min pendings). Adapters get `ConfigProvider`/`SecretsProvider`/`CredentialProvider` (`get`/`getCredential` only — never snapshots) via `generateService(string)` / `hydrateService(service: ServiceRuntime)`. Routes: nested `PUT|DELETE /:id/credentials/:scheme/...`, `POST .../oauth/authorize|code`, `GET /auth/callback`, top-level `/oauth-clients` CRUD + `/resolve`. Web `/authentication` lists OAuth clients only. Env: `CYRNEL_OAUTH_REDIRECT_BASE` (absolute URL, default `http://localhost:9371`), `CYRNEL_AUTH_REFRESH_INTERVAL_MS` (default `300000`, `0` = on-demand only)
+- **Module examples are versioned**: `examples/5.0.0/` (not `examples/<type>/`)
 
 ## Workspace dependency graph
 
@@ -100,88 +84,41 @@ Iterating during dev? Use scoped forms (`pnpm -C <pkg> ...`), run full gauntlet 
 @cyrnel/api       → @cyrnel/sdk, @cyrnel/openapi, @cyrnel/typescript-ivm
 @cyrnel/openapi   → @cyrnel/sdk
 @cyrnel/typescript-ivm → @cyrnel/sdk
-@cyrnel/web       — no workspace deps
+@cyrnel/web       → @cyrnel/sdk
 @cyrnel/mcp       — no workspace deps
 ```
 
-Before changing `sdk`/`openapi`/`typescript-ivm`, check consumers with `pnpm ls -r --depth 0` and update them in the same commit. Create changeset entries for every affected published package (only `@cyrnel/sdk` is published).
+Changing `sdk`/`openapi`/`typescript-ivm`: update consumers in the same commit (`pnpm ls -r --depth 0` to find them) and add a changeset (only `@cyrnel/sdk` publishes). Cross-cutting config/env changes: mirror new vars in `apps/api/.example.env`, `DEVELOPERS.md`, and `docker-compose.yml`, then `pnpm build && pnpm typecheck`.
 
 ## Releasing (changesets)
 
-Only `@cyrnel/sdk` is published to npm (changeset config limits `changedFilePatterns` to `packages/libs/**`). Apps and module packages are private.
+Changeset config limits publishing to `packages/libs/**` (`baseBranch: main`). Apps/modules are private.
 
 ```bash
-pnpm changeset          # create .changeset/*.md file
-# Commit alongside code; CI reads on merge to main
+pnpm changeset          # create .changeset/*.md file, commit alongside code
 # Don't hand-edit CHANGELOG.md
 ```
 
-CI (`publish.yml`) runs on any push to `main` — including direct pushes and revert commits, not only PR merges — and publishes the SDK to npm plus builds/pushes Docker images for `api`, `web`, `mcp` to ghcr.io. In practice pushes to `main` are governed by branch protection (PR + approval), i.e. the `develop` → `main` release PR.
+**`CYRNEL_CORE_VERSION` (`apps/api/src/constants.ts`) must mirror the SDK version** — it advertises the engine version custom modules validate `engines.cyrnel` against. `apps/api/src/constants.test.ts` fails CI on drift. `publish.yml` runs on any push to `main` (SDK → npm, api/web/mcp → ghcr.io).
 
 ## Package.json editing rules
 
-**Don't hand-edit** `dependencies`, `devDependencies`, `peerDependencies`, or scripts settable via CLI — pnpm keeps the lockfile and workspace graph in sync; manual edits silently break that.
-
-| Action | Command |
-|--------|---------|
-| Add runtime dep | `pnpm -C <dir> add <pkg>` |
-| Add dev dep | `pnpm -C <dir> add -D <pkg>` |
-| Add workspace dep | `pnpm -C <dir> add <pkg-name> --workspace` |
-| Remove dep | `pnpm -C <dir> remove <pkg>` |
-| Set script | `pnpm pkg set scripts.foo="…"` (in target dir) |
-| Bump version | `pnpm up <pkg>` (add `--latest`, `-r`) |
-
-**May** edit `package.json` directly for: `engines`, `exports`/`main`/`types`, `private`, `type`, `files`, `packageManager`, or complex scripts (multi-flag, chained `&&`). After any dep change, commit both `package.json` **and** `pnpm-lock.yaml`.
+Don't hand-edit `dependencies`/`devDependencies`/`peerDependencies` or CLI-settable scripts — use `pnpm -C <dir> add|remove|up <pkg>` (workspace deps: `--workspace`) so the lockfile stays in sync. Direct edits allowed only for `engines`, `exports`/`main`/`types`, `private`, `type`, `files`, `packageManager`, complex chained scripts. Commit `package.json` + `pnpm-lock.yaml` together.
 
 ## TypeScript conventions
 
 - `strict: true`, ESM, `moduleResolution: "bundler"`, `target: ES2022`
-- Path alias `@/*` → `src/*` (tsconfig paths + vitest resolve.alias)
+- Path alias `@/*` → `src/*` (tsconfig paths + vitest `resolve.alias`)
 - `import type { ... }` for type-only imports; Node built-ins use `node:` prefix
 - `kebab-case` files in `apps/api/src/**`; `camelCase` fns/vars; `PascalCase` types
 - Avoid `any` — prefer `unknown` + narrowing
-- API logs: `pino`/`pino-http` with stable keys (`requestId`, `userId`, `adapterId`). Never log secrets.
+- API logs: `pino`/`pino-http` with stable keys (`requestId`, `userId`, `adapterId`). Never log secrets
 
 ## Infra conventions (`apps/api/src/infra/`)
 
-`infra/<subsystem>/` holds generic, stateful subsystems with their own lifecycle (e.g. `infra/logging/`, `infra/search/`, `infra/embedding/`). Examples: logging, search indexing, embedding models, job schedulers. Domain orchestration that ties an infra subsystem into the API lives in `src/services/` (e.g. `log.service.ts`, the search passthroughs on `services.service.ts`).
+`infra/<subsystem>/` (`embedding/`, `logging/`, `search/`, `updater/`) holds generic stateful subsystems with their own lifecycle; domain wiring lives in `src/services/` (e.g. `log.service.ts`, search passthroughs on `services.service.ts`).
 
-- Keep the directory **flat**: one level of files per subsystem, no nested subdirectories and no `index.ts` barrels — import directly (`@/infra/logging/log-sink`). Exception: the subsystem's own entry module may be named `index.ts` so it imports as the directory path (`@/infra/logging` is the logger runtime).
-- One concern per file, co-located `*.test.ts`
-- Subsystems own their state and lifecycle (file descriptors, DB connections, model weights, timers) and expose `init()`/`close()` (plus internal lifecycle hooks like `rotate()`, `reconcile()`)
-- **Dependency rule**: `services → infra` only. Infra must never import from `services/`, `controllers/`, or `routes/`; cross-infra imports are allowed only in one direction (`infra/search → infra/embedding`), with one exception: any layer may import `infra/logging` (logging is cross-cutting). `services/log.service.ts` is the app-layer facade for log queries/streaming only — the logger is imported directly from `infra/logging` everywhere, never through another service.
-- Infra subsystems are invisible past the service layer: services expose narrow methods (e.g. `initSearch()`, `closeSearch()`), never the raw engine instance
-
-## Environment variables
-
-Full set of env vars (see `apps/api/.example.env` for defaults):
-
-| Variable | Purpose |
-|---|---|
-| `CYRNEL_RATE_LIMIT_MAX` | Global max requests per window (unset = disabled) |
-| `CYRNEL_RATE_LIMIT_WINDOW_MS` | Global rate-limit window duration |
-| `CYRNEL_ALLOWED_IPS` | Inbound IP allowlist (comma-separated CIDR) |
-| `CYRNEL_BLOCKED_IPS` | Inbound IP blocklist (comma-separated CIDR) |
-| `CYRNEL_MAX_ACTIVE_PROCESSES` | Max in-memory process records (default 1000) |
-| `CYRNEL_MAX_IDLE_PROCESSES` | Max idle in-memory records before LRU auto-unload (unset = unlimited) |
-| `CYRNEL_MAX_CODE_SIZE_BYTES` | Max sandbox code submission size (default 102400) |
-| `CYRNEL_INVOKE_TIMEOUT_MS` | Tool invocation timeout (default 30000) |
-| `CYRNEL_MAX_CONNECTIONS` | Max concurrent connections (0 = unlimited) |
-| `CYRNEL_KEEPALIVE_TIMEOUT_MS` | Keep-alive timeout (default 5000) |
-| `CYRNEL_HEADERS_TIMEOUT_MS` | Headers timeout (default 6000) |
-| `CYRNEL_REQUEST_TIMEOUT_MS` | Request timeout (0 = no timeout) |
-| `CYRNEL_REGISTRY_ALLOWED_IPS` | Registry egress allowlist |
-| `CYRNEL_REGISTRY_BLOCKED_IPS` | Registry egress blocklist |
-| `CYRNEL_BLOCK_ALL_REGISTRIES` | Deny all registry downloads (1/true) |
-| `CYRNEL_REGISTRY_AUTH_INSECURE_CIDRS` | Comma-separated CIDR ranges allowed to carry registry credentials over plaintext http (loopback is always allowed) |
-| `CYRNEL_DEFAULT_REGISTRY_URL` | Registry seeded at startup when the registries table is empty (unset = no seeding) |
-| `CYRNEL_EMBEDDING_MODEL` | Local ONNX embedding model (default `Xenova/bge-small-en-v1.5`) |
-| `CYRNEL_RECONCILE_INTERVAL_MS` | Background search vector reconciliation sweep interval in ms (default `1800000`; `0` disables only the recurring sweep — the startup reconciliation still runs) |
-| `CYRNEL_AUTO_UPDATE_INTERVAL_MS` | Background module/service auto-update sweep interval in ms (default `0` = disabled; items are opted in at install — `autoUpdate` defaults to `true` — and adjustable via `POST /modules/:id/auto-update` or `POST /services/:id/auto-update`) |
-| `CYRNEL_APPROVAL_TIMEOUT_MS` | Approval request expiry in ms (default `300000`; `0` is invalid and falls back to default; `expiresAt` frozen at creation) |
-| `CYRNEL_APPROVAL_RETENTION_MS` | Retention for terminal `approval_requests` rows in ms (default `2592000000` = 30 days; `0` = keep forever; swept hourly) |
-| `CYRNEL_LOG_FILE` | Persistent JSONL log file (default `<CYRNEL_DATA_DIR>/logs/app.log`; `false` disables) |
-| `CYRNEL_LOG_ROTATION_MB` | Rotate active log file at this size in MB (default `10`) |
-| `CYRNEL_LOG_MAX_FILES` | Max rotated log files kept (default `5`) |
-| `CYRNEL_LOG_RING_BUFFER` | In-memory entries served by `GET /logs` (default `10000`) |
-| `CYRNEL_LOG_DEDUPE_WINDOW_MS` | Dedupe window for identical warn/error messages, ms (default `0` = off) |
+- Flat: one level of files per subsystem, no nested dirs, no `index.ts` barrels — import directly (`@/infra/logging/log-sink`); the subsystem entry may be `index.ts` (imported as the directory, e.g. `@/infra/logging`)
+- One concern per file, co-located `*.test.ts`; subsystems own state/lifecycle and expose `init()`/`close()`
+- **Dependency rule**: `services → infra` only — infra never imports `services/`/`controllers/`/`routes/`; cross-infra imports only `search → embedding`, except any layer may import `infra/logging`
+- Services expose narrow methods (e.g. `initSearch()`), never the raw engine instance; the logger is imported directly from `infra/logging`, never via another service

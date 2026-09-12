@@ -1,0 +1,121 @@
+---
+title: "Adapter Modules"
+description: "Modules that connect cyrnel to services and APIs"
+sidebarTitle: "Adapter Modules"
+---
+
+An **adapter module** is the part of cyrnel that knows how to talk to a
+specific kind of end service. It is responsible for:
+
+1. **Parsing definitions.** Turning whatever the user supplied at install
+   time (an OpenAPI document, a gRPC proto, a custom JSON descriptor, …)
+   into a `ServiceDefinition` cyrnel can store.
+2. **Holding runtime state.** Keeping the live `ServiceRuntime` (providers
+   plus any `adapterDomain` metadata produced at install time) and
+   resolving config, secrets, and credentials on demand.
+3. **Invoking tools.** Translating a generic
+   `{ serviceId, toolId, parameters }` invocation into a real call to the
+   underlying service.
+
+Adapter modules implement the SDK [`AdapterModule`](/cyrnel/sdk-spec/5.0.0/adapter-module)
+interface.
+
+## Lifecycle
+
+```ts
+interface AdapterModule extends Module {
+  generateService(input: string): Promise<ServiceDefinition>;
+  hydrateService(service: ServiceRuntime): Promise<void>;
+  dehydrateService(id: string): Promise<void>;
+  invoke(input: InvokeInput): Promise<unknown>;
+}
+```
+
+1. **`setup({})`** is called once when the adapter is activated.
+2. **`generateService(content)`** is called during `POST /services`
+   (direct install), `POST /services/install` (registry install),
+   `PATCH /services/:serviceId` (direct update), and
+   `POST /services/:serviceId/update` (registry update). Pure: given the
+   same definition string, should produce the same `ServiceDefinition`.
+3. **`hydrateService(service)`** is called whenever a service that targets this
+   adapter is enabled, has its config or secrets patched, or this adapter is
+   activated while the service is already enabled. Receives the live
+   `ServiceRuntime`:
+
+   ```ts
+   interface ServiceRuntime {
+     readonly id: string;
+     readonly adapterDomain: ServiceDomain;
+     readonly tools: Readonly<Record<string, ToolState<ToolDomain>>>;
+     readonly config: ConfigProvider<Config>;
+     readonly secrets: SecretsProvider<Secrets>;
+     readonly schemes: Readonly<Record<string, AuthScheme>>;
+     readonly security: SecurityRequirements;
+     readonly credentials?: CredentialProvider;
+   }
+   ```
+
+   The adapter is expected to store this and use it on subsequent
+   `invoke` calls, resolving config, secrets, and credentials through
+   the providers on demand rather than copying them.
+4. **`dehydrateService(id)`** is called when a service is disabled, deleted,
+   or updated. The adapter should drop any state it kept for that service.
+5. **`invoke(input)`** is called once per tool call. Must throw for an
+   unknown `(serviceId, toolId)` pair or any transport-level failure.
+6. **`teardown()`** is called when the adapter is deactivated. Should release
+   any pooled resources.
+
+## Security Model
+
+Adapter modules are the **most security-sensitive** part of cyrnel. They:
+
+- Resolve **secrets and credentials on demand** via the `ServiceRuntime`
+  providers (`secrets.get(...)`, `credentials?.getCredential(...)`).
+- Make **outbound network requests** (or open files, or send messages,
+  etc.) to end services on behalf of users.
+- Run in the **host Node.js process** with full host permissions, they are
+  not sandboxed.
+
+Concretely, the trust boundary is "the operator of the cyrnel server" decides
+which adapters to enable. Every enabled adapter can:
+
+- Read every secret and credential of every service it owns.
+- Reach anything reachable from the host.
+- Persist or transmit anything it receives.
+
+### Implications
+
+- **Treat the contents of `$CYRNEL_DATA_DIR/modules/` as code with full host
+  privileges.** Use the same review you would use for any other server
+  code. A malicious adapter trivially exfiltrates secrets.
+- **Don't enable adapters you can't read.** "Plug-and-play" is convenient
+  but not safe.
+- **Don't reuse `CYRNEL_SECRETS_KEY` across environments.** A leaked key,
+  combined with a copy of `data.db`, decrypts every secret of every service.
+- **Be careful with `adapterDomain`.** It is persisted in plaintext in the
+  `services` table. If the adapter places URLs, header templates, or other
+  identifying metadata there, treat that table as sensitive too.
+
+### What an adapter must not do
+
+- **Persist secrets or credentials outside the runtime.** All secret and
+  credential retention must be in-memory; if the process restarts,
+  `hydrateService` is called again. Writing them to disk silently breaks
+  the encryption guarantee cyrnel is trying to give the operator.
+- **Drop authentication on retry.** If a request fails, retry with the same
+  credentials, not without them.
+- **Hold per-service state in a way that survives `dehydrateService`.**
+
+See [Security](/cyrnel/docs/v1/security) for the broader picture.
+
+Operator-side credential setup (claiming per-scheme credentials for service
+schemes, running the OAuth authorize flow) is covered in
+[Services → Authentication](/cyrnel/docs/v1/services#authentication) and the
+[Authentication](/cyrnel/docs/v1/authentication) operator guide.
+
+## Authoring
+
+See [Writing a custom adapter module](/cyrnel/sdk-spec/5.0.0/writing-custom-adapter-module)
+for the file layout, a skeleton, and a full working example.
+[`AdapterModule`](/cyrnel/sdk-spec/5.0.0/adapter-module) covers the interface contract
+in full.
