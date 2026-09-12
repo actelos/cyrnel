@@ -2,13 +2,39 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { generateOpenApiDoc } from "./openapi-definition";
+import { generateRegistryOpenApiDoc } from "./registry-openapi-definition";
+
+const generators = {
+  api: generateOpenApiDoc,
+  registry: generateRegistryOpenApiDoc,
+} as const;
+
+type DocName = keyof typeof generators;
 
 const args = process.argv.slice(2);
+
+function flagValue(flag: string): string | undefined {
+  const index = args.indexOf(flag);
+  return index !== -1 ? args[index + 1] : undefined;
+}
+
+const docName = (flagValue("--doc") ?? "api") as DocName;
+const generate = generators[docName];
+if (!generate) {
+  throw new Error(
+    `Unknown --doc '${docName}'. Expected one of: ${Object.keys(generators).join(", ")}.`,
+  );
+}
+
 const outIndex = args.indexOf("--out");
+const defaultOut =
+  docName === "registry"
+    ? "./openapi/registry.v1.openapi.json"
+    : "./openapi/cyrnel.v1.openapi.json";
 const outputPaths =
   outIndex !== -1
     ? args.slice(outIndex + 1).filter((a) => !a.startsWith("--"))
-    : [resolve(process.cwd(), "./openapi.json")];
+    : [resolve(process.cwd(), defaultOut)];
 
 if (outputPaths.length === 0) {
   throw new Error(
@@ -16,7 +42,7 @@ if (outputPaths.length === 0) {
   );
 }
 
-const doc = JSON.stringify(generateOpenApiDoc(), null, 2);
+const doc = JSON.stringify(generate(), null, 2);
 
 for (const outputPath of outputPaths) {
   const resolved = resolve(process.cwd(), outputPath);

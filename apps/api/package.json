@@ -13,7 +13,7 @@
     "db:migrate": "drizzle-kit migrate",
     "db:generate": "drizzle-kit generate",
     "registry:dev": "tsx scripts/dev-registry.ts",
-    "openapi:generate": "tsx scripts/generate-definition.ts --out ./openapi.json ../../docs/openapi.json"
+    "openapi:generate": "tsx scripts/generate-definition.ts --doc api --out ./openapi/cyrnel.v1.openapi.json ../../docs/openapi/cyrnel.v1.openapi.json && tsx scripts/generate-definition.ts --doc registry --out ./openapi/registry.v1.openapi.json ../../docs/openapi/registry.v1.openapi.json"
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^8.5.0",
@@ -41,6 +41,7 @@
     "sharp": "0.35.0",
     "sqlite-vec": "^0.1.9",
     "tar": "^7.5.21",
+    "undici": "^7.29.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -52,6 +53,7 @@
     "concurrently": "^10.0.4",
     "drizzle-kit": "^0.31.10",
     "supertest": "7.2.2",
+    "ts-json-schema-generator": "^2.9.0",
     "ts-node": "10.9.2",
     "tsc-alias": "^1.9.1",
     "tsx": "4.22.4",
