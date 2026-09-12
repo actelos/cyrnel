@@ -400,7 +400,7 @@ describe("headersForUrl", () => {
     });
 
     const headers = await headersForUrl(`${BASE}/definitions/v1`);
-    expect(headers?.headers["authorization"]).toBe(
+    expect(headers?.headers.authorization).toBe(
       `Basic ${Buffer.from("dev:devpass").toString("base64")}`,
     );
   });
@@ -417,7 +417,7 @@ describe("headersForUrl", () => {
     });
 
     const headers = await headersForUrl(`${BASE}/definitions/v1`);
-    expect(headers?.headers["authorization"]).toBe("Bearer dev-registry-token");
+    expect(headers?.headers.authorization).toBe("Bearer dev-registry-token");
   });
 
   it("exchanges oauth2 client credentials and attaches the Bearer token", async () => {
@@ -433,7 +433,7 @@ describe("headersForUrl", () => {
     });
 
     const headers = await headersForUrl(`${BASE}/definitions/v1`);
-    expect(headers?.headers["authorization"]).toBe("Bearer cc-token");
+    expect(headers?.headers.authorization).toBe("Bearer cc-token");
     expect(tokenCalls).toBe(1);
     const params = new URLSearchParams(tokenBodies[0]);
     expect(params.get("grant_type")).toBe("client_credentials");
@@ -441,7 +441,7 @@ describe("headersForUrl", () => {
     expect(params.get("scope")).toBe("read");
 
     const again = await headersForUrl(`${BASE}/definitions/v1`);
-    expect(again?.headers["authorization"]).toBe("Bearer cc-token");
+    expect(again?.headers.authorization).toBe("Bearer cc-token");
     expect(tokenCalls).toBe(1);
   });
 
@@ -462,7 +462,7 @@ describe("headersForUrl", () => {
     });
 
     const headers = await headersForUrl(`${BASE}/definitions/v1`);
-    expect(headers?.headers["authorization"]).toBe("Bearer ac-token");
+    expect(headers?.headers.authorization).toBe("Bearer ac-token");
     expect(tokenCalls).toBe(0);
   });
 
@@ -568,7 +568,7 @@ describe("fetchWithRegistryAuth", () => {
       { headers?: Record<string, string> },
     ];
     expect(init.headers?.["X-Key"]).toBeUndefined();
-    expect(init.headers?.["authorization"]).toBeUndefined();
+    expect(init.headers?.authorization).toBeUndefined();
   });
 
   it("retries exactly once with a fresh token after a 401", async () => {
@@ -600,9 +600,8 @@ describe("fetchWithRegistryAuth", () => {
       ([u, init]) =>
         String(u).includes("/resource") &&
         Boolean(
-          (init as { headers?: Record<string, string> })?.headers?.[
-            "authorization"
-          ],
+          (init as { headers?: Record<string, string> })?.headers
+            ?.authorization,
         ),
     );
     expect(resourceCalls).toBe(2);

@@ -4,7 +4,7 @@ import type { IconFetchResult } from "@/utils/icon.util";
 
 export function sendIconResponse(
   res: Response,
-  icon: IconFetchResult | null,
+  icon: IconFetchResult | null | undefined,
   entityLabel: string,
 ): void {
   if (!icon) {
