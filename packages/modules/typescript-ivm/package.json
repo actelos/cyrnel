@@ -19,7 +19,7 @@
     "@cyrnel/sdk": "workspace:*",
     "esbuild": "^0.28.1",
     "isolated-vm": "^7.0.0",
-    "typescript": "^6.0.3",
+    "typescript": "^7.0.2",
     "whatwg-url": "^17.1.0"
   },
   "devDependencies": {

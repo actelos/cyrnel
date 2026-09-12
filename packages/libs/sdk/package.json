@@ -33,7 +33,7 @@
   },
   "devDependencies": {
     "@types/node": "^26.2.0",
-    "typescript": "^6.0.3"
+    "typescript": "^7.0.2"
   },
   "packageManager": "pnpm@10.30.3",
   "dependencies": {
