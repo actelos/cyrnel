@@ -1,10 +1,5 @@
 import { z } from "zod";
 
-/**
- * Log severity levels surfaced by the API, lowest to highest.
- * Mirrors the API's `LOG_LEVELS`; kept local so the web client does not
- * depend on the published module SDK for the API's response format.
- */
 export const LOG_LEVELS = [
   "trace",
   "debug",
@@ -16,18 +11,10 @@ export const LOG_LEVELS = [
 
 export type LogLevel = (typeof LOG_LEVELS)[number];
 
-/**
- * Log entry categories served by the API.
- */
 export const LOG_TYPES = ["app", "request", "module"] as const;
 
 export type LogType = (typeof LOG_TYPES)[number];
 
-/**
- * Zod schema for a normalized Cyrnel log entry returned by the API over
- * `GET /logs` and the `GET /logs/stream` SSE endpoint. The shape mirrors
- * the API's `logEntrySchema`; the web client parses it independently.
- */
 export const logEntrySchema = z.object({
   timestamp: z.number().int(),
   seq: z.number().int(),

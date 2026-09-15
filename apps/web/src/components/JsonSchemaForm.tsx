@@ -1,4 +1,4 @@
-import { Loader2, RotateCcw } from "lucide-react";
+import { Loader2, Undo2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertDialog,
@@ -12,7 +12,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardFooter,
+  CardHeader,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -24,7 +29,7 @@ import { apiFetch, errorMessageFrom } from "@/lib/api";
 type JSONSchema = Record<string, unknown>;
 
 interface JsonSchemaFormProps {
-  title: string;
+  title?: string;
   schema: JSONSchema;
   currentValues: Record<string, unknown>;
   patchUrl: string;
@@ -519,14 +524,14 @@ export default function JsonSchemaForm({
       addNotification({
         type: "success",
         title: "Saved",
-        message: `${title} updated.`,
+        message: `${title ?? "Form"} updated.`,
       });
 
       await onSaved?.();
     } catch (err) {
       const msg = errorMessageFrom(
         err,
-        `Unable to save ${title.toLowerCase()}.`,
+        `Unable to save ${(title ?? "form").toLowerCase()}.`,
       );
       addNotification({ type: "error", title: "Error", message: msg });
     } finally {
@@ -544,41 +549,11 @@ export default function JsonSchemaForm({
 
   return (
     <Card className="w-full flex flex-col">
-      <CardHeader className="flex flex-row items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold">{title}</h3>
-        <div className="flex items-center gap-2">
-          {hasChanges ? (
-            <span className="text-xs text-muted-foreground">
-              {patch.length + pendingRemovals.length} change
-              {patch.length + pendingRemovals.length !== 1 ? "s" : ""}
-            </span>
-          ) : null}
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            disabled={saving || !hasChanges}
-            onClick={handleReset}
-          >
-            <RotateCcw />
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            disabled={saving || !hasChanges}
-            onClick={handleSave}
-          >
-            {saving ? (
-              <>
-                <Loader2 className="animate-spin" />
-                Saving
-              </>
-            ) : (
-              "Save"
-            )}
-          </Button>
-        </div>
-      </CardHeader>
+      {title ? (
+        <CardHeader className="flex flex-row items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold">{title}</h3>
+        </CardHeader>
+      ) : null}
       <CardContent className="min-h-0 flex-1 overflow-hidden">
         <ScrollArea className="h-full">
           <div className="space-y-4">
@@ -661,6 +636,41 @@ export default function JsonSchemaForm({
           </div>
         </ScrollArea>
       </CardContent>
+      <CardFooter className="justify-end gap-2">
+        {hasChanges ? (
+          <span className="text-xs text-muted-foreground">
+            {patch.length + pendingRemovals.length} change
+            {patch.length + pendingRemovals.length !== 1 ? "s" : ""}
+          </span>
+        ) : null}
+        <Button
+          type="button"
+          variant="destructive"
+          size="sm"
+          disabled={saving || !hasChanges}
+          onClick={handleReset}
+          className="gap-2"
+        >
+          <Undo2 />
+          Reset
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          disabled={saving || !hasChanges}
+          onClick={() => void handleSave()}
+          className="gap-2"
+        >
+          {saving ? (
+            <>
+              <Loader2 className="animate-spin" />
+              Saving
+            </>
+          ) : (
+            "Save"
+          )}
+        </Button>
+      </CardFooter>
       <AlertDialog
         open={confirmTarget !== null}
         onOpenChange={(open) => {

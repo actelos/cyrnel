@@ -4,6 +4,7 @@ import { Link } from "react-router";
 import useSWR, { mutate } from "swr";
 import useSWRInfinite from "swr/infinite";
 import { z } from "zod";
+import { RegistryServiceCard } from "@/components/registry-service-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -70,15 +71,17 @@ const installAdaptersResponseSchema = z.object({
   adapters: z.array(installAdapterItemSchema),
 });
 
-type RegistryEntry = z.infer<typeof registryEntrySchema>;
-type InstallAdaptersResponse = z.infer<typeof installAdaptersResponseSchema>;
+export type RegistryEntry = z.infer<typeof registryEntrySchema>;
+export type InstallAdaptersResponse = z.infer<
+  typeof installAdaptersResponseSchema
+>;
 
 interface RegistryBrowserProps {
   kind: "service" | "module";
   onInstalled: () => void | Promise<void>;
 }
 
-type EntryOverride = { id?: string; adapter?: string; version?: string };
+export type EntryOverride = { id?: string; adapter?: string; version?: string };
 
 const NO_ADAPTER = "__none__";
 
@@ -178,7 +181,7 @@ function EntryAdapterSelect({
   );
 }
 
-function RegistryEntryItem({
+export function RegistryEntryItem({
   entry,
   kind,
   selectedRegistryId,
@@ -594,20 +597,29 @@ export function RegistryBrowser({ kind, onInstalled }: RegistryBrowserProps) {
 
           <ScrollArea className="min-h-0 flex-1">
             <div className="grid grid-cols-1 gap-3 pr-3 md:grid-cols-2">
-              {entries.map((entry) => (
-                <RegistryEntryItem
-                  key={entry.id}
-                  entry={entry}
-                  kind={kind}
-                  selectedRegistryId={selectedRegistryId}
-                  installOverrides={installOverrides}
-                  expandedEntryIds={expandedEntryIds}
-                  installingEntryId={installingEntryId}
-                  setEntryOverride={setEntryOverride}
-                  toggleEntryExpanded={toggleEntryExpanded}
-                  handleInstallEntry={handleInstallEntry}
-                />
-              ))}
+              {entries.map((entry) =>
+                kind === "service" ? (
+                  <RegistryServiceCard
+                    key={entry.id}
+                    entry={entry}
+                    registryId={selectedRegistryId}
+                    onInstalled={onInstalled}
+                  />
+                ) : (
+                  <RegistryEntryItem
+                    key={entry.id}
+                    entry={entry}
+                    kind={kind}
+                    selectedRegistryId={selectedRegistryId}
+                    installOverrides={installOverrides}
+                    expandedEntryIds={expandedEntryIds}
+                    installingEntryId={installingEntryId}
+                    setEntryOverride={setEntryOverride}
+                    toggleEntryExpanded={toggleEntryExpanded}
+                    handleInstallEntry={handleInstallEntry}
+                  />
+                ),
+              )}
 
               {browseError ? (
                 <p className="col-span-full p-2 text-sm text-destructive">

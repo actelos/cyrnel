@@ -188,7 +188,6 @@ export class ServicesService {
         schemes,
         security,
         hash,
-        source,
         definitionContent,
         iconData,
         iconMime,

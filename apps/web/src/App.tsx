@@ -5,12 +5,14 @@ import {
   Library,
   ScrollText,
   Server,
+  Settings as SettingsIcon,
   ShieldCheck,
 } from "lucide-react";
 import { Navigate, NavLink, Route, Routes, useLocation } from "react-router";
 import { Toaster } from "sonner";
 import { ModeToggle } from "@/components/mode-toggle";
 import { useTheme } from "@/components/theme-provider";
+import { Separator } from "@/components/ui/separator";
 import {
   Sidebar,
   SidebarContent,
@@ -37,15 +39,18 @@ import ProcessesPage from "@/pages/ProcessesPage";
 import RegistriesPage from "@/pages/RegistriesPage";
 import ServiceDetailPage from "@/pages/ServiceDetailPage";
 import ServicesPage from "@/pages/ServicesPage";
+import SettingsPage from "@/pages/SettingsPage";
 
 const navItems = [
-  { to: "/processes", icon: Braces, label: "Processes" },
   { to: "/services", icon: Server, label: "Services" },
+  { to: "/processes", icon: Braces, label: "Processes" },
+  { to: "/approvals", icon: ShieldCheck, label: "Approvals" },
+  { to: "/logs", icon: ScrollText, label: "Logs" },
+
+  // TODO: move into settings page
   { to: "/modules", icon: Blocks, label: "Modules" },
   { to: "/registries", icon: Library, label: "Registries" },
   { to: "/authentication", icon: KeyRound, label: "Authentication" },
-  { to: "/approvals", icon: ShieldCheck, label: "Approvals" },
-  { to: "/logs", icon: ScrollText, label: "Logs" },
 ] as const;
 
 function App() {
@@ -55,13 +60,18 @@ function App() {
   const isActive = (to: string) =>
     location.pathname === to ||
     location.pathname.startsWith(`${to}/`) ||
-    (to === "/processes" && location.pathname === "/");
+    (to === "/services" && location.pathname === "/");
 
   return (
     <TooltipProvider>
       <SidebarProvider>
         <Sidebar collapsible="icon">
-          <SidebarHeader>
+          <SidebarHeader className="flex-row items-center justify-between px-4 group-data-[collapsible=icon]:justify-center border-b">
+            <img
+              src="/sidebar-logo.svg"
+              alt="Cyrnel"
+              className="h-5 w-auto invert group-data-[collapsible=icon]:hidden dark:invert-0"
+            />
             <SidebarTrigger className="p-4" />
           </SidebarHeader>
           <SidebarContent>
@@ -86,9 +96,25 @@ function App() {
               </SidebarGroupContent>
             </SidebarGroup>
           </SidebarContent>
-          <SidebarFooter>
+          <SidebarFooter className="border-t">
             <SidebarMenu>
-              <SidebarMenuItem>
+              <SidebarMenuItem className="flex items-center group-data-[collapsible=icon]:flex-col group-data-[collapsible=icon]:items-center">
+                <SidebarMenuButton
+                  asChild
+                  isActive={isActive("/settings")}
+                  tooltip="Settings"
+                  className="min-w-0 flex-1"
+                >
+                  <NavLink to="/settings" end>
+                    <SettingsIcon />
+                    <span>Settings</span>
+                  </NavLink>
+                </SidebarMenuButton>
+                <Separator
+                  orientation="vertical"
+                  className="block mx-1 group-data-[collapsible=icon]:hidden"
+                />
+                <Separator className="hidden my-1 group-data-[collapsible=icon]:block" />
                 <ModeToggle />
               </SidebarMenuItem>
             </SidebarMenu>
@@ -96,28 +122,27 @@ function App() {
           <SidebarRail />
         </Sidebar>
         <SidebarInset>
-          <div className="flex flex-1 flex-col">
-            <Routes>
-              <Route path="/" element={<Navigate to="/processes" replace />} />
-              <Route path="/processes" element={<ProcessesPage />} />
-              <Route path="/services" element={<ServicesPage />} />
-              <Route
-                path="/services/:serviceId"
-                element={<ServiceDetailPage />}
-              />
-              <Route path="/modules" element={<ModulesPage />} />
-              <Route path="/modules/:moduleId" element={<ModuleDetailPage />} />
-              <Route path="/registries" element={<RegistriesPage />} />
-              <Route path="/authentication" element={<AuthenticationPage />} />
-              <Route
-                path="/connections"
-                element={<Navigate to="/authentication" replace />}
-              />
-              <Route path="/approvals" element={<ApprovalsPage />} />
-              <Route path="/logs" element={<LogsPage />} />
-              <Route path="/auth/callback" element={<AuthCallbackPage />} />
-            </Routes>
-          </div>
+          <Routes>
+            <Route path="/" element={<Navigate to="/services" replace />} />
+            <Route path="/processes" element={<ProcessesPage />} />
+            <Route path="/services" element={<ServicesPage />} />
+            <Route
+              path="/services/:serviceId"
+              element={<ServiceDetailPage />}
+            />
+            <Route path="/modules" element={<ModulesPage />} />
+            <Route path="/modules/:moduleId" element={<ModuleDetailPage />} />
+            <Route path="/registries" element={<RegistriesPage />} />
+            <Route path="/authentication" element={<AuthenticationPage />} />
+            <Route
+              path="/connections"
+              element={<Navigate to="/authentication" replace />}
+            />
+            <Route path="/approvals" element={<ApprovalsPage />} />
+            <Route path="/logs" element={<LogsPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/auth/callback" element={<AuthCallbackPage />} />
+          </Routes>
         </SidebarInset>
       </SidebarProvider>
       <Toaster theme={theme} />

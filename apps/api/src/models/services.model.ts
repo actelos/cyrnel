@@ -32,7 +32,6 @@ export interface ListServicesInput {
 export type ListServiceDefinitionResult = Omit<
   ServiceDefinitionRecord,
   | "hash"
-  | "source"
   | "tools"
   | "configSchema"
   | "secretsSchema"

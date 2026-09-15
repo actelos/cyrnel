@@ -639,8 +639,6 @@ export default function ModuleDetailPage() {
           <AuthSection
             target={{ kind: "module", id: moduleDetail.id }}
             authSchemes={moduleDetail.schemes}
-            credentialSchemes={moduleDetail.credentialSchemes}
-            secretsSchema={moduleDetail.secretsSchema}
           />
         ) : (
           <Card>

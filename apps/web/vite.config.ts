@@ -3,7 +3,7 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import type { ProxyOptions } from "vite";
 import { defineConfig, loadEnv } from "vite";
-import { API_PATHS } from "./server/api-paths";
+import { API_PATHS } from "./server/api-paths.ts";
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");

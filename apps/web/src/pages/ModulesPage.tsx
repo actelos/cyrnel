@@ -504,6 +504,7 @@ export default function ModulesPage() {
                               <Markdown
                                 components={{
                                   p: ({ children }) => <>{children}</>,
+                                  a: ({ children }) => <>{children}</>,
                                 }}
                                 remarkPlugins={[remarkGfm]}
                               >

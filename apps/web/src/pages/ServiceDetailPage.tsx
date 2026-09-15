@@ -8,13 +8,14 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { useNavigate, useParams } from "react-router";
+import { useNavigate, useParams, useSearchParams } from "react-router";
 import remarkGfm from "remark-gfm";
 import useSWR, { useSWRConfig } from "swr";
 import { z } from "zod";
 import AuthSection from "@/components/AuthSection";
 import { EntityIcon } from "@/components/entity-icon";
 import JsonSchemaForm from "@/components/JsonSchemaForm";
+import { ToolCard } from "@/components/tool-card";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -27,7 +28,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { ButtonGroup } from "@/components/ui/button-group";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -41,8 +42,16 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useNotification } from "@/hooks/use-notification";
+import { useUpdateSearchParams } from "@/hooks/use-update-search-params";
 import { apiFetch, apiFetchJson, buildUrl, errorMessageFrom } from "@/lib/api";
 
 const serviceSchema = z.object({
@@ -162,6 +171,16 @@ function buildFormSkeleton(
   return result;
 }
 
+function hasSchemaProperties(schema: unknown): boolean {
+  if (!schema || typeof schema !== "object") return false;
+  const properties = (schema as Record<string, unknown>).properties;
+  return Boolean(
+    properties &&
+      typeof properties === "object" &&
+      Object.keys(properties).length > 0,
+  );
+}
+
 export default function ServiceDetailPage() {
   const { serviceId } = useParams<{ serviceId: string }>();
   const navigate = useNavigate();
@@ -178,6 +197,26 @@ export default function ServiceDetailPage() {
   const [manualUpdateUrl, setManualUpdateUrl] = useState("");
   const [isManualUpdating, setIsManualUpdating] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [searchParams] = useSearchParams();
+  const updateSearchParams = useUpdateSearchParams();
+
+  const toolQuery = searchParams.get("q") ?? "";
+  const rawToolPolicy = searchParams.get("policy");
+  const toolPolicyFilter =
+    rawToolPolicy === "allow" ||
+    rawToolPolicy === "block" ||
+    rawToolPolicy === "ask"
+      ? rawToolPolicy
+      : "all";
+
+  const handleBack = () => {
+    const idx = (window.history.state as { idx?: number } | null)?.idx;
+    if (typeof idx === "number" ? idx > 0 : window.history.length > 1) {
+      void navigate(-1);
+    } else {
+      void navigate("/services");
+    }
+  };
 
   const serviceDetailsUrl = serviceId
     ? buildUrl(`/services/${serviceId}`)
@@ -277,6 +316,19 @@ export default function ServiceDetailPage() {
     return merged;
   }, [toolList, extraTools]);
 
+  const filteredTools = useMemo(() => {
+    const query = toolQuery.trim().toLowerCase();
+    return tools.filter(
+      (tool) =>
+        (toolPolicyFilter === "all" ||
+          (tool.policy?.decision ?? "ask") === toolPolicyFilter) &&
+        (!query ||
+          [tool.name, tool.id, tool.summary, tool.description].some((field) =>
+            field.toLowerCase().includes(query),
+          )),
+    );
+  }, [tools, toolQuery, toolPolicyFilter]);
+
   const refreshTools = async () => {
     paginationVersionRef.current += 1;
     setExtraTools([]);
@@ -358,6 +410,48 @@ export default function ServiceDetailPage() {
       ),
     [serviceSecretsSchemaPayload, presentSet],
   );
+
+  const hasTools =
+    toolList === undefined
+      ? isLoadingTools || Boolean(toolsError)
+      : tools.length > 0 || Boolean(toolsError);
+
+  const hasConfig = Boolean(
+    hasSchemaProperties(
+      serviceConfigSchemaPayload?.configSchema ?? serviceDetails?.configSchema,
+    ) ||
+      (serviceConfig?.config && Object.keys(serviceConfig.config).length > 0) ||
+      (serviceConfig?.outdated && serviceConfig.outdated.length > 0),
+  );
+
+  const hasSecrets = Boolean(
+    hasSchemaProperties(
+      serviceSecretsSchemaPayload?.secretsSchema ??
+        serviceDetails?.secretsSchema,
+    ) ||
+      (serviceSecretsPresence?.present &&
+        serviceSecretsPresence.present.length > 0) ||
+      (serviceSecretsPresence?.outdated &&
+        serviceSecretsPresence.outdated.length > 0),
+  );
+
+  const hasAuth = Boolean(
+    serviceDetails?.schemes && Object.keys(serviceDetails.schemes).length > 0,
+  );
+
+  const availableTabs = useMemo(() => {
+    const list: string[] = [];
+    if (hasTools) list.push("tools");
+    if (hasConfig) list.push("configuration");
+    if (hasSecrets) list.push("secrets");
+    if (hasAuth) list.push("authentication");
+    return list;
+  }, [hasTools, hasConfig, hasSecrets, hasAuth]);
+
+  const defaultTab = availableTabs[0] ?? "tools";
+
+  const rawTab = searchParams.get("tab");
+  const tab = rawTab && availableTabs.includes(rawTab) ? rawTab : defaultTab;
 
   const handleRefetchAll = async () => {
     if (configUrl) await mutate(configUrl);
@@ -590,369 +684,397 @@ export default function ServiceDetailPage() {
 
   return (
     <>
-      <section className="flex min-h-0 flex-1 flex-col gap-6 p-6 h-screen overflow-hidden">
-        <header>
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() => navigate("/services")}
-            className="gap-2"
-          >
-            <ArrowLeft />
-            Back to Services
-          </Button>
-        </header>
+      <section className="flex min-h-0 flex-1 flex-col">
+        <header className="sticky top-0 z-10 shrink-0 space-y-4 border-b bg-background p-6">
+          <div>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={handleBack}
+              className="gap-2"
+            >
+              <ArrowLeft />
+              Back to Services
+            </Button>
+          </div>
 
-        {detailsError ? (
-          <p className="text-sm text-destructive">
-            Failed to load service details.
-          </p>
-        ) : null}
+          {detailsError ? (
+            <p className="text-sm text-destructive">
+              Failed to load service details.
+            </p>
+          ) : null}
 
-        {serviceDetails ? (
-          <div className="flex min-h-0 flex-1 flex-col gap-6">
-            <Card>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <div className="flex items-center gap-3">
-                    <EntityIcon
-                      kind="service"
-                      id={serviceDetails.id}
-                      label={serviceDetails.name}
-                      hasIcon={serviceDetails.hasIcon}
-                    />
-                    <div className="flex items-center flex-wrap gap-2">
-                      <h2 className="text-lg font-semibold">
-                        {serviceDetails.name}
-                      </h2>
-                      <Badge variant="secondary">
-                        {serviceDetails.adapter}
-                      </Badge>
-                      {serviceDetails.stale ? (
-                        <Badge variant="destructive">Stale</Badge>
-                      ) : null}
-                    </div>
+          {serviceDetails ? (
+            <>
+              <div className="flex items-start gap-2">
+                <EntityIcon
+                  kind="service"
+                  id={serviceDetails.id}
+                  label={serviceDetails.name}
+                  hasIcon={serviceDetails.hasIcon}
+                />
+                <div>
+                  <div className="flex items-center flex-wrap gap-2">
+                    <h2 className="text-md font-semibold">
+                      {serviceDetails.name}
+                    </h2>
+                    <Badge variant="secondary">{serviceDetails.adapter}</Badge>
+                    {serviceDetails.stale ? (
+                      <Badge variant="destructive">Stale</Badge>
+                    ) : null}
                   </div>
                   <p className="text-muted-foreground text-xs font-mono">
-                    {serviceDetails.id}
+                    {serviceDetails.id}@{serviceDetails.version}
                   </p>
-                  <p className="text-muted-foreground text-xs">
-                    v{serviceDetails.version}
-                  </p>
-                  <div className="flex flex-wrap items-center gap-2">
+                </div>
+              </div>
+              {serviceDetails.summary ? (
+                <p className="text-muted-foreground text-sm">
+                  {serviceDetails.summary}
+                </p>
+              ) : null}
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant={serviceDetails.enabled ? "outline" : "default"}
+                  onClick={() =>
+                    void handleSetServiceEnabled(
+                      serviceDetails.id,
+                      !serviceDetails.enabled,
+                    )
+                  }
+                >
+                  {serviceDetails.enabled ? "Disable" : "Enable"}
+                </Button>
+                {serviceDetails.source ? (
+                  <ButtonGroup>
                     <Button
                       type="button"
-                      variant={serviceDetails.enabled ? "outline" : "default"}
-                      onClick={() =>
-                        void handleSetServiceEnabled(
-                          serviceDetails.id,
-                          !serviceDetails.enabled,
-                        )
-                      }
+                      variant="outline"
+                      disabled={isUpdating || isCheckingUpdate}
+                      onClick={() => void handleCheckForUpdate()}
+                      className="rounded-r-none"
                     >
-                      {serviceDetails.enabled ? "Disable" : "Enable"}
+                      {hasUpdate ? (
+                        <Circle className="fill-amber-500 text-amber-500" />
+                      ) : null}
+                      {isCheckingUpdate ? (
+                        <RotateCcw className="animate-spin" />
+                      ) : isUpdating ? (
+                        <Loader2 className="animate-spin" />
+                      ) : (
+                        "Check for update"
+                      )}
                     </Button>
-                    {serviceDetails.source ? (
-                      <div className="flex items-center">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
                         <Button
                           type="button"
                           variant="outline"
+                          className="rounded-l-none border-l-0 px-2"
                           disabled={isUpdating || isCheckingUpdate}
-                          onClick={() => void handleCheckForUpdate()}
-                          className="rounded-r-none"
                         >
-                          {hasUpdate ? (
-                            <Circle className="fill-amber-500 text-amber-500" />
-                          ) : null}
-                          {isCheckingUpdate ? (
-                            <RotateCcw className="animate-spin" />
-                          ) : isUpdating ? (
-                            <Loader2 className="animate-spin" />
-                          ) : (
-                            "Check for update"
-                          )}
+                          <ChevronDown />
                         </Button>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              className="rounded-l-none border-l-0 px-2"
-                              disabled={isUpdating || isCheckingUpdate}
-                            >
-                              <ChevronDown />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem
-                              onClick={() => void handleCheckForUpdate()}
-                            >
-                              Check for update
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => setIsManualUpdateOpen(true)}
-                            >
-                              Manual update
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
-                    ) : (
-                      <Popover
-                        open={isManualUpdateOpen}
-                        onOpenChange={setIsManualUpdateOpen}
-                      >
-                        <PopoverTrigger asChild>
-                          <Button type="button" variant="outline">
-                            Manual update
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent align="end" className="w-md">
-                          <div className="space-y-4">
-                            <div className="space-y-1">
-                              <h3 className="text-sm font-medium">
-                                Manual update
-                              </h3>
-                              <p className="text-muted-foreground text-xs">
-                                Provide a new definition URL.
-                              </p>
-                            </div>
-                            <div className="space-y-2">
-                              <Label htmlFor="service-update-url">
-                                Definition URL
-                              </Label>
-                              <Input
-                                id="service-update-url"
-                                onChange={(event) =>
-                                  setManualUpdateUrl(event.target.value)
-                                }
-                                placeholder="https://example.com/manifest.json"
-                                value={manualUpdateUrl}
-                              />
-                            </div>
-                            <div className="flex items-center justify-end gap-2">
-                              <Button
-                                type="button"
-                                variant="outline"
-                                onClick={() => setIsManualUpdateOpen(false)}
-                              >
-                                Cancel
-                              </Button>
-                              <Button
-                                type="button"
-                                disabled={
-                                  isManualUpdating || !manualUpdateUrl.trim()
-                                }
-                                onClick={() =>
-                                  void handleManualUpdate(serviceDetails.id)
-                                }
-                              >
-                                {isManualUpdating ? "Updating" : "Update"}
-                              </Button>
-                            </div>
-                          </div>
-                        </PopoverContent>
-                      </Popover>
-                    )}
-                    {serviceDetails.stale ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        disabled={isSyncing}
-                        onClick={() =>
-                          void handleSyncService(serviceDetails.id)
-                        }
-                        className="gap-2"
-                      >
-                        <RotateCcw
-                          className={isSyncing ? "animate-spin" : undefined}
-                        />
-                        {isSyncing ? "Syncing" : "Sync"}
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                          onClick={() => void handleCheckForUpdate()}
+                        >
+                          Check for update
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => setIsManualUpdateOpen(true)}
+                        >
+                          Manual update
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </ButtonGroup>
+                ) : (
+                  <Popover
+                    open={isManualUpdateOpen}
+                    onOpenChange={setIsManualUpdateOpen}
+                  >
+                    <PopoverTrigger asChild>
+                      <Button type="button" variant="outline">
+                        Manual update
                       </Button>
-                    ) : null}
-                    <Button
-                      type="button"
-                      variant="destructive"
-                      onClick={() => {
-                        setDeleteCandidate(serviceDetails);
-                        setIsDeleteDialogOpen(true);
-                      }}
-                    >
-                      <Trash2 />
-                      Uninstall
-                    </Button>
-                  </div>
-                  {serviceDetails.summary ? (
-                    <p className="text-muted-foreground text-sm">
-                      {serviceDetails.summary}
-                    </p>
-                  ) : null}
-                  {serviceDetails.description ? (
-                    <ReactMarkdown
-                      remarkPlugins={[remarkGfm]}
-                      components={{
-                        p: ({ children }) => (
-                          <p className="text-muted-foreground text-sm">
-                            {children}
+                    </PopoverTrigger>
+                    <PopoverContent align="end" className="w-md">
+                      <div className="space-y-4">
+                        <div className="space-y-1">
+                          <h3 className="text-sm font-medium">Manual update</h3>
+                          <p className="text-muted-foreground text-xs">
+                            Provide a new definition URL.
                           </p>
-                        ),
-                      }}
-                    >
-                      {serviceDetails.description}
-                    </ReactMarkdown>
-                  ) : (
-                    <p className="text-muted-foreground text-sm">
-                      No description
-                    </p>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-
-            <div className="flex flex-col lg:flex-row gap-6">
-              <Card className="max-h-[calc(100vh-3rem)] flex flex-1 flex-col h-full">
-                <CardHeader className="flex flex-wrap items-center justify-between gap-2">
-                  <h3 className="text-sm font-semibold">Tools</h3>
-                  <p className="py-1 px-2 text-muted-foreground text-xs bg-muted border-1">
-                    {isLoadingTools
-                      ? "Loading..."
-                      : nextToolCursor !== null
-                        ? `${tools.length}+ total`
-                        : `${tools.length} total`}
-                  </p>
-                </CardHeader>
-                <CardContent className="flex-1 overflow-hidden">
-                  <ScrollArea className="h-full">
-                    <div className="space-y-3">
-                      {toolsError ? (
-                        <p className="text-sm text-destructive">
-                          Failed to load tools.
-                        </p>
-                      ) : null}
-                      {tools.length === 0 ? (
-                        <p className="text-sm text-muted-foreground">
-                          No tools registered for this service.
-                        </p>
-                      ) : null}
-
-                      <div className="space-y-3">
-                        {tools.map((tool) => (
-                          <div
-                            key={tool.id}
-                            className="flex flex-col gap-2 border bg-background p-4"
-                          >
-                            <div className="space-y-1">
-                              <p className="text-sm font-semibold">
-                                {tool.name}
-                              </p>
-                              <p className="text-muted-foreground text-xs font-mono">
-                                {tool.id}
-                              </p>
-                              {tool.summary && tool.summary !== tool.name ? (
-                                <p className="text-muted-foreground text-xs">
-                                  {tool.summary}
-                                </p>
-                              ) : null}
-                              {tool.description ? (
-                                <ReactMarkdown
-                                  remarkPlugins={[remarkGfm]}
-                                  components={{
-                                    p: ({ children }) => <p>{children}</p>,
-                                  }}
-                                >
-                                  {tool.description}
-                                </ReactMarkdown>
-                              ) : (
-                                <p className="text-muted-foreground text-xs">
-                                  No description
-                                </p>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <Badge
-                                variant={
-                                  tool.policy?.decision === "allow"
-                                    ? "default"
-                                    : tool.policy?.decision === "block"
-                                      ? "destructive"
-                                      : "secondary"
-                                }
-                              >
-                                {tool.policy?.decision ?? "ask"}
-                              </Badge>
-                              <select
-                                value={tool.policy?.decision ?? "ask"}
-                                onChange={(e) =>
-                                  void handleSetToolPolicy(
-                                    serviceDetails.id,
-                                    tool.id,
-                                    e.target.value as "allow" | "block" | "ask",
-                                  )
-                                }
-                                className="h-7 rounded border bg-background px-2 text-xs"
-                              >
-                                <option value="allow">allow</option>
-                                <option value="block">block</option>
-                                <option value="ask">ask</option>
-                              </select>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                      {nextToolCursor !== null ? (
-                        <div className="flex justify-center p-4">
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="service-update-url">
+                            Definition URL
+                          </Label>
+                          <Input
+                            id="service-update-url"
+                            onChange={(event) =>
+                              setManualUpdateUrl(event.target.value)
+                            }
+                            placeholder="https://example.com/manifest.json"
+                            value={manualUpdateUrl}
+                          />
+                        </div>
+                        <div className="flex items-center justify-end gap-2">
                           <Button
                             type="button"
                             variant="outline"
-                            className="gap-2"
-                            disabled={isLoadingMoreTools}
-                            onClick={() => void loadMoreTools()}
+                            onClick={() => setIsManualUpdateOpen(false)}
                           >
-                            <ChevronDown />
-                            {isLoadingMoreTools ? "Loading more…" : "Load more"}
+                            Cancel
+                          </Button>
+                          <Button
+                            type="button"
+                            disabled={
+                              isManualUpdating || !manualUpdateUrl.trim()
+                            }
+                            onClick={() =>
+                              void handleManualUpdate(serviceDetails.id)
+                            }
+                          >
+                            {isManualUpdating ? "Updating" : "Update"}
                           </Button>
                         </div>
-                      ) : null}
-                      {loadMoreToolsError !== null ? (
-                        <p className="p-4 text-sm text-destructive">
-                          {loadMoreToolsError}
-                        </p>
-                      ) : null}
-                    </div>
-                  </ScrollArea>
-                </CardContent>
-              </Card>
-              <div className="max-h-[calc(100vh-3rem)] flex flex-1 flex-col gap-6 h-full min-h-0 overflow-y-auto">
-                {serviceDetails.schemes &&
-                Object.keys(serviceDetails.schemes).length > 0 ? (
-                  <AuthSection
-                    target={{ kind: "service", id: serviceDetails.id }}
-                    authSchemes={serviceDetails.schemes}
-                    credentialSchemes={serviceDetails.credentialSchemes}
-                    secretsSchema={serviceDetails.secretsSchema}
-                  />
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                )}
+                {serviceDetails.stale ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={isSyncing}
+                    onClick={() => void handleSyncService(serviceDetails.id)}
+                    className="gap-2"
+                  >
+                    <RotateCcw
+                      className={isSyncing ? "animate-spin" : undefined}
+                    />
+                    {isSyncing ? "Syncing" : "Sync"}
+                  </Button>
                 ) : null}
-                <JsonSchemaForm
-                  title="Configuration"
-                  schema={serviceConfigSchemaPayload?.configSchema ?? {}}
-                  currentValues={
-                    (serviceConfig?.config ?? {}) as Record<string, unknown>
-                  }
-                  patchUrl={buildUrl(`/services/${serviceDetails.id}/config`)}
-                  outdatedPaths={serviceConfig?.outdated}
-                  onSaved={handleRefetchAll}
-                />
-                <JsonSchemaForm
-                  title="Secrets"
-                  schema={serviceSecretsSchemaPayload?.secretsSchema ?? {}}
-                  currentValues={currentSecretsValues}
-                  presentSet={presentSet}
-                  patchUrl={buildUrl(`/services/${serviceDetails.id}/secrets`)}
-                  outdatedPaths={serviceSecretsPresence?.outdated}
-                  onSaved={handleRefetchAll}
-                />
+                <Button
+                  type="button"
+                  variant="destructive"
+                  onClick={() => {
+                    setDeleteCandidate(serviceDetails);
+                    setIsDeleteDialogOpen(true);
+                  }}
+                >
+                  <Trash2 />
+                  Uninstall
+                </Button>
               </div>
+            </>
+          ) : null}
+        </header>
+
+        {serviceDetails ? (
+          <div className="flex min-h-0 flex-1 flex-col gap-6 p-6">
+            <div className="space-y-2">
+              {serviceDetails.description ? (
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    p: ({ children }) => (
+                      <p className="text-muted-foreground text-sm">
+                        {children}
+                      </p>
+                    ),
+                  }}
+                >
+                  {serviceDetails.description}
+                </ReactMarkdown>
+              ) : (
+                <p className="text-muted-foreground text-sm">No description</p>
+              )}
             </div>
+
+            {availableTabs.length > 0 ? (
+              <Tabs
+                value={tab}
+                onValueChange={(value) =>
+                  updateSearchParams({
+                    tab: value === defaultTab ? undefined : value,
+                  })
+                }
+              >
+                <TabsList>
+                  {hasTools ? (
+                    <TabsTrigger value="tools">
+                      Tools (
+                      {isLoadingTools
+                        ? "…"
+                        : `${tools.length}${nextToolCursor !== null ? "+" : ""}`}
+                      )
+                    </TabsTrigger>
+                  ) : null}
+                  {hasConfig ? (
+                    <TabsTrigger value="configuration">
+                      Configuration
+                    </TabsTrigger>
+                  ) : null}
+                  {hasSecrets ? (
+                    <TabsTrigger value="secrets">Secrets</TabsTrigger>
+                  ) : null}
+                  {hasAuth && serviceDetails.schemes ? (
+                    <TabsTrigger value="authentication">
+                      Authentication
+                      <Badge variant="secondary" size="sm" className="p-1.5">
+                        {Object.keys(serviceDetails.schemes).length}
+                      </Badge>
+                    </TabsTrigger>
+                  ) : null}
+                </TabsList>
+                {hasTools ? (
+                  <TabsContent value="tools" className="space-y-3">
+                    {toolsError ? (
+                      <p className="text-sm text-destructive">
+                        Failed to load tools.
+                      </p>
+                    ) : null}
+                    <div className="flex flex-wrap items-center gap-3">
+                      <div className="flex min-w-[200px] flex-1 items-center gap-2">
+                        <Input
+                          placeholder="Search tools"
+                          value={toolQuery}
+                          onChange={(event) =>
+                            updateSearchParams({
+                              q: event.target.value || undefined,
+                            })
+                          }
+                        />
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Select
+                          value={toolPolicyFilter}
+                          onValueChange={(value) =>
+                            updateSearchParams({
+                              policy: value === "all" ? undefined : value,
+                            })
+                          }
+                        >
+                          <SelectTrigger className="min-w-[140px] flex-1 sm:w-[170px] sm:flex-none">
+                            <SelectValue placeholder="Policy" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">All policies</SelectItem>
+                            <SelectItem value="allow">Allow</SelectItem>
+                            <SelectItem value="block">Block</SelectItem>
+                            <SelectItem value="ask">Ask</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        {toolQuery.trim() || toolPolicyFilter !== "all" ? (
+                          <p className="text-muted-foreground text-xs whitespace-nowrap">
+                            {filteredTools.length} of {tools.length}
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
+                    {tools.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">
+                        No tools registered for this service.
+                      </p>
+                    ) : filteredTools.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">
+                        No tools match the current filters.
+                      </p>
+                    ) : null}
+
+                    <div className="space-y-3">
+                      {filteredTools.map((tool) => (
+                        <ToolCard
+                          key={tool.id}
+                          tool={tool}
+                          onPolicyChange={(decision) =>
+                            void handleSetToolPolicy(
+                              serviceDetails.id,
+                              tool.id,
+                              decision,
+                            )
+                          }
+                        />
+                      ))}
+                    </div>
+                    {nextToolCursor !== null ? (
+                      <div className="flex justify-center p-4">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="gap-2"
+                          disabled={isLoadingMoreTools}
+                          onClick={() => void loadMoreTools()}
+                        >
+                          <ChevronDown />
+                          {isLoadingMoreTools ? "Loading more…" : "Load more"}
+                        </Button>
+                      </div>
+                    ) : null}
+                    {loadMoreToolsError !== null ? (
+                      <p className="p-4 text-sm text-destructive">
+                        {loadMoreToolsError}
+                      </p>
+                    ) : null}
+                  </TabsContent>
+                ) : null}
+                {hasConfig ? (
+                  <TabsContent value="configuration">
+                    <JsonSchemaForm
+                      schema={
+                        serviceConfigSchemaPayload?.configSchema ??
+                        serviceDetails.configSchema ??
+                        {}
+                      }
+                      currentValues={
+                        (serviceConfig?.config ?? {}) as Record<string, unknown>
+                      }
+                      patchUrl={buildUrl(
+                        `/services/${serviceDetails.id}/config`,
+                      )}
+                      outdatedPaths={serviceConfig?.outdated}
+                      onSaved={handleRefetchAll}
+                    />
+                  </TabsContent>
+                ) : null}
+                {hasSecrets ? (
+                  <TabsContent value="secrets">
+                    <JsonSchemaForm
+                      schema={
+                        serviceSecretsSchemaPayload?.secretsSchema ??
+                        serviceDetails.secretsSchema ??
+                        {}
+                      }
+                      currentValues={currentSecretsValues}
+                      presentSet={presentSet}
+                      patchUrl={buildUrl(
+                        `/services/${serviceDetails.id}/secrets`,
+                      )}
+                      outdatedPaths={serviceSecretsPresence?.outdated}
+                      onSaved={handleRefetchAll}
+                    />
+                  </TabsContent>
+                ) : null}
+                {hasAuth && serviceDetails.schemes ? (
+                  <TabsContent value="authentication">
+                    <AuthSection
+                      target={{ kind: "service", id: serviceDetails.id }}
+                      authSchemes={serviceDetails.schemes}
+                    />
+                  </TabsContent>
+                ) : null}
+              </Tabs>
+            ) : (
+              <p className="text-muted-foreground text-sm">
+                No tools, configuration, or secrets available for this service.
+              </p>
+            )}
           </div>
         ) : null}
       </section>

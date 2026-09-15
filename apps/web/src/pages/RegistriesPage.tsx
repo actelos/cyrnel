@@ -318,19 +318,6 @@ export default function RegistriesPage() {
     setAuthTarget(null);
   };
 
-  const credentialSchemesForDialog = authState
-    ? Object.fromEntries(
-        authState.credentials.map((c) => [
-          c.schemeName,
-          {
-            configured: true,
-            status: c.status,
-            grantedSource: c.grantedSource,
-          },
-        ]),
-      )
-    : undefined;
-
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-6 p-6">
       <header className="flex flex-wrap items-center justify-between gap-4">
@@ -570,8 +557,6 @@ export default function RegistriesPage() {
                   <AuthSection
                     target={{ kind: "registry", id: authTarget.id }}
                     authSchemes={authState.schemes}
-                    credentialSchemes={credentialSchemesForDialog}
-                    secretsSchema={{}}
                   />
                   <div className="flex justify-end">
                     <Button
