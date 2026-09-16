@@ -17,7 +17,7 @@
   },
   "dependencies": {
     "@cyrnel/sdk": "workspace:*",
-    "esbuild": "^0.28.1",
+    "esbuild": "^0.28.2",
     "isolated-vm": "^7.0.0",
     "whatwg-url": "^17.1.0"
   },
