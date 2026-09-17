@@ -346,21 +346,6 @@ function makeIcon(
 }
 
 const DEFINITIONS: DefinitionEntry[] = [
-  ["github", "GitHub", "GitHub issues, PRs and repository tooling"],
-  ["weather", "Weather", "Open-meteo forecasts and current conditions"],
-  ["calendar", "Calendar", "Meeting scheduling and availability"],
-  ["mail", "Mail", "Send and read email via SMTP/IMAP"],
-  ["search", "Search", "Web search across multiple engines"],
-  ["translate", "Translate", "Machine translation between languages"],
-  ["maps", "Maps", "Geocoding, directions and points of interest"],
-  ["billing", "Billing", "Invoices, payments and subscription state"],
-  ["crm", "CRM", "Contacts, deals and pipeline management"],
-  ["analytics", "Analytics", "Site traffic and conversion reporting"],
-  ["storage", "Storage", "Object storage buckets and signed URLs"],
-  ["queue", "Queue", "Message queues and job dispatch"],
-  ["auth", "Auth", "User authentication and session management"],
-  ["sms", "SMS", "Programmatic SMS delivery"],
-  ["monitor", "Monitor", "Uptime checks and incident alerts"],
   [
     "youtube",
     "YouTube",
@@ -408,21 +393,6 @@ const ADAPTER_COMPATIBILITY: Record<
   string,
   Array<{ identifier: string; version: string }>
 > = {
-  github: OPENAPI_COMPAT,
-  "open-meteo": OPENAPI_COMPAT,
-  ical: [{ identifier: "openapi", version: ">=3.1 <4.0" }],
-  "smtp-imap": OPENAPI_COMPAT,
-  "web-search": OPENAPI_COMPAT,
-  deepl: OPENAPI_COMPAT,
-  geo: OPENAPI_COMPAT,
-  stripe: OPENAPI_COMPAT,
-  salesforce: OPENAPI_COMPAT,
-  ga4: OPENAPI_COMPAT,
-  s3: OPENAPI_COMPAT,
-  amqp: [{ identifier: "asyncapi", version: ">=2.0 <3.0" }],
-  oidc: OPENAPI_COMPAT,
-  twilio: OPENAPI_COMPAT,
-  pingdom: OPENAPI_COMPAT,
   youtube: OPENAPI_COMPAT,
   gdrive: OPENAPI_COMPAT,
   gcalendar: OPENAPI_COMPAT,
@@ -447,21 +417,6 @@ const MODULES: ModuleEntry[] = [
   ["json-env", "JSON Env", "JSON transformation helpers", "adapter"],
   ["regex-env", "Regex Env", "Regular expression helpers", "adapter"],
   ["time-env", "Time Env", "Date and timezone utilities", "adapter"],
-  ["github", "GitHub", "GitHub issues, PRs and repository tooling", "adapter"],
-  ["open-meteo", "Open-Meteo", "Weather forecasts", "adapter"],
-  ["ical", "ICal", "Calendar events and availability", "adapter"],
-  ["smtp-imap", "SMTP/IMAP", "Email transport and inbox access", "adapter"],
-  ["web-search", "Web Search", "Multi-engine web search", "adapter"],
-  ["deepl", "DeepL", "Machine translation", "adapter"],
-  ["geo", "Geo", "Geocoding and points of interest", "adapter"],
-  ["stripe", "Stripe", "Payments and subscription state", "adapter"],
-  ["salesforce", "Salesforce", "CRM records and pipelines", "adapter"],
-  ["ga4", "GA4", "Analytics traffic and conversions", "adapter"],
-  ["s3", "S3", "Object storage buckets and signed URLs", "adapter"],
-  ["amqp", "AMQP", "Message queues and job dispatch", "adapter"],
-  ["oidc", "OIDC", "Authentication and sessions", "adapter"],
-  ["twilio", "Twilio", "SMS delivery", "adapter"],
-  ["pingdom", "Pingdom", "Uptime checks and alerts", "adapter"],
   ["youtube", "YouTube", "YouTube Data API v3 videos and playlists", "adapter"],
   ["gdrive", "Google Drive", "Google Drive files and folders", "adapter"],
   [
@@ -568,39 +523,12 @@ const ENVIRONMENT_MODULE_SOURCE = `export default {
 };
 `;
 
-function buildDefinitionDoc(definition: DefinitionEntry): string {
-  return JSON.stringify({
-    openapi: "3.0.0",
-    info: {
-      title: definition.name,
-      version: "1.0.0",
-      description: definition.description,
-    },
-    servers: [{ url: `https://api.${definition.id}.example.com` }],
-    paths: {
-      "/ping": {
-        get: {
-          summary: "Ping the service",
-          operationId: "ping",
-          responses: {
-            "200": { description: "OK" },
-          },
-        },
-      },
-    },
-  });
-}
-
 const DEFINITION_DOCS: Record<string, string> = {};
-for (const definition of DEFINITIONS) {
-  DEFINITION_DOCS[definition.id] = buildDefinitionDoc(definition);
-}
-// These entries serve real OpenAPI 3.0 definitions generated from the
-// official Google API Discovery documents
-// (https://www.googleapis.com/discovery/v1/apis/<service>/<version>/rest)
-// instead of the generic ping placeholder. See the provenance note in each
-// fixture's info.description for the exact discovery revision it was
-// generated from.
+// Every definition served here is a real OpenAPI 3.0 document generated from
+// the official Google API Discovery documents
+// (https://www.googleapis.com/discovery/v1/apis/<service>/<version>/rest).
+// See the provenance note in each fixture's info.description for the exact
+// discovery revision it was generated from.
 const FIXTURE_DEFINITIONS: Record<string, string> = {
   youtube: "youtube.v3.openapi.json",
   gdrive: "drive.v3.openapi.json",
