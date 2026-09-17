@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import { createServer } from "node:http";
 import os from "node:os";
@@ -289,6 +290,11 @@ function unauthorized(res: import("node:http").ServerResponse): void {
   res.end(JSON.stringify({ error: "unauthorized" }));
 }
 
+interface RegistryIcon {
+  url: string;
+  hash: string;
+}
+
 interface DefinitionEntry {
   id: string;
   name: string;
@@ -309,20 +315,34 @@ interface ModuleEntry {
 }
 
 const ICON_DIR = path.join(os.homedir(), ".cache/cyrnel-dev-registry-icons");
+const FIXTURE_ICON_DIR = path.join(import.meta.dirname, "fixtures", "icons");
 
 function getIconData(id: string): { data: Buffer; hash: string } | null {
-  try {
-    const iconPath = path.join(ICON_DIR, `${id}.png`);
-    const data = fs.readFileSync(iconPath);
-    return { data, hash: createHash("sha256").update(data).digest("hex") };
-  } catch {
-    return null;
+  for (const dir of [ICON_DIR, FIXTURE_ICON_DIR]) {
+    try {
+      const iconPath = path.join(dir, `${id}.png`);
+      const data = readFileSync(iconPath);
+      return { data, hash: createHash("sha256").update(data).digest("hex") };
+    } catch {
+      // try next location
+    }
   }
+  return null;
 }
 
 function makeIconHash(id: string): string | undefined {
   const icon = getIconData(id);
   return icon?.hash;
+}
+
+function makeIcon(
+  id: string,
+  capability: "definitions" | "modules",
+): RegistryIcon | undefined {
+  const hash = makeIconHash(id);
+  return hash
+    ? { url: `${BASE_URL}/${capability}/${id}/icon`, hash }
+    : undefined;
 }
 
 const DEFINITIONS: DefinitionEntry[] = [
@@ -341,13 +361,45 @@ const DEFINITIONS: DefinitionEntry[] = [
   ["auth", "Auth", "User authentication and session management"],
   ["sms", "SMS", "Programmatic SMS delivery"],
   ["monitor", "Monitor", "Uptime checks and incident alerts"],
+  [
+    "youtube",
+    "YouTube",
+    "YouTube Data API v3 - search videos, manage playlists, channels, and subscriptions",
+  ],
+  [
+    "gdrive",
+    "Google Drive",
+    "Google Drive API - files, folders, comments and shared drives",
+  ],
+  [
+    "gcalendar",
+    "Google Calendar",
+    "Google Calendar API - events, calendars and availability",
+  ],
+  ["gmail", "Gmail", "Gmail API - messages, threads, drafts and labels"],
+  [
+    "gsheets",
+    "Google Sheets",
+    "Google Sheets API - spreadsheets, sheets, values and batch updates",
+  ],
+  [
+    "gcontacts",
+    "Google Contacts",
+    "Google People API - contacts, contact groups and connections",
+  ],
+  ["gtasks", "Google Tasks", "Google Tasks API - task lists and tasks"],
+  [
+    "gdocs",
+    "Google Docs",
+    "Google Docs API - documents, content and batch updates",
+  ],
 ].map(([id, name, description]) => ({
   id: id as string,
   name: name as string,
   description: description as string,
   kind: "openapi@3.0",
   source: `/definitions/${id}`,
-  icon: makeIconHash(id),
+  icon: makeIcon(id as string, "definitions"),
 }));
 
 const OPENAPI_COMPAT = [{ identifier: "openapi", version: ">=3.0 <4.0" }];
@@ -371,6 +423,14 @@ const ADAPTER_COMPATIBILITY: Record<
   oidc: OPENAPI_COMPAT,
   twilio: OPENAPI_COMPAT,
   pingdom: OPENAPI_COMPAT,
+  youtube: OPENAPI_COMPAT,
+  gdrive: OPENAPI_COMPAT,
+  gcalendar: OPENAPI_COMPAT,
+  gmail: OPENAPI_COMPAT,
+  gsheets: OPENAPI_COMPAT,
+  gcontacts: OPENAPI_COMPAT,
+  gtasks: OPENAPI_COMPAT,
+  gdocs: OPENAPI_COMPAT,
 };
 
 const MODULES: ModuleEntry[] = [
@@ -402,8 +462,31 @@ const MODULES: ModuleEntry[] = [
   ["oidc", "OIDC", "Authentication and sessions", "adapter"],
   ["twilio", "Twilio", "SMS delivery", "adapter"],
   ["pingdom", "Pingdom", "Uptime checks and alerts", "adapter"],
+  ["youtube", "YouTube", "YouTube Data API v3 videos and playlists", "adapter"],
+  ["gdrive", "Google Drive", "Google Drive files and folders", "adapter"],
+  [
+    "gcalendar",
+    "Google Calendar",
+    "Google Calendar events and availability",
+    "adapter",
+  ],
+  ["gmail", "Gmail", "Gmail messages, threads and labels", "adapter"],
+  [
+    "gsheets",
+    "Google Sheets",
+    "Google Sheets spreadsheets and values",
+    "adapter",
+  ],
+  [
+    "gcontacts",
+    "Google Contacts",
+    "Google People API contacts and groups",
+    "adapter",
+  ],
+  ["gtasks", "Google Tasks", "Google Tasks lists and tasks", "adapter"],
+  ["gdocs", "Google Docs", "Google Docs documents content", "adapter"],
 ].map(([id, name, description, type]) => {
-  const iconHash = makeIconHash(id);
+  const icon = makeIcon(id as string, "modules");
   return {
     id: id as string,
     name: name as string,
@@ -411,9 +494,7 @@ const MODULES: ModuleEntry[] = [
     type: type as "adapter" | "environment",
     source: `/modules/${id}`,
     compatibility: ADAPTER_COMPATIBILITY[id],
-    icon: iconHash
-      ? { url: `${BASE_URL}/modules/${id}/icon`, hash: iconHash }
-      : undefined,
+    icon,
   };
 });
 
@@ -514,6 +595,28 @@ const DEFINITION_DOCS: Record<string, string> = {};
 for (const definition of DEFINITIONS) {
   DEFINITION_DOCS[definition.id] = buildDefinitionDoc(definition);
 }
+// These entries serve real OpenAPI 3.0 definitions generated from the
+// official Google API Discovery documents
+// (https://www.googleapis.com/discovery/v1/apis/<service>/<version>/rest)
+// instead of the generic ping placeholder. See the provenance note in each
+// fixture's info.description for the exact discovery revision it was
+// generated from.
+const FIXTURE_DEFINITIONS: Record<string, string> = {
+  youtube: "youtube.v3.openapi.json",
+  gdrive: "drive.v3.openapi.json",
+  gcalendar: "calendar.v3.openapi.json",
+  gmail: "gmail.v1.openapi.json",
+  gsheets: "sheets.v4.openapi.json",
+  gcontacts: "people.v1.openapi.json",
+  gtasks: "tasks.v1.openapi.json",
+  gdocs: "docs.v1.openapi.json",
+};
+for (const [id, fileName] of Object.entries(FIXTURE_DEFINITIONS)) {
+  DEFINITION_DOCS[id] = await fs.readFile(
+    path.join(import.meta.dirname, "fixtures", fileName),
+    "utf8",
+  );
+}
 
 function sha256(buffer: Buffer): string {
   return createHash("sha256").update(buffer).digest("hex");
@@ -584,16 +687,40 @@ const server = createServer(async (req, res) => {
           id: definition.id,
           kind: definition.kind,
           engines: { cyrnel: "^3.0.0" },
+          ...(definition.icon ? { icon: definition.icon } : {}),
         },
       },
     });
+  }
+
+  const definitionIconId = url.pathname.match(
+    /^\/definitions\/([A-Za-z0-9_-]+)\/icon$/,
+  )?.[1];
+  if (definitionIconId) {
+    const entry = DEFINITIONS.find((d) => d.id === definitionIconId);
+    if (!entry?.icon) {
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: `Icon not found: ${url.pathname}` }));
+      return;
+    }
+    return serveIcon(req, res, definitionIconId, entry.icon.hash);
   }
 
   const definitionDocId = url.pathname.match(
     /^\/definitions\/([A-Za-z0-9_-]+)\/definition\.json$/,
   )?.[1];
   if (definitionDocId && DEFINITION_DOCS[definitionDocId]) {
-    return json(res, JSON.parse(DEFINITION_DOCS[definitionDocId] as string));
+    // Serve the stored bytes verbatim: the version descriptor advertises the
+    // hash of this exact string, and clients hash the downloaded bytes.
+    // Re-serializing (parse + stringify) would normalize whitespace and break
+    // the hash for pretty-printed fixtures such as the YouTube definition.
+    const body = DEFINITION_DOCS[definitionDocId] as string;
+    res.writeHead(200, {
+      "content-type": "application/json",
+      "content-length": Buffer.byteLength(body),
+    });
+    res.end(body);
+    return;
   }
 
   const module = matchEntry(MODULES, url.pathname, "/modules/");
@@ -605,9 +732,23 @@ const server = createServer(async (req, res) => {
           downloadUrl: `${BASE_URL}/modules/${module.id}/archive.tar.zst`,
           hash: ARCHIVES[module.id]?.hash,
           engines: { cyrnel: "^3.0.0" },
+          ...(module.icon ? { icon: module.icon } : {}),
         },
       },
     });
+  }
+
+  const moduleIconId = url.pathname.match(
+    /^\/modules\/([A-Za-z0-9_-]+)\/icon$/,
+  )?.[1];
+  if (moduleIconId) {
+    const entry = MODULES.find((m) => m.id === moduleIconId);
+    if (!entry?.icon) {
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: `Icon not found: ${url.pathname}` }));
+      return;
+    }
+    return serveIcon(req, res, moduleIconId, entry.icon.hash);
   }
 
   const archiveId = url.pathname.match(
@@ -635,6 +776,33 @@ function matchEntry<T extends { id: string }>(
   const id = pathname.slice(prefix.length);
   if (id.length === 0 || id.includes("/")) return undefined;
   return entries.find((entry) => entry.id === id);
+}
+
+function serveIcon(
+  req: import("node:http").IncomingMessage,
+  res: import("node:http").ServerResponse,
+  id: string,
+  expectedHash: string,
+): void {
+  const icon = getIconData(id);
+  if (!icon || icon.hash !== expectedHash) {
+    res.writeHead(404, { "content-type": "application/json" });
+    res.end(JSON.stringify({ error: `Icon not found: ${id}` }));
+    return;
+  }
+  const etag = `"${icon.hash}"`;
+  if (req.headers["if-none-match"] === etag) {
+    res.writeHead(304, { etag });
+    res.end();
+    return;
+  }
+  res.writeHead(200, {
+    "content-type": "image/png",
+    "content-length": icon.data.length,
+    "cache-control": "public, max-age=86400",
+    etag,
+  });
+  res.end(icon.data);
 }
 
 function json(res: import("node:http").ServerResponse, body: unknown): void {
