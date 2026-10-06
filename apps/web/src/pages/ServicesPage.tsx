@@ -1,12 +1,27 @@
-import { ChevronDown, Library, Plus, RotateCcw } from "lucide-react";
+import {
+  ChevronDown,
+  Library,
+  Plus,
+  RotateCcw,
+  Search,
+  Server,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router";
+import { useSearchParams } from "react-router";
 import useSWR, { useSWRConfig } from "swr";
 import useSWRInfinite from "swr/infinite";
 import { z } from "zod";
+import { AddRegistryPopover } from "@/components/add-registry-dialog";
 import { InstalledServiceCard } from "@/components/installed-service-card";
 import { RegistryServiceCard } from "@/components/registry-service-card";
 import { Button } from "@/components/ui/button";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -81,18 +96,23 @@ const adapterListBaseParams: Record<string, string | undefined> = {
   limit: "100",
 };
 
+const registryItemSchema = z.object({
+  id: z.string(),
+  baseUrl: z.string(),
+  isDefault: z.boolean(),
+  lastSyncedAt: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
 const registryListSchema = z.object({
-  items: z.array(
-    z.object({
-      id: z.string(),
-      baseUrl: z.string(),
-      lastSyncedAt: z.string().nullable(),
-      createdAt: z.string(),
-      updatedAt: z.string(),
-    }),
-  ),
+  items: z.array(registryItemSchema),
   nextCursor: z.string().nullable(),
   hasMore: z.boolean(),
+});
+
+const defaultRegistrySchema = z.object({
+  registry: registryItemSchema.nullable(),
 });
 
 const exploreEntrySchema = z.object({
@@ -102,7 +122,7 @@ const exploreEntrySchema = z.object({
   source: z.string(),
   kind: z.string().optional(),
   type: z.enum(["adapter", "environment"]).optional(),
-  icon: z.string().optional(),
+  icon: z.object({ url: z.string(), hash: z.string() }).optional(),
 });
 
 const definitionsPageSchema = z.object({
@@ -116,12 +136,14 @@ function ExploreRegistryGroup({
   onInstalled,
   onCountChange,
   installedServices,
+  onRegistryAdded,
 }: {
   registryId: string;
   query: string;
   onInstalled: () => void | Promise<void>;
   onCountChange: (registryId: string, count: number) => void;
   installedServices: Service[];
+  onRegistryAdded: () => void | Promise<void>;
 }) {
   const normalizedQuery = query.trim();
 
@@ -200,9 +222,31 @@ function ExploreRegistryGroup({
         </p>
       ) : null}
       {!isLoadingBrowse && !browseError && entries.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          No entries match the current filters.
-        </p>
+        <div className="flex items-center justify-center h-full py-12">
+          <Empty>
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <Search aria-hidden />
+              </EmptyMedia>
+              <EmptyTitle>No entries found</EmptyTitle>
+              <EmptyDescription>
+                No entries match the current filters. Try adjusting your search
+                or{" "}
+                <AddRegistryPopover onAdded={onRegistryAdded} align="center">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="underline"
+                    type="button"
+                  >
+                    add a registry
+                  </Button>
+                </AddRegistryPopover>
+                .
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        </div>
       ) : null}
       {hasMore ? (
         <div className="flex justify-center">
@@ -241,7 +285,7 @@ export default function ServicesPage() {
       : "all";
   const adapterFilter = searchParams.get("adapter") ?? "all";
   const exploreQuery = searchParams.get("eq") ?? "";
-  const exploreRegistry = searchParams.get("registry") ?? "all";
+  const exploreRegistryParam = searchParams.get("registry");
   const [isInstallOpen, setIsInstallOpen] = useState(false);
   const [exploreCounts, setExploreCounts] = useState<Record<string, number>>(
     {},
@@ -332,6 +376,32 @@ export default function ServicesPage() {
 
   const registries = useMemo(() => registryList?.items ?? [], [registryList]);
 
+  const defaultRegistryUrl = useMemo(() => buildUrl("/registries/default"), []);
+
+  const { data: defaultRegistryData } = useSWR(
+    defaultRegistryUrl,
+    (url) => apiFetchJson(url, defaultRegistrySchema),
+    { refreshInterval: 30000 },
+  );
+
+  const defaultRegistry = defaultRegistryData?.registry ?? null;
+
+  const effectiveRegistryId = useMemo(() => {
+    if (
+      exploreRegistryParam !== null &&
+      registries.some((registry) => registry.id === exploreRegistryParam)
+    ) {
+      return exploreRegistryParam;
+    }
+    if (
+      defaultRegistry !== null &&
+      registries.some((registry) => registry.id === defaultRegistry.id)
+    ) {
+      return defaultRegistry.id;
+    }
+    return registries[0]?.id;
+  }, [exploreRegistryParam, defaultRegistry, registries]);
+
   const handleExploreCount = useCallback(
     (registryId: string, count: number) => {
       setExploreCounts((previous) =>
@@ -344,12 +414,9 @@ export default function ServicesPage() {
   );
 
   const exploreTotal = useMemo(() => {
-    const visibleIds =
-      exploreRegistry === "all"
-        ? registries.map((registry) => registry.id)
-        : [exploreRegistry];
-    return visibleIds.reduce((sum, id) => sum + (exploreCounts[id] ?? 0), 0);
-  }, [exploreCounts, exploreRegistry, registries]);
+    if (effectiveRegistryId === undefined) return 0;
+    return exploreCounts[effectiveRegistryId] ?? 0;
+  }, [exploreCounts, effectiveRegistryId]);
 
   const [extraServices, setExtraServices] = useState<Service[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -416,9 +483,13 @@ export default function ServicesPage() {
       setNextCursor(data.nextCursor);
     } catch (error) {
       if (paginationVersionRef.current !== startedVersion) return;
-      setLoadMoreError(
-        errorMessageFrom(error, "Failed to load more services."),
-      );
+      const message = errorMessageFrom(error, "Failed to load more services.");
+      setLoadMoreError(message);
+      addNotification({
+        type: "error",
+        title: "Load more failed",
+        message,
+      });
     } finally {
       setIsLoadingMore(false);
     }
@@ -458,13 +529,13 @@ export default function ServicesPage() {
       await refreshServices();
       addNotification({
         type: "success",
-        title: "Success",
+        title: "Service installed",
         message: "Service installed.",
       });
     } catch (error) {
       addNotification({
         type: "error",
-        title: "Error",
+        title: "Service installation failed",
         message: errorMessageFrom(error, "Unable to install service."),
       });
     } finally {
@@ -480,13 +551,13 @@ export default function ServicesPage() {
       await refreshServices();
       addNotification({
         type: "success",
-        title: "Success",
+        title: "Service synced",
         message: "Service synced.",
       });
     } catch (error) {
       addNotification({
         type: "error",
-        title: "Error",
+        title: "Service sync failed",
         message: errorMessageFrom(error, "Unable to sync service."),
       });
     }
@@ -504,13 +575,13 @@ export default function ServicesPage() {
       await refreshServices();
       addNotification({
         type: "success",
-        title: "Success",
+        title: `Service ${nextEnabled ? "enabled" : "disabled"}`,
         message: `Service ${nextEnabled ? "enabled" : "disabled"}.`,
       });
     } catch (error) {
       addNotification({
         type: "error",
-        title: "Error",
+        title: "Service state update failed",
         message: errorMessageFrom(error, "Unable to update service state."),
       });
     } finally {
@@ -522,10 +593,9 @@ export default function ServicesPage() {
     }
   };
 
-  const selectedRegistry =
-    exploreRegistry === "all"
-      ? undefined
-      : registries.find((registry) => registry.id === exploreRegistry);
+  const selectedRegistry = registries.find(
+    (registry) => registry.id === effectiveRegistryId,
+  );
 
   return (
     <section className="flex flex-1 flex-col px-6 pb-6">
@@ -556,12 +626,12 @@ export default function ServicesPage() {
           </Tabs>
           <div className="flex flex-wrap items-center gap-2">
             {viewTab === "explore" ? (
-              <Button type="button" className="gap-2" asChild>
-                <Link to="/registries">
+              <AddRegistryPopover onAdded={() => void mutate(registriesUrl)}>
+                <Button type="button" className="gap-2">
                   <Plus />
                   Add registry
-                </Link>
-              </Button>
+                </Button>
+              </AddRegistryPopover>
             ) : (
               <Popover open={isInstallOpen} onOpenChange={setIsInstallOpen}>
                 <PopoverTrigger asChild>
@@ -746,14 +816,14 @@ export default function ServicesPage() {
                     .then(() => {
                       addNotification({
                         type: "success",
-                        title: "Success",
+                        title: "Services refreshed",
                         message: "Services refreshed.",
                       });
                     })
                     .catch((error) => {
                       addNotification({
                         type: "error",
-                        title: "Error",
+                        title: "Refresh services failed",
                         message: errorMessageFrom(
                           error,
                           "Failed to refresh services.",
@@ -781,20 +851,21 @@ export default function ServicesPage() {
             <div className="flex flex-wrap items-center gap-2">
               <Select
                 onValueChange={(value) =>
-                  updateSearchParams({
-                    registry: value === "all" ? undefined : value,
-                  })
+                  updateSearchParams({ registry: value })
                 }
-                value={exploreRegistry}
+                value={effectiveRegistryId ?? ""}
               >
-                <SelectTrigger className="min-w-[140px] flex-1 sm:w-[170px] sm:flex-none">
-                  <SelectValue placeholder="Registry" />
+                <SelectTrigger
+                  className="min-w-[140px] flex-1 sm:w-[220px] sm:flex-none"
+                  aria-label="Change registry"
+                >
+                  <SelectValue placeholder="Select registry" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All registries</SelectItem>
                   {registries.map((registry) => (
                     <SelectItem key={registry.id} value={registry.id}>
                       {registry.id}
+                      {registry.isDefault ? " (default)" : ""}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -804,7 +875,7 @@ export default function ServicesPage() {
         )}
       </div>
       {viewTab === "installed" ? (
-        <div className="flex flex-col gap-6">
+        <div className="h-full flex flex-col gap-6">
           <div className="grid gap-4 grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
             {services.map((service) => (
               <InstalledServiceCard
@@ -822,9 +893,27 @@ export default function ServicesPage() {
             </p>
           ) : null}
           {!isLoadingServices && services.length === 0 ? (
-            <p className="p-4 text-sm text-muted-foreground">
-              No services installed yet.
-            </p>
+            <div className="flex items-center justify-center h-full py-12">
+              <Empty>
+                <EmptyHeader>
+                  <EmptyMedia variant="icon">
+                    <Server aria-hidden />
+                  </EmptyMedia>
+                  <EmptyTitle>No services installed</EmptyTitle>
+                  <EmptyDescription>
+                    <Button
+                      variant="link"
+                      size="sm"
+                      className="p-0"
+                      onClick={() => updateSearchParams({ tab: "explore" })}
+                    >
+                      Browse the explore tab
+                    </Button>{" "}
+                    to install your first service.
+                  </EmptyDescription>
+                </EmptyHeader>
+              </Empty>
+            </div>
           ) : null}
           {nextCursor !== null ? (
             <div className="flex justify-center p-4">
@@ -836,7 +925,7 @@ export default function ServicesPage() {
                 onClick={() => void loadMoreServices()}
               >
                 <ChevronDown />
-                {isLoadingMore ? "Loading more…" : "Load more"}
+                {isLoadingMore ? "Loading…" : "Load more"}
               </Button>
             </div>
           ) : null}
@@ -845,59 +934,62 @@ export default function ServicesPage() {
           ) : null}
         </div>
       ) : (
-        <div className="flex flex-col gap-6">
+        <div className="h-full flex flex-col gap-6">
           {isLoadingRegistries && registries.length === 0 ? (
             <p className="text-sm text-muted-foreground">Loading registries…</p>
           ) : registries.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-3 rounded-md border border-dashed p-6 text-center">
-              <p className="text-sm text-muted-foreground">
-                No registries yet. Add one to browse and install services.
-              </p>
-              <Button type="button" variant="outline" size="sm" asChild>
-                <Link to="/registries">
-                  <Library />
-                  Add a registry
-                </Link>
-              </Button>
+            <div className="flex items-center justify-center h-full py-12">
+              <Empty>
+                <EmptyHeader>
+                  <EmptyMedia variant="icon">
+                    <Library aria-hidden />
+                  </EmptyMedia>
+                  <EmptyTitle>No registries yet</EmptyTitle>
+                  <EmptyDescription>
+                    Add one to browse and install services.
+                  </EmptyDescription>
+                </EmptyHeader>
+              </Empty>
             </div>
-          ) : exploreRegistry === "all" ? (
-            registries.map((registry) => (
-              <section key={registry.id} className="flex flex-col gap-3">
-                <div className="min-w-0 space-y-2">
-                  <h3 className="text-sm font-semibold">
-                    {registry.id} ({exploreCounts[registry.id] ?? 0} results)
-                  </h3>
-                  <p className="text-muted-foreground truncate text-xs">
-                    {registry.baseUrl}
-                  </p>
-                </div>
-                <ExploreRegistryGroup
-                  registryId={registry.id}
-                  query={debouncedExploreQuery}
-                  onInstalled={refreshServices}
-                  onCountChange={handleExploreCount}
-                  installedServices={services}
-                />
-              </section>
-            ))
           ) : selectedRegistry ? (
             <div className="flex flex-col gap-3">
-              <p className="px-1 text-xs text-muted-foreground truncate">
-                URL: {selectedRegistry.baseUrl} •{" "}
-                {exploreCounts[selectedRegistry.id] ?? 0} results
-              </p>
               <ExploreRegistryGroup
                 registryId={selectedRegistry.id}
                 query={debouncedExploreQuery}
                 onInstalled={refreshServices}
                 onCountChange={handleExploreCount}
                 installedServices={services}
+                onRegistryAdded={() => void mutate(registriesUrl)}
               />
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground">
-              Select a registry to browse and install its entries.
-            </p>
+            <div className="flex items-center justify-center h-full py-12">
+              <Empty>
+                <EmptyHeader>
+                  <EmptyMedia variant="icon">
+                    <Library aria-hidden />
+                  </EmptyMedia>
+                  <EmptyTitle>No registry selected</EmptyTitle>
+                  <EmptyDescription>
+                    Select a registry to browse and install its entries, or{" "}
+                    <AddRegistryPopover
+                      onAdded={() => void mutate(registriesUrl)}
+                      align="center"
+                    >
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="underline"
+                        type="button"
+                      >
+                        add a registry
+                      </Button>
+                    </AddRegistryPopover>
+                    .
+                  </EmptyDescription>
+                </EmptyHeader>
+              </Empty>
+            </div>
           )}
         </div>
       )}

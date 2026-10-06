@@ -122,3 +122,11 @@ Don't hand-edit `dependencies`/`devDependencies`/`peerDependencies` or CLI-setta
 - One concern per file, co-located `*.test.ts`; subsystems own state/lifecycle and expose `init()`/`close()`
 - **Dependency rule**: `services → infra` only — infra never imports `services/`/`controllers/`/`routes/`; cross-infra imports only `search → embedding`, except any layer may import `infra/logging`
 - Services expose narrow methods (e.g. `initSearch()`), never the raw engine instance; the logger is imported directly from `infra/logging`, never via another service
+
+## Research & Examples
+
+If you are unsure how to implement something, use `gh_grep` to search for code examples on GitHub. This searches real-world usage patterns across public repositories.
+
+## Documentation Lookup
+
+When you need to search docs, use `context7` tools. Use `context7_resolve-library-id` to find the library ID, then `context7_query-docs` to fetch current documentation. Do this for any library, framework, SDK, API, CLI tool, or cloud service — even well-known ones like React, Next.js, Prisma, Express, Tailwind, Django, or Spring Boot. Your training data may not reflect recent changes.

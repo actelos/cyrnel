@@ -164,6 +164,9 @@ export const moduleSecrets = sqliteTable("module_secrets", {
 export const registries = sqliteTable("registries", {
   id: text("id").primaryKey(),
   baseUrl: text("base_url").notNull().unique(),
+  isDefault: integer("is_default", { mode: "boolean" })
+    .notNull()
+    .default(false),
   lastSyncedAt: text("last_synced_at"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
@@ -420,10 +423,6 @@ export const oauthClients = sqliteTable("oauth_clients", {
     .notNull()
     .default("client_secret_basic"),
   redirectUris: text("redirect_uris", { mode: "json" })
-    .$type<string[]>()
-    .notNull()
-    .default(sql`'[]'`),
-  availableScopes: text("available_scopes", { mode: "json" })
     .$type<string[]>()
     .notNull()
     .default(sql`'[]'`),

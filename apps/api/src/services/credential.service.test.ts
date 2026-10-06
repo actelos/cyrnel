@@ -174,7 +174,6 @@ async function createClient(
     clientSecret: "test-secret",
     tokenUrl: "https://provider.example.com/token",
     authorizationUrl: "https://provider.example.com/authorize",
-    availableScopes: ["read", "write", "admin"],
     ...overrides,
   });
 }
@@ -271,17 +270,15 @@ describe("CredentialService", () => {
   });
 
   describe("oauth2 shells and scope rules", () => {
-    it("enforces requested ⊆ availableScopes", async () => {
+    it("allows any requested scopes (no availableScopes enforcement)", async () => {
       await ensureService("svc-1");
       const clientId = await createClient(svc, { availableScopes: ["read"] });
       const store = svc.forService("svc-1");
-      await expect(
-        store.upsertOAuth2("oauth2", clientId, ["read", "admin"]),
-      ).rejects.toMatchObject({ statusCode: 400 });
       const { credential } = await store.upsertOAuth2("oauth2", clientId, [
         "read",
+        "admin",
       ]);
-      expect(credential.requestedScopes).toEqual(["read"]);
+      expect(credential.requestedScopes).toEqual(["read", "admin"]);
       expect(credential.grantedScopes).toBeNull();
     });
 
@@ -459,12 +456,12 @@ describe("CredentialService", () => {
   });
 
   describe("oauth clients", () => {
-    it("requires provider and availableScopes", async () => {
+    it("requires provider and clientId, no availableScopes", async () => {
       const id = await createClient(svc);
       const client = await svc.getOAuthClient(id);
       expect(client).toMatchObject({
         provider: "test-provider",
-        availableScopes: ["read", "write", "admin"],
+        clientId: "test-client",
       });
     });
 
@@ -602,7 +599,7 @@ describe("CredentialService", () => {
         expect(names).toContain(created);
       }
       const client = await svc.getOAuthClient("legacy");
-      expect(client).toMatchObject({ provider: "custom", availableScopes: [] });
+      expect(client).toMatchObject({ provider: "custom" });
       await applyMigrations();
     }, 120_000);
   });

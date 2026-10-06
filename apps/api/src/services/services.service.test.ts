@@ -675,7 +675,7 @@ describe("ServicesService", () => {
             return hits.slice(0, options.limit);
           },
         );
-      const svc = new ServicesService(makeController(), {
+      const svc = new ServicesService(makeController(), { invoke: vi.fn() }, {
         vectorAvailable: true,
         searchTools,
       } as never);
@@ -1355,6 +1355,235 @@ describe("ServicesService", () => {
         hash: iconHash,
       });
       expect(await svc.getService("alpha")).toMatchObject({ hasIcon: true });
+    });
+  });
+
+  describe("setServiceAutoUpdate()", () => {
+    it("stores enabled auto-update with a constraint", async () => {
+      await seedService("alpha");
+      const svc = new ServicesService(makeController());
+
+      const result = await svc.setServiceAutoUpdate({
+        id: "alpha",
+        autoUpdate: true,
+        constraint: "^1.0.0",
+      });
+
+      expect(result).toEqual({
+        id: "alpha",
+        autoUpdate: true,
+        constraint: "^1.0.0",
+      });
+      await expect(svc.getService("alpha")).resolves.toMatchObject({
+        autoUpdate: true,
+        autoUpdateConstraint: "^1.0.0",
+      });
+    });
+
+    it("stores disabled auto-update with a null constraint", async () => {
+      await seedService("alpha");
+      const svc = new ServicesService(makeController());
+
+      const result = await svc.setServiceAutoUpdate({
+        id: "alpha",
+        autoUpdate: false,
+      });
+
+      expect(result).toEqual({
+        id: "alpha",
+        autoUpdate: false,
+        constraint: null,
+      });
+      await expect(svc.getService("alpha")).resolves.toMatchObject({
+        autoUpdate: false,
+        autoUpdateConstraint: null,
+      });
+    });
+
+    it("treats 'latest' as no constraint", async () => {
+      await seedService("alpha");
+      const svc = new ServicesService(makeController());
+
+      const result = await svc.setServiceAutoUpdate({
+        id: "alpha",
+        autoUpdate: true,
+        constraint: "latest",
+      });
+
+      expect(result).toEqual({
+        id: "alpha",
+        autoUpdate: true,
+        constraint: null,
+      });
+    });
+
+    it("rejects an invalid range with 400 update_constraint_invalid", async () => {
+      await seedService("alpha");
+      const svc = new ServicesService(makeController());
+
+      await expect(
+        svc.setServiceAutoUpdate({
+          id: "alpha",
+          autoUpdate: true,
+          constraint: "not-a-range",
+        }),
+      ).rejects.toMatchObject({
+        statusCode: 400,
+        code: "update_constraint_invalid",
+      });
+    });
+
+    it("rejects enabling auto-update when the service has no source", async () => {
+      await seedService("alpha", { source: "" });
+      const svc = new ServicesService(makeController());
+
+      await expect(
+        svc.setServiceAutoUpdate({ id: "alpha", autoUpdate: true }),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        code: "update_unavailable",
+      });
+    });
+  });
+
+  describe("checkServiceUpdate()", () => {
+    it("returns hasSource:false when the service has no source", async () => {
+      await seedService("alpha", { source: "", version: "1.0.0" });
+      const svc = new ServicesService(makeController());
+
+      await expect(svc.checkServiceUpdate("alpha")).resolves.toMatchObject({
+        id: "alpha",
+        installed: "1.0.0",
+        available: null,
+        updateAvailable: false,
+        upToDate: true,
+        hasSource: false,
+      });
+    });
+
+    it("reports updateAvailable:true when the registry version differs", async () => {
+      await seedService("alpha", { version: "0.9.0" });
+      mockFetchRegistryThen(
+        undefined,
+        "https://example.com/download",
+        "payload",
+      );
+      const svc = new ServicesService(makeController());
+
+      await expect(svc.checkServiceUpdate("alpha")).resolves.toMatchObject({
+        id: "alpha",
+        installed: "0.9.0",
+        available: "1.0.0",
+        updateAvailable: true,
+        upToDate: false,
+        hasSource: true,
+      });
+    });
+
+    it("reports upToDate:true when the versions match", async () => {
+      await seedService("alpha", { version: "1.0.0" });
+      mockFetchRegistryThen(
+        undefined,
+        "https://example.com/download",
+        "payload",
+      );
+      const svc = new ServicesService(makeController());
+
+      await expect(svc.checkServiceUpdate("alpha")).resolves.toMatchObject({
+        id: "alpha",
+        installed: "1.0.0",
+        available: "1.0.0",
+        updateAvailable: false,
+        upToDate: true,
+        hasSource: true,
+      });
+    });
+
+    it("rejects an invalid override constraint", async () => {
+      await seedService("alpha");
+      const svc = new ServicesService(makeController());
+
+      await expect(
+        svc.checkServiceUpdate("alpha", "bogus!!"),
+      ).rejects.toMatchObject({
+        statusCode: 400,
+        code: "update_constraint_invalid",
+      });
+    });
+  });
+
+  describe("updateService() constraint threading", () => {
+    function mockFetchRegistryVersions(
+      latestVersion: string,
+      versions: string[],
+      definitionContent: string,
+    ): void {
+      let callCount = 0;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => {
+          callCount++;
+          if (callCount === 1) {
+            const entries: Record<string, { downloadUrl: string }> = {};
+            for (const version of versions) {
+              entries[version] = {
+                downloadUrl: "https://example.com/download",
+              };
+            }
+            return new Response(
+              JSON.stringify({ latestVersion, versions: entries }),
+              {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              },
+            );
+          }
+          return new Response(definitionContent, { status: 200 });
+        }),
+      );
+    }
+
+    it("threads the constraint to the registry resolver", async () => {
+      await seedService("alpha", { version: "0.9.0" });
+      mockFetchRegistryVersions("2.0.0", ["1.0.0", "2.0.0"], "payload");
+      const svc = new ServicesService(makeController());
+
+      const result = await svc.updateService("alpha", "^1.0.0");
+
+      expect(result).toEqual({
+        updated: true,
+        fromVersion: "0.9.0",
+        toVersion: "1.0.0",
+      });
+    });
+
+    it("resolves the latest version when no constraint is given", async () => {
+      await seedService("alpha", { version: "0.9.0" });
+      mockFetchRegistryVersions("2.0.0", ["1.0.0", "2.0.0"], "payload");
+      const svc = new ServicesService(makeController());
+
+      const result = await svc.updateService("alpha");
+
+      expect(result).toEqual({
+        updated: true,
+        fromVersion: "0.9.0",
+        toVersion: "2.0.0",
+      });
+    });
+
+    it("rejects an invalid constraint before contacting the registry", async () => {
+      await seedService("alpha");
+      const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
+      vi.stubGlobal("fetch", fetchMock);
+      const svc = new ServicesService(makeController());
+
+      await expect(svc.updateService("alpha", "bogus!!")).rejects.toMatchObject(
+        {
+          statusCode: 400,
+          code: "update_constraint_invalid",
+        },
+      );
+      expect(fetchMock).not.toHaveBeenCalled();
     });
   });
 
@@ -2381,7 +2610,12 @@ describe("ServicesService", () => {
 
     it("forwards lifecycle calls to the search index", async () => {
       const search = makeSearchMock();
-      const svc = new ServicesService(makeController(), search);
+      const mockModuleService = { invoke: vi.fn() };
+      const svc = new ServicesService(
+        makeController(),
+        mockModuleService,
+        search,
+      );
 
       await svc.initSearch();
       svc.startSearchReconciliation(2500);

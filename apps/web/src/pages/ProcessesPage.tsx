@@ -1,7 +1,8 @@
 import {
   Archive,
+  BookOpen,
+  Braces,
   ChevronDown,
-  Maximize2,
   Play,
   Plus,
   RotateCcw,
@@ -9,10 +10,12 @@ import {
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router";
+import ReactMarkdown from "react-markdown";
+import { Link, useSearchParams } from "react-router";
+import remarkGfm from "remark-gfm";
 import useSWR, { useSWRConfig } from "swr";
 import { z } from "zod";
-import { CopyButton } from "@/components/copy-button";
+import { DetailView } from "@/components/detail-view";
 import {
   Accordion,
   AccordionContent,
@@ -35,9 +38,18 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
+
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -177,6 +189,7 @@ const parseStateFilter = (raw: string | null): ProcessState | "all" => {
   if (raw !== null && processStateSchema.safeParse(raw).success) {
     return raw as ProcessState;
   }
+
   return "all";
 };
 
@@ -192,13 +205,17 @@ const parseStatusFilter = (raw: string | null): StatusFilter =>
 
 const parsePage = (raw: string | null): number => {
   if (raw === null) return 1;
+
   const parsed = Number.parseInt(raw, 10);
+
   return Number.isInteger(parsed) && parsed > 0 ? parsed : 1;
 };
 
 const parseProcessId = (raw: string | null): number | null => {
   if (raw === null) return null;
+
   const parsed = Number.parseInt(raw, 10);
+
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 };
 
@@ -206,21 +223,12 @@ type CreateProcessErrors = Partial<
   Record<"code" | "ref" | "timeout" | "form", string>
 >;
 
-const stateBadgeVariant = (state: ProcessState) => {
-  if (state === "running") return "default";
-  if (state === "queued") return "secondary";
-  if (state === "suspended") return "secondary";
-  if (state === "terminating") return "destructive";
-  if (state === "terminated") return "outline";
-  return "outline";
-};
-
-const exitStateBadgeVariant = (exitState: ProcessExitState) => {
-  if (exitState === "failed") return "destructive";
-  if (exitState === "success") return "default";
-  if (exitState === "timeout") return "secondary";
-  if (exitState === "canceled") return "outline";
-  return "outline";
+const exitStateBadgeClassName = (exitState: ProcessExitState) => {
+  if (exitState === "failed") return "bg-error text-error-foreground";
+  if (exitState === "success") return "bg-success text-success-foreground";
+  if (exitState === "timeout") return "bg-warning text-warning-foreground";
+  if (exitState === "canceled") return "bg-muted text-muted-foreground";
+  return "";
 };
 
 export default function ProcessesPage() {
@@ -233,24 +241,28 @@ export default function ProcessesPage() {
   const statusFilter = parseStatusFilter(searchParams.get("status"));
   const page = parsePage(searchParams.get("page"));
   const selectedProcessId = parseProcessId(searchParams.get("process"));
+
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [createCode, setCreateCode] = useState("");
   const [createRef, setCreateRef] = useState("");
   const [createTimeout, setCreateTimeout] = useState("");
   const [createAutorun, setCreateAutorun] = useState(true);
+  const [isEnvDocsOpen, setIsEnvDocsOpen] = useState(false);
   const [createErrors, setCreateErrors] = useState<CreateProcessErrors>({});
   const { addNotification } = useNotification();
   const [isCreating, setIsCreating] = useState(false);
+
   const [restartCandidate, setRestartCandidate] = useState<Process | null>(
     null,
   );
   const [isRestartDialogOpen, setIsRestartDialogOpen] = useState(false);
+
   const [deleteCandidate, setDeleteCandidate] = useState<Process | null>(null);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  const [detailView, setDetailView] = useState<{
-    title: string;
-    content: string;
-  } | null>(null);
+
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
+  const [isBulkWorking, setIsBulkWorking] = useState(false);
 
   const parsedFilters = useMemo(() => {
     const raw = {
@@ -260,6 +272,7 @@ export default function ProcessesPage() {
     };
 
     const parsed = filterSchema.safeParse(raw);
+
     if (!parsed.success) {
       return { ref: undefined, state: undefined, status: undefined };
     }
@@ -294,11 +307,13 @@ export default function ProcessesPage() {
 
   useEffect(() => {
     if (processesUrl === "") return;
+
     paginationVersionRef.current += 1;
     setExtraProcesses([]);
     setNextCursor(null);
     setLoadMoreError(null);
     setLoadedChunks(1);
+    setSelectedIds(new Set());
   }, [processesUrl]);
 
   useEffect(() => {
@@ -314,11 +329,14 @@ export default function ProcessesPage() {
   const processes = useMemo(() => {
     const seen = new Set<number>();
     const merged: Process[] = [];
+
     for (const process of [...(processList?.items ?? []), ...extraProcesses]) {
       if (seen.has(process.id)) continue;
+
       seen.add(process.id);
       merged.push(process);
     }
+
     return merged;
   }, [processList, extraProcesses]);
 
@@ -328,14 +346,18 @@ export default function ProcessesPage() {
     setNextCursor(null);
     setLoadMoreError(null);
     setLoadedChunks(1);
+
     await mutate(processesUrl);
   };
 
   const loadMoreProcesses = useCallback(async () => {
     if (nextCursor === null || isLoadingMore) return;
+
     const startedVersion = paginationVersionRef.current;
+
     setIsLoadingMore(true);
     setLoadMoreError(null);
+
     try {
       const data = await apiFetchJson(
         buildUrl("/processes", {
@@ -347,23 +369,31 @@ export default function ProcessesPage() {
         }),
         processListSchema,
       );
+
       if (paginationVersionRef.current !== startedVersion) return;
+
       setExtraProcesses((previous) => [...previous, ...data.items]);
       setNextCursor(data.nextCursor);
       setLoadedChunks((previous) => previous + 1);
     } catch (error) {
       if (paginationVersionRef.current !== startedVersion) return;
-      setLoadMoreError(
-        errorMessageFrom(error, "Failed to load more processes."),
-      );
+
+      const message = errorMessageFrom(error, "Failed to load more processes.");
+      setLoadMoreError(message);
+      addNotification({
+        type: "error",
+        title: "Load more failed",
+        message,
+      });
     } finally {
       setIsLoadingMore(false);
     }
-  }, [nextCursor, isLoadingMore, parsedFilters]);
+  }, [nextCursor, isLoadingMore, parsedFilters, addNotification]);
 
   useEffect(() => {
     if (loadedChunks >= page) return;
     if (isLoadingMore || nextCursor === null) return;
+
     void loadMoreProcesses();
   }, [loadedChunks, page, isLoadingMore, nextCursor, loadMoreProcesses]);
 
@@ -377,14 +407,17 @@ export default function ProcessesPage() {
     selectedProcess && selectedProcess.state === "idle"
       ? buildUrl(`/processes/${selectedProcess.id}/output`)
       : null;
+
   const stdoutKey =
     selectedProcess && selectedProcess.state === "idle"
       ? buildUrl(`/processes/${selectedProcess.id}/stdout`)
       : null;
+
   const stderrKey =
     selectedProcess && selectedProcess.state === "idle"
       ? buildUrl(`/processes/${selectedProcess.id}/stderr`)
       : null;
+
   const codeKey = selectedProcess
     ? buildUrl(`/processes/${selectedProcess.id}/code`)
     : null;
@@ -396,6 +429,7 @@ export default function ProcessesPage() {
       refreshInterval: 5000,
     },
   );
+
   const { data: stdoutData, error: stdoutError } = useSWR(
     stdoutKey,
     apiFetchText,
@@ -403,6 +437,7 @@ export default function ProcessesPage() {
       refreshInterval: 5000,
     },
   );
+
   const { data: stderrData, error: stderrError } = useSWR(
     stderrKey,
     apiFetchText,
@@ -410,25 +445,35 @@ export default function ProcessesPage() {
       refreshInterval: 5000,
     },
   );
+
   const { data: codeData } = useSWR(codeKey, apiFetchText, {
     refreshInterval: 5000,
   });
+
+  const envDocsUrl = isEnvDocsOpen ? buildUrl("/environment/docs") : null;
+  const { data: envDocs, error: envDocsError } = useSWR(
+    envDocsUrl,
+    apiFetchText,
+  );
 
   const stdoutContent =
     stdoutData ??
     (stdoutError && selectedProcess?.state !== "idle"
       ? "Stdout is available once the process is idle."
       : "No stdout yet.");
+
   const stderrContent =
     stderrData ??
     (stderrError && selectedProcess?.state !== "idle"
       ? "Stderr is available once the process is idle."
       : "No stderr yet.");
+
   const outputContent = outputData
     ? JSON.stringify(outputData, null, 2)
     : outputError && selectedProcess?.state !== "idle"
       ? "Output is available once the process is idle."
       : "No output yet.";
+
   const codeContent = codeData ?? "No code available.";
 
   const canKill = (process: Process) => {
@@ -470,11 +515,13 @@ export default function ProcessesPage() {
 
     if (!parsed.success) {
       const flattened = parsed.error.flatten((err) => err.message);
+
       setCreateErrors({
         code: flattened.fieldErrors.code?.[0],
         ref: flattened.fieldErrors.ref?.[0],
         timeout: flattened.fieldErrors.timeout?.[0],
       });
+
       return;
     }
 
@@ -488,7 +535,7 @@ export default function ProcessesPage() {
           code: parsed.data.code,
           ...(parsed.data.ref ? { ref: parsed.data.ref } : {}),
           ...(parsed.data.timeout !== undefined
-            ? { options: { timeout: parsed.data.timeout } }
+            ? { timeoutMs: parsed.data.timeout }
             : {}),
           autorun: parsed.data.autorun,
         }),
@@ -499,16 +546,18 @@ export default function ProcessesPage() {
       setCreateTimeout("");
       setCreateAutorun(true);
       setIsCreateOpen(false);
+
       await refreshProcesses();
+
       addNotification({
         type: "success",
-        title: "Success",
+        title: "Process created",
         message: "Process created.",
       });
     } catch (error) {
       addNotification({
         type: "error",
-        title: "Error",
+        title: "Process creation failed",
         message: errorMessageFrom(error, "Unable to create process."),
       });
     } finally {
@@ -523,16 +572,18 @@ export default function ProcessesPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ force }),
       });
+
       await refreshProcesses();
+
       addNotification({
         type: "success",
-        title: "Success",
+        title: "Process started",
         message: "Process started.",
       });
     } catch (error) {
       addNotification({
         type: "error",
-        title: "Error",
+        title: "Process start failed",
         message: errorMessageFrom(error, "Unable to start process."),
       });
     }
@@ -545,16 +596,18 @@ export default function ProcessesPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
       });
+
       await refreshProcesses();
+
       addNotification({
         type: "success",
-        title: "Success",
+        title: "Process terminated",
         message: "Process terminated.",
       });
     } catch (error) {
       addNotification({
         type: "error",
-        title: "Error",
+        title: "Process termination failed",
         message: errorMessageFrom(error, "Unable to kill process."),
       });
     }
@@ -565,16 +618,28 @@ export default function ProcessesPage() {
       await apiFetch(buildUrl(`/processes/${process.id}`), {
         method: "DELETE",
       });
+
+      setSelectedIds((previous) => {
+        if (!previous.has(process.id)) return previous;
+        const next = new Set(previous);
+        next.delete(process.id);
+        return next;
+      });
+      if (selectedProcessId === process.id) {
+        updateSearchParams({ process: undefined });
+      }
+
       await refreshProcesses();
+
       addNotification({
         type: "success",
-        title: "Success",
+        title: "Process deleted",
         message: "Process deleted.",
       });
     } catch (error) {
       addNotification({
         type: "error",
-        title: "Error",
+        title: "Process deletion failed",
         message: errorMessageFrom(error, "Unable to delete process."),
       });
     }
@@ -587,32 +652,217 @@ export default function ProcessesPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
       });
+
       await refreshProcesses();
+
       addNotification({
         type: "success",
-        title: "Success",
+        title: "Process unloaded",
         message: "Process unloaded from memory.",
       });
     } catch (error) {
       addNotification({
         type: "error",
-        title: "Error",
+        title: "Process unload failed",
         message: errorMessageFrom(error, "Unable to unload process."),
       });
+    }
+  };
+
+  const handleDrawerRun = (process: Process) => {
+    if (!canRun(process)) return;
+
+    if (needsRestartConfirmation(process)) {
+      setRestartCandidate(process);
+      setIsRestartDialogOpen(true);
+      return;
+    }
+
+    void handleRunProcess(process, false);
+  };
+
+  const toggleSelectProcess = (id: number, checked: boolean) => {
+    setSelectedIds((previous) => {
+      const next = new Set(previous);
+      if (checked) {
+        next.add(id);
+      } else {
+        next.delete(id);
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectAll = (checked: boolean) => {
+    setSelectedIds(() =>
+      checked ? new Set(processes.map((process) => process.id)) : new Set(),
+    );
+  };
+
+  const selectedProcesses = useMemo(
+    () => processes.filter((process) => selectedIds.has(process.id)),
+    [processes, selectedIds],
+  );
+
+  const deletableSelected = useMemo(
+    () =>
+      selectedProcesses.filter(
+        (process) => process.state === "idle" || process.state === "terminated",
+      ),
+    [selectedProcesses],
+  );
+
+  const unloadableSelected = useMemo(
+    () =>
+      selectedProcesses.filter(
+        (process) =>
+          (process.state === "idle" || process.state === "terminated") &&
+          process.pid !== null,
+      ),
+    [selectedProcesses],
+  );
+
+  const allSelected =
+    processes.length > 0 && selectedIds.size >= processes.length;
+  const someSelected =
+    selectedIds.size > 0 && selectedIds.size < processes.length;
+
+  const pruneSelection = (ids: number[]) => {
+    if (ids.length === 0) return;
+    setSelectedIds((previous) => {
+      if (previous.size === 0) return previous;
+      const removed = new Set(ids);
+      const next = new Set([...previous].filter((id) => !removed.has(id)));
+      return next.size === previous.size ? previous : next;
+    });
+  };
+
+  const handleBulkDelete = async () => {
+    if (deletableSelected.length === 0 || isBulkWorking) return;
+
+    setIsBulkWorking(true);
+    const targets = [...deletableSelected];
+
+    try {
+      const results = await Promise.allSettled(
+        targets.map((process) =>
+          apiFetch(buildUrl(`/processes/${process.id}`), {
+            method: "DELETE",
+          }),
+        ),
+      );
+
+      const succeededIds: number[] = [];
+      let failed = 0;
+      results.forEach((result, index) => {
+        if (result.status === "fulfilled") {
+          succeededIds.push(targets[index].id);
+        } else {
+          failed += 1;
+        }
+      });
+
+      pruneSelection(succeededIds);
+      if (
+        selectedProcessId !== null &&
+        succeededIds.includes(selectedProcessId)
+      ) {
+        updateSearchParams({ process: undefined });
+      }
+
+      await refreshProcesses();
+
+      if (failed === 0) {
+        addNotification({
+          type: "success",
+          title: "Processes deleted",
+          message:
+            succeededIds.length === 1
+              ? "1 process deleted."
+              : `${succeededIds.length} processes deleted.`,
+        });
+      } else {
+        addNotification({
+          type: succeededIds.length > 0 ? "success" : "error",
+          title: "Bulk delete incomplete",
+          message: `${succeededIds.length} deleted, ${failed} failed. Ineligible processes were skipped.`,
+        });
+      }
+    } catch (error) {
+      addNotification({
+        type: "error",
+        title: "Bulk delete failed",
+        message: errorMessageFrom(error, "Unable to delete processes."),
+      });
+    } finally {
+      setIsBulkWorking(false);
+      setIsBulkDeleteOpen(false);
+    }
+  };
+
+  const handleBulkUnload = async () => {
+    if (unloadableSelected.length === 0 || isBulkWorking) return;
+
+    setIsBulkWorking(true);
+    const targets = [...unloadableSelected];
+
+    try {
+      const results = await Promise.allSettled(
+        targets.map((process) =>
+          apiFetch(buildUrl(`/processes/${process.id}/signals/unload`), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({}),
+          }),
+        ),
+      );
+
+      const succeeded = results.filter(
+        (result) => result.status === "fulfilled",
+      ).length;
+      const failed = results.length - succeeded;
+
+      await refreshProcesses();
+
+      if (failed === 0) {
+        addNotification({
+          type: "success",
+          title: "Processes unloaded",
+          message:
+            succeeded === 1
+              ? "1 process unloaded from memory."
+              : `${succeeded} processes unloaded from memory.`,
+        });
+      } else {
+        addNotification({
+          type: succeeded > 0 ? "success" : "error",
+          title: "Bulk unload incomplete",
+          message: `${succeeded} unloaded, ${failed} failed. Ineligible processes were skipped.`,
+        });
+      }
+    } catch (error) {
+      addNotification({
+        type: "error",
+        title: "Bulk unload failed",
+        message: errorMessageFrom(error, "Unable to unload processes."),
+      });
+    } finally {
+      setIsBulkWorking(false);
     }
   };
 
   return (
     <>
       <section className="flex h-svh flex-col px-6 pb-6">
-        <header className="sticky top-0 z-10 -mx-6 flex flex-col gap-4 border-b bg-background px-6 py-4 mb-6">
+        <header className="sticky top-0 z-10 -mx-6 mb-6 flex flex-col gap-4 border-b bg-background px-6 py-4">
           <div className="flex flex-wrap items-end justify-between gap-4">
-            <div className="space-y-1 pt-4">
+            <div className="space-y-1">
               <h1 className="text-xl font-semibold">Processes</h1>
               <p className="text-muted-foreground text-sm">
                 Monitor, inspect and interact with processes.
               </p>
             </div>
+
             <div className="flex flex-wrap items-center gap-2">
               <Popover open={isCreateOpen} onOpenChange={setIsCreateOpen}>
                 <PopoverTrigger asChild>
@@ -621,14 +871,28 @@ export default function ProcessesPage() {
                     Create process
                   </Button>
                 </PopoverTrigger>
+
                 <PopoverContent align="end" className="w-[26rem]">
                   <div className="space-y-4">
-                    <div className="space-y-1">
-                      <h3 className="text-sm font-medium">New process</h3>
-                      <p className="text-muted-foreground text-xs">
-                        Provide information to initialize a new process.
-                      </p>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="space-y-1">
+                        <h3 className="text-sm font-medium">New process</h3>
+                        <p className="text-muted-foreground text-xs">
+                          Provide information to initialize a new process.
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="gap-1 text-xs"
+                        onClick={() => setIsEnvDocsOpen(true)}
+                      >
+                        <BookOpen />
+                        Environment docs
+                      </Button>
                     </div>
+
                     <div className="space-y-3">
                       <div className="space-y-2">
                         <Label htmlFor="process-code">Code</Label>
@@ -642,12 +906,14 @@ export default function ProcessesPage() {
                           rows={4}
                           value={createCode}
                         />
+
                         {createErrors.code ? (
                           <p className="text-xs text-destructive">
                             {createErrors.code}
                           </p>
                         ) : null}
                       </div>
+
                       <div className="space-y-2">
                         <Label htmlFor="process-ref">Ref (optional)</Label>
                         <Input
@@ -656,12 +922,14 @@ export default function ProcessesPage() {
                           placeholder="deploy-2026-04-30"
                           value={createRef}
                         />
+
                         {createErrors.ref ? (
                           <p className="text-xs text-destructive">
                             {createErrors.ref}
                           </p>
                         ) : null}
                       </div>
+
                       <div className="space-y-2">
                         <Label htmlFor="process-timeout">
                           Timeout in ms (optional)
@@ -675,12 +943,14 @@ export default function ProcessesPage() {
                           placeholder="30000"
                           value={createTimeout}
                         />
+
                         {createErrors.timeout ? (
                           <p className="text-xs text-destructive">
                             {createErrors.timeout}
                           </p>
                         ) : null}
                       </div>
+
                       <div className="flex items-center gap-2">
                         <Checkbox
                           id="process-autorun"
@@ -694,6 +964,7 @@ export default function ProcessesPage() {
                         </Label>
                       </div>
                     </div>
+
                     <div className="flex items-center justify-end gap-2">
                       <Button
                         type="button"
@@ -702,6 +973,7 @@ export default function ProcessesPage() {
                       >
                         Cancel
                       </Button>
+
                       <Button
                         type="button"
                         disabled={isCreating}
@@ -716,6 +988,7 @@ export default function ProcessesPage() {
               </Popover>
             </div>
           </div>
+
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex flex-1 items-center gap-2">
               <Input
@@ -729,6 +1002,7 @@ export default function ProcessesPage() {
                 }
               />
             </div>
+
             <div className="flex items-center gap-2">
               <Select
                 onValueChange={(value) =>
@@ -742,6 +1016,7 @@ export default function ProcessesPage() {
                 <SelectTrigger className="w-[160px]">
                   <SelectValue placeholder="State" />
                 </SelectTrigger>
+
                 <SelectContent>
                   <SelectItem value="all">All states</SelectItem>
                   <SelectItem value="idle">Idle</SelectItem>
@@ -752,6 +1027,7 @@ export default function ProcessesPage() {
                   <SelectItem value="terminated">Terminated</SelectItem>
                 </SelectContent>
               </Select>
+
               <Select
                 onValueChange={(value) =>
                   updateSearchParams({
@@ -764,6 +1040,7 @@ export default function ProcessesPage() {
                 <SelectTrigger className="w-[170px]">
                   <SelectValue placeholder="Status" />
                 </SelectTrigger>
+
                 <SelectContent>
                   <SelectItem value="all">All statuses</SelectItem>
                   <SelectItem value="null">None</SelectItem>
@@ -773,6 +1050,7 @@ export default function ProcessesPage() {
                   <SelectItem value="canceled">Canceled</SelectItem>
                 </SelectContent>
               </Select>
+
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -784,14 +1062,14 @@ export default function ProcessesPage() {
                         .then(() => {
                           addNotification({
                             type: "success",
-                            title: "Success",
+                            title: "Processes refreshed",
                             message: "Processes refreshed.",
                           });
                         })
                         .catch((error) => {
                           addNotification({
                             type: "error",
-                            title: "Error",
+                            title: "Refresh processes failed",
                             message: errorMessageFrom(
                               error,
                               "Failed to refresh processes.",
@@ -804,173 +1082,305 @@ export default function ProcessesPage() {
                     <RotateCcw />
                   </Button>
                 </TooltipTrigger>
+
                 <TooltipContent>Refresh processes</TooltipContent>
               </Tooltip>
             </div>
           </div>
         </header>
+
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto [&_[data-slot='table-container']]:overflow-visible">
-          <Table>
-            <TableHeader className="sticky top-0 z-10 bg-background">
-              <TableRow>
-                <TableHead>ID</TableHead>
-                <TableHead>PID</TableHead>
-                <TableHead>Ref</TableHead>
-                <TableHead>State</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {processes.map((process) => (
-                <TableRow
-                  key={process.id}
-                  className={cn(
-                    "cursor-pointer",
-                    process.id === selectedProcessId ? "bg-primary/10" : "",
-                  )}
-                  onClick={() =>
-                    updateSearchParams({ process: String(process.id) })
+          {selectedIds.size > 0 ? (
+            <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b bg-background px-1 py-2">
+              <span className="text-sm text-muted-foreground">
+                {selectedIds.size === 1
+                  ? "1 selected"
+                  : `${selectedIds.size} selected`}
+                {selectedProcesses.length !== selectedIds.size
+                  ? ` (${selectedProcesses.length} visible)`
+                  : null}
+              </span>
+
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  disabled={unloadableSelected.length === 0 || isBulkWorking}
+                  onClick={() => void handleBulkUnload()}
+                  title={
+                    unloadableSelected.length === 0
+                      ? "No selected processes can be unloaded (idle or terminated with a live runtime)"
+                      : "Unload selected processes"
                   }
                 >
-                  <TableCell className="font-medium">{process.id}</TableCell>
-                  <TableCell className="font-mono text-xs">
-                    {process.pid ?? ": "}
-                  </TableCell>
-                  <TableCell>{process.ref ?? "-"}</TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-1">
-                      <Badge variant={stateBadgeVariant(process.state)}>
-                        {process.state}
-                      </Badge>
-                      {process.state === "suspended" &&
-                      process.pendingApprovalIds ? (
-                        <Badge variant="outline" className="text-xs">
-                          {process.pendingApprovalIds.length} pending
-                        </Badge>
-                      ) : null}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={exitStateBadgeVariant(process.exitState)}>
-                      {process.exitState ?? "none"}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            className="h-8 w-8 p-0"
-                            aria-label="Run process"
-                            disabled={!canRun(process)}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              if (!canRun(process)) {
-                                return;
-                              }
-                              if (needsRestartConfirmation(process)) {
-                                setRestartCandidate(process);
-                                setIsRestartDialogOpen(true);
-                                return;
-                              }
-                              void handleRunProcess(process, false);
-                            }}
-                          >
-                            <RotateCcw />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>Run process</TooltipContent>
-                      </Tooltip>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            className="h-8 w-8 p-0"
-                            aria-label="Unload process"
-                            disabled={!canUnload(process)}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              if (!canUnload(process)) {
-                                return;
-                              }
-                              void handleUnloadProcess(process);
-                            }}
-                          >
-                            <Archive />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>Unload process</TooltipContent>
-                      </Tooltip>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            className="h-8 w-8 p-0 text-destructive"
-                            aria-label="Kill process"
-                            disabled={!canKill(process)}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              if (!canKill(process)) {
-                                return;
-                              }
-                              void handleKillProcess(process);
-                            }}
-                          >
-                            <X />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>Kill process</TooltipContent>
-                      </Tooltip>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            className="h-8 w-8 p-0 text-destructive"
-                            aria-label="Delete process"
-                            disabled={!canDelete(process)}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              if (!canDelete(process)) {
-                                return;
-                              }
-                              setDeleteCandidate(process);
-                              setIsDeleteDialogOpen(true);
-                            }}
-                          >
-                            <Trash2 />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>Delete process</TooltipContent>
-                      </Tooltip>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-              {processes.length === 0 ? (
+                  <Archive />
+                  Unload
+                  {unloadableSelected.length > 0
+                    ? ` (${unloadableSelected.length})`
+                    : null}
+                </Button>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-2 text-destructive hover:text-destructive"
+                  disabled={deletableSelected.length === 0 || isBulkWorking}
+                  onClick={() => setIsBulkDeleteOpen(true)}
+                  title={
+                    deletableSelected.length === 0
+                      ? "No selected processes can be deleted (idle or terminated)"
+                      : "Delete selected processes"
+                  }
+                >
+                  <Trash2 />
+                  Delete
+                </Button>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  disabled={isBulkWorking}
+                  onClick={() => setSelectedIds(new Set())}
+                >
+                  <X />
+                  Clear
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
+          {isLoadingProcesses ? (
+            <div className="flex items-center justify-center h-full py-12">
+              <p className="text-sm text-muted-foreground">
+                Loading processes…
+              </p>
+            </div>
+          ) : processes.length === 0 ? (
+            <div className="flex items-center justify-center h-full py-12">
+              <Empty>
+                <EmptyHeader>
+                  <EmptyMedia variant="icon">
+                    <Braces aria-hidden />
+                  </EmptyMedia>
+                  <EmptyTitle>No processes found</EmptyTitle>
+                  <EmptyDescription>
+                    No processes match the current filters. Create one to get
+                    started.
+                  </EmptyDescription>
+                </EmptyHeader>
+              </Empty>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader className="sticky top-0 z-10 bg-background">
                 <TableRow>
-                  <TableCell
-                    colSpan={6}
-                    className="py-8 text-center text-muted-foreground"
-                  >
-                    {isLoadingProcesses
-                      ? "Loading processes…"
-                      : "No processes found."}
-                  </TableCell>
+                  <TableHead className="w-10">
+                    <Checkbox
+                      aria-label="Select all processes"
+                      checked={
+                        allSelected
+                          ? true
+                          : someSelected
+                            ? "indeterminate"
+                            : false
+                      }
+                      onCheckedChange={(checked) =>
+                        toggleSelectAll(checked === true)
+                      }
+                      onClick={(event) => event.stopPropagation()}
+                    />
+                  </TableHead>
+                  <TableHead>ID</TableHead>
+                  <TableHead>PID</TableHead>
+                  <TableHead>Ref</TableHead>
+                  <TableHead>State</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
-              ) : null}
-            </TableBody>
-          </Table>
+              </TableHeader>
+
+              <TableBody>
+                {processes.map((process) => (
+                  <TableRow
+                    key={process.id}
+                    className={cn(
+                      "cursor-pointer",
+                      process.id === selectedProcessId ? "bg-primary/10" : "",
+                    )}
+                    onClick={() =>
+                      updateSearchParams({ process: String(process.id) })
+                    }
+                  >
+                    <TableCell onClick={(event) => event.stopPropagation()}>
+                      <Checkbox
+                        aria-label={`Select process ${process.id}`}
+                        checked={selectedIds.has(process.id)}
+                        onCheckedChange={(checked) =>
+                          toggleSelectProcess(process.id, checked === true)
+                        }
+                      />
+                    </TableCell>
+                    <TableCell className="font-medium">{process.id}</TableCell>
+
+                    <TableCell className="font-mono text-xs">
+                      {process.pid ?? ": "}
+                    </TableCell>
+
+                    <TableCell>{process.ref ?? "-"}</TableCell>
+
+                    <TableCell>
+                      <div className="flex items-center gap-1">
+                        <Badge variant="secondary">{process.state}</Badge>
+
+                        {process.state === "suspended" &&
+                        process.pendingApprovalIds ? (
+                          <Link
+                            to={`/approvals?processId=${process.id}`}
+                            className="underline-offset-2 hover:underline"
+                          >
+                            <Badge className="text-xs bg-info text-info-foreground">
+                              {process.pendingApprovalIds.length} pending
+                            </Badge>
+                          </Link>
+                        ) : null}
+                      </div>
+                    </TableCell>
+
+                    <TableCell>
+                      <Badge
+                        className={exitStateBadgeClassName(process.exitState)}
+                      >
+                        {process.exitState ?? "none"}
+                      </Badge>
+                    </TableCell>
+
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              className="h-8 w-8 p-0"
+                              aria-label="Run process"
+                              disabled={!canRun(process)}
+                              onClick={(event) => {
+                                event.stopPropagation();
+
+                                if (!canRun(process)) {
+                                  return;
+                                }
+
+                                if (needsRestartConfirmation(process)) {
+                                  setRestartCandidate(process);
+                                  setIsRestartDialogOpen(true);
+                                  return;
+                                }
+
+                                void handleRunProcess(process, false);
+                              }}
+                            >
+                              <RotateCcw />
+                            </Button>
+                          </TooltipTrigger>
+
+                          <TooltipContent>Run process</TooltipContent>
+                        </Tooltip>
+
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              className="h-8 w-8 p-0"
+                              aria-label="Unload process"
+                              disabled={!canUnload(process)}
+                              onClick={(event) => {
+                                event.stopPropagation();
+
+                                if (!canUnload(process)) {
+                                  return;
+                                }
+
+                                void handleUnloadProcess(process);
+                              }}
+                            >
+                              <Archive />
+                            </Button>
+                          </TooltipTrigger>
+
+                          <TooltipContent>Unload process</TooltipContent>
+                        </Tooltip>
+
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              className="h-8 w-8 p-0 text-destructive"
+                              aria-label="Kill process"
+                              disabled={!canKill(process)}
+                              onClick={(event) => {
+                                event.stopPropagation();
+
+                                if (!canKill(process)) {
+                                  return;
+                                }
+
+                                void handleKillProcess(process);
+                              }}
+                            >
+                              <X />
+                            </Button>
+                          </TooltipTrigger>
+
+                          <TooltipContent>Kill process</TooltipContent>
+                        </Tooltip>
+
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              className="h-8 w-8 p-0 text-destructive"
+                              aria-label="Delete process"
+                              disabled={!canDelete(process)}
+                              onClick={(event) => {
+                                event.stopPropagation();
+
+                                if (!canDelete(process)) {
+                                  return;
+                                }
+
+                                setDeleteCandidate(process);
+                                setIsDeleteDialogOpen(true);
+                              }}
+                            >
+                              <Trash2 />
+                            </Button>
+                          </TooltipTrigger>
+
+                          <TooltipContent>Delete process</TooltipContent>
+                        </Tooltip>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+
           {processError ? (
             <p className="p-4 text-sm text-destructive">
               Failed to load processes.
             </p>
           ) : null}
+
           {nextCursor !== null ? (
             <div className="flex justify-center p-4">
               <Button
@@ -985,18 +1395,22 @@ export default function ProcessesPage() {
               </Button>
             </div>
           ) : null}
+
           {loadMoreError !== null ? (
             <p className="p-4 text-sm text-destructive">{loadMoreError}</p>
           ) : null}
+
           <Sheet
             open={selectedProcessId !== null}
             onOpenChange={(open) => {
-              if (!open) updateSearchParams({ process: undefined });
+              if (!open) {
+                updateSearchParams({ process: undefined });
+              }
             }}
           >
             <SheetContent
               side="right"
-              className="data-[side=right]:w-full data-[side=right]:sm:max-w-xl"
+              className="data-[side=right]:w-full data-[side=right]:sm:max-w-lg"
             >
               <SheetHeader>
                 <SheetTitle>Process details</SheetTitle>
@@ -1004,11 +1418,44 @@ export default function ProcessesPage() {
                   Output and code for the selected process.
                 </SheetDescription>
               </SheetHeader>
+
               <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
+                {selectedProcess ? (
+                  <div className="mb-4 rounded-md border bg-muted/30 p-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs text-muted-foreground">
+                        Process #{selectedProcess.id}
+                      </span>
+
+                      <Badge variant="secondary">{selectedProcess.state}</Badge>
+
+                      <Badge
+                        className={exitStateBadgeClassName(
+                          selectedProcess.exitState,
+                        )}
+                      >
+                        {selectedProcess.exitState ?? "none"}
+                      </Badge>
+
+                      {selectedProcess.state === "suspended" &&
+                      selectedProcess.pendingApprovalIds ? (
+                        <Link
+                          to={`/approvals?processId=${selectedProcess.id}`}
+                          className="underline-offset-2 hover:underline"
+                        >
+                          <Badge className="text-xs bg-info text-info-foreground">
+                            {selectedProcess.pendingApprovalIds.length} pending
+                          </Badge>
+                        </Link>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
+
                 <Accordion
                   type="multiple"
                   defaultValue={
-                    selectedProcess?.error ? ["error", "stdout"] : ["stdout"]
+                    selectedProcess?.error ? ["error", "output"] : ["output"]
                   }
                   className="w-full"
                 >
@@ -1017,171 +1464,179 @@ export default function ProcessesPage() {
                       <AccordionTrigger className="text-destructive">
                         Error
                       </AccordionTrigger>
-                      <AccordionContent>
-                        <div className="relative">
-                          <div className="absolute right-2 top-2 z-10 flex gap-1">
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              className="h-8 w-8 p-0"
-                              onClick={() =>
-                                setDetailView({
-                                  title: "Error",
-                                  content: selectedProcess.error ?? "",
-                                })
-                              }
-                            >
-                              <Maximize2 />
-                            </Button>
-                            <CopyButton
-                              value={selectedProcess.error ?? ""}
-                              variant="ghost"
-                              iconOnly
-                            />
-                          </div>
-                          <div className="h-24 w-full overflow-auto border border-destructive/40 bg-destructive/5 p-3 pr-12 text-xs font-mono text-destructive whitespace-pre">
-                            {selectedProcess.error}
-                          </div>
-                        </div>
+
+                      <AccordionContent className="h-max">
+                        <DetailView
+                          title="Error"
+                          content={selectedProcess.error ?? ""}
+                          variant="error"
+                        />
                       </AccordionContent>
                     </AccordionItem>
                   ) : null}
+
                   <AccordionItem value="code">
                     <AccordionTrigger>Code</AccordionTrigger>
-                    <AccordionContent>
-                      <div className="relative">
-                        <div className="absolute right-2 top-2 z-10 flex gap-1">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 w-8 p-0"
-                            onClick={() =>
-                              setDetailView({
-                                title: "Code",
-                                content: codeContent,
-                              })
-                            }
-                          >
-                            <Maximize2 />
-                          </Button>
-                          <CopyButton
-                            value={codeContent}
-                            variant="ghost"
-                            iconOnly
-                          />
-                        </div>
-                        <div className="h-24 w-full overflow-auto border bg-muted/30 p-3 pr-12 text-xs font-mono whitespace-pre">
-                          {codeContent}
-                        </div>
-                      </div>
+
+                    <AccordionContent className="h-max">
+                      <DetailView title="Code" content={codeContent} />
                     </AccordionContent>
                   </AccordionItem>
+
                   <AccordionItem value="output">
                     <AccordionTrigger>Output</AccordionTrigger>
-                    <AccordionContent>
-                      <div className="relative">
-                        <div className="absolute right-2 top-2 z-10 flex gap-1">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 w-8 p-0"
-                            onClick={() =>
-                              setDetailView({
-                                title: "Output",
-                                content: outputContent,
-                              })
-                            }
-                          >
-                            <Maximize2 />
-                          </Button>
-                          <CopyButton
-                            value={outputContent}
-                            variant="ghost"
-                            iconOnly
-                          />
-                        </div>
-                        <div className="h-24 w-full overflow-auto border bg-muted/30 p-3 pr-12 text-xs font-mono whitespace-pre">
-                          {outputContent}
-                        </div>
-                      </div>
+
+                    <AccordionContent className="h-max">
+                      <DetailView
+                        title="Output"
+                        content={outputContent}
+                        language="json"
+                      />
                     </AccordionContent>
                   </AccordionItem>
+
                   <AccordionItem value="stdout">
                     <AccordionTrigger>Stdout</AccordionTrigger>
-                    <AccordionContent>
-                      <div className="relative">
-                        <div className="absolute right-2 top-2 z-10 flex gap-1">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 w-8 p-0"
-                            onClick={() =>
-                              setDetailView({
-                                title: "Stdout",
-                                content: stdoutContent,
-                              })
-                            }
-                          >
-                            <Maximize2 />
-                          </Button>
-                          <CopyButton
-                            value={stdoutContent}
-                            variant="ghost"
-                            iconOnly
-                          />
-                        </div>
-                        <div className="h-24 w-full overflow-auto border bg-muted/30 p-3 pr-12 text-xs font-mono whitespace-pre">
-                          {stdoutContent}
-                        </div>
-                      </div>
+
+                    <AccordionContent className="h-max">
+                      <DetailView title="Stdout" content={stdoutContent} />
                     </AccordionContent>
                   </AccordionItem>
+
                   <AccordionItem value="stderr">
                     <AccordionTrigger>Stderr</AccordionTrigger>
-                    <AccordionContent>
-                      <div className="relative">
-                        <div className="absolute right-2 top-2 z-10 flex gap-1">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 w-8 p-0"
-                            onClick={() =>
-                              setDetailView({
-                                title: "Stderr",
-                                content: stderrContent,
-                              })
-                            }
-                          >
-                            <Maximize2 />
-                          </Button>
-                          <CopyButton
-                            value={stderrContent}
-                            variant="ghost"
-                            iconOnly
-                          />
-                        </div>
-                        <div className="h-24 w-full overflow-auto border bg-muted/30 p-3 pr-12 text-xs font-mono whitespace-pre">
-                          {stderrContent}
-                        </div>
-                      </div>
+
+                    <AccordionContent className="h-max">
+                      <DetailView title="Stderr" content={stderrContent} />
                     </AccordionContent>
                   </AccordionItem>
                 </Accordion>
               </div>
+
+              {selectedProcess ? (
+                <div className="border-t bg-background px-4 py-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-sm font-medium">Actions</span>
+
+                    <div className="flex items-center gap-1">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="gap-2"
+                            disabled={!canRun(selectedProcess)}
+                            onClick={() => handleDrawerRun(selectedProcess)}
+                          >
+                            <RotateCcw />
+                            Run
+                          </Button>
+                        </TooltipTrigger>
+
+                        <TooltipContent>
+                          {needsRestartConfirmation(selectedProcess)
+                            ? "Restart process"
+                            : "Run process"}
+                        </TooltipContent>
+                      </Tooltip>
+
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="gap-2"
+                            disabled={!canUnload(selectedProcess)}
+                            onClick={() =>
+                              void handleUnloadProcess(selectedProcess)
+                            }
+                          >
+                            <Archive />
+                            Unload
+                          </Button>
+                        </TooltipTrigger>
+
+                        <TooltipContent>Unload process</TooltipContent>
+                      </Tooltip>
+
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="gap-2 text-destructive hover:text-destructive"
+                            disabled={!canKill(selectedProcess)}
+                            onClick={() =>
+                              void handleKillProcess(selectedProcess)
+                            }
+                          >
+                            <X />
+                            Kill
+                          </Button>
+                        </TooltipTrigger>
+
+                        <TooltipContent>Kill process</TooltipContent>
+                      </Tooltip>
+
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="gap-2 text-destructive hover:text-destructive"
+                            disabled={!canDelete(selectedProcess)}
+                            onClick={() => {
+                              setDeleteCandidate(selectedProcess);
+                              setIsDeleteDialogOpen(true);
+                            }}
+                          >
+                            <Trash2 />
+                            Delete
+                          </Button>
+                        </TooltipTrigger>
+
+                        <TooltipContent>Delete process</TooltipContent>
+                      </Tooltip>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
             </SheetContent>
           </Sheet>
         </div>
       </section>
 
+      <Dialog open={isEnvDocsOpen} onOpenChange={setIsEnvDocsOpen}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Environment docs</DialogTitle>
+            <DialogDescription>
+              Globals and bindings available to process code.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="min-h-0 flex-1 overflow-y-auto text-sm">
+            {envDocsError ? (
+              <p className="text-sm text-destructive">
+                Failed to load environment docs.
+              </p>
+            ) : envDocs === undefined ? (
+              <p className="text-sm text-muted-foreground">Loading…</p>
+            ) : (
+              <div className="prose prose-sm dark:prose-invert max-w-none">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {envDocs}
+                </ReactMarkdown>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <AlertDialog
         open={isRestartDialogOpen}
         onOpenChange={(open) => {
           setIsRestartDialogOpen(open);
+
           if (!open) {
             setRestartCandidate(null);
           }
@@ -1195,14 +1650,17 @@ export default function ProcessesPage() {
               outputs unless you cancel.
             </AlertDialogDescription>
           </AlertDialogHeader>
+
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
+
             <AlertDialogAction
               variant="destructive"
               onClick={() => {
                 if (!restartCandidate) {
                   return;
                 }
+
                 void handleRunProcess(restartCandidate, true);
                 setIsRestartDialogOpen(false);
                 setRestartCandidate(null);
@@ -1218,6 +1676,7 @@ export default function ProcessesPage() {
         open={isDeleteDialogOpen}
         onOpenChange={(open) => {
           setIsDeleteDialogOpen(open);
+
           if (!open) {
             setDeleteCandidate(null);
           }
@@ -1231,14 +1690,17 @@ export default function ProcessesPage() {
               will be permanently removed.
             </AlertDialogDescription>
           </AlertDialogHeader>
+
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
+
             <AlertDialogAction
               variant="destructive"
               onClick={() => {
                 if (!deleteCandidate) {
                   return;
                 }
+
                 void handleDeleteProcess(deleteCandidate);
                 setIsDeleteDialogOpen(false);
                 setDeleteCandidate(null);
@@ -1250,33 +1712,46 @@ export default function ProcessesPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <Dialog
-        open={detailView !== null}
+      <AlertDialog
+        open={isBulkDeleteOpen}
         onOpenChange={(open) => {
-          if (!open) setDetailView(null);
+          if (!isBulkWorking) {
+            setIsBulkDeleteOpen(open);
+          }
         }}
       >
-        <DialogContent className="w-10/12 w-max-h-[85vh] max-w-3xl space-y-4">
-          <DialogHeader>
-            <DialogTitle>{detailView?.title}</DialogTitle>
-          </DialogHeader>
-          <div className="relative min-h-0 flex-1 mb-0">
-            <CopyButton
-              value={detailView?.content ?? ""}
-              variant="ghost"
-              iconOnly
-              className="absolute right-0 top-0 z-10"
-            />
-            <div className="border bg-muted/30 overflow-hidden">
-              <div className="h-full min-h-[200px] overflow-auto p-4 pr-8">
-                <div className="whitespace-pre text-xs font-mono">
-                  {detailView?.content}
-                </div>
-              </div>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {deletableSelected.length}{" "}
+              {deletableSelected.length === 1 ? "process" : "processes"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. The process records and their
+              outputs will be permanently removed.
+              {selectedIds.size !== deletableSelected.length
+                ? ` ${selectedIds.size - deletableSelected.length} selected ${selectedIds.size - deletableSelected.length === 1 ? "process is" : "processes are"} ineligible (only idle or terminated can be deleted) and will be skipped.`
+                : null}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isBulkWorking}>
+              Cancel
+            </AlertDialogCancel>
+
+            <AlertDialogAction
+              variant="destructive"
+              disabled={deletableSelected.length === 0 || isBulkWorking}
+              onClick={() => {
+                void handleBulkDelete();
+              }}
+            >
+              {isBulkWorking ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

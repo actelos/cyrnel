@@ -41,10 +41,7 @@ export function EntityIcon({
       alt={`${label} icon`}
       loading="lazy"
       onError={() => setFailed(true)}
-      className={cn(
-        "h-10 w-10 shrink-0 rounded-md bg-secondary object-contain p-1",
-        className,
-      )}
+      className={cn("h-10 w-10 shrink-0 object-contain", className)}
     />
   );
 }

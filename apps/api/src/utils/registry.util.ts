@@ -290,6 +290,18 @@ export async function resolveServiceRegistry(
   };
 }
 
+export async function listRegistryVersions(
+  source: string,
+  label: "Service" | "Module",
+): Promise<{ latestVersion: string; versions: string[] }> {
+  const body = await fetchRegistryJson(source, label);
+  const descriptor = validateRegistryDescriptor(body, label);
+  const versions = Object.keys(descriptor.versions).sort((a, b) =>
+    a.localeCompare(b, undefined, { numeric: true }),
+  );
+  return { latestVersion: descriptor.latestVersion, versions };
+}
+
 const MAX_REDIRECT_HOPS = 5;
 const MAX_CAPABILITY_PAGE_BYTES = 256 * 1024;
 

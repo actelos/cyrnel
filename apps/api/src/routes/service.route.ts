@@ -1,6 +1,7 @@
 import { type Router as ExpressRouter, Router } from "express";
 
 import {
+  checkServiceUpdate,
   createServiceDirect,
   deleteService,
   getService,
@@ -12,9 +13,11 @@ import {
   installServiceRegistry,
   listInstallAdapters,
   listServices,
+  listServiceVersions,
   patchService,
   patchServiceConfiguration,
   patchServiceSecrets,
+  setServiceAutoUpdate,
   setServiceEnabled,
   syncService,
   updateService,
@@ -47,6 +50,13 @@ serviceRouter.post(
   createRateLimiter(10, 60_000, "POST /services/:serviceId/update"),
   updateService,
 );
+serviceRouter.post(
+  "/:serviceId/auto-update",
+  createRateLimiter(10, 60_000, "POST /services/:serviceId/auto-update"),
+  setServiceAutoUpdate,
+);
+serviceRouter.get("/:serviceId/update-check", checkServiceUpdate);
+serviceRouter.get("/:serviceId/versions", listServiceVersions);
 serviceRouter.post(
   "/:serviceId/sync",
   createRateLimiter(10, 60_000, "POST /services/:serviceId/sync"),

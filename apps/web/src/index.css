@@ -3,6 +3,8 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
+@source "../../node_modules/@rjsf/shadcn";
+@plugin "@tailwindcss/typography";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -23,6 +25,14 @@
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(0.12 0 0);
+  --success: oklch(0.72 0.22 149.58);
+  --success-foreground: oklch(0.985 0 0);
+  --warning: oklch(0.71 0.21 47.61);
+  --warning-foreground: oklch(0.985 0 0);
+  --error: oklch(0.64 0.24 25.34);
+  --error-foreground: oklch(0.985 0 0);
+  --info: oklch(0.62 0.21 259.81);
+  --info-foreground: oklch(0.985 0 0);
   --border: oklch(0.9219 0 0);
   --input: oklch(0.9219 0 0);
   --ring: oklch(0.709 0 0);
@@ -86,6 +96,14 @@
   --accent-foreground: oklch(0.99 0 0);
   --destructive: oklch(0.704 0.191 22.216);
   --destructive-foreground: oklch(0.99 0 0);
+  --success: oklch(0.72 0.22 149.58);
+  --success-foreground: oklch(0.16 0 0);
+  --warning: oklch(0.71 0.21 47.61);
+  --warning-foreground: oklch(0.16 0 0);
+  --error: oklch(0.64 0.24 25.34);
+  --error-foreground: oklch(0.16 0 0);
+  --info: oklch(0.62 0.21 259.81);
+  --info-foreground: oklch(0.16 0 0);
   --border: oklch(0.1776 0 0);
   --input: oklch(0.1776 0 0);
   --ring: oklch(0.1776 0 0);
@@ -121,6 +139,14 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-error: var(--error);
+  --color-error-foreground: var(--error-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -220,10 +246,6 @@
   color: var(--color-destructive) !important;
 }
 
-/* Active tab: inverted bg/fg for a clearer active state.
-   Kept here (not in components/ui/tabs.tsx) so the shadcn component
-   can be regenerated/updated without losing this customization.
-   Scoped away from the `line` tabs variant, which keeps its underline. */
 [data-slot="tabs-list"]:not([data-variant="line"])
   [data-slot="tabs-trigger"][data-state="active"],
 [data-slot="tabs-list"]:not([data-variant="line"])
@@ -237,4 +259,8 @@
 [data-slot="tabs-list"]:not([data-variant="line"])
   [data-slot="tabs-trigger"][data-active]:hover {
   color: var(--color-background);
+}
+
+pre.shiki {
+  background: transparent !important;
 }

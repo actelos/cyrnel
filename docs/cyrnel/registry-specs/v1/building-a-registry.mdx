@@ -75,16 +75,13 @@ variables:
 
 ### Fixture gotchas
 
-<Warning>
-  The fixture's **definitions** entries use a bare hash *string* for
-  `icon` (not the required `{url, hash}` object) whenever an icon file
-  exists in `~/.cache/cyrnel-dev-registry-icons/`: that shape is invalid
-  and makes the whole definitions browse page fail with a `400`. Delete
-  the cached icon files (or serve icons that match the
-  [entry schema](/cyrnel/registry-specs/v1/definitions)) to browse
-  definitions cleanly.
-</Warning>
-
+- The fixture serves icons as the required `{url, hash}` object. Icon
+  bytes are resolved from `~/.cache/cyrnel-dev-registry-icons/<id>.png`
+  first, then the checked-in `apps/api/scripts/fixtures/icons/<id>.png`
+  fallback (currently `youtube.png`, `sha256:b9ad0cf5a7a19023cb21663ac021f074c5700bc58a281bd980614709f834a52a`).
+  The advertised `hash` is computed from the served bytes at startup, so
+  replacing the PNG automatically updates the hash — no manual hash edit
+  is needed.
 - The fixture's browse `limit` defaults to 10 internally and clamps to
   `[1, 200]`: Cyrnel sends `limit=50` by default, so expect 50 rows in
   practice, but pass an explicit `limit` to be sure.

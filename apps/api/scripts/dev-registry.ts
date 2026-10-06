@@ -387,59 +387,8 @@ const DEFINITIONS: DefinitionEntry[] = [
   icon: makeIcon(id as string, "definitions"),
 }));
 
-const OPENAPI_COMPAT = [{ identifier: "openapi", version: ">=3.0 <4.0" }];
-
-const ADAPTER_COMPATIBILITY: Record<
-  string,
-  Array<{ identifier: string; version: string }>
-> = {
-  youtube: OPENAPI_COMPAT,
-  gdrive: OPENAPI_COMPAT,
-  gcalendar: OPENAPI_COMPAT,
-  gmail: OPENAPI_COMPAT,
-  gsheets: OPENAPI_COMPAT,
-  gcontacts: OPENAPI_COMPAT,
-  gtasks: OPENAPI_COMPAT,
-  gdocs: OPENAPI_COMPAT,
-};
-
 const MODULES: ModuleEntry[] = [
-  ["hello-env", "Hello Env", "Echoes input back as output", "adapter"],
-  ["ts-env", "TS Env", "TypeScript-only execution sandbox", "adapter"],
   ["py-env", "Py Env", "Python 3 execution sandbox", "environment"],
-  ["node-env", "Node Env", "Node.js runtime for adapters", "adapter"],
-  ["bash-env", "Bash Env", "Bash script execution sandbox", "environment"],
-  ["ruby-env", "Ruby Env", "Ruby execution sandbox", "environment"],
-  ["go-env", "Go Env", "Go execution sandbox", "environment"],
-  ["http-env", "HTTP Env", "Make outbound HTTP requests", "adapter"],
-  ["db-env", "DB Env", "SQLite and Postgres query access", "environment"],
-  ["crypto-env", "Crypto Env", "Hashing and signing utilities", "adapter"],
-  ["json-env", "JSON Env", "JSON transformation helpers", "adapter"],
-  ["regex-env", "Regex Env", "Regular expression helpers", "adapter"],
-  ["time-env", "Time Env", "Date and timezone utilities", "adapter"],
-  ["youtube", "YouTube", "YouTube Data API v3 videos and playlists", "adapter"],
-  ["gdrive", "Google Drive", "Google Drive files and folders", "adapter"],
-  [
-    "gcalendar",
-    "Google Calendar",
-    "Google Calendar events and availability",
-    "adapter",
-  ],
-  ["gmail", "Gmail", "Gmail messages, threads and labels", "adapter"],
-  [
-    "gsheets",
-    "Google Sheets",
-    "Google Sheets spreadsheets and values",
-    "adapter",
-  ],
-  [
-    "gcontacts",
-    "Google Contacts",
-    "Google People API contacts and groups",
-    "adapter",
-  ],
-  ["gtasks", "Google Tasks", "Google Tasks lists and tasks", "adapter"],
-  ["gdocs", "Google Docs", "Google Docs documents content", "adapter"],
 ].map(([id, name, description, type]) => {
   const icon = makeIcon(id as string, "modules");
   return {
@@ -448,7 +397,6 @@ const MODULES: ModuleEntry[] = [
     description: description as string,
     type: type as "adapter" | "environment",
     source: `/modules/${id}`,
-    compatibility: ADAPTER_COMPATIBILITY[id],
     icon,
   };
 });

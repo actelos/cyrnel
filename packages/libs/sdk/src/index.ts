@@ -261,13 +261,11 @@ export type ResolvedCredential =
     };
 
 /**
- * An OAuth client registration: Cyrnel's application identity with an
- * authorization provider. Global and reusable across any number of
+ * OAuth2 client configuration record.
+ * Represents a pre-registered OAuth2 client at an external authorization provider. Global and reusable across any number of
  * owner-scoped credentials. `provider` is a display/grouping label only —
  * it never participates in client resolution and implies no
- * provider-specific OAuth behavior. `availableScopes` is the allow-list
- * for requested scopes (`[]` = unscoped-only client); there is no
- * unconstrained state.
+ * provider-specific OAuth behavior.
  */
 export interface OAuthClient {
   readonly id: string;
@@ -277,7 +275,6 @@ export interface OAuthClient {
   readonly authorizationUrl?: string | null;
   readonly clientAuthMethod: string;
   readonly redirectUris: readonly string[];
-  readonly availableScopes: readonly string[];
 }
 
 /**

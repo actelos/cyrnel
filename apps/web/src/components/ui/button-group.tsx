@@ -27,6 +27,7 @@ function ButtonGroup({
   ...props
 }: React.ComponentProps<"div"> & VariantProps<typeof buttonGroupVariants>) {
   return (
+    // biome-ignore lint/a11y/useSemanticElements: shadcn ButtonGroup intentionally uses div[role=group] for flexible grouping, not a form fieldset
     <div
       role="group"
       data-slot="button-group"

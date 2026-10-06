@@ -1,11 +1,20 @@
-import { ArrowUpRight, ChevronDown } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowUpRight,
+  ChevronDown,
+  CircleCheck,
+  XCircle,
+} from "lucide-react";
 import { useState } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import useSWR from "swr";
 import { z } from "zod";
+import { SetupWizard } from "@/components/setup-wizard";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ButtonGroup } from "@/components/ui/button-group";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogClose,
@@ -25,6 +34,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useNotification } from "@/hooks/use-notification";
 import { apiFetch, apiFetchJson, buildUrl, errorMessageFrom } from "@/lib/api";
 
@@ -34,7 +48,7 @@ const registryServiceEntrySchema = z.object({
   description: z.string().optional(),
   source: z.string(),
   kind: z.string().optional(),
-  icon: z.string().optional(),
+  icon: z.object({ url: z.string(), hash: z.string() }).optional(),
 });
 
 export type RegistryServiceEntry = z.infer<typeof registryServiceEntrySchema>;
@@ -44,6 +58,7 @@ const installAdapterItemSchema = z.object({
   name: z.string(),
   compatible: z.boolean(),
   active: z.boolean(),
+  isBuiltin: z.boolean(),
 });
 
 const installAdaptersResponseSchema = z.object({
@@ -51,7 +66,50 @@ const installAdaptersResponseSchema = z.object({
   adapters: z.array(installAdapterItemSchema),
 });
 
+const installResponseSchema = z.object({ id: z.string() });
+
 type InstallAdaptersResponse = z.infer<typeof installAdaptersResponseSchema>;
+
+interface AdapterItem {
+  value: string;
+  label: string;
+  compatible: boolean;
+  active: boolean;
+  isBuiltin: boolean;
+  isDefault: boolean;
+}
+
+function adapterReason(item: AdapterItem, kind: string | undefined): string {
+  if (item.compatible && item.active) {
+    const builtin = item.isBuiltin ? ", built-in" : "";
+    const prefix = item.isDefault ? "Recommended" : "Compatible";
+    return `${prefix} — accepts ${kind ?? "this definition kind"} and is currently active${builtin}.`;
+  }
+  if (item.compatible) {
+    return `Inactive — enable the ${item.label} module to use it. Installation will fail without an active adapter.`;
+  }
+  return `Not compatible — does not accept ${kind ?? "this definition kind"}. Installation with this adapter will fail.`;
+}
+
+function getAdapterStatus(
+  item: AdapterItem | null,
+): "recommended" | "unsure" | "not-recommended" {
+  if (!item) return "recommended";
+  if (item.compatible && item.active) return "recommended";
+  if (item.compatible) return "unsure";
+  return "not-recommended";
+}
+
+function getAdapterIcon(status: "recommended" | "unsure" | "not-recommended") {
+  switch (status) {
+    case "recommended":
+      return CircleCheck;
+    case "unsure":
+      return AlertTriangle;
+    case "not-recommended":
+      return XCircle;
+  }
+}
 
 function toBase64(buf: Uint8Array | null | undefined): string {
   if (!buf) return "";
@@ -62,19 +120,16 @@ function toBase64(buf: Uint8Array | null | undefined): string {
   return btoa(binary);
 }
 
-function buildAdapterItems(ranked: InstallAdaptersResponse | undefined): Array<{
-  value: string;
-  label: string;
-  compatible: boolean;
-  active: boolean;
-  isDefault: boolean;
-}> {
+function buildAdapterItems(
+  ranked: InstallAdaptersResponse | undefined,
+): AdapterItem[] {
   if (!ranked) return [];
   return ranked.adapters.map((adapter) => ({
     value: adapter.id,
     label: adapter.name,
     compatible: adapter.compatible,
     active: adapter.active,
+    isBuiltin: adapter.isBuiltin,
     isDefault: ranked.default === adapter.id,
   }));
 }
@@ -91,6 +146,7 @@ export function RegistryServiceCard({
   installedServiceId?: string | null;
 }) {
   const { addNotification } = useNotification();
+  const navigate = useNavigate();
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [pendingAdapter, setPendingAdapter] = useState<string | undefined>(
@@ -98,8 +154,11 @@ export function RegistryServiceCard({
   );
   const [dialogId, setDialogId] = useState(entry.id);
   const [dialogVersion, setDialogVersion] = useState("latest");
+  const [dialogAutoUpdate, setDialogAutoUpdate] = useState(true);
   const [installing, setInstalling] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [installedId, setInstalledId] = useState<string | null>(null);
+  const [wizardOpen, setWizardOpen] = useState(false);
 
   const adapterUrl = buildUrl("/services/install/adapters", {
     kind: entry.kind ?? undefined,
@@ -138,11 +197,10 @@ export function RegistryServiceCard({
   );
   const installOptions = [...compatibleOthers, ...otherAdapters];
 
-  const pendingAdapterLabel =
+  const selectedAdapterItem =
     pendingAdapter === undefined
-      ? "Automatic"
-      : (adapterItems.find((item) => item.value === pendingAdapter)?.label ??
-        pendingAdapter);
+      ? null
+      : (adapterItems.find((item) => item.value === pendingAdapter) ?? null);
 
   const openInstallDialog = (adapterId?: string) => {
     setPendingAdapter(adapterId);
@@ -155,29 +213,36 @@ export function RegistryServiceCard({
     if (installing) return;
     const trimmedId = dialogId.trim();
     const trimmedVersion = dialogVersion.trim();
-    const body: Record<string, string> = { source: entry.source };
+    const body: Record<string, string | boolean> = { source: entry.source };
     if (trimmedId !== "" && trimmedId !== entry.id) body.id = trimmedId;
     if (trimmedVersion !== "") body.version = trimmedVersion;
     if (pendingAdapter?.trim()) body.adapter = pendingAdapter.trim();
+    body.autoUpdate = dialogAutoUpdate;
 
     setInstalling(true);
     try {
-      await apiFetch(buildUrl("/services/install"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
+      const created = await apiFetchJson(
+        buildUrl("/services/install"),
+        installResponseSchema,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        },
+      );
       addNotification({
         type: "success",
-        title: "Success",
+        title: `${entry.name ?? entry.id} installed`,
         message: `${entry.name ?? entry.id} installed.`,
       });
       setDialogOpen(false);
       await onInstalled();
+      setInstalledId(created.id);
+      setWizardOpen(true);
     } catch (error) {
       addNotification({
         type: "error",
-        title: "Error",
+        title: `${entry.name ?? entry.id} installation failed`,
         message: errorMessageFrom(
           error,
           `Unable to install ${entry.name ?? entry.id}.`,
@@ -211,7 +276,7 @@ export function RegistryServiceCard({
               src={`data:image/png;base64,${iconData}`}
               alt=""
               loading="lazy"
-              className="h-10 w-10 shrink-0 rounded-md bg-secondary object-contain p-1"
+              className="h-10 w-10 shrink-0 rounded-md object-contain"
             />
           ) : (
             <span
@@ -280,6 +345,7 @@ export function RegistryServiceCard({
                     {compatibleOthers.map((item) => (
                       <DropdownMenuItem
                         key={item.value}
+                        title={adapterReason(item, entry.kind)}
                         onSelect={() => openInstallDialog(item.value)}
                       >
                         {item.label}
@@ -297,6 +363,7 @@ export function RegistryServiceCard({
                     {otherAdapters.map((item) => (
                       <DropdownMenuItem
                         key={item.value}
+                        title={adapterReason(item, entry.kind)}
                         onSelect={() => openInstallDialog(item.value)}
                       >
                         {item.label}{" "}
@@ -323,7 +390,7 @@ export function RegistryServiceCard({
                     src={`data:image/png;base64,${iconData}`}
                     alt=""
                     loading="lazy"
-                    className="h-10 w-10 shrink-0 rounded-md bg-secondary object-contain p-1"
+                    className="h-10 w-10 shrink-0 rounded-md object-contain"
                   />
                 ) : (
                   <span
@@ -379,8 +446,37 @@ export function RegistryServiceCard({
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Install {entry.name ?? entry.id}</DialogTitle>
-            <DialogDescription>
-              Adapter: {pendingAdapterLabel}. Id and version are optional.
+            <DialogDescription className="flex items-center gap-2">
+              Installing using{" "}
+              <Link
+                to={`/settings/modules/${selectedAdapterItem?.value}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline hover:text-primary"
+              >
+                {selectedAdapterItem?.label}
+              </Link>
+              <span className="flex items-center">
+                {(() => {
+                  const status = getAdapterStatus(selectedAdapterItem);
+                  const Icon = getAdapterIcon(status);
+                  const reason = selectedAdapterItem
+                    ? adapterReason(selectedAdapterItem, entry.kind)
+                    : recommended
+                      ? adapterReason(recommended, entry.kind)
+                      : "No recommended adapter available";
+                  return (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Icon className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground cursor-help" />
+                      </TooltipTrigger>
+                      <TooltipContent side="top" align="center">
+                        {reason}
+                      </TooltipContent>
+                    </Tooltip>
+                  );
+                })()}
+              </span>
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-3 my-2">
@@ -405,6 +501,25 @@ export function RegistryServiceCard({
                 disabled={installing}
                 onChange={(event) => setDialogVersion(event.target.value)}
               />
+              <p className="text-muted-foreground text-xs">
+                Semver range, exact version constraints.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id={`${entry.id}-dialog-auto-update`}
+                checked={dialogAutoUpdate}
+                disabled={installing}
+                onCheckedChange={(checked) =>
+                  setDialogAutoUpdate(checked === true)
+                }
+              />
+              <Label
+                htmlFor={`${entry.id}-dialog-auto-update`}
+                className="text-xs font-normal"
+              >
+                Automatic updates
+              </Label>
             </div>
           </div>
           <DialogFooter className="flex-row justify-end">
@@ -429,6 +544,15 @@ export function RegistryServiceCard({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <SetupWizard
+        kind="service"
+        id={installedId}
+        open={wizardOpen}
+        onOpenChange={setWizardOpen}
+        onCompleted={() => {
+          if (installedId) navigate(`/services/${installedId}`);
+        }}
+      />
     </div>
   );
 }

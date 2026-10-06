@@ -127,6 +127,25 @@ export async function deleteRegistry(
   res.status(204).send();
 }
 
+export async function getDefaultRegistry(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const registriesService = getRegistriesService(req);
+  const registry = await registriesService.getDefaultRegistry();
+  res.status(200).json({ registry });
+}
+
+export async function setDefaultRegistry(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const registriesService = getRegistriesService(req);
+  const id = parseRegistryId(req.params.id);
+  const registry = await registriesService.setDefaultRegistry(id);
+  res.status(200).json(registry);
+}
+
 function parseRegistryId(raw: unknown): string {
   return parseOrHttpError(registryIdSchema, raw);
 }

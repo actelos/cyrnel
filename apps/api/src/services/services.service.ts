@@ -17,7 +17,7 @@ import {
   sql,
 } from "drizzle-orm";
 import jsonpatch from "fast-json-patch";
-
+import { validRange } from "semver";
 import { z } from "zod";
 
 import { db } from "@/db/client";
@@ -43,6 +43,8 @@ import type {
   GetServiceDefinitionResult,
   GetToolInput,
   GetToolsResult,
+  InvokeToolInput,
+  InvokeToolResult,
   ListServiceDefinitionResult,
   ListServicesInput,
   ListToolsInput,
@@ -95,6 +97,23 @@ import {
 const DEFINITION_DOWNLOAD_MAX_BYTES = 30 * 1024 * 1024;
 const IDENTIFIER_SCHEMA = z.string().regex(/^[A-Za-z_$][A-Za-z0-9_$]*$/);
 
+function normalizeUpdateConstraint(
+  constraint: string | null | undefined,
+  ownerLabel: string,
+): string | null {
+  if (constraint === undefined || constraint === null) return null;
+  const trimmed = constraint.trim();
+  if (trimmed.length === 0 || trimmed === "latest") return null;
+  if (validRange(trimmed) === null) {
+    throw new HttpError(
+      400,
+      `${ownerLabel} update constraint '${constraint}' is not a valid semver range.`,
+      "update_constraint_invalid",
+    );
+  }
+  return trimmed;
+}
+
 export interface AdapterController {
   generateService(input: GenerateDefinitionInput): Promise<ServiceDefinition>;
   hydrateService(adapterId: string, service: ServiceRuntime): Promise<void>;
@@ -103,6 +122,16 @@ export interface AdapterController {
   rankAdapters(kind?: string): Promise<RankedAdapter[]>;
   resolveDefaultAdapter(kind?: string): Promise<string | undefined>;
 }
+
+export type ModuleServiceRef = {
+  invoke(input: {
+    serviceId: string;
+    toolId: string;
+    parameters: Record<string, unknown>;
+    processId?: number;
+    executionId?: number;
+  }): Promise<unknown>;
+};
 
 const encryptedSecretsSchema = z.object({
   kid: z.string().optional(),
@@ -155,6 +184,7 @@ export class ServicesService {
 
   constructor(
     private readonly controller: AdapterController,
+    private readonly moduleService?: ModuleServiceRef,
     private readonly search?: SearchIndex,
   ) {}
 
@@ -663,6 +693,31 @@ export class ServicesService {
     return this.controller.generateToolDocs(docsInput);
   }
 
+  async invokeTool(input: InvokeToolInput): Promise<InvokeToolResult> {
+    if (!this.moduleService) {
+      throw new HttpError(503, "Tool invocation is not available.");
+    }
+    try {
+      const result = await this.moduleService.invoke({
+        serviceId: input.serviceId,
+        toolId: input.toolId,
+        parameters: input.parameters,
+      });
+      return { result };
+    } catch (error) {
+      if (error instanceof HttpError) {
+        // approval_required from a direct invoke carries no approval record:
+        // without an execution context there is nothing to suspend, so the
+        // caller must approve via process execution or relax the policy.
+        if (error.statusCode === 403 && error.code === "approval_required") {
+          return { result: null, status: "approval_required" };
+        }
+        throw error;
+      }
+      throw new HttpError(500, "Tool invocation failed.");
+    }
+  }
+
   async createServiceDirect(input: DirectInstallServiceInput): Promise<void> {
     if (!IDENTIFIER_SCHEMA.safeParse(input.id).success) {
       throw new HttpError(
@@ -800,6 +855,10 @@ export class ServicesService {
       }
     }
 
+    // New registry installations opt into automatic updates by default.
+    // Existing installations are never silently opted in; their stored flag
+    // is preserved unless explicitly changed via the auto-update endpoint.
+    const autoUpdate = input.autoUpdate ?? true;
     try {
       await db.transaction(async (tx) => {
         await tx.insert(services).values({
@@ -812,6 +871,8 @@ export class ServicesService {
           source: input.source,
           adapter: effectiveAdapter,
           enabled: false,
+          autoUpdate,
+          autoUpdateConstraint: null,
           definitionContent,
           iconData: icon?.data ?? null,
           iconMime: icon?.mime ?? null,
@@ -957,10 +1018,178 @@ export class ServicesService {
     }));
   }
 
+  async setServiceAutoUpdate(input: {
+    id: string;
+    autoUpdate: boolean;
+    constraint?: string | null;
+  }): Promise<{ id: string; autoUpdate: boolean; constraint: string | null }> {
+    const normalized = normalizeUpdateConstraint(
+      input.constraint ?? null,
+      `Service '${input.id}'`,
+    );
+    const [row] = await db
+      .select({ id: services.id, source: services.source })
+      .from(services)
+      .where(eq(services.id, input.id))
+      .limit(1)
+      .catch(() => {
+        throw new HttpError(500, `Failed to load service '${input.id}'.`);
+      });
+    if (!row)
+      throw new HttpError(404, `Service '${input.id}' not found.`, "not_found");
+    if (input.autoUpdate && !row.source) {
+      throw new HttpError(
+        409,
+        `Service '${input.id}' has no stored registry source and cannot enable auto-update.`,
+        "update_unavailable",
+      );
+    }
+    try {
+      await db
+        .update(services)
+        .set({ autoUpdate: input.autoUpdate, autoUpdateConstraint: normalized })
+        .where(eq(services.id, input.id));
+    } catch {
+      throw new HttpError(
+        500,
+        `Failed to store auto-update state for service '${input.id}'.`,
+      );
+    }
+    return {
+      id: input.id,
+      autoUpdate: input.autoUpdate,
+      constraint: normalized,
+    };
+  }
+
+  async checkServiceUpdate(
+    id: string,
+    overrideConstraint?: string | null,
+  ): Promise<{
+    id: string;
+    installed: string;
+    available: string | null;
+    constraint: string | null;
+    autoUpdate: boolean;
+    updateAvailable: boolean;
+    upToDate: boolean;
+    hasSource: boolean;
+  }> {
+    const [service] = await db
+      .select({
+        version: services.version,
+        source: services.source,
+        autoUpdate: services.autoUpdate,
+        autoUpdateConstraint: services.autoUpdateConstraint,
+      })
+      .from(services)
+      .where(eq(services.id, id))
+      .limit(1)
+      .catch(() => {
+        throw new HttpError(500, `Failed to load service '${id}'.`);
+      });
+    if (!service)
+      throw new HttpError(404, `Service '${id}' not found.`, "not_found");
+    if (!service.source) {
+      return {
+        id,
+        installed: service.version,
+        available: null,
+        constraint: service.autoUpdateConstraint ?? null,
+        autoUpdate: service.autoUpdate,
+        updateAvailable: false,
+        upToDate: true,
+        hasSource: false,
+      };
+    }
+    const effectiveConstraint =
+      overrideConstraint !== undefined
+        ? normalizeUpdateConstraint(overrideConstraint, `Service '${id}'`)
+        : (service.autoUpdateConstraint ?? null);
+    let registry: { version: string };
+    try {
+      const { resolveServiceRegistry } = await import("@/utils/registry.util");
+      registry = await resolveServiceRegistry(
+        service.source,
+        effectiveConstraint ?? undefined,
+      );
+    } catch (err) {
+      if (err instanceof HttpError) {
+        // Preserve stable codes (e.g. no matching version) while adding context.
+        throw new HttpError(
+          err.statusCode,
+          `Service '${id}' registry source error: ${err.message}.`,
+          err.code ?? "registry_unavailable",
+        );
+      }
+      throw new HttpError(
+        502,
+        `Service '${id}' registry source is unreachable.`,
+        "registry_unavailable",
+      );
+    }
+    const updateAvailable = registry.version !== service.version;
+    return {
+      id,
+      installed: service.version,
+      available: registry.version,
+      constraint: effectiveConstraint,
+      autoUpdate: service.autoUpdate,
+      updateAvailable,
+      upToDate: !updateAvailable,
+      hasSource: true,
+    };
+  }
+
+  async listServiceVersions(id: string): Promise<{
+    id: string;
+    installed: string;
+    latest: string | null;
+    versions: string[];
+  }> {
+    const [service] = await db
+      .select({ version: services.version, source: services.source })
+      .from(services)
+      .where(eq(services.id, id))
+      .limit(1)
+      .catch(() => {
+        throw new HttpError(500, `Failed to load service '${id}'.`);
+      });
+    if (!service)
+      throw new HttpError(404, `Service '${id}' not found.`, "not_found");
+    if (!service.source) {
+      return { id, installed: service.version, latest: null, versions: [] };
+    }
+    try {
+      const { listRegistryVersions } = await import("@/utils/registry.util");
+      const { latestVersion, versions } = await listRegistryVersions(
+        service.source,
+        "Service",
+      );
+      return {
+        id,
+        installed: service.version,
+        latest: latestVersion,
+        versions,
+      };
+    } catch (err) {
+      if (err instanceof HttpError) throw err;
+      throw new HttpError(
+        502,
+        `Service '${id}' registry source is unreachable.`,
+        "registry_unavailable",
+      );
+    }
+  }
+
   async updateService(
     id: string,
     constraint?: string | null,
-  ): Promise<boolean> {
+  ): Promise<{ updated: boolean; fromVersion: string; toVersion: string }> {
+    const normalizedConstraint = normalizeUpdateConstraint(
+      constraint ?? null,
+      `Service '${id}'`,
+    );
     const [service] = await db
       .select({
         adapter: services.adapter,
@@ -976,11 +1205,13 @@ export class ServicesService {
         throw new HttpError(500, `Failed to load service '${id}'.`);
       });
 
-    if (!service) throw new HttpError(404, `Service '${id}' not found.`);
+    if (!service)
+      throw new HttpError(404, `Service '${id}' not found.`, "not_found");
     if (!service.source)
       throw new HttpError(
         409,
         `Service '${id}' has no stored install source and cannot be updated automatically. Only registry-installed services can be updated.`,
+        "update_unavailable",
       );
 
     let registry: {
@@ -993,18 +1224,20 @@ export class ServicesService {
       const { resolveServiceRegistry } = await import("@/utils/registry.util");
       registry = await resolveServiceRegistry(
         service.source,
-        constraint ?? undefined,
+        normalizedConstraint ?? undefined,
       );
     } catch (err) {
       if (err instanceof HttpError) {
         throw new HttpError(
           err.statusCode,
           `Service '${id}' registry source error: ${err.message}. Use PATCH to update with a direct download URL, or reinstall from a registry first.`,
+          err.code ?? "registry_unavailable",
         );
       }
       throw new HttpError(
         502,
         `Service '${id}' registry source is unreachable. Use PATCH to update with a direct download URL, or reinstall from a registry first.`,
+        "registry_unavailable",
       );
     }
 
@@ -1021,7 +1254,11 @@ export class ServicesService {
       registry.version === service.version
     ) {
       await this.persistServiceIcon(id, iconColumns);
-      return false;
+      return {
+        updated: false,
+        fromVersion: service.version,
+        toVersion: service.version,
+      };
     }
 
     const definitionContent = await this.downloadDefinition(
@@ -1031,7 +1268,11 @@ export class ServicesService {
 
     if (hash === service.hash && registry.version === service.version) {
       await this.persistServiceIcon(id, iconColumns);
-      return false;
+      return {
+        updated: false,
+        fromVersion: service.version,
+        toVersion: service.version,
+      };
     }
 
     const parsedDefinition = await this.controller.generateService({
@@ -1109,7 +1350,11 @@ export class ServicesService {
       );
     }
 
-    return true;
+    return {
+      updated: true,
+      fromVersion: service.version,
+      toVersion: registry.version,
+    };
   }
 
   private async persistServiceIcon(

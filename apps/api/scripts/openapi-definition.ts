@@ -562,6 +562,21 @@ const ServiceCreatedResponseSchema = registry.register(
     .describe("Response returned after a service is installed."),
 );
 
+const ServiceUpdateRequestSchema = registry.register(
+  "ServiceUpdateRequest",
+  z
+    .object({
+      constraint: z
+        .string()
+        .nullable()
+        .optional()
+        .describe(
+          "Optional semver range selecting which registry version to install. Omitted or null means latest. Invalid ranges are rejected with 400.",
+        ),
+    })
+    .describe("Request body used to update a service from its registry."),
+);
+
 const ServiceUpdateResponseSchema = registry.register(
   "ServiceUpdateResponse",
   z
@@ -573,10 +588,57 @@ const ServiceUpdateResponseSchema = registry.register(
       updated: z
         .boolean()
         .describe(
-          "Acknowledges that the update request was processed successfully.",
+          "Whether the service was updated (false if already current).",
         ),
+      fromVersion: z
+        .string()
+        .describe("Installed version before the update request."),
+      toVersion: z.string().describe("Installed version after the request."),
     })
     .describe("Response returned by the service update endpoint."),
+);
+
+const ServiceUpdateCheckResponseSchema = registry.register(
+  "ServiceUpdateCheckResponse",
+  z
+    .object({
+      id: z.string().min(1).describe("Service identifier."),
+      installed: z.string().describe("Currently installed version."),
+      available: z
+        .string()
+        .nullable()
+        .describe("Registry version matching the constraint, or null."),
+      constraint: z
+        .string()
+        .nullable()
+        .describe("Effective semver constraint, or null for latest."),
+      autoUpdate: z.boolean().describe("Stored auto-update opt-in state."),
+      updateAvailable: z
+        .boolean()
+        .describe("Whether a newer matching version exists."),
+      upToDate: z.boolean().describe("Whether the service is current."),
+      hasSource: z
+        .boolean()
+        .describe("Whether the service has a registry source to check."),
+    })
+    .describe("Response returned by the service update-check endpoint."),
+);
+
+const ServiceVersionsResponseSchema = registry.register(
+  "ServiceVersionsResponse",
+  z
+    .object({
+      id: z.string().min(1).describe("Service identifier."),
+      installed: z.string().describe("Currently installed version."),
+      latest: z
+        .string()
+        .nullable()
+        .describe("Latest registry version, or null when unknown."),
+      versions: z
+        .array(z.string())
+        .describe("All registry versions in ascending order."),
+    })
+    .describe("Response returned by the service versions endpoint."),
 );
 
 const ServiceAutoUpdateRequestSchema = registry.register(
@@ -841,32 +903,40 @@ const ToolListResponseSchema = paginatedResponseSchema(
   "Tools that match the supplied filters.",
 );
 
-const ToolEnabledRequestSchema = registry.register(
-  "ToolEnabledRequest",
+const ToolInvokeRequestSchema = registry.register(
+  "ToolInvokeRequest",
   z
     .object({
-      enabled: z.boolean().describe("Desired enabled state for the tool."),
+      parameters: jsonObjectSchema.describe(
+        "Tool input parameters validated against the tool's input schema by the adapter.",
+      ),
     })
-    .describe("Request body used to toggle a tool enabled state."),
+    .describe("Request body used to invoke a tool directly."),
 );
 
-const ToolEnabledResponseSchema = registry.register(
-  "ToolEnabledResponse",
+const ToolInvokeResponseSchema = registry.register(
+  "ToolInvokeResponse",
   z
     .object({
-      id: z
+      result: z
+        .unknown()
+        .describe("Structured tool result. Null when approval is required."),
+      status: z
+        .literal("approval_required")
+        .optional()
+        .describe(
+          "Present when the tool policy requires approval before execution.",
+        ),
+      approvalId: z
         .string()
-        .min(1)
-        .describe("Identifier of the tool whose enabled state was updated."),
-      serviceId: z
-        .string()
-        .min(1)
-        .describe("Identifier of the service that owns the tool."),
-      enabled: z
-        .boolean()
-        .describe("The new enabled state stored for the tool."),
+        .optional()
+        .describe(
+          "Approval request identifier, when the invocation created one (direct invocations create none).",
+        ),
     })
-    .describe("Response returned after toggling a tool enabled state."),
+    .describe(
+      "Response returned by the tool invocation endpoint. Invocations run through the same ModuleService.invoke() policy path as process execution.",
+    ),
 );
 
 const ApprovalSchema = registry.register(
@@ -1082,6 +1152,21 @@ const ModulePatchRequestSchema = registry.register(
     ),
 );
 
+const ModuleUpdateRequestSchema = registry.register(
+  "ModuleUpdateRequest",
+  z
+    .object({
+      constraint: z
+        .string()
+        .nullable()
+        .optional()
+        .describe(
+          "Optional semver range selecting which registry version to install. Omitted or null means latest.",
+        ),
+    })
+    .describe("Request body used to update a module from its registry."),
+);
+
 const ModuleUpdateResponseSchema = registry.register(
   "ModuleUpdateResponse",
   z
@@ -1091,8 +1176,55 @@ const ModuleUpdateResponseSchema = registry.register(
         .describe(
           "Whether the module was updated (false if no change detected).",
         ),
+      fromVersion: z
+        .string()
+        .describe("Installed version before the update request."),
+      toVersion: z.string().describe("Installed version after the request."),
     })
     .describe("Response returned by the module update endpoint."),
+);
+
+const ModuleUpdateCheckResponseSchema = registry.register(
+  "ModuleUpdateCheckResponse",
+  z
+    .object({
+      id: z.string().min(1).describe("Module identifier."),
+      installed: z.string().describe("Currently installed version."),
+      available: z
+        .string()
+        .nullable()
+        .describe("Registry version matching the constraint, or null."),
+      constraint: z
+        .string()
+        .nullable()
+        .describe("Effective semver constraint, or null for latest."),
+      autoUpdate: z.boolean().describe("Stored auto-update opt-in state."),
+      updateAvailable: z
+        .boolean()
+        .describe("Whether a newer matching version exists."),
+      upToDate: z.boolean().describe("Whether the module is current."),
+      hasSource: z
+        .boolean()
+        .describe("Whether the module has a registry source to check."),
+    })
+    .describe("Response returned by the module update-check endpoint."),
+);
+
+const ModuleVersionsResponseSchema = registry.register(
+  "ModuleVersionsResponse",
+  z
+    .object({
+      id: z.string().min(1).describe("Module identifier."),
+      installed: z.string().describe("Currently installed version."),
+      latest: z
+        .string()
+        .nullable()
+        .describe("Latest registry version, or null when unknown."),
+      versions: z
+        .array(z.string())
+        .describe("All registry versions in ascending order."),
+    })
+    .describe("Response returned by the module versions endpoint."),
 );
 
 const ModuleAutoUpdateRequestSchema = registry.register(
@@ -1173,8 +1305,24 @@ const RegistrySchema = registry.register(
         .describe(
           "Scheme names with a credential configured for this registry.",
         ),
+      isDefault: z
+        .boolean()
+        .describe(
+          "Whether this registry is the default selected for explore views. At most one registry is the default.",
+        ),
     })
     .describe("Record of a registered registry."),
+);
+
+const DefaultRegistryResponseSchema = registry.register(
+  "DefaultRegistryResponse",
+  z
+    .object({
+      registry: RegistrySchema.nullable().describe(
+        "The default registry, or null when no default is set.",
+      ),
+    })
+    .describe("Response returned by the default-registry endpoint."),
 );
 
 const RegistryMachineApiKeySchema = z
@@ -2055,8 +2203,11 @@ registry.registerPath({
   tags: ["Services"],
   summary: "Update a service from its stored registry",
   description:
-    "Re-resolves the stored registry source URL, compares the registry hash against the stored hash, and re-downloads and re-installs the definition if changed. Only works for registry-installed services.",
-  request: { params: serviceIdParam },
+    "Re-resolves the stored registry source URL, compares the registry hash against the stored hash, and re-downloads and re-installs the definition if changed. Only works for registry-installed services. An optional semver constraint selects which registry version to install.",
+  request: {
+    params: serviceIdParam,
+    body: { content: jsonContent(ServiceUpdateRequestSchema) },
+  },
   responses: {
     200: {
       description: "Update result for the requested service.",
@@ -2111,6 +2262,54 @@ registry.registerPath({
       "The service has no stored registry source and cannot enable auto-update.",
     ),
     500: apiErrorResponse("The auto-update state could not be stored."),
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/services/{serviceId}/update-check",
+  tags: ["Services"],
+  summary: "Check a service for available updates",
+  description:
+    "Resolves the stored registry source server-side and compares the matching registry version against the installed version. Never fetches registry descriptors from the browser.",
+  request: { params: serviceIdParam },
+  responses: {
+    200: {
+      description: "Update-check result for the requested service.",
+      content: jsonContent(ServiceUpdateCheckResponseSchema),
+    },
+    400: apiErrorResponse("The serviceId path parameter was invalid."),
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    404: apiErrorResponse("The service could not be found."),
+    ...rateLimitResponse(),
+    502: apiErrorResponse("The registry source could not be reached."),
+    500: apiErrorResponse("The update check could not be completed."),
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/services/{serviceId}/versions",
+  tags: ["Services"],
+  summary: "List registry versions for a service",
+  description:
+    "Returns all versions advertised by the service's stored registry source, plus the installed version.",
+  request: { params: serviceIdParam },
+  responses: {
+    200: {
+      description: "Version list for the requested service.",
+      content: jsonContent(ServiceVersionsResponseSchema),
+    },
+    400: apiErrorResponse("The serviceId path parameter was invalid."),
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    404: apiErrorResponse("The service could not be found."),
+    ...rateLimitResponse(),
+    502: apiErrorResponse("The registry source could not be reached."),
+    500: apiErrorResponse("Versions could not be listed."),
   },
 });
 
@@ -2470,50 +2669,34 @@ registry.registerPath({
 
 registry.registerPath({
   method: "post",
-  path: "/tools/{serviceId}/{toolId}/enabled",
+  path: "/tools/{serviceId}/{toolId}/invoke",
   tags: ["Tools"],
-  summary: "Toggle a tool",
+  summary: "Invoke a tool",
   description:
-    "Sets whether a tool is enabled. The parent service can still disable the tool at runtime even if the stored tool flag is true.",
+    "Executes a tool through the same ModuleService.invoke() policy path as process execution: service/module enabled and stale checks, tool policy (allow proceeds, block is rejected, ask returns approval_required with an approval id), credential validation, and upstream execution. Never bypasses policy.",
   request: {
     params: serviceToolParams,
-    body: { content: jsonContent(ToolEnabledRequestSchema) },
+    body: { content: jsonContent(ToolInvokeRequestSchema) },
   },
   responses: {
     200: {
-      description: "Updated tool enabled state.",
-      content: jsonContent(ToolEnabledResponseSchema),
+      description:
+        "Tool result, or approval_required when the tool policy requires approval.",
+      content: jsonContent(ToolInvokeResponseSchema),
     },
     400: apiErrorResponse("The request body or path parameters were invalid."),
     401: apiErrorResponse(
       "A bearer token was required but missing or invalid.",
     ),
-    404: apiErrorResponse("The tool could not be found."),
-    ...rateLimitResponse(),
-    500: apiErrorResponse("The tool enabled state could not be updated."),
-  },
-});
-
-registry.registerPath({
-  method: "get",
-  path: "/tools/{serviceId}/{toolId}/policy",
-  tags: ["Tools"],
-  summary: "Get tool policy",
-  description:
-    "Returns the effective policy decision for a tool, including default ask when no explicit policy exists.",
-  request: { params: serviceToolParams },
-  responses: {
-    200: {
-      description: "Tool policy.",
-      content: jsonContent(ToolPolicySchema),
-    },
-    400: apiErrorResponse("The path parameters were invalid."),
-    401: apiErrorResponse(
-      "A bearer token was required but missing or invalid.",
+    403: apiErrorResponse(
+      "The tool policy blocked the invocation, or approval is required (approval_required with an approval id).",
     ),
-    404: apiErrorResponse("The tool could not be found."),
+    404: apiErrorResponse("The service or tool could not be found."),
     ...rateLimitResponse(),
-    500: apiErrorResponse("The tool policy could not be loaded."),
+    409: apiErrorResponse(
+      "The service or module is stale, disabled, or missing credentials.",
+    ),
+    500: apiErrorResponse("The tool could not be invoked."),
   },
 });
 
@@ -2885,8 +3068,11 @@ registry.registerPath({
   tags: ["Modules"],
   summary: "Update a module from its stored registry",
   description:
-    "Re-resolves the stored registry source URL, compares the registry hash against the stored hash, and re-downloads and re-installs the archive if changed. Returns updated: false when the archive is unchanged. Only works for registry-installed modules. After a successful archive replacement every non-missing service targeting this adapter is regenerated via the new module's generateService. Services that fail regeneration are marked stale and cannot be invoked until synced.",
-  request: { params: moduleIdParam },
+    "Re-resolves the stored registry source URL, compares the registry hash against the stored hash, and re-downloads and re-installs the archive if changed. Returns updated: false when the archive is unchanged. Only works for registry-installed modules. An optional semver constraint selects which registry version to install. After a successful archive replacement every non-missing service targeting this adapter is regenerated via the new module's generateService. Services that fail regeneration are marked stale and cannot be invoked until synced.",
+  request: {
+    params: moduleIdParam,
+    body: { content: jsonContent(ModuleUpdateRequestSchema) },
+  },
   responses: {
     200: {
       description: "Update result for the requested module.",
@@ -2939,6 +3125,54 @@ registry.registerPath({
       "The module has no stored registry source and cannot enable auto-update.",
     ),
     500: apiErrorResponse("The auto-update state could not be stored."),
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/modules/{moduleId}/update-check",
+  tags: ["Modules"],
+  summary: "Check a module for available updates",
+  description:
+    "Resolves the stored registry source server-side and compares the matching registry version against the installed version.",
+  request: { params: moduleIdParam },
+  responses: {
+    200: {
+      description: "Update-check result for the requested module.",
+      content: jsonContent(ModuleUpdateCheckResponseSchema),
+    },
+    400: apiErrorResponse("The moduleId path parameter was invalid."),
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    ...rateLimitResponse(),
+    404: apiErrorResponse("The module could not be found."),
+    502: apiErrorResponse("The registry source could not be reached."),
+    500: apiErrorResponse("The update check could not be completed."),
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/modules/{moduleId}/versions",
+  tags: ["Modules"],
+  summary: "List registry versions for a module",
+  description:
+    "Returns all versions advertised by the module's stored registry source, plus the installed version.",
+  request: { params: moduleIdParam },
+  responses: {
+    200: {
+      description: "Version list for the requested module.",
+      content: jsonContent(ModuleVersionsResponseSchema),
+    },
+    400: apiErrorResponse("The moduleId path parameter was invalid."),
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    ...rateLimitResponse(),
+    404: apiErrorResponse("The module could not be found."),
+    502: apiErrorResponse("The registry source could not be reached."),
+    500: apiErrorResponse("Versions could not be listed."),
   },
 });
 
@@ -3052,6 +3286,48 @@ registry.registerPath({
       "The registry could not be reached or returned a non-2xx response.",
     ),
     500: apiErrorResponse("The registry could not be created."),
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/registries/default",
+  tags: ["Registries"],
+  summary: "Get default registry",
+  description:
+    "Returns the registry marked as default for explore views, or null when no default is set.",
+  responses: {
+    200: {
+      description: "The default registry.",
+      content: jsonContent(DefaultRegistryResponseSchema),
+    },
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    500: apiErrorResponse("The default registry could not be loaded."),
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/registries/{id}/default",
+  tags: ["Registries"],
+  summary: "Set default registry",
+  description:
+    "Marks a registry as the default for explore views, clearing the flag from all others in the same transaction.",
+  request: { params: registryIdParam },
+  responses: {
+    200: {
+      description: "The registry now marked as default.",
+      content: jsonContent(RegistrySchema),
+    },
+    400: apiErrorResponse("The id path parameter was invalid."),
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    ...rateLimitResponse(),
+    404: apiErrorResponse("The registry could not be found."),
+    500: apiErrorResponse("The default could not be stored."),
   },
 });
 
@@ -3476,11 +3752,6 @@ const OAuthClientSchema = registry.register(
         .describe(
           "Registered redirect URIs; the first is used for the authorization flow.",
         ),
-      availableScopes: z
-        .array(z.string())
-        .describe(
-          "Allow-list for requested scopes ([] = unscoped-only client).",
-        ),
       createdAt: z.string().describe("ISO-8601 creation timestamp."),
       updatedAt: z.string().describe("ISO-8601 last-update timestamp."),
     })
@@ -3515,11 +3786,6 @@ const CreateOAuthClientSchema = z
       .describe(
         "Registered redirect URIs; the first is used for the authorization flow.",
       ),
-    availableScopes: z
-      .array(z.string())
-      .describe(
-        "Allow-list for requested scopes (required; [] = unscoped-only).",
-      ),
   })
   .describe("Register a shared OAuth client.");
 
@@ -3532,7 +3798,6 @@ const PatchOAuthClientSchema = z
       .enum(["client_secret_basic", "client_secret_post"])
       .optional(),
     redirectUris: z.array(z.string()).optional(),
-    availableScopes: z.array(z.string()).optional(),
   })
   .describe("Update a shared OAuth client (client secret is immutable).");
 
@@ -3542,8 +3807,11 @@ const ResolvedOAuthClientSchema = registry.register(
     scopeCompatible: z
       .boolean()
       .describe(
-        "Whether the client's available scopes cover the requested scopes.",
+        "Whether the client is eligible for the requested authorization URL. Scope compatibility is evaluated against the linked credential scheme's declared scopes, not the client.",
       ),
+    missingScopes: z
+      .array(z.string())
+      .describe("Requested scopes not covered; empty when none requested."),
     tokenHost: z
       .string()
       .nullable()
@@ -3554,6 +3822,9 @@ const ResolvedOAuthClientSchema = registry.register(
       .describe(
         "Set when the client is excluded from automatic selection (e.g. cross-origin endpoints).",
       ),
+    reason: z
+      .string()
+      .describe("Human-readable explanation of the recommendation."),
   }).describe("Eligible OAuth client for an authorization URL."),
 );
 
@@ -3565,9 +3836,9 @@ const UpsertOAuth2CredentialSchema = z
       .describe("Shared OAuth client to back this scheme."),
     scopes: z
       .array(z.string())
-      .optional()
+      .min(1)
       .describe(
-        "Requested scopes; each must be in the client's availableScopes.",
+        "Requested scopes (at least one); validated against the scheme's declared scopes with warnings for undeclared scopes.",
       ),
   })
   .describe("Create or replace (client switch) the OAuth2 shell for a scheme.");
@@ -3720,7 +3991,7 @@ function registerOwnerCredentialPaths(
   upsert(
     "oauth2",
     `Set ${ownerLabel} OAuth2 credential`,
-    "Creates or replaces (client switch) the OAuth2 shell for a scheme: validates requested scopes against the shared client's availableScopes, wipes prior tokens, and resets granted scopes. Complete authorization via the authorize endpoint, /auth/callback, or the code endpoint.",
+    "Creates or replaces (client switch) the OAuth2 shell for a scheme: validates requested scopes against the scheme's declared scopes (warning for undeclared scopes), wipes prior tokens, and resets granted scopes. Complete authorization via the authorize endpoint, /auth/callback, or the code endpoint.",
     UpsertOAuth2CredentialSchema,
   );
 
@@ -3876,7 +4147,7 @@ registry.registerPath({
   tags: ["OAuth Clients"],
   summary: "Create OAuth client",
   description:
-    "Registers a shared OAuth application (secret encrypted at rest). provider and availableScopes are required; [] means an unscoped-only client.",
+    "Registers a shared OAuth application (secret encrypted at rest). Scopes flow from service/module-declared scopes to user-requested scopes to provider-granted scopes.",
   request: { body: { content: jsonContent(CreateOAuthClientSchema) } },
   responses: {
     201: {
@@ -3898,7 +4169,7 @@ registry.registerPath({
   tags: ["OAuth Clients"],
   summary: "Update OAuth client",
   description:
-    "Updates provider, endpoints, redirect URIs, or availableScopes. The client secret is immutable.",
+    "Updates provider, endpoints, or redirect URIs. The client secret is immutable.",
   request: {
     params: z.object({ id: z.string().min(1) }),
     body: { content: jsonContent(PatchOAuthClientSchema) },

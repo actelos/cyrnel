@@ -2,20 +2,25 @@ import {
   ArrowLeft,
   ChevronDown,
   Circle,
+  KeyRound,
   Loader2,
+  Package,
   RotateCcw,
+  ShieldCheck,
+  SlidersHorizontal,
   Trash2,
+  Wrench,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { useNavigate, useParams, useSearchParams } from "react-router";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import remarkGfm from "remark-gfm";
 import useSWR, { useSWRConfig } from "swr";
 import { z } from "zod";
 import AuthSection from "@/components/AuthSection";
 import { EntityIcon } from "@/components/entity-icon";
-import JsonSchemaForm from "@/components/JsonSchemaForm";
-import { ToolCard } from "@/components/tool-card";
+import { JsonSchemaFormSheet } from "@/components/JsonSchemaForm";
+import { ServiceToolWorkbench } from "@/components/service-tool-workbench";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -30,29 +35,40 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ButtonGroup } from "@/components/ui/button-group";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { VersionUpdatesDialog } from "@/components/version-updates-dialog";
 import { useNotification } from "@/hooks/use-notification";
 import { useUpdateSearchParams } from "@/hooks/use-update-search-params";
 import { apiFetch, apiFetchJson, buildUrl, errorMessageFrom } from "@/lib/api";
+import { formatVersion } from "@/lib/format";
 
 const serviceSchema = z.object({
   id: z.string(),
@@ -70,6 +86,8 @@ const serviceDetailsSchema = serviceSchema.extend({
   hash: z.string(),
   version: z.string(),
   source: z.string(),
+  autoUpdate: z.boolean(),
+  autoUpdateConstraint: z.string().nullable(),
   configSchema: z.record(z.string(), z.unknown()),
   secretsSchema: z.record(z.string(), z.unknown()),
   schemes: z
@@ -129,8 +147,27 @@ const toolListSchema = z.object({
   hasMore: z.boolean(),
 });
 
+const updateCheckSchema = z.object({
+  id: z.string(),
+  installed: z.string(),
+  available: z.string().nullable(),
+  constraint: z.string().nullable(),
+  autoUpdate: z.boolean(),
+  updateAvailable: z.boolean(),
+  upToDate: z.boolean(),
+  hasSource: z.boolean(),
+});
+
+const versionsSchema = z.object({
+  id: z.string(),
+  installed: z.string(),
+  latest: z.string().nullable(),
+  versions: z.array(z.string()),
+});
+
+type UpdateCheck = z.infer<typeof updateCheckSchema>;
+
 type Service = z.infer<typeof serviceSchema>;
-type Tool = z.infer<typeof toolSchema>;
 
 function buildFormSkeleton(
   schema: Record<string, unknown>,
@@ -192,22 +229,18 @@ export default function ServiceDetailPage() {
   const [isUpdating, setIsUpdating] = useState(false);
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
   const [isUpdateDialogOpen, setIsUpdateDialogOpen] = useState(false);
-  const [hasUpdate, setHasUpdate] = useState(false);
+  const [isVersionDialogOpen, setIsVersionDialogOpen] = useState(false);
+  const [updateCheck, setUpdateCheck] = useState<UpdateCheck | null>(null);
   const [isManualUpdateOpen, setIsManualUpdateOpen] = useState(false);
+  const [constraintDraft, setConstraintDraft] = useState<string | undefined>(
+    undefined,
+  );
+  const [isSavingAutoUpdate, setIsSavingAutoUpdate] = useState(false);
   const [manualUpdateUrl, setManualUpdateUrl] = useState("");
   const [isManualUpdating, setIsManualUpdating] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [searchParams] = useSearchParams();
   const updateSearchParams = useUpdateSearchParams();
-
-  const toolQuery = searchParams.get("q") ?? "";
-  const rawToolPolicy = searchParams.get("policy");
-  const toolPolicyFilter =
-    rawToolPolicy === "allow" ||
-    rawToolPolicy === "block" ||
-    rawToolPolicy === "ask"
-      ? rawToolPolicy
-      : "all";
 
   const handleBack = () => {
     const idx = (window.history.state as { idx?: number } | null)?.idx;
@@ -248,92 +281,47 @@ export default function ServiceDetailPage() {
     { refreshInterval: 12000 },
   );
 
-  const { data: updateCheck } = useSWR(
-    serviceDetails?.source ? `service-update-${serviceId}` : null,
-    async () => {
-      if (!serviceDetails?.source) return { hasUpdate: false };
-      try {
-        const res = await fetch(serviceDetails.source);
-        const data = (await res.json()) as { hash?: string };
-        if (!data.hash) return { hasUpdate: false };
-        return { hasUpdate: data.hash !== serviceDetails.hash };
-      } catch {
-        return { hasUpdate: false };
-      }
-    },
+  // Update checks run server-side against the stored registry source; the
+  // browser never fetches registry descriptors directly.
+  const versionsUrl =
+    serviceId && serviceDetails?.source
+      ? buildUrl(`/services/${serviceId}/versions`)
+      : null;
+
+  const { data: versionsData } = useSWR(
+    versionsUrl,
+    (url) => apiFetchJson(url, versionsSchema),
     { refreshInterval: 120_000 },
   );
 
   useEffect(() => {
-    if (updateCheck) {
-      setHasUpdate(updateCheck.hasUpdate);
+    setUpdateCheck(null);
+    setConstraintDraft(undefined);
+    setIsVersionDialogOpen(false);
+    setIsManualUpdateOpen(false);
+    // Reference serviceId so update state resets when navigating services.
+    void serviceId;
+  }, [serviceId]);
+
+  useEffect(() => {
+    if (serviceDetails && constraintDraft === undefined) {
+      setConstraintDraft(serviceDetails.autoUpdateConstraint ?? "");
     }
-  }, [updateCheck]);
+  }, [serviceDetails, constraintDraft]);
+
+  const hasUpdate = updateCheck?.updateAvailable ?? false;
 
   const {
     data: toolList,
     error: toolsError,
     isLoading: isLoadingTools,
-    isValidating: isToolListValidating,
   } = useSWR(toolsUrl, (url) => apiFetchJson(url, toolListSchema), {
     refreshInterval: 12000,
   });
 
-  const [extraTools, setExtraTools] = useState<Tool[]>([]);
-  const [nextToolCursor, setNextToolCursor] = useState<string | null>(null);
-  const [isLoadingMoreTools, setIsLoadingMoreTools] = useState(false);
-  const [loadMoreToolsError, setLoadMoreToolsError] = useState<string | null>(
-    null,
-  );
-  const paginationVersionRef = useRef(0);
-
-  useEffect(() => {
-    if (toolsUrl === null) return;
-    paginationVersionRef.current += 1;
-    setExtraTools([]);
-    setNextToolCursor(null);
-    setLoadMoreToolsError(null);
-  }, [toolsUrl]);
-
-  useEffect(() => {
-    if (
-      extraTools.length === 0 &&
-      toolList !== undefined &&
-      !isToolListValidating
-    ) {
-      setNextToolCursor(toolList.nextCursor);
-    }
-  }, [toolList, extraTools.length, isToolListValidating]);
-
-  const tools = useMemo(() => {
-    const seen = new Set<string>();
-    const merged: Tool[] = [];
-    for (const tool of [...(toolList?.items ?? []), ...extraTools]) {
-      if (seen.has(tool.id)) continue;
-      seen.add(tool.id);
-      merged.push(tool);
-    }
-    return merged;
-  }, [toolList, extraTools]);
-
-  const filteredTools = useMemo(() => {
-    const query = toolQuery.trim().toLowerCase();
-    return tools.filter(
-      (tool) =>
-        (toolPolicyFilter === "all" ||
-          (tool.policy?.decision ?? "ask") === toolPolicyFilter) &&
-        (!query ||
-          [tool.name, tool.id, tool.summary, tool.description].some((field) =>
-            field.toLowerCase().includes(query),
-          )),
-    );
-  }, [tools, toolQuery, toolPolicyFilter]);
+  const tools = useMemo(() => toolList?.items ?? [], [toolList]);
 
   const refreshTools = async () => {
-    paginationVersionRef.current += 1;
-    setExtraTools([]);
-    setNextToolCursor(null);
-    setLoadMoreToolsError(null);
     if (toolsUrl) await mutate(toolsUrl);
   };
 
@@ -342,35 +330,6 @@ export default function ServiceDetailPage() {
       (key) =>
         typeof key === "string" && key.startsWith(`${buildUrl("/services")}?`),
     );
-  };
-
-  const loadMoreTools = async () => {
-    if (toolsUrl === null || nextToolCursor === null || isLoadingMoreTools) {
-      return;
-    }
-    const startedVersion = paginationVersionRef.current;
-    setIsLoadingMoreTools(true);
-    setLoadMoreToolsError(null);
-    try {
-      const data = await apiFetchJson(
-        buildUrl("/tools", {
-          serviceId,
-          limit: "100",
-          cursor: nextToolCursor,
-        }),
-        toolListSchema,
-      );
-      if (paginationVersionRef.current !== startedVersion) return;
-      setExtraTools((previous) => [...previous, ...data.items]);
-      setNextToolCursor(data.nextCursor);
-    } catch (error) {
-      if (paginationVersionRef.current !== startedVersion) return;
-      setLoadMoreToolsError(
-        errorMessageFrom(error, "Failed to load more tools."),
-      );
-    } finally {
-      setIsLoadingMoreTools(false);
-    }
   };
 
   const { data: serviceConfig } = useSWR(
@@ -448,10 +407,36 @@ export default function ServiceDetailPage() {
     return list;
   }, [hasTools, hasConfig, hasSecrets, hasAuth]);
 
-  const defaultTab = availableTabs[0] ?? "tools";
-
   const rawTab = searchParams.get("tab");
-  const tab = rawTab && availableTabs.includes(rawTab) ? rawTab : defaultTab;
+  const activeSheet = rawTab && availableTabs.includes(rawTab) ? rawTab : null;
+  const isSheetOpen = activeSheet !== null;
+
+  const openSheet = (value: string) => {
+    updateSearchParams({ tab: value });
+  };
+
+  const closeSheet = () => {
+    updateSearchParams({ tab: undefined });
+  };
+
+  const sheetTitles: Record<string, { title: string; description: string }> = {
+    tools: {
+      title: "Tools",
+      description: "Browse tools and inspect a tool in place.",
+    },
+    configuration: {
+      title: "Configuration",
+      description: "Non-secret settings for this service.",
+    },
+    secrets: {
+      title: "Secrets",
+      description: "Secret values for this service.",
+    },
+    authentication: {
+      title: "Authentication",
+      description: "Credentials for this service's auth schemes.",
+    },
+  };
 
   const handleRefetchAll = async () => {
     if (configUrl) await mutate(configUrl);
@@ -471,25 +456,36 @@ export default function ServiceDetailPage() {
 
     setIsCheckingUpdate(true);
     try {
-      const res = await fetch(serviceDetails.source);
-      const data = (await res.json()) as { hash?: string };
+      const check = await apiFetchJson(
+        buildUrl(`/services/${serviceDetails.id}/update-check`),
+        updateCheckSchema,
+      );
+      setUpdateCheck(check);
 
-      if (data.hash && data.hash === serviceDetails.hash) {
+      if (!check.hasSource) {
         addNotification({
-          type: "success",
-          title: "Up to date",
-          message: "Service is up to date.",
+          type: "warning",
+          title: "Update unavailable",
+          message:
+            "This service has no registry source. Use manual update with a direct URL.",
         });
-        setHasUpdate(false);
         return;
       }
 
-      setHasUpdate(true);
+      if (check.upToDate) {
+        addNotification({
+          type: "success",
+          title: "Up to date",
+          message: `Installed ${formatVersion(check.installed)}${check.constraint ? ` matches update policy ${check.constraint}` : " is the latest"}.`,
+        });
+        return;
+      }
+
       setIsUpdateDialogOpen(true);
     } catch (error) {
       addNotification({
         type: "error",
-        title: "Error",
+        title: "Update check failed",
         message: errorMessageFrom(error, "Unable to check for updates."),
       });
     } finally {
@@ -501,30 +497,110 @@ export default function ServiceDetailPage() {
     setIsUpdating(true);
     setIsUpdateDialogOpen(false);
     try {
-      await apiFetch(buildUrl(`/services/${id}/update`), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
+      const result = await apiFetchJson(
+        buildUrl(`/services/${id}/update`),
+        z.object({
+          updated: z.boolean(),
+          fromVersion: z.string(),
+          toVersion: z.string(),
+        }),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            constraint: updateCheck?.constraint ?? null,
+          }),
+        },
+      );
 
       await refreshServiceLists();
       if (serviceDetailsUrl) {
         await mutate(serviceDetailsUrl);
       }
       await refreshTools();
+      setUpdateCheck(null);
       addNotification({
         type: "success",
-        title: "Success",
-        message: "Service updated.",
+        title: result.updated ? "Service updated" : "Already current",
+        message: result.updated
+          ? `Updated from ${formatVersion(result.fromVersion)} → ${formatVersion(result.toVersion)}.`
+          : `Already at ${formatVersion(result.toVersion)}.`,
       });
     } catch (error) {
       addNotification({
         type: "error",
-        title: "Error",
+        title: "Service update failed",
         message: errorMessageFrom(error, "Unable to update service."),
       });
     } finally {
       setIsUpdating(false);
+    }
+  };
+
+  const handleToggleAutoUpdate = async (next: boolean) => {
+    if (!serviceDetails) return;
+    setIsSavingAutoUpdate(true);
+    try {
+      await apiFetch(buildUrl(`/services/${serviceDetails.id}/auto-update`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          autoUpdate: next,
+          constraint:
+            (constraintDraft ?? "").trim().length > 0
+              ? (constraintDraft?.trim() ?? null)
+              : null,
+        }),
+      });
+      if (serviceDetailsUrl) await mutate(serviceDetailsUrl);
+      addNotification({
+        type: "success",
+        title: next ? "Automatic updates on" : "Automatic updates off",
+        message: next
+          ? "This service will follow its update policy on the background sweep."
+          : "Automatic updates are off for this service.",
+      });
+    } catch (error) {
+      addNotification({
+        type: "error",
+        title: "Automatic update change failed",
+        message: errorMessageFrom(error, "Unable to change auto-update."),
+      });
+    } finally {
+      setIsSavingAutoUpdate(false);
+    }
+  };
+
+  const handleSaveConstraint = async () => {
+    if (!serviceDetails) return;
+    const trimmed = (constraintDraft ?? "").trim();
+    setIsSavingAutoUpdate(true);
+    try {
+      await apiFetch(buildUrl(`/services/${serviceDetails.id}/auto-update`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          autoUpdate: serviceDetails.autoUpdate,
+          constraint: trimmed.length > 0 ? trimmed : null,
+        }),
+      });
+      if (serviceDetailsUrl) await mutate(serviceDetailsUrl);
+      addNotification({
+        type: "success",
+        title: "Update policy saved",
+        message:
+          trimmed.length > 0
+            ? `Update policy set to ${trimmed}.`
+            : "Update policy set to latest.",
+      });
+    } catch (error) {
+      addNotification({
+        type: "error",
+        title: "Update policy save failed",
+        message: errorMessageFrom(error, "Unable to save update policy."),
+      });
+    } finally {
+      setIsSavingAutoUpdate(false);
     }
   };
 
@@ -533,7 +609,7 @@ export default function ServiceDetailPage() {
     if (!trimmed) {
       addNotification({
         type: "error",
-        title: "Error",
+        title: "URL required",
         message: "URL is required.",
       });
       return;
@@ -555,13 +631,13 @@ export default function ServiceDetailPage() {
       await refreshTools();
       addNotification({
         type: "success",
-        title: "Success",
+        title: "Service updated",
         message: "Service updated.",
       });
     } catch (error) {
       addNotification({
         type: "error",
-        title: "Error",
+        title: "Service update failed",
         message: errorMessageFrom(error, "Unable to update service."),
       });
     } finally {
@@ -583,13 +659,13 @@ export default function ServiceDetailPage() {
       await refreshTools();
       addNotification({
         type: "success",
-        title: "Success",
+        title: "Service synced",
         message: "Service synced.",
       });
     } catch (error) {
       addNotification({
         type: "error",
-        title: "Error",
+        title: "Service sync failed",
         message: errorMessageFrom(error, "Unable to sync service."),
       });
     } finally {
@@ -612,40 +688,14 @@ export default function ServiceDetailPage() {
       await refreshTools();
       addNotification({
         type: "success",
-        title: "Success",
+        title: `Service ${enabled ? "enabled" : "disabled"}`,
         message: `Service ${enabled ? "enabled" : "disabled"}.`,
       });
     } catch (error) {
       addNotification({
         type: "error",
-        title: "Error",
+        title: "Service state update failed",
         message: errorMessageFrom(error, "Unable to update service state."),
-      });
-    }
-  };
-
-  const handleSetToolPolicy = async (
-    serviceId: string,
-    toolId: string,
-    decision: "allow" | "block" | "ask",
-  ) => {
-    try {
-      await apiFetch(buildUrl(`/tools/${serviceId}/${toolId}/policy`), {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ decision }),
-      });
-      if (toolsUrl) await mutate(toolsUrl);
-      addNotification({
-        type: "success",
-        title: "Success",
-        message: `Tool policy set to ${decision}.`,
-      });
-    } catch (error) {
-      addNotification({
-        type: "error",
-        title: "Error",
-        message: errorMessageFrom(error, "Unable to update tool policy."),
       });
     }
   };
@@ -664,14 +714,14 @@ export default function ServiceDetailPage() {
 
       addNotification({
         type: "success",
-        title: "Success",
+        title: "Service uninstalled",
         message: "Service uninstalled.",
       });
       navigate("/services");
     } catch (error) {
       addNotification({
         type: "error",
-        title: "Error",
+        title: "Service deletion failed",
         message: errorMessageFrom(error, "Unable to delete service."),
       });
     }
@@ -684,8 +734,8 @@ export default function ServiceDetailPage() {
 
   return (
     <>
-      <section className="flex min-h-0 flex-1 flex-col">
-        <header className="sticky top-0 z-10 shrink-0 space-y-4 border-b bg-background p-6">
+      <section className="flex h-svh flex-col px-6 pb-6">
+        <header className="sticky top-0 z-10 shrink-0 -mx-6 space-y-4 border-b bg-background p-6">
           <div>
             <Button
               type="button"
@@ -706,7 +756,7 @@ export default function ServiceDetailPage() {
 
           {serviceDetails ? (
             <>
-              <div className="flex items-start gap-2">
+              <div className="flex items-start gap-3">
                 <EntityIcon
                   kind="service"
                   id={serviceDetails.id}
@@ -718,7 +768,11 @@ export default function ServiceDetailPage() {
                     <h2 className="text-md font-semibold">
                       {serviceDetails.name}
                     </h2>
-                    <Badge variant="secondary">{serviceDetails.adapter}</Badge>
+                    <Link to={`/settings/modules/${serviceDetails.adapter}`}>
+                      <Badge variant="secondary">
+                        {serviceDetails.adapter}
+                      </Badge>
+                    </Link>
                     {serviceDetails.stale ? (
                       <Badge variant="destructive">Stale</Badge>
                     ) : null}
@@ -784,6 +838,11 @@ export default function ServiceDetailPage() {
                           Check for update
                         </DropdownMenuItem>
                         <DropdownMenuItem
+                          onClick={() => setIsVersionDialogOpen(true)}
+                        >
+                          Version & updates…
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
                           onClick={() => setIsManualUpdateOpen(true)}
                         >
                           Manual update
@@ -792,59 +851,13 @@ export default function ServiceDetailPage() {
                     </DropdownMenu>
                   </ButtonGroup>
                 ) : (
-                  <Popover
-                    open={isManualUpdateOpen}
-                    onOpenChange={setIsManualUpdateOpen}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setIsManualUpdateOpen(true)}
                   >
-                    <PopoverTrigger asChild>
-                      <Button type="button" variant="outline">
-                        Manual update
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent align="end" className="w-md">
-                      <div className="space-y-4">
-                        <div className="space-y-1">
-                          <h3 className="text-sm font-medium">Manual update</h3>
-                          <p className="text-muted-foreground text-xs">
-                            Provide a new definition URL.
-                          </p>
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="service-update-url">
-                            Definition URL
-                          </Label>
-                          <Input
-                            id="service-update-url"
-                            onChange={(event) =>
-                              setManualUpdateUrl(event.target.value)
-                            }
-                            placeholder="https://example.com/manifest.json"
-                            value={manualUpdateUrl}
-                          />
-                        </div>
-                        <div className="flex items-center justify-end gap-2">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => setIsManualUpdateOpen(false)}
-                          >
-                            Cancel
-                          </Button>
-                          <Button
-                            type="button"
-                            disabled={
-                              isManualUpdating || !manualUpdateUrl.trim()
-                            }
-                            onClick={() =>
-                              void handleManualUpdate(serviceDetails.id)
-                            }
-                          >
-                            {isManualUpdating ? "Updating" : "Update"}
-                          </Button>
-                        </div>
-                      </div>
-                    </PopoverContent>
-                  </Popover>
+                    Manual update
+                  </Button>
                 )}
                 {serviceDetails.stale ? (
                   <Button
@@ -871,14 +884,62 @@ export default function ServiceDetailPage() {
                   <Trash2 />
                   Uninstall
                 </Button>
+                {hasTools ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="gap-2"
+                    onClick={() => openSheet("tools")}
+                  >
+                    <Wrench />
+                    Tools (
+                    {isLoadingTools
+                      ? "…"
+                      : `${tools.length}${toolList?.hasMore ? "+" : ""}`}
+                    )
+                  </Button>
+                ) : null}
+                {hasConfig ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="gap-2"
+                    onClick={() => openSheet("configuration")}
+                  >
+                    <SlidersHorizontal />
+                    Configuration
+                  </Button>
+                ) : null}
+                {hasSecrets ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="gap-2"
+                    onClick={() => openSheet("secrets")}
+                  >
+                    <KeyRound />
+                    Secrets
+                  </Button>
+                ) : null}
+                {hasAuth && serviceDetails.schemes ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="gap-2"
+                    onClick={() => openSheet("authentication")}
+                  >
+                    <ShieldCheck />
+                    Authentication
+                  </Button>
+                ) : null}
               </div>
             </>
           ) : null}
         </header>
 
         {serviceDetails ? (
-          <div className="flex min-h-0 flex-1 flex-col gap-6 p-6">
-            <div className="space-y-2">
+          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+            <div className="space-y-2 pt-6">
               {serviceDetails.description ? (
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
@@ -897,188 +958,148 @@ export default function ServiceDetailPage() {
               )}
             </div>
 
-            {availableTabs.length > 0 ? (
-              <Tabs
-                value={tab}
-                onValueChange={(value) =>
-                  updateSearchParams({
-                    tab: value === defaultTab ? undefined : value,
-                  })
-                }
-              >
-                <TabsList>
-                  {hasTools ? (
-                    <TabsTrigger value="tools">
-                      Tools (
-                      {isLoadingTools
-                        ? "…"
-                        : `${tools.length}${nextToolCursor !== null ? "+" : ""}`}
-                      )
-                    </TabsTrigger>
-                  ) : null}
-                  {hasConfig ? (
-                    <TabsTrigger value="configuration">
-                      Configuration
-                    </TabsTrigger>
-                  ) : null}
-                  {hasSecrets ? (
-                    <TabsTrigger value="secrets">Secrets</TabsTrigger>
-                  ) : null}
-                  {hasAuth && serviceDetails.schemes ? (
-                    <TabsTrigger value="authentication">
-                      Authentication
-                      <Badge variant="secondary" size="sm" className="p-1.5">
-                        {Object.keys(serviceDetails.schemes).length}
-                      </Badge>
-                    </TabsTrigger>
-                  ) : null}
-                </TabsList>
-                {hasTools ? (
-                  <TabsContent value="tools" className="space-y-3">
-                    {toolsError ? (
-                      <p className="text-sm text-destructive">
-                        Failed to load tools.
-                      </p>
-                    ) : null}
-                    <div className="flex flex-wrap items-center gap-3">
-                      <div className="flex min-w-[200px] flex-1 items-center gap-2">
-                        <Input
-                          placeholder="Search tools"
-                          value={toolQuery}
-                          onChange={(event) =>
-                            updateSearchParams({
-                              q: event.target.value || undefined,
-                            })
-                          }
-                        />
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Select
-                          value={toolPolicyFilter}
-                          onValueChange={(value) =>
-                            updateSearchParams({
-                              policy: value === "all" ? undefined : value,
-                            })
-                          }
-                        >
-                          <SelectTrigger className="min-w-[140px] flex-1 sm:w-[170px] sm:flex-none">
-                            <SelectValue placeholder="Policy" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="all">All policies</SelectItem>
-                            <SelectItem value="allow">Allow</SelectItem>
-                            <SelectItem value="block">Block</SelectItem>
-                            <SelectItem value="ask">Ask</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        {toolQuery.trim() || toolPolicyFilter !== "all" ? (
-                          <p className="text-muted-foreground text-xs whitespace-nowrap">
-                            {filteredTools.length} of {tools.length}
-                          </p>
-                        ) : null}
-                      </div>
-                    </div>
-                    {tools.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">
-                        No tools registered for this service.
-                      </p>
-                    ) : filteredTools.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">
-                        No tools match the current filters.
-                      </p>
-                    ) : null}
-
-                    <div className="space-y-3">
-                      {filteredTools.map((tool) => (
-                        <ToolCard
-                          key={tool.id}
-                          tool={tool}
-                          onPolicyChange={(decision) =>
-                            void handleSetToolPolicy(
-                              serviceDetails.id,
-                              tool.id,
-                              decision,
-                            )
-                          }
-                        />
-                      ))}
-                    </div>
-                    {nextToolCursor !== null ? (
-                      <div className="flex justify-center p-4">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="gap-2"
-                          disabled={isLoadingMoreTools}
-                          onClick={() => void loadMoreTools()}
-                        >
-                          <ChevronDown />
-                          {isLoadingMoreTools ? "Loading more…" : "Load more"}
-                        </Button>
-                      </div>
-                    ) : null}
-                    {loadMoreToolsError !== null ? (
-                      <p className="p-4 text-sm text-destructive">
-                        {loadMoreToolsError}
-                      </p>
-                    ) : null}
-                  </TabsContent>
-                ) : null}
-                {hasConfig ? (
-                  <TabsContent value="configuration">
-                    <JsonSchemaForm
-                      schema={
-                        serviceConfigSchemaPayload?.configSchema ??
-                        serviceDetails.configSchema ??
-                        {}
-                      }
-                      currentValues={
-                        (serviceConfig?.config ?? {}) as Record<string, unknown>
-                      }
-                      patchUrl={buildUrl(
-                        `/services/${serviceDetails.id}/config`,
-                      )}
-                      outdatedPaths={serviceConfig?.outdated}
-                      onSaved={handleRefetchAll}
-                    />
-                  </TabsContent>
-                ) : null}
-                {hasSecrets ? (
-                  <TabsContent value="secrets">
-                    <JsonSchemaForm
-                      schema={
-                        serviceSecretsSchemaPayload?.secretsSchema ??
-                        serviceDetails.secretsSchema ??
-                        {}
-                      }
-                      currentValues={currentSecretsValues}
-                      presentSet={presentSet}
-                      patchUrl={buildUrl(
-                        `/services/${serviceDetails.id}/secrets`,
-                      )}
-                      outdatedPaths={serviceSecretsPresence?.outdated}
-                      onSaved={handleRefetchAll}
-                    />
-                  </TabsContent>
-                ) : null}
-                {hasAuth && serviceDetails.schemes ? (
-                  <TabsContent value="authentication">
-                    <AuthSection
-                      target={{ kind: "service", id: serviceDetails.id }}
-                      authSchemes={serviceDetails.schemes}
-                    />
-                  </TabsContent>
-                ) : null}
-              </Tabs>
-            ) : (
-              <p className="text-muted-foreground text-sm">
-                No tools, configuration, or secrets available for this service.
-              </p>
-            )}
+            {availableTabs.length === 0 ? (
+              <div className="flex items-center justify-center h-full py-12">
+                <Empty>
+                  <EmptyHeader>
+                    <EmptyMedia variant="icon">
+                      <Package aria-hidden />
+                    </EmptyMedia>
+                    <EmptyTitle>Nothing to configure</EmptyTitle>
+                    <EmptyDescription>
+                      No tools, configuration, or secrets available for this
+                      service.
+                    </EmptyDescription>
+                  </EmptyHeader>
+                </Empty>
+              </div>
+            ) : null}
           </div>
         ) : null}
       </section>
 
+      {serviceDetails && isSheetOpen ? (
+        <Sheet
+          open={isSheetOpen}
+          onOpenChange={(open) => {
+            if (!open) closeSheet();
+          }}
+        >
+          <SheetContent
+            side="right"
+            className="data-[side=right]:w-full data-[side=right]:sm:max-w-lg"
+          >
+            <SheetHeader className="text-left">
+              <SheetTitle>
+                {activeSheet ? sheetTitles[activeSheet]?.title : ""}
+              </SheetTitle>
+              <SheetDescription>
+                {activeSheet ? sheetTitles[activeSheet]?.description : ""}
+              </SheetDescription>
+            </SheetHeader>
+            {activeSheet === "tools" || activeSheet === "authentication" ? (
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-4">
+                {activeSheet === "tools" && hasTools ? (
+                  <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                    <ServiceToolWorkbench serviceId={serviceDetails.id} />
+                  </div>
+                ) : null}
+                {activeSheet === "authentication" &&
+                hasAuth &&
+                serviceDetails.schemes ? (
+                  <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                    <AuthSection
+                      target={{ kind: "service", id: serviceDetails.id }}
+                      authSchemes={serviceDetails.schemes}
+                    />
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+            {activeSheet === "configuration" && hasConfig ? (
+              <JsonSchemaFormSheet
+                schema={
+                  serviceConfigSchemaPayload?.configSchema ??
+                  serviceDetails.configSchema ??
+                  {}
+                }
+                currentValues={
+                  (serviceConfig?.config ?? {}) as Record<string, unknown>
+                }
+                patchUrl={buildUrl(`/services/${serviceDetails.id}/config`)}
+                outdatedPaths={serviceConfig?.outdated}
+                onSaved={handleRefetchAll}
+              />
+            ) : null}
+            {activeSheet === "secrets" && hasSecrets ? (
+              <JsonSchemaFormSheet
+                schema={
+                  serviceSecretsSchemaPayload?.secretsSchema ??
+                  serviceDetails.secretsSchema ??
+                  {}
+                }
+                currentValues={currentSecretsValues}
+                presentSet={presentSet}
+                patchUrl={buildUrl(`/services/${serviceDetails.id}/secrets`)}
+                outdatedPaths={serviceSecretsPresence?.outdated}
+                onSaved={handleRefetchAll}
+              />
+            ) : null}
+          </SheetContent>
+        </Sheet>
+      ) : null}
+
+      {serviceDetails ? (
+        <VersionUpdatesDialog
+          open={isVersionDialogOpen}
+          onOpenChange={setIsVersionDialogOpen}
+          kind="service"
+          installedVersion={serviceDetails.version}
+          autoUpdate={serviceDetails.autoUpdate}
+          autoUpdateConstraint={serviceDetails.autoUpdateConstraint}
+          hasSource={Boolean(serviceDetails.source)}
+          latest={versionsData?.latest ?? null}
+          available={updateCheck?.available ?? null}
+          upToDate={updateCheck ? updateCheck.upToDate : null}
+          constraintDraft={constraintDraft ?? ""}
+          onConstraintDraftChange={setConstraintDraft}
+          isSaving={isSavingAutoUpdate}
+          isChecking={isCheckingUpdate}
+          onToggleAutoUpdate={(next) => void handleToggleAutoUpdate(next)}
+          onSaveConstraint={() => void handleSaveConstraint()}
+          onCheckForUpdate={() => void handleCheckForUpdate()}
+        />
+      ) : null}
+      <Dialog open={isManualUpdateOpen} onOpenChange={setIsManualUpdateOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Manual update</DialogTitle>
+            <DialogDescription>
+              Provide a new definition URL for this service.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 pt-2">
+            <Label htmlFor="service-update-url">Definition URL</Label>
+            <Input
+              id="service-update-url"
+              onChange={(event) => setManualUpdateUrl(event.target.value)}
+              placeholder="https://example.com/manifest.json"
+              value={manualUpdateUrl}
+            />
+          </div>
+          <DialogFooter className="pt-2">
+            <Button
+              type="button"
+              disabled={isManualUpdating || !manualUpdateUrl.trim()}
+              onClick={() =>
+                serviceDetails && void handleManualUpdate(serviceDetails.id)
+              }
+            >
+              {isManualUpdating ? "Updating" : "Update"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <AlertDialog
         open={isUpdateDialogOpen}
         onOpenChange={(open) => {
@@ -1089,7 +1110,9 @@ export default function ServiceDetailPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Update available</AlertDialogTitle>
             <AlertDialogDescription>
-              A new version of this service is available. Update now?
+              {updateCheck?.available
+                ? `Update from ${formatVersion(updateCheck.installed)} → ${formatVersion(updateCheck.available)}${updateCheck.constraint ? ` (policy ${updateCheck.constraint})` : ""}?`
+                : "A new version of this service is available. Update now?"}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

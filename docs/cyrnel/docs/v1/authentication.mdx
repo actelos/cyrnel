@@ -63,35 +63,33 @@ to.
 - **OAuth clients** (`GET /oauth-clients`) are global, reusable app
   registrations: `provider` (required display/grouping label only —
   never used for resolution), `clientId`, encrypted `clientSecret`,
-  `tokenUrl`, optional `authorizationUrl`, `clientAuthMethod`,
-  `redirectUris: string[]`, and `availableScopes: string[]`
-  (required; `[]` means the client may only back unscoped
-  credentials). Deleting a client returns `409` while any owned
-  credential still references it. The list endpoint never emits
-  `clientSecret`.
+  `tokenUrl`, optional `authorizationUrl`, `clientAuthMethod`, and
+  `redirectUris: string[]`. Scope choices come from the
+  service/module-declared scopes, not the client. Deleting a client
+  returns `409` while any owned credential still references it. The
+  list endpoint never emits `clientSecret`.
 - **In-flight OAuth state** uses PKCE (`S256` always) with a 10-minute
   TTL. The sweeper prunes expired rows alongside expiring tokens.
 
 Credential values never leave the server. List/detail endpoints return
 metadata only (configured flags, status, scopes) — never secrets.
 
-## Scopes: available vs requested vs granted vs required
+## Scopes: declared vs requested vs granted vs required
 
 Four distinct concepts — each has one owner, one lifecycle, and one
 enforcement point:
 
 ```text
-OAuth Client                  Credential                  Provider              Operation
-availableScopes               requestedScopes ──grant──▶  grantedScopes ──check▶ requiredScopes
+Scheme declaration            Credential                  Provider              Operation
+declared scopes               requestedScopes ──grant──▶  grantedScopes ──check▶ requiredScopes
 (what may be asked)           (what was asked)            (what was given)      (what is demanded)
-owner: client                 owner: credential           owner: credential     owner: tool/route
-enforced: at creation (400)   stored, never overwritten   parsed from `scope`   enforced: at invoke (refusal)
+owner: service/module         owner: credential           owner: credential     owner: tool/route
+shown: picker options         stored, never overwritten   parsed from `scope`   enforced: at invoke (refusal)
 ```
 
-1. **Available** — scopes a client is configured to permit. The
-   operator picks from this list when claiming a scheme slot; the pick
-   is stored as the credential's **requested** scopes. Enforced:
-   `requested ⊆ available`, else `400`.
+1. **Declared** — scopes a scheme advertises. The operator picks from
+   this list when claiming a scheme slot; the pick is stored as the
+   credential's **requested** scopes.
 2. **Requested** — scopes the credential wants. Stored at creation and
    copied into the pending row at authorize time; the authorize call
    sends `scope = requested.join(" ")`. Never overwritten by the
@@ -159,21 +157,21 @@ curl -X POST http://localhost:9371/oauth-clients \
     "clientId": "...",
     "clientSecret": "...",
     "tokenUrl": "https://github.com/login/oauth/access_token",
-    "authorizationUrl": "https://github.com/login/oauth/authorize",
-    "availableScopes": ["repo"]
+    "authorizationUrl": "https://github.com/login/oauth/authorize"
   }'
 ```
 
-`provider` and `availableScopes` are required. `availableScopes: []`
-means the client may only back unscoped credentials. Clients can also
-be listed, resolved, patched, and deleted:
+Only `provider`, `clientId`, `clientSecret`, and `tokenUrl` are
+required; scope choices come from the service/module-declared scopes
+at claim time. Clients can also be listed, resolved, patched, and
+deleted:
 
 | Method | Path | Notes |
 | --- | --- | --- |
 | `GET` | `/oauth-clients` | Public fields only (never `clientSecret`) |
 | `GET` | `/oauth-clients/resolve?authorizationUrl=...&scopes=...` | Ranked candidates for a scheme, `30/min` |
-| `POST` | `/oauth-clients` | `{ provider, clientId, clientSecret, tokenUrl, authorizationUrl?, clientAuthMethod?, redirectUris?, availableScopes }` → `201`, `10/min` |
-| `PATCH` | `/oauth-clients/:id` | Update `provider`, endpoints, `availableScopes`, etc., `10/min` |
+| `POST` | `/oauth-clients` | `{ provider, clientId, clientSecret, tokenUrl, authorizationUrl?, clientAuthMethod?, redirectUris? }` → `201`, `10/min` |
+| `PATCH` | `/oauth-clients/:id` | Update `provider`, endpoints, redirect URIs, etc., `10/min` |
 | `DELETE` | `/oauth-clients/:id` | `204`; `409` while referenced by any owned credential, `10/min` |
 
 ### 2. Claim the scheme slot
@@ -251,13 +249,14 @@ resolves which shared clients can back it:
    authorization and token endpoints share an origin. Cross-origin
    rows are excluded from auto-resolution and shown in the picker
    with a warning.
-3. **Ranking, then choice.** Survivors are ranked by scope
-   compatibility (`availableScopes ⊇ requested` preferred) and recent
-   use. The token URL never ranks: if two survivors have differing
-   token endpoints, that is genuine ambiguity — no auto-pick. The UI
-   renders a primary `Sign in with {provider ?? hostname}` button only
-   when exactly one client survives (or several share byte-identical
-   endpoints, broken by recency), with a split-dropdown chevron for
+3. **Ranking, then choice.** Survivors are ranked by authorization
+   and token endpoint compatibility (same-origin endpoints required)
+   and recent use. The token URL never ranks: if two survivors have
+   differing token endpoints, that is genuine ambiguity — no
+   auto-pick. The UI renders a primary
+   `Sign in with {provider ?? hostname}` button only when exactly one
+   client survives (or several share byte-identical endpoints, broken
+   by recency), with a split-dropdown chevron for
    "Choose another client…" / "Create new client…". Zero or ambiguous
    matches render the picker list first, then the create affordance.
 
@@ -323,9 +322,8 @@ Full request/response schemas are in the
 ## Web UI
 
 - **`/authentication` page:** OAuth clients table only (`provider`,
-  `clientId`, `tokenUrl`, `authorizationUrl`, `availableScopes`,
-  used-by counts, create/edit/delete). There is no global
-  credentials page.
+  `clientId`, `tokenUrl`, `authorizationUrl`, used-by counts,
+  create/edit/delete). There is no global credentials page.
 - **Service / module / registry detail → Authentication card:** shown
   only when the owner declares non-empty `schemes`. Per-scheme status
   plus granted scopes; inputs for `apiKey` / `basic` / `bearer`;

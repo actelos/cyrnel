@@ -330,9 +330,9 @@ service: each declared scheme has one slot holding at most one credential
 
 - Claim a slot: `PUT /services/:serviceId/credentials/:scheme/api-key |
   /basic | /bearer | /oauth2` (all `10/min`). `PUT .../oauth2` takes
-  `{ oauthClientId, scopes? }`; `requested ⊆ client.availableScopes` is
-  enforced (`400`), while scopes the scheme does not declare succeed
-  with `warning: { unknownScopes }`.
+  `{ oauthClientId, scopes }` (at least one scope required); scopes
+  the scheme does not declare succeed with
+  `warning: { unknownScopes }`.
 - Disconnect a slot: `DELETE /services/:serviceId/credentials/:scheme`
   (`204`). Deleting the service cascades its credentials.
 - OAuth2 authorize: `POST /services/:serviceId/credentials/:scheme/oauth/authorize`

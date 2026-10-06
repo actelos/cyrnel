@@ -6,11 +6,13 @@ import {
   browseModules,
   deleteRegistry,
   deleteRegistryAuth,
+  getDefaultRegistry,
   getDefinitionIcon,
   getModuleIcon,
   getRegistryAuth,
   listRegistries,
   refreshRegistry,
+  setDefaultRegistry,
   setRegistryAuth,
 } from "@/controllers/registry.controller";
 import { createRateLimiter } from "@/middleware/rate-limit.middleware";
@@ -24,6 +26,12 @@ registryRouter.post(
   addRegistry,
 );
 registryRouter.get("/", listRegistries);
+registryRouter.get("/default", getDefaultRegistry);
+registryRouter.post(
+  "/:id/default",
+  createRateLimiter(10, 60_000, "POST /registries/:id/default"),
+  setDefaultRegistry,
+);
 registryRouter.post(
   "/:id/refresh",
   createRateLimiter(10, 60_000, "POST /registries/:id/refresh"),

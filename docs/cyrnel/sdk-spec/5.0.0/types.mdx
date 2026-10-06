@@ -164,7 +164,6 @@ interface OAuthClient {
   readonly authorizationUrl?: string | null;
   readonly clientAuthMethod: string;
   readonly redirectUris: readonly string[];
-  readonly availableScopes: readonly string[];
 }
 
 interface CredentialProvider {
@@ -193,9 +192,8 @@ interface CredentialProvider {
   number of owner-scoped `oauth2` credentials. `provider` is required
   but is a display/grouping label only — it never participates in
   client resolution and implies no provider-specific OAuth behavior.
-  `availableScopes` is required and is the allow-list for requested
-  scopes (`[]` = the client may only back unscoped credentials);
-  there is no unconstrained state.
+  Scope choices come from the service/module-declared scopes, not the
+  client.
 - `CredentialProvider` is owner-scoped and host-owned: within one
   owner scope at most one credential exists per scheme name
   (host-enforced `(owner, scheme)` uniqueness), so

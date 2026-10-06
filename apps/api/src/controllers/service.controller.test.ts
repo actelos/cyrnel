@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  checkServiceUpdate,
   createServiceDirect,
   deleteService,
   getService,
@@ -13,9 +14,11 @@ import {
   installServiceRegistry,
   listInstallAdapters,
   listServices,
+  listServiceVersions,
   patchService,
   patchServiceConfiguration,
   patchServiceSecrets,
+  setServiceAutoUpdate,
   setServiceEnabled,
   updateService,
 } from "@/controllers/service.controller";
@@ -36,6 +39,9 @@ const servicesService = {
   listInstallAdapters: vi.fn(),
   patchService: vi.fn(),
   updateService: vi.fn(),
+  setServiceAutoUpdate: vi.fn(),
+  checkServiceUpdate: vi.fn(),
+  listServiceVersions: vi.fn(),
   setServiceEnabled: vi.fn(),
   deleteService: vi.fn(),
   getServiceIcon: vi.fn(),
@@ -608,15 +614,231 @@ describe("service.controller", () => {
   });
 
   describe("updateService", () => {
-    it("triggers update and returns { id, updated: true }", async () => {
+    it("triggers update and returns versions", async () => {
       const res = makeRes();
-      servicesService.updateService.mockResolvedValue(undefined);
+      servicesService.updateService.mockResolvedValue({
+        updated: true,
+        fromVersion: "1.4.2",
+        toVersion: "1.5.0",
+      });
 
       await updateService(makeReq({ params: { serviceId: "svc" } }), cast(res));
 
-      expect(servicesService.updateService).toHaveBeenCalledWith("svc");
+      expect(servicesService.updateService).toHaveBeenCalledWith("svc", null);
       expect(res.status).toHaveBeenCalledWith(200);
-      expect(res.json).toHaveBeenCalledWith({ id: "svc", updated: true });
+      expect(res.json).toHaveBeenCalledWith({
+        id: "svc",
+        updated: true,
+        fromVersion: "1.4.2",
+        toVersion: "1.5.0",
+      });
+    });
+
+    it("threads an explicit constraint through to the service", async () => {
+      const res = makeRes();
+      servicesService.updateService.mockResolvedValue({
+        updated: false,
+        fromVersion: "1.4.2",
+        toVersion: "1.4.2",
+      });
+
+      await updateService(
+        makeReq({
+          params: { serviceId: "svc" },
+          body: { constraint: "^1.0.0" },
+        }),
+        cast(res),
+      );
+
+      expect(servicesService.updateService).toHaveBeenCalledWith(
+        "svc",
+        "^1.0.0",
+      );
+    });
+  });
+
+  describe("setServiceAutoUpdate", () => {
+    it("forwards enabled=true with a constraint and returns the result", async () => {
+      const res = makeRes();
+      const result = { id: "svc", autoUpdate: true, constraint: "^1.0.0" };
+      servicesService.setServiceAutoUpdate.mockResolvedValue(result);
+
+      await setServiceAutoUpdate(
+        makeReq({
+          params: { serviceId: "svc" },
+          body: { autoUpdate: true, constraint: "^1.0.0" },
+        }),
+        cast(res),
+      );
+
+      expect(servicesService.setServiceAutoUpdate).toHaveBeenCalledWith({
+        id: "svc",
+        autoUpdate: true,
+        constraint: "^1.0.0",
+      });
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith(result);
+    });
+
+    it("forwards enabled=false with a null constraint", async () => {
+      const res = makeRes();
+      const result = { id: "svc", autoUpdate: false, constraint: null };
+      servicesService.setServiceAutoUpdate.mockResolvedValue(result);
+
+      await setServiceAutoUpdate(
+        makeReq({
+          params: { serviceId: "svc" },
+          body: { autoUpdate: false },
+        }),
+        cast(res),
+      );
+
+      expect(servicesService.setServiceAutoUpdate).toHaveBeenCalledWith({
+        id: "svc",
+        autoUpdate: false,
+        constraint: null,
+      });
+      expect(res.json).toHaveBeenCalledWith(result);
+    });
+
+    it("propagates an invalid-constraint 400 from the service", async () => {
+      const res = makeRes();
+      servicesService.setServiceAutoUpdate.mockRejectedValue(
+        new HttpError(
+          400,
+          "Service 'svc' update constraint 'bogus' is not a valid semver range.",
+          "update_constraint_invalid",
+        ),
+      );
+
+      await expect(
+        setServiceAutoUpdate(
+          makeReq({
+            params: { serviceId: "svc" },
+            body: { autoUpdate: true, constraint: "bogus" },
+          }),
+          cast(res),
+        ),
+      ).rejects.toMatchObject({
+        statusCode: 400,
+        code: "update_constraint_invalid",
+      });
+    });
+
+    it("propagates a no-source 409 from the service", async () => {
+      const res = makeRes();
+      servicesService.setServiceAutoUpdate.mockRejectedValue(
+        new HttpError(
+          409,
+          "Service 'svc' has no stored registry source and cannot enable auto-update.",
+          "update_unavailable",
+        ),
+      );
+
+      await expect(
+        setServiceAutoUpdate(
+          makeReq({
+            params: { serviceId: "svc" },
+            body: { autoUpdate: true },
+          }),
+          cast(res),
+        ),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        code: "update_unavailable",
+      });
+    });
+
+    it.each([
+      { body: {}, why: "missing autoUpdate" },
+      { body: { autoUpdate: "true" }, why: "string autoUpdate" },
+      { body: { autoUpdate: 1 }, why: "numeric autoUpdate" },
+      { body: null, why: "null body" },
+    ])("rejects $why", async ({ body }) => {
+      const res = makeRes();
+      await expect(
+        setServiceAutoUpdate(
+          makeReq({ params: { serviceId: "svc" }, body }),
+          cast(res),
+        ),
+      ).rejects.toBeInstanceOf(HttpError);
+      expect(servicesService.setServiceAutoUpdate).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("checkServiceUpdate", () => {
+    it("delegates to the service and returns the update check", async () => {
+      const res = makeRes();
+      const check = {
+        id: "svc",
+        installed: "1.0.0",
+        available: "1.1.0",
+        constraint: null,
+        autoUpdate: true,
+        updateAvailable: true,
+        upToDate: false,
+        hasSource: true,
+      };
+      servicesService.checkServiceUpdate.mockResolvedValue(check);
+
+      await checkServiceUpdate(
+        makeReq({ params: { serviceId: "svc" } }),
+        cast(res),
+      );
+
+      expect(servicesService.checkServiceUpdate).toHaveBeenCalledWith("svc");
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith(check);
+    });
+
+    it("propagates errors from the service", async () => {
+      const res = makeRes();
+      servicesService.checkServiceUpdate.mockRejectedValue(
+        new HttpError(404, "Service 'ghost' not found."),
+      );
+
+      await expect(
+        checkServiceUpdate(
+          makeReq({ params: { serviceId: "ghost" } }),
+          cast(res),
+        ),
+      ).rejects.toMatchObject({ statusCode: 404 });
+    });
+  });
+
+  describe("listServiceVersions", () => {
+    it("delegates to the service and returns the version list", async () => {
+      const res = makeRes();
+      const versions = {
+        id: "svc",
+        installed: "1.0.0",
+        latest: "1.1.0",
+        versions: ["1.0.0", "1.1.0"],
+      };
+      servicesService.listServiceVersions.mockResolvedValue(versions);
+
+      await listServiceVersions(
+        makeReq({ params: { serviceId: "svc" } }),
+        cast(res),
+      );
+
+      expect(servicesService.listServiceVersions).toHaveBeenCalledWith("svc");
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith(versions);
+    });
+
+    it("propagates errors from the service", async () => {
+      const res = makeRes();
+      servicesService.listServiceVersions.mockRejectedValue(
+        new HttpError(404, "Service 'ghost' not found."),
+      );
+
+      await expect(
+        listServiceVersions(
+          makeReq({ params: { serviceId: "ghost" } }),
+          cast(res),
+        ),
+      ).rejects.toMatchObject({ statusCode: 404 });
     });
   });
 

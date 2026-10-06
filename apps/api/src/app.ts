@@ -79,6 +79,9 @@ export class App {
         resolveDefaultAdapter: (kind) =>
           this.moduleService.resolveDefaultAdapter(kind),
       },
+      {
+        invoke: (input) => this.moduleService.invoke(input),
+      },
       new SearchEngine(new TransformersEmbedder()),
     );
 
@@ -120,7 +123,9 @@ export class App {
           .updateModule(id, constraint)
           .then((result) => result.updated),
       updateService: (id, constraint) =>
-        this.servicesService.updateService(id, constraint),
+        this.servicesService
+          .updateService(id, constraint)
+          .then((result) => result.updated),
     });
     this.autoUpdater.start(autoUpdateInterval);
 

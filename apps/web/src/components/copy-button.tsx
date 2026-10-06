@@ -41,12 +41,17 @@ function CopyButton({
     if (!ok) {
       addNotification({
         type: "error",
-        title: "Error",
+        title: "Copy failed",
         message: errorMessage,
       });
       return;
     }
     setCopied(true);
+    addNotification({
+      type: "success",
+      title: "Copied",
+      message: label === "Copy" ? "Copied to clipboard." : `${label} copied.`,
+    });
     if (timerRef.current !== null) {
       window.clearTimeout(timerRef.current);
     }

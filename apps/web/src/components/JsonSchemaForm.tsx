@@ -1,5 +1,6 @@
 import { Loader2, Undo2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { type JSONSchema, RjsfForm } from "@/components/rjsf-form";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -12,21 +13,9 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardFooter,
-  CardHeader,
-} from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
+import { SheetFooter } from "@/components/ui/sheet";
 import { useNotification } from "@/hooks/use-notification";
 import { apiFetch, errorMessageFrom } from "@/lib/api";
-
-type JSONSchema = Record<string, unknown>;
 
 interface JsonSchemaFormProps {
   title?: string;
@@ -169,275 +158,7 @@ function isPathCovered(pointer: string, path: string): boolean {
   return path === pointer || path.startsWith(`${pointer}/`);
 }
 
-function renderField(
-  name: string,
-  prop: JSONSchema,
-  value: unknown,
-  onChange: (name: string, value: unknown) => void,
-  depth: number,
-  presentSet?: Set<string>,
-  basePath = "",
-  requiredFields: string[] = [],
-): React.ReactNode {
-  const fullPath = basePath ? `${basePath}/${name}` : `/${name}`;
-  const isPresent = presentSet?.has(fullPath);
-  const propType = Array.isArray(prop.type) ? prop.type[0] : prop.type;
-  const isRequired = requiredFields.includes(name);
-  const description =
-    typeof prop.description === "string" ? prop.description : undefined;
-
-  const indent = `ml-${Math.min(depth * 4, 8)}`;
-
-  if (propType === "object" && prop.properties) {
-    const subProps = prop.properties as Record<string, JSONSchema>;
-    const subValues = (value as Record<string, unknown>) ?? {};
-    return (
-      <fieldset key={name} className={`space-y-3 border-l-2 pl-4 ${indent}`}>
-        <legend className="text-sm font-medium flex items-center gap-2">
-          {name}
-          {isRequired ? (
-            <span className="text-destructive ml-0.5">*</span>
-          ) : null}
-          {description ? (
-            <span className="text-xs text-muted-foreground font-normal">
-              {description}
-            </span>
-          ) : null}
-        </legend>
-        {Object.entries(subProps).map(([subName, subProp]) =>
-          renderField(
-            subName,
-            subProp as JSONSchema,
-            subValues[subName],
-            (k, v) => {
-              onChange(name, { ...subValues, [k]: v });
-            },
-            depth + 1,
-            presentSet,
-            fullPath,
-            (prop.required as string[]) ?? [],
-          ),
-        )}
-      </fieldset>
-    );
-  }
-
-  if (propType === "boolean") {
-    return (
-      <div key={name} className={`flex items-center gap-3 ${indent}`}>
-        <Switch
-          checked={value === true}
-          onCheckedChange={(v) => onChange(name, v)}
-        />
-        <div className="space-y-0.5">
-          <Label className="text-sm font-medium">
-            {name}
-            {isRequired ? (
-              <span className="text-destructive ml-0.5">*</span>
-            ) : null}
-          </Label>
-          {description ? (
-            <p className="text-xs text-muted-foreground">{description}</p>
-          ) : null}
-        </div>
-      </div>
-    );
-  }
-
-  if (prop.enum && Array.isArray(prop.enum)) {
-    return (
-      <div key={name} className={`space-y-1.5 ${indent}`}>
-        <Label className="text-sm font-medium">
-          {name}
-          {isRequired ? (
-            <span className="text-destructive ml-0.5">*</span>
-          ) : null}
-          {description ? (
-            <span className="text-xs text-muted-foreground font-normal ml-2">
-              {description}
-            </span>
-          ) : null}
-        </Label>
-        <div className="flex flex-wrap gap-1.5">
-          {prop.enum.map((option) => {
-            const strOption = String(option);
-            const selected = value === option;
-            return (
-              <Badge
-                key={strOption}
-                variant={selected ? "default" : "outline"}
-                className="cursor-pointer text-xs"
-                onClick={() => onChange(name, option)}
-              >
-                {strOption}
-              </Badge>
-            );
-          })}
-        </div>
-      </div>
-    );
-  }
-
-  if (propType === "array") {
-    const items = Array.isArray(value) ? value : [];
-    return (
-      <div key={name} className={`space-y-2 ${indent}`}>
-        <Label className="text-sm font-medium">
-          {name}
-          {isRequired ? (
-            <span className="text-destructive ml-0.5">*</span>
-          ) : null}
-          {description ? (
-            <span className="text-xs text-muted-foreground font-normal ml-2">
-              {description}
-            </span>
-          ) : null}
-        </Label>
-        <div className="space-y-2">
-          {items.map((item, i) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: primitives managed by index
-            <div key={i} className="flex items-center gap-2">
-              <Input
-                value={typeof item === "string" ? item : JSON.stringify(item)}
-                onChange={(e) => {
-                  const next = [...items];
-                  next[i] = e.target.value;
-                  onChange(name, next);
-                }}
-                className="flex-1 font-mono text-xs"
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="text-destructive h-8 w-8 p-0"
-                onClick={() => {
-                  const next = items.filter((_, j) => j !== i);
-                  onChange(name, next);
-                }}
-              >
-                ×
-              </Button>
-            </div>
-          ))}
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => onChange(name, [...items, ""])}
-          >
-            + Add
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
-  const isNumber = propType === "number" || propType === "integer";
-  const isSecret =
-    name.toLowerCase().includes("secret") ||
-    name.toLowerCase().includes("token") ||
-    name.toLowerCase().includes("key") ||
-    name.toLowerCase().includes("password");
-
-  const textAttrs = {
-    minLength: typeof prop.minLength === "number" ? prop.minLength : undefined,
-    maxLength: typeof prop.maxLength === "number" ? prop.maxLength : undefined,
-    pattern: typeof prop.pattern === "string" ? prop.pattern : undefined,
-  };
-  const numberAttrs = {
-    min: typeof prop.minimum === "number" ? prop.minimum : undefined,
-    max: typeof prop.maximum === "number" ? prop.maximum : undefined,
-    step: typeof prop.step === "number" ? prop.step : undefined,
-  };
-
-  if (propType === "object" && !prop.properties) {
-    return (
-      <div key={name} className={`space-y-1.5 ${indent}`}>
-        <Label className="text-sm font-medium">
-          {name}
-          {isRequired ? (
-            <span className="text-destructive ml-0.5">*</span>
-          ) : null}
-          {description ? (
-            <span className="text-xs text-muted-foreground font-normal ml-2">
-              {description}
-            </span>
-          ) : null}
-        </Label>
-        <Textarea
-          value={value !== undefined ? JSON.stringify(value, null, 2) : "{}"}
-          onChange={(e) => {
-            try {
-              onChange(name, JSON.parse(e.target.value));
-            } catch {
-              onChange(name, e.target.value);
-            }
-          }}
-          className="min-h-[100px] font-mono text-xs resize-none"
-          {...textAttrs}
-        />
-      </div>
-    );
-  }
-
-  return (
-    <div key={name} className={`space-y-1.5 ${indent}`}>
-      <Label className="text-sm font-medium">
-        {name}
-        {isRequired ? <span className="text-destructive ml-0.5">*</span> : null}
-        {isPresent ? (
-          <span className="w-[6px] h-[6px] bg-primary rounded-full"></span>
-        ) : null}
-        {description ? (
-          <span className="text-xs text-muted-foreground font-normal ml-1">
-            {description}
-          </span>
-        ) : null}
-      </Label>
-      {isSecret ? (
-        <div className="relative">
-          <Input
-            type="password"
-            value={typeof value === "string" ? value : ""}
-            onChange={(e) => onChange(name, e.target.value)}
-            placeholder="(hidden)"
-            className="font-mono text-xs pr-16"
-            {...textAttrs}
-          />
-          <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground pointer-events-none">
-            secret
-          </span>
-        </div>
-      ) : (
-        <Input
-          type={isNumber ? "number" : "text"}
-          value={
-            value !== undefined && value !== null
-              ? isNumber
-                ? String(value)
-                : (value as string)
-              : ""
-          }
-          onChange={(e) => {
-            const val = e.target.value;
-            onChange(
-              name,
-              isNumber ? (val === "" ? undefined : Number(val)) : val,
-            );
-          }}
-          placeholder={
-            typeof prop.default !== "undefined" ? String(prop.default) : ""
-          }
-          className="font-mono text-xs"
-          {...(isNumber ? numberAttrs : textAttrs)}
-        />
-      )}
-    </div>
-  );
-}
-
-export default function JsonSchemaForm({
+function useJsonSchemaFormState({
   title,
   schema,
   currentValues,
@@ -472,10 +193,12 @@ export default function JsonSchemaForm({
   );
 
   const hasChanges = patch.length > 0 || pendingRemovals.length > 0;
+  const changeCount = patch.length + pendingRemovals.length;
 
-  const handleChange = (name: string, value: unknown) => {
-    setValues((prev) => ({ ...prev, [name]: value }));
-  };
+  const idPrefix = useMemo(
+    () => `cfg-${patchUrl.replace(/[^a-zA-Z0-9]/g, "-").slice(-32)}`,
+    [patchUrl],
+  );
 
   const handleStageRemoval = (path: string) => {
     const plan = removalPlan(path, schema);
@@ -486,6 +209,10 @@ export default function JsonSchemaForm({
         prev.includes(plan.pointer) ? prev : [...prev, plan.pointer],
       );
     }
+  };
+
+  const handleUnstageRemoval = (pointer: string) => {
+    setPendingRemovals((prev) => prev.filter((p) => p !== pointer));
   };
 
   const handleSave = async () => {
@@ -523,7 +250,7 @@ export default function JsonSchemaForm({
       setPendingRemovals([]);
       addNotification({
         type: "success",
-        title: "Saved",
+        title: `${title ?? "Configuration"} saved`,
         message: `${title ?? "Form"} updated.`,
       });
 
@@ -533,179 +260,337 @@ export default function JsonSchemaForm({
         err,
         `Unable to save ${(title ?? "form").toLowerCase()}.`,
       );
-      addNotification({ type: "error", title: "Error", message: msg });
+      addNotification({
+        type: "error",
+        title: `${title ?? "Configuration"} save failed`,
+        message: msg,
+      });
     } finally {
       setSaving(false);
     }
   };
 
   const handleReset = () => {
+    if (!hasChanges) return;
     setValues({ ...currentValues });
     setPendingRemovals([]);
     setConfirmTarget(null);
+    addNotification({
+      type: "info",
+      title: "Changes discarded",
+      message: "Unsaved changes were discarded.",
+    });
   };
 
   const isEmpty = Object.keys(properties).length === 0;
 
+  return {
+    values,
+    setValues,
+    saving,
+    pendingRemovals,
+    confirmTarget,
+    setConfirmTarget,
+    patch,
+    outstanding,
+    hasChanges,
+    changeCount,
+    idPrefix,
+    isEmpty,
+    handleStageRemoval,
+    handleUnstageRemoval,
+    handleSave,
+    handleReset,
+  };
+}
+
+interface JsonSchemaFormFieldsProps {
+  schema: JSONSchema;
+  values: Record<string, unknown>;
+  onChange: (next: Record<string, unknown>) => void;
+  idPrefix: string;
+  outstanding: string[];
+  pendingRemovals: string[];
+  onStageRemoval: (path: string) => void;
+  onUnstageRemoval: (pointer: string) => void;
+  isEmpty: boolean;
+}
+
+function JsonSchemaFormFields({
+  schema,
+  values,
+  onChange,
+  idPrefix,
+  outstanding,
+  pendingRemovals,
+  onStageRemoval,
+  onUnstageRemoval,
+  isEmpty,
+}: JsonSchemaFormFieldsProps) {
   return (
-    <Card className="w-full flex flex-col">
-      {title ? (
-        <CardHeader className="flex flex-row items-center justify-between gap-2">
-          <h3 className="text-sm font-semibold">{title}</h3>
-        </CardHeader>
-      ) : null}
-      <CardContent className="min-h-0 flex-1 overflow-hidden">
-        <ScrollArea className="h-full">
-          <div className="space-y-4">
-            {outstanding.length > 0 || pendingRemovals.length > 0 ? (
-              <div className="space-y-2 rounded-md border border-dashed p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <h4 className="text-sm font-medium">Outdated keys</h4>
-                  {outstanding.length + pendingRemovals.length > 1 ? (
-                    <Badge variant="outline">
-                      {outstanding.length + pendingRemovals.length}
-                    </Badge>
-                  ) : null}
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Stored values that no longer match the schema. Removals are
-                  applied when you save.
-                </p>
-                {outstanding.map((path) => {
-                  const plan = removalPlan(path, schema);
-                  return (
-                    <div key={path} className="flex items-center gap-2">
-                      <span className="flex-1 truncate font-mono text-xs">
-                        {plan.pointer}
-                      </span>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 px-2 text-destructive"
-                        onClick={() => handleStageRemoval(path)}
-                      >
-                        Remove
-                      </Button>
-                    </div>
-                  );
-                })}
-                {pendingRemovals.map((pointer) => (
-                  <div key={pointer} className="flex items-center gap-2">
-                    <span className="flex-1 truncate font-mono text-xs text-muted-foreground line-through">
-                      {pointer}
-                    </span>
-                    <span className="text-[10px] text-muted-foreground">
-                      will be removed
-                    </span>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 w-8 p-0"
-                      onClick={() =>
-                        setPendingRemovals((prev) =>
-                          prev.filter((p) => p !== pointer),
-                        )
-                      }
-                    >
-                      ×
-                    </Button>
-                  </div>
-                ))}
-              </div>
+    <div className="space-y-4">
+      {outstanding.length > 0 || pendingRemovals.length > 0 ? (
+        <div className="space-y-2 rounded-md border border-dashed p-3">
+          <div className="flex items-center justify-between gap-2">
+            <h4 className="text-sm font-medium">Outdated keys</h4>
+            {outstanding.length + pendingRemovals.length > 1 ? (
+              <Badge variant="outline">
+                {outstanding.length + pendingRemovals.length}
+              </Badge>
             ) : null}
-            {isEmpty ? (
-              <p className="text-sm text-muted-foreground">
-                No configuration options available.
-              </p>
-            ) : (
-              Object.entries(properties).map(([name, prop]) =>
-                renderField(
-                  name,
-                  prop as JSONSchema,
-                  values[name],
-                  handleChange,
-                  0,
-                  presentSet,
-                  "",
-                  (schema.required as string[]) ?? [],
-                ),
-              )
-            )}
           </div>
-        </ScrollArea>
-      </CardContent>
-      <CardFooter className="justify-end gap-2">
-        {hasChanges ? (
-          <span className="text-xs text-muted-foreground">
-            {patch.length + pendingRemovals.length} change
-            {patch.length + pendingRemovals.length !== 1 ? "s" : ""}
-          </span>
-        ) : null}
-        <Button
-          type="button"
-          variant="destructive"
-          size="sm"
-          disabled={saving || !hasChanges}
-          onClick={handleReset}
-          className="gap-2"
-        >
-          <Undo2 />
-          Reset
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          disabled={saving || !hasChanges}
-          onClick={() => void handleSave()}
-          className="gap-2"
-        >
-          {saving ? (
-            <>
-              <Loader2 className="animate-spin" />
-              Saving
-            </>
-          ) : (
-            "Save"
-          )}
-        </Button>
-      </CardFooter>
-      <AlertDialog
-        open={confirmTarget !== null}
-        onOpenChange={(open) => {
-          if (!open) setConfirmTarget(null);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Remove entire value?</AlertDialogTitle>
-            <AlertDialogDescription>
-              The value at{" "}
-              <code className="font-mono text-xs">{confirmTarget}</code>{" "}
-              contains items that are no longer defined by the schema. Removing
-              it deletes the entire value, including any still-valid items.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                if (confirmTarget) {
-                  setPendingRemovals((prev) =>
-                    prev.includes(confirmTarget)
-                      ? prev
-                      : [...prev, confirmTarget],
-                  );
-                }
-                setConfirmTarget(null);
-              }}
-            >
-              Remove
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </Card>
+          <p className="text-xs text-muted-foreground">
+            Stored values that no longer match the schema. Removals are applied
+            when you save.
+          </p>
+          {outstanding.map((path) => {
+            const plan = removalPlan(path, schema);
+            return (
+              <div key={path} className="flex items-center gap-2">
+                <span className="flex-1 truncate font-mono text-xs">
+                  {plan.pointer}
+                </span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 px-2 text-destructive"
+                  onClick={() => onStageRemoval(path)}
+                >
+                  Remove
+                </Button>
+              </div>
+            );
+          })}
+          {pendingRemovals.map((pointer) => (
+            <div key={pointer} className="flex items-center gap-2">
+              <span className="flex-1 truncate font-mono text-xs text-muted-foreground line-through">
+                {pointer}
+              </span>
+              <span className="text-[10px] text-muted-foreground">
+                will be removed
+              </span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8 w-8 p-0"
+                onClick={() => onUnstageRemoval(pointer)}
+              >
+                ×
+              </Button>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {isEmpty ? (
+        <p className="text-sm text-muted-foreground">
+          No configuration options available.
+        </p>
+      ) : (
+        <RjsfForm
+          schema={schema}
+          formData={values}
+          onChange={onChange}
+          idPrefix={idPrefix}
+        />
+      )}
+    </div>
   );
 }
+
+interface JsonSchemaFormActionsProps {
+  changeCount: number;
+  hasChanges: boolean;
+  saving: boolean;
+  onReset: () => void;
+  onSave: () => void;
+  size?: "default" | "sm";
+}
+
+function JsonSchemaFormActions({
+  changeCount,
+  hasChanges,
+  saving,
+  onReset,
+  onSave,
+  size = "",
+}: JsonSchemaFormActionsProps) {
+  return (
+    <>
+      {hasChanges ? (
+        <span className="mr-auto text-xs text-muted-foreground">
+          {changeCount} change{changeCount !== 1 ? "s" : ""}
+        </span>
+      ) : null}
+      <Button
+        type="button"
+        variant="destructive"
+        size={size}
+        disabled={saving || !hasChanges}
+        onClick={onReset}
+        className="gap-2"
+      >
+        <Undo2 />
+        Reset
+      </Button>
+      <Button
+        type="button"
+        size={size}
+        disabled={saving || !hasChanges}
+        onClick={() => void onSave()}
+        className="gap-2"
+      >
+        {saving ? (
+          <>
+            <Loader2 className="animate-spin" />
+            Saving
+          </>
+        ) : (
+          "Save"
+        )}
+      </Button>
+    </>
+  );
+}
+
+function JsonSchemaFormRemoveConfirm({
+  confirmTarget,
+  onOpenChange,
+  onConfirm,
+}: {
+  confirmTarget: string | null;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <AlertDialog
+      open={confirmTarget !== null}
+      onOpenChange={(open) => {
+        if (!open) onOpenChange(false);
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Remove entire value?</AlertDialogTitle>
+          <AlertDialogDescription>
+            The value at{" "}
+            <code className="font-mono text-xs">{confirmTarget}</code> contains
+            items that are no longer defined by the schema. Removing it deletes
+            the entire value, including any still-valid items.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction onClick={onConfirm}>Remove</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+/**
+ * Bare configuration / secrets form.
+ *
+ * No card chrome — renders fields with Save/Reset inline under the form.
+ * Used by the install wizard steps.
+ */
+export default function JsonSchemaForm(props: JsonSchemaFormProps) {
+  const state = useJsonSchemaFormState(props);
+
+  return (
+    <div className="space-y-4">
+      <JsonSchemaFormFields
+        schema={props.schema}
+        values={state.values}
+        onChange={state.setValues}
+        idPrefix={state.idPrefix}
+        outstanding={state.outstanding}
+        pendingRemovals={state.pendingRemovals}
+        onStageRemoval={state.handleStageRemoval}
+        onUnstageRemoval={state.handleUnstageRemoval}
+        isEmpty={state.isEmpty}
+      />
+      <div className="flex items-center justify-end gap-2">
+        <JsonSchemaFormActions
+          changeCount={state.changeCount}
+          hasChanges={state.hasChanges}
+          saving={state.saving}
+          onReset={state.handleReset}
+          onSave={state.handleSave}
+        />
+      </div>
+      <JsonSchemaFormRemoveConfirm
+        confirmTarget={state.confirmTarget}
+        onOpenChange={(open) => {
+          if (!open) state.setConfirmTarget(null);
+        }}
+        onConfirm={() => {
+          if (state.confirmTarget) {
+            const target = state.confirmTarget;
+            state.setConfirmTarget(null);
+            state.handleStageRemoval(target);
+            // handleStageRemoval with an already-resolved pointer stages it
+            // directly; the confirm round-trip above only happens for array
+            // values, so re-stage here after closing the dialog.
+          }
+        }}
+      />
+    </div>
+  );
+}
+
+/**
+ * Sheet layout for configuration / secrets.
+ *
+ * Renders the same form fields in the sheet's scrollable body with
+ * Save/Reset in a sticky SheetFooter — no card chrome.
+ */
+export function JsonSchemaFormSheet(props: JsonSchemaFormProps) {
+  const state = useJsonSchemaFormState(props);
+
+  return (
+    <>
+      <div className="min-h-0 flex-1 overflow-y-auto px-4">
+        <div className="space-y-4 py-4">
+          <JsonSchemaFormFields
+            schema={props.schema}
+            values={state.values}
+            onChange={state.setValues}
+            idPrefix={state.idPrefix}
+            outstanding={state.outstanding}
+            pendingRemovals={state.pendingRemovals}
+            onStageRemoval={state.handleStageRemoval}
+            onUnstageRemoval={state.handleUnstageRemoval}
+            isEmpty={state.isEmpty}
+          />
+        </div>
+      </div>
+      <SheetFooter className="flex-row items-center justify-end gap-2 border-t">
+        <JsonSchemaFormActions
+          changeCount={state.changeCount}
+          hasChanges={state.hasChanges}
+          saving={state.saving}
+          onReset={state.handleReset}
+          onSave={state.handleSave}
+          size="default"
+        />
+      </SheetFooter>
+      <JsonSchemaFormRemoveConfirm
+        confirmTarget={state.confirmTarget}
+        onOpenChange={(open) => {
+          if (!open) state.setConfirmTarget(null);
+        }}
+        onConfirm={() => {
+          if (state.confirmTarget) {
+            const target = state.confirmTarget;
+            state.setConfirmTarget(null);
+            state.handleStageRemoval(target);
+          }
+        }}
+      />
+    </>
+  );
+}
+
+export { JsonSchemaFormActions, JsonSchemaFormFields, useJsonSchemaFormState };

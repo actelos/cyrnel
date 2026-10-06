@@ -25,6 +25,18 @@ const nonEmptyTrimmedString = (fieldName: string) =>
 const installModuleRegistryBodySchema = z.object({
   source: nonEmptyTrimmedString("source"),
   version: nonEmptyTrimmedString("version").optional(),
+  autoUpdate: z.boolean().optional(),
+});
+
+const updateModuleBodySchema = z
+  .object({
+    constraint: z.string().nullable().optional(),
+  })
+  .optional();
+
+const autoUpdateBodySchema = z.object({
+  autoUpdate: z.boolean({ error: "Field 'autoUpdate' must be a boolean." }),
+  constraint: z.string().nullable().optional(),
 });
 
 const createModuleBodySchema = z.object({
@@ -126,7 +138,7 @@ export async function installModule(
   res: Response,
 ): Promise<void> {
   const moduleService = getModuleService(req);
-  const { source, version } = parseOrHttpError(
+  const { source, version, autoUpdate } = parseOrHttpError(
     installModuleRegistryBodySchema,
     req.body,
     "Request body must be an object.",
@@ -135,6 +147,7 @@ export async function installModule(
   const manifest = await moduleService.installModuleFromRegistry(
     source,
     version,
+    autoUpdate ?? true,
   );
   res.status(201).json(manifest);
 }
@@ -175,9 +188,59 @@ export async function deleteModule(req: Request, res: Response): Promise<void> {
 export async function updateModule(req: Request, res: Response): Promise<void> {
   const moduleService = getModuleService(req);
   const moduleId = parseOrHttpError(moduleIdSchema, req.params.moduleId);
+  const body =
+    req.body === undefined || req.body === null
+      ? {}
+      : parseOrHttpError(
+          updateModuleBodySchema,
+          req.body,
+          "Request body must be an object.",
+        );
+  const constraint =
+    (body as { constraint?: string | null }).constraint ?? null;
 
-  const result = await moduleService.updateModule(moduleId);
+  const result = await moduleService.updateModule(moduleId, constraint);
   res.status(200).json(result);
+}
+
+export async function setModuleAutoUpdate(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const moduleService = getModuleService(req);
+  const moduleId = parseOrHttpError(moduleIdSchema, req.params.moduleId);
+  const { autoUpdate, constraint } = parseOrHttpError(
+    autoUpdateBodySchema,
+    req.body,
+    "Request body must be an object.",
+  );
+
+  const result = await moduleService.setModuleAutoUpdate({
+    id: moduleId,
+    autoUpdate,
+    constraint: constraint ?? null,
+  });
+  res.status(200).json(result);
+}
+
+export async function checkModuleUpdate(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const moduleService = getModuleService(req);
+  const moduleId = parseOrHttpError(moduleIdSchema, req.params.moduleId);
+
+  res.status(200).json(await moduleService.checkModuleUpdate(moduleId));
+}
+
+export async function listModuleVersions(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const moduleService = getModuleService(req);
+  const moduleId = parseOrHttpError(moduleIdSchema, req.params.moduleId);
+
+  res.status(200).json(await moduleService.listModuleVersions(moduleId));
 }
 
 export async function listModules(req: Request, res: Response): Promise<void> {

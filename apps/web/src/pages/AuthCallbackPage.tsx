@@ -56,8 +56,17 @@ export default function AuthCallbackPage() {
         message: "OAuth authorization completed.",
       });
     } catch (error) {
+      const message = errorMessageFrom(
+        error,
+        "Failed to complete authorization.",
+      );
       setStatus("error");
-      setMessage(errorMessageFrom(error, "Failed to complete authorization."));
+      setMessage(message);
+      addNotification({
+        type: "error",
+        title: "Authorization failed",
+        message,
+      });
     }
   }, [code, state, addNotification]);
 

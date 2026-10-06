@@ -29,6 +29,8 @@ export interface ModuleManifestRecord {
   hash: string;
   version: string;
   source: string;
+  autoUpdate: boolean;
+  autoUpdateConstraint: string | null;
   isBuiltin: boolean;
   enabled: boolean;
   missing: boolean;
@@ -111,6 +113,30 @@ export interface PatchModuleSourceInput {
 export interface RegistryInstallModuleInput {
   source: string;
   version?: string;
+  autoUpdate?: boolean;
+}
+
+export interface SetModuleAutoUpdateInput {
+  id: string;
+  autoUpdate: boolean;
+  constraint?: string | null;
+}
+
+export interface ModuleUpdateCheckResult {
+  id: string;
+  installed: string;
+  available: string | null;
+  constraint: string | null;
+  autoUpdate: boolean;
+  updateAvailable: boolean;
+  upToDate: boolean;
+  hasSource: boolean;
+}
+
+export interface ModuleUpdateResult {
+  updated: boolean;
+  fromVersion: string;
+  toVersion: string;
 }
 
 export const moduleManifestSchema = z.object({

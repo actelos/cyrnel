@@ -340,7 +340,7 @@ describe("credential.controller", () => {
         ).rejects.toBeInstanceOf(HttpError);
       });
 
-      it("defaults scopes to empty array", async () => {
+      it("requires scopes array", async () => {
         const res = makeRes();
         store.upsertOAuth2.mockResolvedValue({
           credential: { id: "cred-1" },
@@ -349,19 +349,15 @@ describe("credential.controller", () => {
         });
         credentialService.toSummary.mockResolvedValue(mockCredentialSummary);
 
-        await handlers.upsertOAuth2(
-          makeReq({
-            params: { serviceId: "svc-1", schemeName: "oauth2" },
-            body: { oauthClientId: "client-1" },
-          }),
-          cast(res),
-        );
-
-        expect(store.upsertOAuth2).toHaveBeenCalledWith(
-          "oauth2",
-          "client-1",
-          [],
-        );
+        await expect(
+          handlers.upsertOAuth2(
+            makeReq({
+              params: { serviceId: "svc-1", schemeName: "oauth2" },
+              body: { oauthClientId: "client-1" },
+            }),
+            cast(res),
+          ),
+        ).rejects.toBeInstanceOf(HttpError);
       });
     });
 

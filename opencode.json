@@ -21,6 +21,19 @@
     }
   },
   "mcp": {
+    "gh_grep": {
+      "type": "remote",
+      "url": "https://mcp.grep.app"
+    },
+    "sentry": {
+      "type": "remote",
+      "url": "https://mcp.sentry.dev/mcp",
+      "oauth": {}
+    },
+    "context7": {
+      "type": "remote",
+      "url": "https://mcp.context7.com/mcp"
+    },
     "cyrnel": {
       "type": "local",
       "command": ["node", "dist/index.js"],
@@ -29,11 +42,6 @@
       "environment": {
         "MCP_TRANSPORT": "stdio"
       }
-    },
-    "context7": {
-      "type": "local",
-      "command": ["npx", "-y", "@upstash/context7-mcp"],
-      "enabled": true
     }
   }
 }
