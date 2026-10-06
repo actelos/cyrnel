@@ -414,7 +414,7 @@ function JsonSchemaFormActions({
   saving,
   onReset,
   onSave,
-  size = "",
+  size = "default",
 }: JsonSchemaFormActionsProps) {
   return (
     <>

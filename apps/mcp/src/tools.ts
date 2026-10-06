@@ -388,6 +388,7 @@ async function pollUntilIdle(
 ): Promise<Record<string, unknown>> {
   const timeoutMs = (timeoutS ?? 30) * 1000;
   const deadline = Date.now() + timeoutMs * 2 + 1_000;
+  const approvalDeadline = Date.now() + 10 * 60_000;
   let attempt = 0;
 
   while (true) {
@@ -395,6 +396,8 @@ async function pollUntilIdle(
       state: ProcessState;
     };
     if (process.state === "idle" || process.state === "terminated")
+      return process;
+    if (process.state === "suspended" && Date.now() >= approvalDeadline)
       return process;
     if (process.state !== "suspended" && Date.now() >= deadline) {
       throw new Error(

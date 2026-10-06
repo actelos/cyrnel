@@ -179,7 +179,8 @@ export function RegistryServiceCard({
       return toBase64(new Uint8Array(bytes));
     },
     {
-      refreshInterval: 30000,
+      revalidateOnFocus: false,
+      revalidateIfStale: false,
     },
   );
 

@@ -149,7 +149,12 @@ function normalizeRow(
 async function readDeclaredSchemes(
   kind: OwnerKind,
   ownerId: string,
-): Promise<Record<string, { type?: string; scheme?: string }>> {
+): Promise<
+  Record<
+    string,
+    { type?: string; scheme?: string; scopes?: Record<string, string> }
+  >
+> {
   if (kind === "service") {
     const [row] = await db
       .select({ id: services.id, schemes: services.schemes })
@@ -158,7 +163,10 @@ async function readDeclaredSchemes(
       .limit(1);
     if (!row) throw new HttpError(404, `Service '${ownerId}' not found.`);
     return (
-      (row.schemes as Record<string, { type?: string; scheme?: string }>) ?? {}
+      (row.schemes as Record<
+        string,
+        { type?: string; scheme?: string; scopes?: Record<string, string> }
+      >) ?? {}
     );
   }
   if (kind === "module") {
@@ -169,7 +177,10 @@ async function readDeclaredSchemes(
       .limit(1);
     if (!row) throw new HttpError(404, `Module '${ownerId}' not found.`);
     return (
-      (row.schemes as Record<string, { type?: string; scheme?: string }>) ?? {}
+      (row.schemes as Record<
+        string,
+        { type?: string; scheme?: string; scopes?: Record<string, string> }
+      >) ?? {}
     );
   }
   const [row] = await db
@@ -180,13 +191,21 @@ async function readDeclaredSchemes(
   if (!row) throw new HttpError(404, `Registry '${ownerId}' not found.`);
   const { fetchRegistryIndex } = await import("@/utils/registry.util");
   const index = await fetchRegistryIndex(row.baseUrl);
-  const schemes: Record<string, { type?: string; scheme?: string }> = {};
+  const schemes: Record<
+    string,
+    { type?: string; scheme?: string; scopes?: Record<string, string> }
+  > = {};
   const declared = index.auth?.schemes;
   if (declared) {
     for (const [name, scheme] of Object.entries(declared)) {
       schemes[name] = {
         type: scheme.type,
         scheme: "scheme" in scheme ? scheme.scheme : undefined,
+        ...("scopes" in scheme &&
+        scheme.scopes !== undefined &&
+        typeof scheme.scopes === "object"
+          ? { scopes: { ...(scheme.scopes as Record<string, string>) } }
+          : {}),
       };
     }
   }

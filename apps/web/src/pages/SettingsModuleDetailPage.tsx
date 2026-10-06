@@ -1040,6 +1040,7 @@ export default function SettingsModuleDetailPage() {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
+                if (!moduleDetail) return;
                 void handleConfirmUpdate(moduleDetail.id);
               }}
             >
@@ -1094,6 +1095,7 @@ export default function SettingsModuleDetailPage() {
             <AlertDialogAction
               variant="destructive"
               onClick={() => {
+                if (!moduleDetail) return;
                 void handleDelete(moduleDetail.id);
                 setIsDeleteDialogOpen(false);
               }}

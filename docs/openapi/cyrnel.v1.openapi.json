@@ -7103,7 +7103,7 @@
             }
           },
           "403": {
-            "description": "The tool policy blocked the invocation, or approval is required (approval_required with an approval id).",
+            "description": "The tool policy blocked the invocation (tool_blocked), or a required credential is missing or unusable. Approval-required invocations return 200 with status approval_required.",
             "content": {
               "application/json": {
                 "schema": {

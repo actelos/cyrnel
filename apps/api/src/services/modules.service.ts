@@ -38,7 +38,7 @@ import {
 } from "drizzle-orm";
 import jsonpatch from "fast-json-patch";
 import { decompress as zstdDecompress } from "fzstd";
-import { satisfies, validRange } from "semver";
+import { gt, satisfies, validRange } from "semver";
 import { Unpack } from "tar";
 import { z } from "zod";
 import { parseApprovalTimeout } from "@/app";
@@ -1892,7 +1892,7 @@ export class ModuleService {
         "registry_unavailable",
       );
     }
-    const updateAvailable = registry.version !== row.version;
+    const updateAvailable = gt(registry.version, row.version);
     return {
       id,
       installed: row.version,

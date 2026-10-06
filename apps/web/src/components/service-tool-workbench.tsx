@@ -124,7 +124,9 @@ export function ServiceToolWorkbench({ serviceId }: { serviceId: string }) {
   };
 
   const detailUrl = selectedToolId
-    ? buildUrl(`/tools/${serviceId}/${selectedToolId}`)
+    ? buildUrl(
+        `/tools/${encodeURIComponent(serviceId)}/${encodeURIComponent(selectedToolId)}`,
+      )
     : null;
 
   const {
@@ -151,11 +153,16 @@ export function ServiceToolWorkbench({ serviceId }: { serviceId: string }) {
   const handlePolicyChange = async (decision: PolicyDecision) => {
     if (!selectedToolId) return;
     try {
-      await apiFetch(buildUrl(`/tools/${serviceId}/${selectedToolId}/policy`), {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ decision }),
-      });
+      await apiFetch(
+        buildUrl(
+          `/tools/${encodeURIComponent(serviceId)}/${encodeURIComponent(selectedToolId)}/policy`,
+        ),
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ decision }),
+        },
+      );
       await mutateTools();
       if (detailUrl) await mutateDetail();
       addNotification({

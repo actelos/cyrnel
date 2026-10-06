@@ -66,7 +66,7 @@ const bearerBodySchema = z.object({
 
 const oauth2BodySchema = z.object({
   oauthClientId: nonEmptyTrimmedString("oauthClientId"),
-  scopes: z.array(nonEmptyTrimmedString("scopes")).min(1),
+  scopes: z.array(nonEmptyTrimmedString("scopes")),
 });
 
 const oauthCodeBodySchema = z.object({

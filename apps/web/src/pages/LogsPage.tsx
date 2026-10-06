@@ -77,43 +77,46 @@ interface LogFilters {
 const PAGE_LIMIT = 100;
 const LIVE_CAP = 500;
 
-const now = new Date();
-const datePresets = [
-  {
-    label: "Last hour",
-    value: { from: new Date(now.getTime() - 60 * 60 * 1000), to: now },
-  },
-  {
-    label: "Last 24 hours",
-    value: { from: new Date(now.getTime() - 24 * 60 * 60 * 1000), to: now },
-  },
-  {
-    label: "Last 7 days",
-    value: { from: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000), to: now },
-  },
-  {
-    label: "Last 30 days",
-    value: {
-      from: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000),
-      to: now,
+const getDatePresets = (now = new Date()) =>
+  [
+    {
+      label: "Last hour",
+      value: { from: new Date(now.getTime() - 60 * 60 * 1000), to: now },
     },
-  },
-  {
-    label: "This week",
-    value: {
-      from: new Date(
-        now.getFullYear(),
-        now.getMonth(),
-        now.getDate() - now.getDay(),
-      ),
-      to: now,
+    {
+      label: "Last 24 hours",
+      value: { from: new Date(now.getTime() - 24 * 60 * 60 * 1000), to: now },
     },
-  },
-  {
-    label: "This month",
-    value: { from: new Date(now.getFullYear(), now.getMonth(), 1), to: now },
-  },
-] as const;
+    {
+      label: "Last 7 days",
+      value: {
+        from: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000),
+        to: now,
+      },
+    },
+    {
+      label: "Last 30 days",
+      value: {
+        from: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000),
+        to: now,
+      },
+    },
+    {
+      label: "This week",
+      value: {
+        from: new Date(
+          now.getFullYear(),
+          now.getMonth(),
+          now.getDate() - now.getDay(),
+        ),
+        to: now,
+      },
+    },
+    {
+      label: "This month",
+      value: { from: new Date(now.getFullYear(), now.getMonth(), 1), to: now },
+    },
+  ] as const;
 
 const levelBadgeClassName = (level: LogLevel) => {
   if (level === "fatal") return "bg-destructive text-destructive-foreground";
@@ -160,28 +163,60 @@ const filterParams = (filters: LogFilters) => ({
   to: filters.to ? filters.to.getTime() : undefined,
 });
 
+const LOG_LEVELS: ReadonlySet<string> = new Set([
+  "trace",
+  "debug",
+  "info",
+  "warn",
+  "error",
+  "fatal",
+  "all",
+]);
+
+const LOG_TYPES: ReadonlySet<string> = new Set([
+  "app",
+  "request",
+  "module",
+  "all",
+]);
+
+const LOG_MODULE_TYPES: ReadonlySet<string> = new Set([
+  "adapter",
+  "environment",
+  "all",
+]);
+
+function parseDateParam(raw: string | null): Date | undefined {
+  if (raw === null || raw.trim().length === 0) return undefined;
+  const numeric = Number(raw);
+  if (!Number.isFinite(numeric)) return undefined;
+  const date = new Date(numeric);
+  return Number.isNaN(date.getTime()) ? undefined : date;
+}
+
 function getInitialFilters(searchParams: URLSearchParams): LogFilters {
-  const fromParam = searchParams.get("from");
-  const toParam = searchParams.get("to");
+  const levelRaw = searchParams.get("level");
+  const typeRaw = searchParams.get("type");
+  const moduleTypeRaw = searchParams.get("moduleType");
   return {
     query: searchParams.get("q") ?? "",
-    level: (searchParams.get("level") as LogLevel | "all") ?? "all",
-    type: (searchParams.get("type") as LogType | "all") ?? "all",
-    moduleType:
-      (searchParams.get("moduleType") as "adapter" | "environment" | "all") ??
-      "all",
+    level: (levelRaw !== null && LOG_LEVELS.has(levelRaw) ? levelRaw : "all") as
+      | LogLevel
+      | "all",
+    type: (typeRaw !== null && LOG_TYPES.has(typeRaw) ? typeRaw : "all") as
+      | LogType
+      | "all",
+    moduleType: (moduleTypeRaw !== null && LOG_MODULE_TYPES.has(moduleTypeRaw)
+      ? moduleTypeRaw
+      : "all") as "adapter" | "environment" | "all",
     moduleId: searchParams.get("moduleId") ?? "",
     executionId: searchParams.get("executionId") ?? "",
     dispatchId: searchParams.get("dispatchId") ?? "",
     toolId: searchParams.get("toolId") ?? "",
     phase: searchParams.get("phase") ?? "",
-    from: fromParam ? new Date(Number(fromParam)) : undefined,
-    to: toParam ? new Date(Number(toParam)) : undefined,
+    from: parseDateParam(searchParams.get("from")),
+    to: parseDateParam(searchParams.get("to")),
   };
-}
-
-function getInitialCursor(searchParams: URLSearchParams): string | null {
-  return searchParams.get("cursor");
 }
 
 function getInitialFollow(searchParams: URLSearchParams): boolean {
@@ -195,10 +230,6 @@ export default function LogsPage() {
 
   const initialFilters = useMemo(
     () => getInitialFilters(searchParams),
-    [searchParams],
-  );
-  const initialCursor = useMemo(
-    () => getInitialCursor(searchParams),
     [searchParams],
   );
   const initialFollow = useMemo(
@@ -229,7 +260,7 @@ export default function LogsPage() {
       initialFilters.phase.trim().length > 0,
   );
   const [history, setHistory] = useState<LogEntry[]>([]);
-  const [nextCursor, setNextCursor] = useState<string | null>(initialCursor);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -302,7 +333,6 @@ export default function LogsPage() {
     if (phase.trim()) params.set("phase", phase.trim());
     if (from) params.set("from", String(from.getTime()));
     if (to) params.set("to", String(to.getTime()));
-    if (nextCursor) params.set("cursor", nextCursor);
     if (!follow) params.set("follow", "false");
     setSearchParams(params, { replace: true });
   }, [
@@ -317,7 +347,6 @@ export default function LogsPage() {
     phase,
     from,
     to,
-    nextCursor,
     follow,
     setSearchParams,
   ]);
@@ -605,14 +634,17 @@ export default function LogsPage() {
                 <PopoverContent className="w-auto p-0" align="end">
                   <div className="flex p-2">
                     <div className="border-r pr-2 max-w-60">
-                      {datePresets.map((preset) => (
+                      {getDatePresets().map((preset) => (
                         <Button
                           key={preset.label}
                           variant="ghost"
                           className="w-full justify-start gap-2 px-3 py-1.5 text-sm"
                           onClick={() => {
-                            setFrom(preset.value.from);
-                            setTo(preset.value.to);
+                            const fresh = getDatePresets().find(
+                              (item) => item.label === preset.label,
+                            );
+                            setFrom(fresh?.value.from ?? preset.value.from);
+                            setTo(fresh?.value.to ?? preset.value.to);
                           }}
                         >
                           {preset.label}

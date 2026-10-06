@@ -152,6 +152,9 @@ const parsePage = (raw: string | null): number => {
 
 const EXPIRING_SOON_MS = 5 * 60 * 1000;
 
+const pastTense = (action: "approve" | "deny") =>
+  action === "approve" ? "approved" : "denied";
+
 export default function ApprovalsPage() {
   const { mutate } = useSWRConfig();
   const { addNotification } = useNotification();
@@ -337,8 +340,8 @@ export default function ApprovalsPage() {
 
       addNotification({
         type: "success",
-        title: `Approval ${action}d`,
-        message: `Approval ${action}d.`,
+        title: `Approval ${pastTense(action)}`,
+        message: `Approval ${pastTense(action)}.`,
       });
     } catch (error) {
       addNotification({
@@ -438,14 +441,14 @@ export default function ApprovalsPage() {
             action === "approve" ? "Approvals approved" : "Approvals denied",
           message:
             succeededIds.length === 1
-              ? `1 approval ${action}d.`
-              : `${succeededIds.length} approvals ${action}d.`,
+              ? `1 approval ${pastTense(action)}.`
+              : `${succeededIds.length} approvals ${pastTense(action)}.`,
         });
       } else {
         addNotification({
           type: succeededIds.length > 0 ? "success" : "error",
           title: "Bulk decision incomplete",
-          message: `${succeededIds.length} ${action}d, ${failed} failed. Non-pending approvals were skipped.`,
+          message: `${succeededIds.length} ${pastTense(action)}, ${failed} failed. Non-pending approvals were skipped.`,
         });
       }
     } catch (error) {

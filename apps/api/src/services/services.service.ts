@@ -17,7 +17,7 @@ import {
   sql,
 } from "drizzle-orm";
 import jsonpatch from "fast-json-patch";
-import { validRange } from "semver";
+import { gt, validRange } from "semver";
 import { z } from "zod";
 
 import { db } from "@/db/client";
@@ -1128,7 +1128,7 @@ export class ServicesService {
         "registry_unavailable",
       );
     }
-    const updateAvailable = registry.version !== service.version;
+    const updateAvailable = gt(registry.version, service.version);
     return {
       id,
       installed: service.version,

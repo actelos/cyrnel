@@ -65,7 +65,7 @@ export default function SettingsAuthenticationPage() {
   const [isDeleting, setIsDeleting] = useState(false);
 
   const oauthClientsUrl = buildUrl("/oauth-clients");
-  const { data: oauthClientsData } = useSWR(
+  const { data: oauthClientsData, error: oauthClientsError } = useSWR(
     oauthClientsUrl,
     (url) => apiFetchJson(url, oauthClientListSchema),
     { refreshInterval: 8000 },
@@ -161,7 +161,25 @@ export default function SettingsAuthenticationPage() {
         </header>
 
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto [&_[data-slot='table-container']]:overflow-visible">
-          {oauthClientsData === undefined ? (
+          {oauthClientsError ? (
+            <div className="flex flex-col items-center justify-center gap-3 h-full py-12">
+              <p className="text-sm text-destructive">
+                Failed to load OAuth clients:{" "}
+                {errorMessageFrom(
+                  oauthClientsError,
+                  "Unable to load OAuth clients.",
+                )}
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void refresh()}
+              >
+                Retry
+              </Button>
+            </div>
+          ) : oauthClientsData === undefined ? (
             <div className="flex items-center justify-center h-full py-12">
               <p className="text-sm text-muted-foreground">
                 Loading OAuth clients…

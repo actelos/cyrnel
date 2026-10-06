@@ -4,7 +4,7 @@ import type {
   SecurityRequirement,
   SecurityRequirements,
 } from "@cyrnel/sdk";
-import { maxSatisfying, valid } from "semver";
+import { compare, maxSatisfying, valid } from "semver";
 import { HttpError } from "@/models/error.model";
 import { assertKind } from "@/utils/compatibility.util";
 import { assertRegistryAddressAllowed } from "@/utils/download.util";
@@ -296,9 +296,7 @@ export async function listRegistryVersions(
 ): Promise<{ latestVersion: string; versions: string[] }> {
   const body = await fetchRegistryJson(source, label);
   const descriptor = validateRegistryDescriptor(body, label);
-  const versions = Object.keys(descriptor.versions).sort((a, b) =>
-    a.localeCompare(b, undefined, { numeric: true }),
-  );
+  const versions = Object.keys(descriptor.versions).sort(compare);
   return { latestVersion: descriptor.latestVersion, versions };
 }
 

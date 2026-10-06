@@ -43,8 +43,8 @@ function titleForStatus(status: number, code?: string): string {
     return "Conflict";
   }
   if (status === 429) return "Rate limited";
-  if (status === 502 || code === "registry_unavailable")
-    return "Registry unavailable";
+  if (code === "registry_unavailable") return "Registry unavailable";
+  if (status === 502) return "Bad gateway";
   if (status === 503) return "Service temporarily unavailable";
   if (status === 504) return "Request timed out";
   if (status >= 500) return "Something went wrong";
@@ -58,7 +58,7 @@ function titleForStatus(status: number, code?: string): string {
 }
 
 function descriptionForStatus(input: ErrorInput, fallback: string): string {
-  const { status = 0, message, retryAfter } = input;
+  const { status = 0, code, message, retryAfter } = input;
   if (message && message.trim().length > 0 && message.trim().length < 300) {
     // Prefer backend human-readable message when concise.
     // Long raw exceptions are surfaced via technicalDetails instead.
@@ -83,7 +83,10 @@ function descriptionForStatus(input: ErrorInput, fallback: string): string {
         ? `Too many requests. Try again in ${retryAfter}s.`
         : "Too many requests. Please wait and try again.";
     case 502:
-      return "The registry could not be reached. Check the registry URL and try again.";
+      if (code === "registry_unavailable") {
+        return "The registry could not be reached. Check the registry URL and try again.";
+      }
+      return "A gateway error occurred. Try again shortly.";
     case 503:
       return "A dependency is temporarily unavailable. Try again shortly.";
     case 504:

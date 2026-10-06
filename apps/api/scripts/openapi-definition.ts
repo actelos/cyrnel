@@ -2689,7 +2689,7 @@ registry.registerPath({
       "A bearer token was required but missing or invalid.",
     ),
     403: apiErrorResponse(
-      "The tool policy blocked the invocation, or approval is required (approval_required with an approval id).",
+      "The tool policy blocked the invocation (tool_blocked), or a required credential is missing or unusable. Approval-required invocations return 200 with status approval_required.",
     ),
     404: apiErrorResponse("The service or tool could not be found."),
     ...rateLimitResponse(),

@@ -23,7 +23,7 @@ const detailsSchema = z.object({
     .record(z.string(), z.object({ type: z.string() }).passthrough())
     .optional(),
   credentialSchemes: z
-    .record(z.object({ configured: z.boolean() }).passthrough())
+    .record(z.string(), z.object({ configured: z.boolean() }).passthrough())
     .optional(),
   configSchema: z.record(z.string(), z.unknown()).optional(),
   secretsSchema: z.record(z.string(), z.unknown()).optional(),
@@ -271,7 +271,7 @@ export function SetupWizard({
               </div>
             ) : null}
           </dl>
-          <Alert variant="destructive">
+          <Alert variant={status === "complete" ? "default" : "destructive"}>
             <AlertTitle>{setupStatusLabel(status)}</AlertTitle>
             <AlertDescription>
               {setupStatusDescription(status)}
