@@ -1,13 +1,19 @@
 import type { Request, Response } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { getTool, getToolDocs, listTools } from "@/controllers/tool.controller";
+import {
+  getTool,
+  getToolDocs,
+  invokeTool,
+  listTools,
+} from "@/controllers/tool.controller";
 import { HttpError } from "@/models/error.model";
 
 const servicesService = {
   listTools: vi.fn(),
   getTool: vi.fn(),
   getToolDocs: vi.fn(),
+  invokeTool: vi.fn(),
 };
 
 interface MockResponse {
@@ -217,6 +223,101 @@ describe("tool.controller", () => {
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.type).toHaveBeenCalledWith("text/markdown; charset=utf-8");
       expect(res.send).toHaveBeenCalledWith("# Tool\n\nDescription");
+    });
+  });
+
+  describe("invokeTool", () => {
+    it("delegates {serviceId, toolId, parameters} and returns 200 {result}", async () => {
+      const res = makeRes();
+      servicesService.invokeTool.mockResolvedValue({ result: { ok: true } });
+
+      await invokeTool(
+        makeReq({
+          params: { serviceId: "svc", toolId: "t1" },
+          body: { parameters: { a: 1 } },
+        }),
+        cast(res),
+      );
+
+      expect(servicesService.invokeTool).toHaveBeenCalledWith({
+        serviceId: "svc",
+        toolId: "t1",
+        parameters: { a: 1 },
+      });
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith({ result: { ok: true } });
+    });
+
+    it('maps {status:"approval_required"} to 403 with status+code', async () => {
+      const res = makeRes();
+      servicesService.invokeTool.mockResolvedValue({
+        result: null,
+        status: "approval_required",
+      });
+
+      await invokeTool(
+        makeReq({
+          params: { serviceId: "svc", toolId: "t1" },
+          body: { parameters: {} },
+        }),
+        cast(res),
+      );
+
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: "approval_required",
+          code: "approval_required",
+        }),
+      );
+    });
+
+    it("propagates HttpError from the service", async () => {
+      const res = makeRes();
+      const failure = new HttpError(404, "Tool 't1' not found.");
+      servicesService.invokeTool.mockRejectedValue(failure);
+
+      await expect(
+        invokeTool(
+          makeReq({
+            params: { serviceId: "svc", toolId: "t1" },
+            body: { parameters: {} },
+          }),
+          cast(res),
+        ),
+      ).rejects.toBe(failure);
+    });
+
+    it("wraps unknown errors as 500", async () => {
+      const res = makeRes();
+      servicesService.invokeTool.mockRejectedValue(new Error("boom"));
+
+      await expect(
+        invokeTool(
+          makeReq({
+            params: { serviceId: "svc", toolId: "t1" },
+            body: { parameters: {} },
+          }),
+          cast(res),
+        ),
+      ).rejects.toMatchObject({ statusCode: 500 });
+    });
+
+    it.each([
+      { body: {}, why: "missing parameters" },
+      { body: { parameters: "nope" }, why: "non-object parameters" },
+      { body: { parameters: null }, why: "null parameters" },
+      { body: { parameters: [1, 2] }, why: "array parameters" },
+      { body: "not-an-object", why: "non-object body" },
+    ])("rejects invalid body: $why", async ({ body }) => {
+      const res = makeRes();
+      await expect(
+        invokeTool(
+          makeReq({ params: { serviceId: "svc", toolId: "t1" }, body }),
+          cast(res),
+        ),
+      ).rejects.toBeInstanceOf(HttpError);
+      expect(servicesService.invokeTool).not.toHaveBeenCalled();
     });
   });
 });

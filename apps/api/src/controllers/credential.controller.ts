@@ -66,7 +66,7 @@ const bearerBodySchema = z.object({
 
 const oauth2BodySchema = z.object({
   oauthClientId: nonEmptyTrimmedString("oauthClientId"),
-  scopes: z.array(nonEmptyTrimmedString("scopes")).optional().default([]),
+  scopes: z.array(nonEmptyTrimmedString("scopes")),
 });
 
 const oauthCodeBodySchema = z.object({
@@ -86,7 +86,6 @@ const createOAuthClientBodySchema = z.object({
     .enum(["client_secret_basic", "client_secret_post"])
     .optional(),
   redirectUris: z.array(httpsUrl("redirectUris")).optional(),
-  availableScopes: z.array(nonEmptyTrimmedString("availableScopes")),
 });
 
 const patchOAuthClientBodySchema = z
@@ -98,9 +97,6 @@ const patchOAuthClientBodySchema = z
       .enum(["client_secret_basic", "client_secret_post"])
       .optional(),
     redirectUris: z.array(httpsUrl("redirectUris")).optional(),
-    availableScopes: z
-      .array(nonEmptyTrimmedString("availableScopes"))
-      .optional(),
   })
   .refine((data) => Object.keys(data).length > 0, {
     message: "Request body must include at least one field to update.",

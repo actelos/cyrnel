@@ -1,14 +1,18 @@
 import {
-  Check,
   ChevronDown,
-  Copy,
   ExternalLink,
-  Plus,
+  Fingerprint,
+  KeyRound,
+  LockKeyhole,
+  Plug,
+  ShieldCheck,
   Unlink,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { z } from "zod";
+import { CopyButton } from "@/components/copy-button";
+import { CreateOAuthClientDialog } from "@/components/OAuthClientDialogs";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -21,12 +25,19 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { ButtonGroup } from "@/components/ui/button-group";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -36,16 +47,9 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { useNotification } from "@/hooks/use-notification";
 import { apiFetch, apiFetchJson, buildUrl, errorMessageFrom } from "@/lib/api";
-import { copyToClipboard } from "@/lib/copy";
+import { cn } from "@/lib/utils";
 
 const credentialSummarySchema = z.object({
   id: z.string(),
@@ -79,7 +83,6 @@ const oauthClientSchema = z.object({
   authorizationUrl: z.string().nullable(),
   clientAuthMethod: z.string(),
   redirectUris: z.array(z.string()),
-  availableScopes: z.array(z.string()),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -88,8 +91,10 @@ const oauthClientListSchema = z.array(oauthClientSchema);
 
 const resolvedClientSchema = oauthClientSchema.extend({
   scopeCompatible: z.boolean(),
+  missingScopes: z.array(z.string()).optional().default([]),
   tokenHost: z.string().nullable(),
   warning: z.string().nullable(),
+  reason: z.string().optional().default(""),
 });
 
 const resolveResponseSchema = z.object({
@@ -130,10 +135,6 @@ const registryMachineAuthResponseSchema = z.object({
   }),
 });
 
-const oauthClientCreatedSchema = z.object({
-  clientId: z.string(),
-});
-
 type CredentialSummary = z.infer<typeof credentialSummarySchema>;
 type OAuthClient = z.infer<typeof oauthClientSchema>;
 type ResolvedClient = z.infer<typeof resolvedClientSchema>;
@@ -158,11 +159,6 @@ export interface AuthTarget {
 interface AuthSectionProps {
   target: AuthTarget;
   authSchemes: Record<string, AuthSchemeInfo>;
-  credentialSchemes?: Record<
-    string,
-    { configured: boolean; status?: string; grantedSource?: string | null }
-  >;
-  secretsSchema: Record<string, unknown>;
 }
 
 type StaticCredentialType = "apiKey" | "basic" | "bearer";
@@ -200,20 +196,6 @@ function schemeTypeLabel(scheme: AuthSchemeInfo): string {
   }
 }
 
-function statusBadgeVariant(status: string) {
-  switch (status) {
-    case "active":
-      return "default" as const;
-    case "expired":
-      return "secondary" as const;
-    case "revoked":
-    case "error":
-      return "destructive" as const;
-    default:
-      return "outline" as const;
-  }
-}
-
 function hostnameOf(raw: string | null | undefined): string {
   if (!raw) return "provider";
   try {
@@ -223,14 +205,14 @@ function hostnameOf(raw: string | null | undefined): string {
   }
 }
 
-function splitList(value: string): string[] {
+function _splitList(value: string): string[] {
   return value
     .split(/[,\n]/)
     .map((part) => part.trim())
     .filter((part) => part.length > 0);
 }
 
-function isValidHttpUrl(value: string): boolean {
+function _isValidHttpUrl(value: string): boolean {
   try {
     const parsed = new URL(value);
     return parsed.protocol === "http:" || parsed.protocol === "https:";
@@ -253,18 +235,91 @@ function placementHelp(scheme: AuthSchemeInfo): string {
   }
   if (mapped === "basic") return "Username and password";
   if (mapped === "bearer") return "Bearer token in the Authorization header";
-  if (mapped === "oauth2" && scheme.tokenUrl) {
-    return `Token URL: ${scheme.tokenUrl}`;
-  }
   return "";
 }
 
-export default function AuthSection({
-  target,
-  authSchemes,
-  credentialSchemes,
-  secretsSchema,
-}: AuthSectionProps) {
+function SchemeTile({
+  mapped,
+}: {
+  mapped: StaticCredentialType | "oauth2" | null;
+}) {
+  const Icon =
+    mapped === "apiKey"
+      ? KeyRound
+      : mapped === "basic"
+        ? LockKeyhole
+        : mapped === "bearer"
+          ? Fingerprint
+          : mapped === "oauth2"
+            ? ShieldCheck
+            : Plug;
+  const tint =
+    mapped === "apiKey"
+      ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+      : mapped === "basic"
+        ? "bg-sky-500/10 text-sky-600 dark:text-sky-400"
+        : mapped === "bearer"
+          ? "bg-violet-500/10 text-violet-600 dark:text-violet-400"
+          : mapped === "oauth2"
+            ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+            : "bg-muted text-muted-foreground";
+  return (
+    <div
+      className={cn("flex size-9 shrink-0 items-center justify-center", tint)}
+    >
+      <Icon className="size-4" />
+    </div>
+  );
+}
+
+function StatusPill({ credential }: { credential: CredentialSummary | null }) {
+  if (!credential) {
+    return (
+      <Badge variant="outline" className="gap-1.5 text-muted-foreground">
+        <span className="size-1.5 rounded-full bg-muted-foreground/50" />
+        Not connected
+      </Badge>
+    );
+  }
+  const tone =
+    credential.status === "active"
+      ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+      : credential.status === "expired"
+        ? "border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-400"
+        : "border-destructive/25 bg-destructive/10 text-destructive";
+  const label =
+    credential.status === "active"
+      ? "Connected"
+      : credential.status.charAt(0).toUpperCase() + credential.status.slice(1);
+  return (
+    <Badge variant="outline" className={cn("gap-1.5", tone)}>
+      <span className="size-1.5 rounded-full bg-current" />
+      {label}
+    </Badge>
+  );
+}
+
+function schemeSubline(
+  scheme: AuthSchemeInfo,
+  credential: CredentialSummary | null,
+): string {
+  const parts = [schemeTypeLabel(scheme)];
+  if (credential?.schemeType === "oauth2" && credential.oauthClient) {
+    const provider =
+      credential.oauthClient.provider ||
+      hostnameOf(credential.oauthClient.tokenUrl);
+    parts.push(`via ${provider}`);
+    const count = (credential.grantedScopes ?? credential.requestedScopes)
+      .length;
+    parts.push(`${count} scope${count === 1 ? "" : "s"}`);
+  } else {
+    const placement = placementHelp(scheme);
+    if (placement) parts.push(placement);
+  }
+  return parts.join(" · ");
+}
+
+export default function AuthSection({ target, authSchemes }: AuthSectionProps) {
   const { mutate } = useSWRConfig();
 
   const base = credentialsBase(target);
@@ -283,10 +338,6 @@ export default function AuthSection({
   );
 
   const schemeNames = Object.keys(authSchemes);
-  const secretKeys = Object.keys(
-    ((secretsSchema.properties as Record<string, unknown> | undefined) ??
-      {}) as Record<string, unknown>,
-  );
 
   const refreshAll = () => {
     void mutate(credentialsUrl);
@@ -302,7 +353,7 @@ export default function AuthSection({
     }
   };
 
-  if (schemeNames.length === 0 && secretKeys.length === 0) {
+  if (schemeNames.length === 0) {
     return null;
   }
 
@@ -311,50 +362,23 @@ export default function AuthSection({
   );
 
   return (
-    <Card className="flex min-h-0 flex-col">
-      <CardHeader className="shrink-0">
-        <h3 className="text-sm font-semibold">Authentication</h3>
-      </CardHeader>
-      <CardContent className="min-h-0 flex-1 overflow-hidden">
-        <div className="max-h-[50vh] space-y-3 overflow-y-auto pr-4">
-          {schemeNames.map((name) => {
-            const scheme = authSchemes[name];
-            const credential = credentialByScheme.get(name) ?? null;
-            const hint = credentialSchemes?.[name];
-            return (
-              <SchemeRow
-                key={name}
-                target={target}
-                schemeName={name}
-                scheme={scheme}
-                credential={credential}
-                hintConfigured={hint?.configured ?? credential !== null}
-                hintStatus={hint?.status ?? credential?.status}
-                oauthClients={oauthClients ?? []}
-                onChanged={refreshAll}
-              />
-            );
-          })}
-
-          {secretKeys.length > 0 ? (
-            <div className="border p-3">
-              <p className="text-muted-foreground text-xs">
-                The following schemes are configured via {target.kind} secrets:{" "}
-                {secretKeys.map((k) => (
-                  <Badge
-                    key={k}
-                    variant="secondary"
-                    className="mx-0.5 text-[10px]"
-                  >
-                    {k}
-                  </Badge>
-                ))}
-              </p>
-            </div>
-          ) : null}
-        </div>
-      </CardContent>
-    </Card>
+    <div className="space-y-3">
+      {schemeNames.map((name) => {
+        const scheme = authSchemes[name];
+        const credential = credentialByScheme.get(name) ?? null;
+        return (
+          <SchemeRow
+            key={name}
+            target={target}
+            schemeName={name}
+            scheme={scheme}
+            credential={credential}
+            oauthClients={oauthClients ?? []}
+            onChanged={refreshAll}
+          />
+        );
+      })}
+    </div>
   );
 }
 
@@ -363,8 +387,6 @@ function SchemeRow({
   schemeName,
   scheme,
   credential,
-  hintConfigured,
-  hintStatus,
   oauthClients,
   onChanged,
 }: {
@@ -372,128 +394,73 @@ function SchemeRow({
   schemeName: string;
   scheme: AuthSchemeInfo;
   credential: CredentialSummary | null;
-  hintConfigured: boolean;
-  hintStatus?: string;
   oauthClients: OAuthClient[];
   onChanged: () => void;
 }) {
   const mapped = credentialTypeForScheme(scheme);
-  const configured = credential !== null || hintConfigured;
-  const status = credential?.status ?? hintStatus;
+  const subline = schemeSubline(scheme, credential);
 
   return (
-    <div className="space-y-3 border p-3">
-      <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0 space-y-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-medium">{schemeName}</span>
-            <Badge variant="secondary">{schemeTypeLabel(scheme)}</Badge>
-            {configured && status ? (
-              <Badge
-                variant={statusBadgeVariant(status)}
-                className="text-[10px]"
-              >
-                {status}
-              </Badge>
-            ) : (
-              <Badge variant="outline" className="text-[10px]">
-                not configured
-              </Badge>
-            )}
-            {credential?.grantedSource ? (
-              <Badge variant="outline" className="text-[10px]">
-                {credential.grantedSource === "inferred"
-                  ? "scopes assumed"
-                  : `granted via ${credential.grantedSource}`}
-              </Badge>
-            ) : null}
+    <section className="border border-border bg-card">
+      <div className="flex items-center gap-3 p-4">
+        <SchemeTile mapped={mapped} />
+        <div className="min-w-0 flex-1 space-y-0.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="truncate text-sm font-medium">{schemeName}</span>
+            <StatusPill credential={credential} />
           </div>
-          <p className="text-muted-foreground text-xs">
-            {placementHelp(scheme)}
+          <p className="truncate text-xs text-muted-foreground" title={subline}>
+            {subline}
           </p>
-          {declaredScopesHelp(scheme) ? (
-            <p className="text-muted-foreground text-xs">
-              Declared scopes: {declaredScopesHelp(scheme)}
-            </p>
-          ) : null}
-          {credential ? <CredentialScopesLine credential={credential} /> : null}
         </div>
       </div>
 
-      {mapped === "apiKey" || mapped === "basic" || mapped === "bearer" ? (
-        <StaticSchemeForm
-          target={target}
-          schemeName={schemeName}
-          kind={mapped}
-          credential={credential}
-          onChanged={onChanged}
-        />
-      ) : mapped === "oauth2" ? (
-        target.kind === "registry" &&
-        scheme.grantTypes &&
-        !scheme.grantTypes.includes("authorization_code") ? (
-          <p className="text-muted-foreground text-xs">
-            This scheme does not support the authorization-code flow. Use the
-            machine credential below.
-          </p>
-        ) : (
-          <OAuth2SchemeForm
+      <div className="space-y-3 border-t border-border px-4 py-3">
+        {mapped === "apiKey" || mapped === "basic" || mapped === "bearer" ? (
+          <StaticSchemeForm
             target={target}
+            schemeName={schemeName}
+            kind={mapped}
+            credential={credential}
+            onChanged={onChanged}
+          />
+        ) : mapped === "oauth2" ? (
+          target.kind === "registry" &&
+          scheme.grantTypes &&
+          !scheme.grantTypes.includes("authorization_code") ? (
+            <p className="text-muted-foreground text-xs">
+              This scheme does not support the authorization-code flow. Use the
+              machine credential below.
+            </p>
+          ) : (
+            <OAuth2SchemeForm
+              target={target}
+              schemeName={schemeName}
+              scheme={scheme}
+              credential={credential}
+              oauthClients={oauthClients}
+              onChanged={onChanged}
+            />
+          )
+        ) : (
+          <p className="text-muted-foreground text-xs">
+            Unsupported scheme type &apos;{scheme.type}&apos;.
+          </p>
+        )}
+
+        {target.kind === "registry" &&
+        scheme.type === "oauth2" &&
+        scheme.grantTypes?.includes("client_credentials") ? (
+          <RegistryMachineForm
+            registryId={target.id}
             schemeName={schemeName}
             scheme={scheme}
             credential={credential}
-            oauthClients={oauthClients}
             onChanged={onChanged}
           />
-        )
-      ) : (
-        <p className="text-muted-foreground text-xs">
-          Unsupported scheme type &apos;{scheme.type}&apos;.
-        </p>
-      )}
-
-      {target.kind === "registry" &&
-      scheme.type === "oauth2" &&
-      scheme.grantTypes?.includes("client_credentials") ? (
-        <RegistryMachineForm
-          registryId={target.id}
-          schemeName={schemeName}
-          scheme={scheme}
-          credential={credential}
-          onChanged={onChanged}
-        />
-      ) : null}
-    </div>
-  );
-}
-
-function CredentialScopesLine({
-  credential,
-}: {
-  credential: CredentialSummary;
-}) {
-  if (credential.schemeType !== "oauth2") return null;
-  return (
-    <div className="space-y-1">
-      {credential.requestedScopes.length > 0 ? (
-        <p className="text-muted-foreground text-xs">
-          Requested: {credential.requestedScopes.join(", ")}
-        </p>
-      ) : null}
-      {credential.grantedScopes ? (
-        <p className="text-muted-foreground text-xs">
-          Granted: {credential.grantedScopes.join(", ")}
-        </p>
-      ) : (
-        <p className="text-muted-foreground text-xs">Not yet authorized.</p>
-      )}
-      {credential.oauthClient ? (
-        <p className="text-muted-foreground text-xs">
-          Client: {credential.oauthClient.provider} (
-          {credential.oauthClient.clientId})
-        </p>
-      ) : null}
-    </div>
+        ) : null}
+      </div>
+    </section>
   );
 }
 
@@ -559,7 +526,9 @@ function StaticSchemeForm({
       setToken("");
       addNotification({
         type: "success",
-        title: "Success",
+        title: result.replaced
+          ? `Credential for '${schemeName}' replaced`
+          : `Credential for '${schemeName}' saved`,
         message: result.replaced
           ? `Credential for '${schemeName}' replaced.`
           : `Credential for '${schemeName}' saved.`,
@@ -568,7 +537,7 @@ function StaticSchemeForm({
     } catch (error) {
       addNotification({
         type: "error",
-        title: "Error",
+        title: "Credential save failed",
         message: errorMessageFrom(error, "Failed to save credential."),
       });
     } finally {
@@ -584,7 +553,7 @@ function StaticSchemeForm({
       });
       addNotification({
         type: "success",
-        title: "Success",
+        title: `Credential for '${schemeName}' disconnected`,
         message: `Credential for '${schemeName}' disconnected.`,
       });
       setConfirmOpen(false);
@@ -592,13 +561,38 @@ function StaticSchemeForm({
     } catch (error) {
       addNotification({
         type: "error",
-        title: "Error",
+        title: "Credential disconnect failed",
         message: errorMessageFrom(error, "Failed to disconnect credential."),
       });
     } finally {
       setIsDisconnecting(false);
     }
   }
+
+  const actionButtons = (
+    <ButtonGroup>
+      <Button
+        type="button"
+        disabled={!canSave}
+        onClick={() => void handleSave()}
+      >
+        {isSaving ? "Saving..." : credential ? "Replace" : "Save"}
+      </Button>
+      {credential ? (
+        <Button
+          type="button"
+          variant="destructive"
+          size="icon"
+          disabled={isDisconnecting}
+          onClick={() => setConfirmOpen(true)}
+          title={`Disconnect credential for '${schemeName}'`}
+          aria-label={`Disconnect credential for '${schemeName}'`}
+        >
+          <Unlink className="size-3.5" />
+        </Button>
+      ) : null}
+    </ButtonGroup>
+  );
 
   return (
     <div className="space-y-3">
@@ -613,21 +607,15 @@ function StaticSchemeForm({
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
               placeholder={credential ? "Replace stored key" : "secret"}
-              className="flex-1"
+              className="min-w-0 flex-1"
             />
-            <Button
-              type="button"
-              disabled={!canSave}
-              onClick={() => void handleSave()}
-            >
-              {isSaving ? "Saving..." : credential ? "Replace" : "Save"}
-            </Button>
+            {actionButtons}
           </div>
         </div>
       ) : kind === "basic" ? (
         <div className="space-y-2">
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <div className="flex-1 space-y-2">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+            <div className="min-w-0 flex-1 space-y-2">
               <Label htmlFor={`basic-user-${target.id}-${schemeName}`}>
                 Username
               </Label>
@@ -639,7 +627,7 @@ function StaticSchemeForm({
                 placeholder={credential ? "Replace username" : "username"}
               />
             </div>
-            <div className="flex-1 space-y-2">
+            <div className="min-w-0 flex-1 space-y-2">
               <Label htmlFor={`basic-pass-${target.id}-${schemeName}`}>
                 Password
               </Label>
@@ -652,15 +640,7 @@ function StaticSchemeForm({
                 placeholder="secret"
               />
             </div>
-          </div>
-          <div>
-            <Button
-              type="button"
-              disabled={!canSave}
-              onClick={() => void handleSave()}
-            >
-              {isSaving ? "Saving..." : credential ? "Replace" : "Save"}
-            </Button>
+            <div className="flex items-center gap-2">{actionButtons}</div>
           </div>
         </div>
       ) : (
@@ -674,33 +654,12 @@ function StaticSchemeForm({
               value={token}
               onChange={(e) => setToken(e.target.value)}
               placeholder={credential ? "Replace stored token" : "secret"}
-              className="flex-1"
+              className="min-w-0 flex-1"
             />
-            <Button
-              type="button"
-              disabled={!canSave}
-              onClick={() => void handleSave()}
-            >
-              {isSaving ? "Saving..." : credential ? "Replace" : "Save"}
-            </Button>
+            {actionButtons}
           </div>
         </div>
       )}
-      {credential ? (
-        <div>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="text-destructive gap-1"
-            onClick={() => setConfirmOpen(true)}
-          >
-            <Unlink className="size-3.5" />
-            Disconnect
-          </Button>
-        </div>
-      ) : null}
-
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -731,318 +690,151 @@ function ScopeMultiSelect({
   options,
   selected,
   onChange,
+  description,
 }: {
   idPrefix: string;
   options: string[];
   selected: string[];
   onChange: (next: string[]) => void;
+  description?: string;
 }) {
+  // Floating popover. `modal` keeps the list scrollable when this is
+  // rendered inside a modal Dialog/Sheet, whose scroll lock otherwise
+  // swallows wheel events in the portalled content.
+  const [open, setOpen] = useState(false);
+  const [filter, setFilter] = useState("");
+  const normalizedFilter = filter.trim().toLowerCase();
+  const visibleOptions =
+    normalizedFilter.length === 0
+      ? options
+      : options.filter((scope) =>
+          scope.toLowerCase().includes(normalizedFilter),
+        );
+
   return (
     <div className="space-y-2">
       <Label>Scopes</Label>
-      <Popover>
-        <PopoverTrigger asChild>
-          <Button
-            type="button"
-            id={`${idPrefix}-scopes`}
-            variant="outline"
-            className="w-full justify-start font-normal"
-          >
-            {selected.length > 0 ? (
-              <span className="truncate">{selected.join(", ")}</span>
-            ) : options.length > 0 ? (
-              <span className="text-muted-foreground">Select scopes</span>
-            ) : (
-              <span className="text-muted-foreground">No scopes available</span>
-            )}
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent className="w-72">
-          <div className="max-h-56 space-y-0 overflow-auto">
-            {options.length > 0 ? (
-              options.map((scope) => {
-                const checked = selected.includes(scope);
-                return (
-                  <div
-                    key={scope}
-                    className="hover:bg-accent flex items-start gap-2 rounded-sm px-2 py-1.5"
-                  >
-                    <Checkbox
-                      aria-label={`Scope ${scope}`}
-                      checked={checked}
-                      onCheckedChange={() => {
-                        const next = checked
-                          ? selected.filter((s) => s !== scope)
-                          : [...selected, scope];
-                        onChange(next);
-                      }}
-                    />
-                    <span className="block font-mono text-sm">{scope}</span>
-                  </div>
-                );
-              })
-            ) : (
-              <p className="text-muted-foreground px-2 py-1 text-xs">
-                The selected client allows unscoped flows only.
-              </p>
-            )}
-          </div>
-        </PopoverContent>
-      </Popover>
-    </div>
-  );
-}
-
-function CreateClientMiniForm({
-  idPrefix,
-  defaultTokenUrl,
-  defaultAuthorizationUrl,
-  onCreated,
-  onCancel,
-}: {
-  idPrefix: string;
-  defaultTokenUrl?: string;
-  defaultAuthorizationUrl?: string;
-  onCreated: (clientId: string) => void;
-  onCancel: () => void;
-}) {
-  const { mutate } = useSWRConfig();
-  const { addNotification } = useNotification();
-  const [form, setForm] = useState({
-    provider: "",
-    clientId: "",
-    clientSecret: "",
-    tokenUrl: defaultTokenUrl ?? "",
-    authorizationUrl: defaultAuthorizationUrl ?? "",
-    clientAuthMethod: "client_secret_basic" as
-      | "client_secret_basic"
-      | "client_secret_post",
-    redirectUris: "",
-    availableScopes: "",
-  });
-  const [isCreating, setIsCreating] = useState(false);
-
-  async function handleCreate() {
-    if (form.provider.trim().length === 0) {
-      addNotification({
-        type: "error",
-        title: "Error",
-        message: "Provider must not be empty.",
-      });
-      return;
-    }
-    if (form.clientId.trim().length === 0) {
-      addNotification({
-        type: "error",
-        title: "Error",
-        message: "Client ID must not be empty.",
-      });
-      return;
-    }
-    if (form.clientSecret.length === 0) {
-      addNotification({
-        type: "error",
-        title: "Error",
-        message: "Client secret must not be empty.",
-      });
-      return;
-    }
-    if (!isValidHttpUrl(form.tokenUrl.trim())) {
-      addNotification({
-        type: "error",
-        title: "Error",
-        message: "Token URL must be a valid absolute http(s) URL.",
-      });
-      return;
-    }
-    if (
-      form.authorizationUrl.trim().length > 0 &&
-      !isValidHttpUrl(form.authorizationUrl.trim())
-    ) {
-      addNotification({
-        type: "error",
-        title: "Error",
-        message: "Authorization URL must be a valid absolute http(s) URL.",
-      });
-      return;
-    }
-    for (const uri of splitList(form.redirectUris)) {
-      if (!isValidHttpUrl(uri)) {
-        addNotification({
-          type: "error",
-          title: "Error",
-          message: `Redirect URI '${uri}' must be a valid absolute http(s) URL.`,
-        });
-        return;
-      }
-    }
-    setIsCreating(true);
-    try {
-      const body: Record<string, unknown> = {
-        provider: form.provider.trim(),
-        clientId: form.clientId.trim(),
-        clientSecret: form.clientSecret,
-        tokenUrl: form.tokenUrl.trim(),
-        clientAuthMethod: form.clientAuthMethod,
-        availableScopes: splitList(form.availableScopes),
-      };
-      if (form.authorizationUrl.trim().length > 0) {
-        body.authorizationUrl = form.authorizationUrl.trim();
-      }
-      const redirectUris = splitList(form.redirectUris);
-      if (redirectUris.length > 0) body.redirectUris = redirectUris;
-      const created = await apiFetchJson(
-        buildUrl("/oauth-clients"),
-        oauthClientCreatedSchema,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        },
-      );
-      await mutate(buildUrl("/oauth-clients"));
-      addNotification({
-        type: "success",
-        title: "Success",
-        message: "OAuth client created.",
-      });
-      onCreated(created.clientId);
-    } catch (error) {
-      addNotification({
-        type: "error",
-        title: "Error",
-        message: errorMessageFrom(error, "Unable to create OAuth client."),
-      });
-    } finally {
-      setIsCreating(false);
-    }
-  }
-
-  return (
-    <div className="space-y-3 border p-3">
-      <p className="text-sm font-medium">Create new client</p>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="space-y-2">
-          <Label htmlFor={`${idPrefix}-provider`}>Provider</Label>
-          <Input
-            id={`${idPrefix}-provider`}
-            autoComplete="off"
-            value={form.provider}
-            onChange={(e) =>
-              setForm((f) => ({ ...f, provider: e.target.value }))
-            }
-            placeholder="google"
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor={`${idPrefix}-client-id`}>Client ID</Label>
-          <Input
-            id={`${idPrefix}-client-id`}
-            autoComplete="off"
-            value={form.clientId}
-            onChange={(e) =>
-              setForm((f) => ({ ...f, clientId: e.target.value }))
-            }
-            placeholder="my-app"
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor={`${idPrefix}-client-secret`}>Client secret</Label>
-          <Input
-            id={`${idPrefix}-client-secret`}
-            type="password"
-            autoComplete="off"
-            value={form.clientSecret}
-            onChange={(e) =>
-              setForm((f) => ({ ...f, clientSecret: e.target.value }))
-            }
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor={`${idPrefix}-token-url`}>Token URL</Label>
-          <Input
-            id={`${idPrefix}-token-url`}
-            autoComplete="off"
-            inputMode="url"
-            value={form.tokenUrl}
-            onChange={(e) =>
-              setForm((f) => ({ ...f, tokenUrl: e.target.value }))
-            }
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor={`${idPrefix}-auth-url`}>Authorization URL</Label>
-          <Input
-            id={`${idPrefix}-auth-url`}
-            autoComplete="off"
-            inputMode="url"
-            value={form.authorizationUrl}
-            onChange={(e) =>
-              setForm((f) => ({ ...f, authorizationUrl: e.target.value }))
-            }
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor={`${idPrefix}-redirect`}>Redirect URIs</Label>
-          <Input
-            id={`${idPrefix}-redirect`}
-            autoComplete="off"
-            value={form.redirectUris}
-            onChange={(e) =>
-              setForm((f) => ({ ...f, redirectUris: e.target.value }))
-            }
-            placeholder="http://localhost:9371/auth/callback"
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor={`${idPrefix}-auth-method`}>Client auth method</Label>
-          <Select
-            value={form.clientAuthMethod}
-            onValueChange={(
-              value: "client_secret_basic" | "client_secret_post",
-            ) => setForm((f) => ({ ...f, clientAuthMethod: value }))}
-          >
-            <SelectTrigger id={`${idPrefix}-auth-method`} className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="client_secret_basic">
-                client_secret_basic
-              </SelectItem>
-              <SelectItem value="client_secret_post">
-                client_secret_post
-              </SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-      <div className="space-y-2">
-        <Label htmlFor={`${idPrefix}-scopes`}>Available scopes</Label>
-        <Input
-          id={`${idPrefix}-scopes`}
-          autoComplete="off"
-          value={form.availableScopes}
-          onChange={(e) =>
-            setForm((f) => ({ ...f, availableScopes: e.target.value }))
-          }
-          placeholder="read, write"
-        />
-        <p className="text-muted-foreground text-xs">
-          Comma-separated allow-list. Empty means unscoped flows only.
-        </p>
-      </div>
-      <div className="flex justify-end gap-2">
-        <Button type="button" variant="outline" onClick={onCancel}>
-          Cancel
-        </Button>
-        <Button
-          type="button"
-          disabled={isCreating}
-          onClick={() => void handleCreate()}
+      <div>
+        <Popover
+          open={open}
+          onOpenChange={(next) => {
+            setOpen(next);
+            if (!next) setFilter("");
+          }}
+          modal
         >
-          {isCreating ? "Creating..." : "Create"}
-        </Button>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              id={`${idPrefix}-scopes`}
+              variant="outline"
+              aria-expanded={open}
+            >
+              {selected.length > 0
+                ? `Edit scopes (${selected.length})`
+                : options.length > 0
+                  ? "Select scopes"
+                  : "No scopes available"}
+              <ChevronDown
+                className={cn(
+                  "size-3.5 transition-transform",
+                  open && "rotate-180",
+                )}
+              />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent
+            align="start"
+            sideOffset={4}
+            collisionPadding={8}
+            className="w-72 max-w-[calc(100vw-2rem)] p-2"
+          >
+            {options.length > 6 ? (
+              <div className="pb-1.5">
+                <Input
+                  autoComplete="off"
+                  placeholder="Filter scopes..."
+                  aria-label="Filter scopes"
+                  value={filter}
+                  onChange={(e) => setFilter(e.target.value)}
+                />
+              </div>
+            ) : null}
+            <div className="max-h-56 space-y-0 overflow-y-auto overscroll-contain">
+              {options.length > 0 ? (
+                visibleOptions.length > 0 ? (
+                  visibleOptions.map((scope) => {
+                    const checked = selected.includes(scope);
+                    const checkboxId = `${idPrefix}-scope-${scope}`;
+                    return (
+                      <div
+                        key={scope}
+                        className="hover:bg-accent flex items-start gap-2 rounded-sm px-2 py-1.5"
+                      >
+                        <Checkbox
+                          id={checkboxId}
+                          aria-label={`Scope ${scope}`}
+                          checked={checked}
+                          onCheckedChange={() => {
+                            const next = checked
+                              ? selected.filter((s) => s !== scope)
+                              : [...selected, scope];
+                            onChange(next);
+                          }}
+                        />
+                        <Label
+                          htmlFor={checkboxId}
+                          className="block min-w-0 flex-1 break-all font-mono text-xs"
+                        >
+                          {scope}
+                        </Label>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <p className="text-muted-foreground px-2 py-1 text-xs">
+                    No scopes match &quot;{filter.trim()}&quot;.
+                  </p>
+                )
+              ) : (
+                <p className="text-muted-foreground px-2 py-1 text-xs">
+                  No scopes are declared by this scheme. Sign-in requires at
+                  least one scope — ask the service provider which scope to
+                  request.
+                </p>
+              )}
+            </div>
+            {options.length > 0 ? (
+              <div className="flex items-center justify-between gap-2 pt-1.5 border-t">
+                <span className="text-muted-foreground text-xs">
+                  {selected.length} selected
+                </span>
+                <div className="flex gap-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => onChange([...options])}
+                  >
+                    Select All
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => onChange([])}
+                  >
+                    Clear
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+          </PopoverContent>
+        </Popover>
       </div>
+      {description ? (
+        <p className="text-muted-foreground text-xs">{description}</p>
+      ) : null}
     </div>
   );
 }
@@ -1068,11 +860,35 @@ function OAuth2SchemeForm({
   const [selectedClientId, setSelectedClientId] = useState<string>(
     credential?.oauthClientId ?? "",
   );
-  const [selectedScopes, setSelectedScopes] = useState<string[]>(
-    credential?.requestedScopes ?? [],
+
+  const schemeScopeIds = useMemo(
+    () => Object.keys(scheme.scopes ?? {}),
+    [scheme.scopes],
   );
-  const [showPicker, setShowPicker] = useState(false);
+  // Normalize any stored scopes to what this scheme declares: scopes
+  // from a previous credential that the scheme does not know about can
+  // neither be offered nor unchecked, so drop them up front (signing in
+  // again stores the normalized set).
+  const storedScopes = credential?.requestedScopes ?? [];
+  const initialScopes =
+    schemeScopeIds.length > 0
+      ? storedScopes.filter((s) => schemeScopeIds.includes(s))
+      : storedScopes;
+  const [selectedScopes, setSelectedScopes] = useState<string[]>(initialScopes);
+  // Whether the user explicitly edited the scope selection. Defaults only
+  // apply until the first manual edit — after that an empty selection is
+  // the user's choice (blocked with a clear message at sign-in) rather
+  // than silently replaced.
+  const [scopesTouched, setScopesTouched] = useState<boolean>(
+    initialScopes.length > 0,
+  );
+
+  function handleScopesChange(next: string[]): void {
+    setScopesTouched(true);
+    setSelectedScopes(next);
+  }
   const [showCreate, setShowCreate] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [isWorking, setIsWorking] = useState(false);
   const [confirmSwitchOpen, setConfirmSwitchOpen] = useState(false);
   const [pendingClientId, setPendingClientId] = useState<string | null>(null);
@@ -1086,17 +902,10 @@ function OAuth2SchemeForm({
   const [manualCode, setManualCode] = useState("");
   const [manualState, setManualState] = useState("");
   const [isSubmittingCode, setIsSubmittingCode] = useState(false);
-  const [urlCopied, setUrlCopied] = useState(false);
-  const [stateCopied, setStateCopied] = useState(false);
 
   const selectedClient = useMemo(
     () => oauthClients.find((c) => c.id === selectedClientId) ?? null,
     [oauthClients, selectedClientId],
-  );
-
-  const scopeOptions = useMemo(
-    () => selectedClient?.availableScopes ?? [],
-    [selectedClient],
   );
 
   const resolveUrl = scheme.authorizationUrl
@@ -1115,31 +924,62 @@ function OAuth2SchemeForm({
   );
 
   const resolvedClients = resolveData?.clients ?? [];
-  const warningFree = resolvedClients.filter((c) => c.warning === null);
-  const primary: ResolvedClient | null =
-    scheme.authorizationUrl && warningFree.length === 1 && !showPicker
-      ? warningFree[0]
+  const recommendedClient: ResolvedClient | null =
+    scheme.authorizationUrl && resolvedClients.length > 0
+      ? (resolvedClients.find((c) => c.warning === null && c.scopeCompatible) ??
+        resolvedClients.find((c) => c.warning === null) ??
+        null)
       : null;
-
-  const pickerClients: ResolvedClient[] | null = scheme.authorizationUrl
-    ? resolvedClients
-    : null;
 
   const otherClients = useMemo(() => {
     const seen = new Set(resolvedClients.map((c) => c.id));
     return oauthClients.filter((c) => !seen.has(c.id));
   }, [oauthClients, resolvedClients]);
 
-  const effectiveClientId = selectedClientId || primary?.id || "";
+  // Offer exactly the scheme-declared scopes when the scheme declares
+  // any: extras outside this set serve no purpose for this credential (no
+  // tool can require them) and only trigger the server's unknown-scopes
+  // warning. Schemes without declared scopes fall back to previously
+  // requested scopes from the existing credential, if any.
+  const scopeOptions = useMemo(
+    () =>
+      schemeScopeIds.length > 0
+        ? [...schemeScopeIds]
+        : [...new Set(storedScopes)],
+    [schemeScopeIds, storedScopes],
+  );
+
+  // The API requires at least one scope. Until the user edits the
+  // selection, fall back to the scheme-declared scopes (or all options)
+  // so a plain "Sign in" click requests something meaningful instead of
+  // failing validation with an empty array. An explicitly cleared
+  // selection is honored as-is and blocked with a clear message.
+  const defaultScopes =
+    schemeScopeIds.length > 0 ? schemeScopeIds : scopeOptions;
+  const effectiveScopes =
+    selectedScopes.length === 0 && !scopesTouched
+      ? defaultScopes
+      : selectedScopes;
+
+  const menuClients = useMemo(() => {
+    const recommendedId = recommendedClient?.id;
+    return [
+      ...resolvedClients.filter((c) => c.id !== recommendedId),
+      ...otherClients,
+    ];
+  }, [resolvedClients, otherClients, recommendedClient]);
+
+  const effectiveClientId = selectedClientId || recommendedClient?.id || "";
   const effectiveClient: OAuthClient | ResolvedClient | null =
     selectedClient ??
-    (primary
-      ? (oauthClients.find((c) => c.id === primary.id) ?? primary)
+    (recommendedClient
+      ? (oauthClients.find((c) => c.id === recommendedClient.id) ??
+        recommendedClient)
       : null);
 
   function signInLabel(): string {
-    if (primary) {
-      return `Sign in with ${primary.provider || hostnameOf(primary.tokenUrl)}`;
+    if (recommendedClient) {
+      return `Sign in with ${recommendedClient.provider || hostnameOf(recommendedClient.tokenUrl)}`;
     }
     if (effectiveClient) {
       const provider =
@@ -1156,33 +996,35 @@ function OAuth2SchemeForm({
     if (!id) {
       addNotification({
         type: "error",
-        title: "Error",
+        title: "OAuth client required",
         message: "Select an OAuth client first.",
       });
       return;
     }
     const client = oauthClients.find((c) => c.id === id);
-    if (client) {
-      const outside = selectedScopes.filter(
-        (s) => !client.availableScopes.includes(s),
-      );
-      if (outside.length > 0 && client.availableScopes.length > 0) {
-        addNotification({
-          type: "error",
-          title: "Error",
-          message: `Scope(s) not permitted by this client: ${outside.join(", ")}.`,
-        });
-        return;
-      }
-      if (!client.authorizationUrl) {
-        addNotification({
-          type: "error",
-          title: "Error",
-          message:
-            "The selected OAuth client has no authorization URL configured. Edit the client to add one, or pick another client.",
-        });
-        return;
-      }
+    // The API requires at least one scope. This fires only when the
+    // scheme declares no scopes and none were previously requested, or
+    // when the user explicitly cleared the selection.
+    if (effectiveScopes.length === 0) {
+      addNotification({
+        type: "error",
+        title: "Scope required",
+        message:
+          "Select at least one scope before signing in. If no scopes are listed, this scheme declares none — ask the service provider which scope to request.",
+      });
+      return;
+    }
+    // Note: requested scopes are intentionally not restricted to the
+    // OAuth client's declared scopes — the API accepts any scopes and only warns
+    // about ones the scheme does not declare (surfaced below).
+    if (client && !client.authorizationUrl) {
+      addNotification({
+        type: "error",
+        title: "Authorization URL missing",
+        message:
+          "The selected OAuth client has no authorization URL configured. Edit the client to add one, or pick another client.",
+      });
+      return;
     }
     setIsWorking(true);
     try {
@@ -1192,7 +1034,10 @@ function OAuth2SchemeForm({
         {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ oauthClientId: id, scopes: selectedScopes }),
+          body: JSON.stringify({
+            oauthClientId: id,
+            scopes: effectiveScopes,
+          }),
         },
       );
       if (upsert.warning) {
@@ -1212,7 +1057,6 @@ function OAuth2SchemeForm({
         state: auth.state,
       });
       setManualState(auth.state);
-      setShowManual(true);
       const popup = window.open(
         auth.authorizationUrl,
         "_blank",
@@ -1223,8 +1067,9 @@ function OAuth2SchemeForm({
           type: "error",
           title: "Popup blocked",
           message:
-            "Popup blocked. Use the authorization URL below to continue manually, then paste the code.",
+            "Popup blocked. Use manual code entry from the sign-in menu to continue, then paste the code.",
         });
+        setShowManual(true);
         setIsWorking(false);
         return;
       }
@@ -1252,7 +1097,7 @@ function OAuth2SchemeForm({
               setManualCode("");
               addNotification({
                 type: "success",
-                title: "Success",
+                title: "OAuth authorization completed",
                 message: "OAuth authorization completed.",
               });
               onChanged();
@@ -1266,9 +1111,9 @@ function OAuth2SchemeForm({
               setIsWorking(false);
               addNotification({
                 type: "error",
-                title: "Error",
+                title: "OAuth authorization timed out",
                 message:
-                  "Timed out waiting for OAuth authorization. If you already have a code, paste it below.",
+                  "Timed out waiting for OAuth authorization. If you already have a code, paste it via manual code entry from the sign-in menu.",
               });
             }
           })
@@ -1285,41 +1130,10 @@ function OAuth2SchemeForm({
     } catch (error) {
       addNotification({
         type: "error",
-        title: "Error",
+        title: "OAuth flow start failed",
         message: errorMessageFrom(error, "Failed to start OAuth flow."),
       });
       setIsWorking(false);
-    }
-  }
-
-  async function handleCopyAuthorizationUrl() {
-    if (!pendingAuth) return;
-    const ok = await copyToClipboard(pendingAuth.authorizationUrl);
-    if (ok) {
-      setUrlCopied(true);
-      window.setTimeout(() => setUrlCopied(false), 2000);
-    } else {
-      addNotification({
-        type: "error",
-        title: "Error",
-        message: "Unable to copy. Select the URL manually.",
-      });
-    }
-  }
-
-  async function handleCopyState() {
-    const value = manualState.trim() || pendingAuth?.state || "";
-    if (!value) return;
-    const ok = await copyToClipboard(value);
-    if (ok) {
-      setStateCopied(true);
-      window.setTimeout(() => setStateCopied(false), 2000);
-    } else {
-      addNotification({
-        type: "error",
-        title: "Error",
-        message: "Unable to copy. Select the state manually.",
-      });
     }
   }
 
@@ -1328,7 +1142,7 @@ function OAuth2SchemeForm({
     if (code.length === 0) {
       addNotification({
         type: "error",
-        title: "Error",
+        title: "Authorization code required",
         message: "Authorization code must not be empty.",
       });
       return;
@@ -1352,14 +1166,14 @@ function OAuth2SchemeForm({
       setShowManual(false);
       addNotification({
         type: "success",
-        title: "Success",
+        title: "Authorization code accepted",
         message: "Authorization code accepted. Credential is now active.",
       });
       onChanged();
     } catch (error) {
       addNotification({
         type: "error",
-        title: "Error",
+        title: "Authorization code submit failed",
         message: errorMessageFrom(
           error,
           "Failed to submit authorization code.",
@@ -1379,6 +1193,14 @@ function OAuth2SchemeForm({
     void runSignIn(clientId);
   }
 
+  function selectAndSignIn(clientId: string) {
+    // Keep the user's scope picks verbatim: the API accepts any scopes
+    // (warning only about scheme-undeclared ones), so narrowing to the new
+    // client's list would silently drop explicitly chosen scopes.
+    setSelectedClientId(clientId);
+    requestSignIn(clientId);
+  }
+
   async function handleDisconnect() {
     setIsDisconnecting(true);
     try {
@@ -1387,12 +1209,13 @@ function OAuth2SchemeForm({
       });
       addNotification({
         type: "success",
-        title: "Success",
+        title: `Credential for '${schemeName}' disconnected`,
         message: `Credential for '${schemeName}' disconnected.`,
       });
       setDisconnectOpen(false);
       setSelectedClientId("");
       setSelectedScopes([]);
+      setScopesTouched(false);
       setPendingAuth(null);
       setManualCode("");
       setManualState("");
@@ -1401,7 +1224,7 @@ function OAuth2SchemeForm({
     } catch (error) {
       addNotification({
         type: "error",
-        title: "Error",
+        title: "Credential disconnect failed",
         message: errorMessageFrom(error, "Failed to disconnect credential."),
       });
     } finally {
@@ -1410,409 +1233,212 @@ function OAuth2SchemeForm({
   }
 
   const idPrefix = `${target.kind}-${target.id}-${schemeName}`;
+  const _declaredScopes = declaredScopesHelp(scheme);
 
   return (
     <div className="space-y-3">
-      <ScopeMultiSelect
-        idPrefix={idPrefix}
-        options={scopeOptions}
-        selected={selectedScopes}
-        onChange={setSelectedScopes}
-      />
-      {!selectedClient &&
-      scopeOptions.length === 0 &&
-      oauthClients.length > 0 ? (
-        <p className="text-muted-foreground text-xs">
-          Select a client to choose scopes from its allow-list.
-        </p>
-      ) : null}
-      {effectiveClient &&
-      "authorizationUrl" in effectiveClient &&
-      !effectiveClient.authorizationUrl ? (
-        <p className="text-amber-600 text-xs">
-          The selected client has no authorization URL. Authorization-code
-          sign-in is unavailable until one is configured — edit the client on
-          the Authentication page or choose another client.
-        </p>
-      ) : null}
-
-      {primary ? (
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+        <div className="min-w-0 flex-1">
+          <ScopeMultiSelect
+            idPrefix={idPrefix}
+            options={scopeOptions}
+            selected={effectiveScopes}
+            onChange={handleScopesChange}
+          />
+        </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex">
+          <ButtonGroup>
             <Button
               type="button"
-              disabled={isWorking || (!effectiveClientId && !primary)}
-              onClick={() => requestSignIn(selectedClientId || primary.id)}
-              className="rounded-r-none"
+              disabled={isWorking}
+              title={recommendedClient?.reason || undefined}
+              onClick={() => {
+                if (recommendedClient) requestSignIn(recommendedClient.id);
+                else setMenuOpen(true);
+              }}
             >
-              {isWorking ? "Waiting..." : signInLabel()}
+              {signInLabel()}
             </Button>
-            <DropdownMenu>
+            <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
               <DropdownMenuTrigger asChild>
                 <Button
                   type="button"
                   variant="default"
-                  className="rounded-l-none border-l px-2"
+                  className="px-2 shadow-[inset_1px_0_0_rgb(255_255_255/25%)]"
                   aria-label="More sign-in options"
                 >
                   <ChevronDown className="size-4" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => setShowPicker(true)}>
-                  Choose another client...
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setShowCreate((v) => !v)}>
+              <DropdownMenuContent
+                align="end"
+                className="w-72 max-w-[calc(100vw-2rem)]"
+              >
+                {menuClients.map((c) => {
+                  const reason =
+                    "reason" in c && typeof c.reason === "string"
+                      ? c.reason
+                      : "";
+                  return (
+                    <DropdownMenuItem
+                      key={c.id}
+                      onClick={() => selectAndSignIn(c.id)}
+                      title={reason || undefined}
+                    >
+                      <span className="flex min-w-0 flex-col">
+                        <span className="truncate">
+                          {c.provider} ({c.id})
+                        </span>
+                        {reason ? (
+                          <span className="text-muted-foreground truncate text-xs">
+                            {reason}
+                          </span>
+                        ) : null}
+                      </span>
+                    </DropdownMenuItem>
+                  );
+                })}
+                {menuClients.length > 0 ? <DropdownMenuSeparator /> : null}
+                <DropdownMenuItem onClick={() => setShowCreate(true)}>
                   Create new client...
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setShowManual(true)}>
+                  Enter code manually...
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-          </div>
-          {credential ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="text-destructive gap-1"
-              onClick={() => setDisconnectOpen(true)}
-            >
-              <Unlink className="size-3.5" />
-              Disconnect
-            </Button>
-          ) : null}
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {scheme.authorizationUrl ? (
-            <div className="space-y-2">
-              <Label>OAuth client</Label>
-              {pickerClients && pickerClients.length > 0 ? (
-                <div className="space-y-2">
-                  {pickerClients.map((c) => (
-                    <div
-                      key={c.id}
-                      className="flex items-center justify-between gap-2 border p-2"
-                    >
-                      <div className="min-w-0 space-y-0.5">
-                        <p className="text-sm font-medium">
-                          {c.provider}{" "}
-                          <span className="text-muted-foreground font-mono text-xs">
-                            {c.clientId}
-                          </span>
-                        </p>
-                        <p className="text-muted-foreground truncate font-mono text-xs">
-                          token: {c.tokenHost ?? c.tokenUrl}
-                        </p>
-                        <div className="flex flex-wrap gap-1">
-                          {c.warning ? (
-                            <Badge
-                              variant="destructive"
-                              className="text-[10px]"
-                            >
-                              {c.warning}
-                            </Badge>
-                          ) : (
-                            <Badge variant="outline" className="text-[10px]">
-                              {c.scopeCompatible
-                                ? "scope compatible"
-                                : "scope incompatible"}
-                            </Badge>
-                          )}
-                        </div>
-                      </div>
-                      <Button
-                        type="button"
-                        variant={
-                          selectedClientId === c.id ? "default" : "outline"
-                        }
-                        size="sm"
-                        onClick={() => {
-                          setSelectedClientId(c.id);
-                          const full = oauthClients.find((o) => o.id === c.id);
-                          if (full) {
-                            setSelectedScopes((prev) =>
-                              prev.filter((s) =>
-                                full.availableScopes.includes(s),
-                              ),
-                            );
-                          }
-                        }}
-                      >
-                        {selectedClientId === c.id ? "Selected" : "Select"}
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-muted-foreground text-xs">
-                  No client matches this authorization URL yet. Pick one below
-                  or create a new client.
-                </p>
-              )}
-              {otherClients.length > 0 ? (
-                <div className="space-y-2">
-                  <Label>All clients</Label>
-                  <Select
-                    value={selectedClientId}
-                    onValueChange={(v) => {
-                      setSelectedClientId(v);
-                      const full = oauthClients.find((o) => o.id === v);
-                      if (full) {
-                        setSelectedScopes((prev) =>
-                          prev.filter((s) => full.availableScopes.includes(s)),
-                        );
-                      }
-                    }}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select an OAuth client" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {oauthClients.map((c) => (
-                        <SelectItem key={c.id} value={c.id}>
-                          {c.provider} ({c.clientId})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              ) : pickerClients && pickerClients.length === 0 ? (
-                <p className="text-muted-foreground text-xs">
-                  No OAuth clients exist yet. Create one below.
-                </p>
-              ) : null}
-            </div>
-          ) : (
-            <div className="space-y-2">
-              <Label>OAuth client</Label>
-              <Select
-                value={selectedClientId}
-                onValueChange={(v) => {
-                  setSelectedClientId(v);
-                  const full = oauthClients.find((o) => o.id === v);
-                  if (full) {
-                    setSelectedScopes((prev) =>
-                      prev.filter((s) => full.availableScopes.includes(s)),
-                    );
-                  }
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select an OAuth client" />
-                </SelectTrigger>
-                <SelectContent>
-                  {oauthClients.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.provider} ({c.clientId})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-muted-foreground text-xs">
-                This scheme declares no authorization URL, so automatic
-                resolution is unavailable.
-              </p>
-            </div>
-          )}
-
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              type="button"
-              disabled={isWorking || !effectiveClientId}
-              onClick={() => requestSignIn(effectiveClientId)}
-              className="gap-2"
-            >
-              <ExternalLink className="size-3.5" />
-              {isWorking ? "Waiting..." : signInLabel()}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="gap-1"
-              onClick={() => setShowCreate((v) => !v)}
-            >
-              <Plus className="size-3" />
-              Create new client...
-            </Button>
             {credential ? (
               <Button
                 type="button"
-                variant="ghost"
-                size="sm"
-                className="text-destructive gap-1"
+                variant="destructive"
+                size="icon"
+                disabled={isDisconnecting}
                 onClick={() => setDisconnectOpen(true)}
+                title={`Disconnect credential for '${schemeName}'`}
+                aria-label={`Disconnect credential for '${schemeName}'`}
               >
                 <Unlink className="size-3.5" />
-                Disconnect
               </Button>
             ) : null}
-          </div>
+          </ButtonGroup>
         </div>
-      )}
+      </div>
 
-      {showPicker && primary === null && pickerClients !== null ? null : null}
-
-      {pendingAuth || showManual ? (
-        <div className="space-y-3 border p-3">
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-xs font-medium">Manual code entry (fallback)</p>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => setShowManual((v) => !v)}
-            >
-              {showManual ? "Hide" : "Show"}
-            </Button>
-          </div>
-          {showManual ? (
-            <div className="space-y-3">
-              <p className="text-muted-foreground text-xs">
-                If the popup is blocked or the provider shows a code instead of
-                redirecting, open the authorization URL yourself, authorize,
-                then paste the code below. State disambiguates concurrent
-                attempts and is filled automatically.
-              </p>
-              {pendingAuth ? (
-                <div className="space-y-2">
-                  <Label htmlFor={`${idPrefix}-auth-url`}>
-                    Authorization URL
-                  </Label>
-                  <div className="flex gap-2">
-                    <Input
-                      id={`${idPrefix}-auth-url`}
-                      readOnly
-                      value={pendingAuth.authorizationUrl}
-                      className="flex-1 font-mono text-xs"
-                      onFocus={(e) => e.target.select()}
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="gap-1"
-                      onClick={() => void handleCopyAuthorizationUrl()}
-                    >
-                      {urlCopied ? (
-                        <Check className="size-3.5" />
-                      ) : (
-                        <Copy className="size-3.5" />
-                      )}
-                      {urlCopied ? "Copied" : "Copy"}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="gap-1"
-                      onClick={() =>
-                        window.open(
-                          pendingAuth.authorizationUrl,
-                          "_blank",
-                          "width=600,height=700",
-                        )
-                      }
-                    >
-                      <ExternalLink className="size-3.5" />
-                      Open
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <p className="text-muted-foreground text-xs">
-                  Start sign-in above to generate an authorization URL, or paste
-                  a code from an in-flight attempt below.
-                </p>
-              )}
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor={`${idPrefix}-manual-code`}>
-                    Authorization code
-                  </Label>
+      <Dialog open={showManual} onOpenChange={setShowManual}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto gap-2">
+          <DialogHeader>
+            <DialogTitle>Enter authorization code</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-muted-foreground text-xs">
+              If the popup is blocked or the provider shows a code instead of
+              redirecting, open the authorization URL yourself, authorize, then
+              paste the code below. State disambiguates concurrent attempts and
+              is filled automatically.
+            </p>
+            {pendingAuth ? (
+              <div className="space-y-2">
+                <Label htmlFor={`${idPrefix}-auth-url`}>
+                  Authorization URL
+                </Label>
+                <div className="flex gap-2">
                   <Input
-                    id={`${idPrefix}-manual-code`}
-                    autoComplete="off"
-                    value={manualCode}
-                    onChange={(e) => setManualCode(e.target.value)}
-                    placeholder="paste code from provider"
+                    id={`${idPrefix}-auth-url`}
+                    readOnly
+                    value={pendingAuth.authorizationUrl}
+                    className="flex-1 font-mono text-xs"
+                    onFocus={(e) => e.target.select()}
                   />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor={`${idPrefix}-manual-state`}>
-                    State (optional)
-                  </Label>
-                  <div className="flex gap-2">
-                    <Input
-                      id={`${idPrefix}-manual-state`}
-                      autoComplete="off"
-                      value={manualState}
-                      onChange={(e) => setManualState(e.target.value)}
-                      placeholder={
-                        pendingAuth?.state ?? "leave empty for latest pending"
-                      }
-                      className="flex-1 font-mono text-xs"
-                    />
-                    {(manualState.trim() || pendingAuth?.state) && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="gap-1"
-                        onClick={() => void handleCopyState()}
-                      >
-                        {stateCopied ? (
-                          <Check className="size-3.5" />
-                        ) : (
-                          <Copy className="size-3.5" />
-                        )}
-                      </Button>
-                    )}
-                  </div>
-                  <p className="text-muted-foreground text-xs">
-                    Omit only when a single authorization is pending; the server
-                    rejects ambiguous attempts.
-                  </p>
+                  <CopyButton
+                    value={pendingAuth.authorizationUrl}
+                    variant="outline"
+                    errorMessage="Unable to copy. Select the URL manually."
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-1"
+                    onClick={() =>
+                      window.open(
+                        pendingAuth.authorizationUrl,
+                        "_blank",
+                        "width=600,height=700",
+                      )
+                    }
+                  >
+                    <ExternalLink className="size-3.5" />
+                    Open
+                  </Button>
                 </div>
               </div>
-              <div>
-                <Button
-                  type="button"
-                  disabled={isSubmittingCode || manualCode.trim().length === 0}
-                  onClick={() => void handleSubmitManualCode()}
-                >
-                  {isSubmittingCode ? "Submitting..." : "Submit code"}
-                </Button>
+            ) : (
+              <p className="text-muted-foreground text-xs">
+                Start sign-in above to generate an authorization URL, or paste a
+                code from an in-flight attempt below.
+              </p>
+            )}
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor={`${idPrefix}-manual-code`}>
+                  Authorization code
+                </Label>
+                <Input
+                  id={`${idPrefix}-manual-code`}
+                  autoComplete="off"
+                  value={manualCode}
+                  onChange={(e) => setManualCode(e.target.value)}
+                  placeholder="paste code from provider"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor={`${idPrefix}-manual-state`}>
+                  State (optional)
+                </Label>
+                <div className="flex gap-2">
+                  <Input
+                    id={`${idPrefix}-manual-state`}
+                    autoComplete="off"
+                    value={manualState}
+                    onChange={(e) => setManualState(e.target.value)}
+                    placeholder={
+                      pendingAuth?.state ?? "leave empty for latest pending"
+                    }
+                    className="flex-1 font-mono text-xs"
+                  />
+                  {(manualState.trim() || pendingAuth?.state) && (
+                    <CopyButton
+                      value={manualState.trim() || pendingAuth?.state || ""}
+                      variant="outline"
+                      iconOnly
+                      errorMessage="Unable to copy. Select the state manually."
+                    />
+                  )}
+                </div>
               </div>
             </div>
-          ) : null}
-        </div>
-      ) : (
-        <div>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => setShowManual(true)}
-          >
-            Have a code already? Enter it manually
-          </Button>
-        </div>
-      )}
+            <div>
+              <Button
+                type="button"
+                disabled={isSubmittingCode || manualCode.trim().length === 0}
+                onClick={() => void handleSubmitManualCode()}
+              >
+                {isSubmittingCode ? "Submitting..." : "Submit code"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
-      {showCreate ? (
-        <CreateClientMiniForm
-          idPrefix={`${idPrefix}-new`}
-          defaultTokenUrl={scheme.tokenUrl}
-          defaultAuthorizationUrl={scheme.authorizationUrl}
-          onCreated={(id) => {
-            setSelectedClientId(id);
-            setSelectedScopes([]);
-            setShowCreate(false);
-          }}
-          onCancel={() => setShowCreate(false)}
-        />
-      ) : null}
+      <CreateOAuthClientDialog
+        open={showCreate}
+        onOpenChange={setShowCreate}
+        defaultTokenUrl={scheme.tokenUrl}
+        defaultAuthorizationUrl={scheme.authorizationUrl}
+        onCreated={() => {
+          setShowCreate(false);
+        }}
+      />
 
       <AlertDialog open={confirmSwitchOpen} onOpenChange={setConfirmSwitchOpen}>
         <AlertDialogContent>
@@ -1893,7 +1519,7 @@ function RegistryMachineForm({
     if (clientId.trim().length === 0 || clientSecret.length === 0) {
       addNotification({
         type: "error",
-        title: "Error",
+        title: "Client credentials required",
         message: "Client ID and secret must not be empty.",
       });
       return;
@@ -1923,7 +1549,7 @@ function RegistryMachineForm({
       if (result.auth.status === "configured") {
         addNotification({
           type: "success",
-          title: "Success",
+          title: `Machine credential for '${schemeName}' saved`,
           message: `Machine credential for '${schemeName}' saved.`,
         });
       } else {
@@ -1939,7 +1565,7 @@ function RegistryMachineForm({
     } catch (error) {
       addNotification({
         type: "error",
-        title: "Error",
+        title: "Machine credential save failed",
         message: errorMessageFrom(error, "Failed to save machine credential."),
       });
     } finally {

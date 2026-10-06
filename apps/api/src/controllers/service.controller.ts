@@ -58,6 +58,7 @@ const createServiceDirectBodySchema = z.object({
   id: nonEmptyTrimmedString("id"),
   url: nonEmptyTrimmedString("url"),
   adapter: nonEmptyTrimmedString("adapter"),
+  autoUpdate: z.boolean().optional(),
 });
 
 const installServiceRegistryBodySchema = z.object({
@@ -65,6 +66,18 @@ const installServiceRegistryBodySchema = z.object({
   adapter: nonEmptyTrimmedString("adapter").optional(),
   id: nonEmptyTrimmedString("id").optional(),
   version: nonEmptyTrimmedString("version").optional(),
+  autoUpdate: z.boolean().optional(),
+});
+
+const updateServiceBodySchema = z
+  .object({
+    constraint: z.string().nullable().optional(),
+  })
+  .optional();
+
+const autoUpdateBodySchema = z.object({
+  autoUpdate: z.boolean({ error: "Field 'autoUpdate' must be a boolean." }),
+  constraint: z.string().nullable().optional(),
 });
 
 const patchServiceBodySchema = z.object({
@@ -323,10 +336,61 @@ export async function updateService(
 ): Promise<void> {
   const servicesService = getServicesService(req);
   const serviceId = parseServiceId(req.params.serviceId);
+  const body =
+    req.body === undefined || req.body === null
+      ? {}
+      : parseOrHttpError(
+          updateServiceBodySchema,
+          req.body,
+          "Request body must be an object.",
+        );
+  const constraint =
+    (body as { constraint?: string | null }).constraint ?? null;
 
-  await servicesService.updateService(serviceId);
+  const result = await servicesService.updateService(serviceId, constraint);
 
-  res.status(200).json({ id: serviceId, updated: true });
+  res.status(200).json({ id: serviceId, ...result });
+}
+
+export async function setServiceAutoUpdate(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const servicesService = getServicesService(req);
+  const serviceId = parseServiceId(req.params.serviceId);
+  const { autoUpdate, constraint } = parseOrHttpError(
+    autoUpdateBodySchema,
+    req.body,
+    "Request body must be an object.",
+  );
+
+  const result = await servicesService.setServiceAutoUpdate({
+    id: serviceId,
+    autoUpdate,
+    constraint: constraint ?? null,
+  });
+
+  res.status(200).json(result);
+}
+
+export async function checkServiceUpdate(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const servicesService = getServicesService(req);
+  const serviceId = parseServiceId(req.params.serviceId);
+
+  res.status(200).json(await servicesService.checkServiceUpdate(serviceId));
+}
+
+export async function listServiceVersions(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const servicesService = getServicesService(req);
+  const serviceId = parseServiceId(req.params.serviceId);
+
+  res.status(200).json(await servicesService.listServiceVersions(serviceId));
 }
 
 export async function setServiceEnabled(

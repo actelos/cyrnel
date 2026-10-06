@@ -1,16 +1,26 @@
-import { Check, ChevronDown, RotateCcw, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  Check,
+  ChevronDown,
+  Copy,
+  RotateCcw,
+  ShieldCheck,
+  X,
+} from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useSearchParams } from "react-router";
 import useSWR, { useSWRConfig } from "swr";
 import { z } from "zod";
+import { DetailView } from "@/components/detail-view";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -20,6 +30,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import {
   Table,
   TableBody,
   TableCell,
@@ -28,7 +46,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useNotification } from "@/hooks/use-notification";
+import { useUpdateSearchParams } from "@/hooks/use-update-search-params";
 import { apiFetch, apiFetchJson, buildUrl, errorMessageFrom } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
 const approvalStateSchema = z.enum([
   "pending",
@@ -58,29 +78,95 @@ const approvalListSchema = z.object({
 type Approval = z.infer<typeof approvalSchema>;
 type ApprovalState = z.infer<typeof approvalStateSchema>;
 
-const stateBadgeVariant = (state: ApprovalState) => {
-  if (state === "pending") return "secondary" as const;
-  if (state === "approved") return "default" as const;
-  if (state === "denied") return "destructive" as const;
-  return "outline" as const;
+const STATE_CONFIG: Record<
+  ApprovalState,
+  {
+    label: string;
+    badgeClassName: string;
+  }
+> = {
+  pending: {
+    label: "Pending",
+    badgeClassName: "bg-info text-info-foreground",
+  },
+  approved: {
+    label: "Approved",
+    badgeClassName: "bg-success text-success-foreground",
+  },
+  denied: {
+    label: "Denied",
+    badgeClassName: "bg-error text-error-foreground",
+  },
+  expired: {
+    label: "Expired",
+    badgeClassName: "bg-destructive text-destructive-foreground",
+  },
 };
+
+function StatusBadge({ state }: { state: ApprovalState }) {
+  const { label, badgeClassName } = STATE_CONFIG[state];
+  return <Badge className={badgeClassName}>{label}</Badge>;
+}
 
 const formatTime = (value: string | number) => {
   const d = typeof value === "number" ? new Date(value) : new Date(value);
   return d.toLocaleString();
 };
 
+const RELATIVE_TIME_UNITS: Array<[Intl.RelativeTimeFormatUnit, number]> = [
+  ["year", 1000 * 60 * 60 * 24 * 365],
+  ["month", 1000 * 60 * 60 * 24 * 30],
+  ["day", 1000 * 60 * 60 * 24],
+  ["hour", 1000 * 60 * 60],
+  ["minute", 1000 * 60],
+];
+
+const relativeTimeFormatter = new Intl.RelativeTimeFormat("en", {
+  numeric: "auto",
+});
+
+const formatRelativeTime = (value: string | number, now: number) => {
+  const target = typeof value === "number" ? value : new Date(value).getTime();
+  const diffMs = target - now;
+  for (const [unit, unitMs] of RELATIVE_TIME_UNITS) {
+    if (Math.abs(diffMs) >= unitMs) {
+      return relativeTimeFormatter.format(Math.round(diffMs / unitMs), unit);
+    }
+  }
+  return relativeTimeFormatter.format(Math.round(diffMs / 1000), "second");
+};
+
+const parseStateFilter = (raw: string | null): ApprovalState | "all" => {
+  if (raw === "all") return "all";
+  if (raw !== null && approvalStateSchema.safeParse(raw).success) {
+    return raw as ApprovalState;
+  }
+  return "pending";
+};
+
+const parsePage = (raw: string | null): number => {
+  if (raw === null) return 1;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : 1;
+};
+
+const EXPIRING_SOON_MS = 5 * 60 * 1000;
+
+const pastTense = (action: "approve" | "deny") =>
+  action === "approve" ? "approved" : "denied";
+
 export default function ApprovalsPage() {
   const { mutate } = useSWRConfig();
   const { addNotification } = useNotification();
+  const [searchParams] = useSearchParams();
+  const updateSearchParams = useUpdateSearchParams();
 
-  const [stateFilter, setStateFilter] = useState<ApprovalState | "all">(
-    "pending",
-  );
-  const [serviceFilter, setServiceFilter] = useState("");
-  const [toolFilter, setToolFilter] = useState("");
-  const [processFilter, setProcessFilter] = useState("");
-  const [selected, setSelected] = useState<Approval | null>(null);
+  const stateFilter = parseStateFilter(searchParams.get("state"));
+  const serviceFilter = searchParams.get("serviceId") ?? "";
+  const toolFilter = searchParams.get("toolId") ?? "";
+  const processFilter = searchParams.get("processId") ?? "";
+  const page = parsePage(searchParams.get("page"));
+  const selectedApprovalId = searchParams.get("approval");
 
   const parsedFilters = useMemo(() => {
     const out: Record<string, string | undefined> = {};
@@ -101,7 +187,6 @@ export default function ApprovalsPage() {
   const {
     data: approvalList,
     error: approvalsError,
-    isLoading: isLoadingApprovals,
     isValidating: isApprovalsValidating,
   } = useSWR(approvalsUrl, (url) => apiFetchJson(url, approvalListSchema), {
     refreshInterval: 8000,
@@ -111,7 +196,10 @@ export default function ApprovalsPage() {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
+  const [loadedChunks, setLoadedChunks] = useState(1);
   const paginationVersionRef = useRef(0);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isBulkWorking, setIsBulkWorking] = useState(false);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: approvalsUrl triggers pagination reset
   useEffect(() => {
@@ -119,6 +207,8 @@ export default function ApprovalsPage() {
     setExtraApprovals([]);
     setNextCursor(null);
     setLoadMoreError(null);
+    setLoadedChunks(1);
+    setSelectedIds(new Set());
   }, [approvalsUrl]);
 
   useEffect(() => {
@@ -147,10 +237,11 @@ export default function ApprovalsPage() {
     setExtraApprovals([]);
     setNextCursor(null);
     setLoadMoreError(null);
+    setLoadedChunks(1);
     await mutate(approvalsUrl);
   };
 
-  const loadMore = async () => {
+  const loadMore = useCallback(async () => {
     if (nextCursor === null || isLoadingMore) return;
     const startedVersion = paginationVersionRef.current;
     setIsLoadingMore(true);
@@ -167,15 +258,50 @@ export default function ApprovalsPage() {
       if (paginationVersionRef.current !== startedVersion) return;
       setExtraApprovals((prev) => [...prev, ...data.items]);
       setNextCursor(data.nextCursor);
+      setLoadedChunks((prev) => prev + 1);
     } catch (error) {
       if (paginationVersionRef.current !== startedVersion) return;
-      setLoadMoreError(
-        errorMessageFrom(error, "Failed to load more approvals."),
-      );
+      const message = errorMessageFrom(error, "Failed to load more approvals.");
+      setLoadMoreError(message);
+      addNotification({
+        type: "error",
+        title: "Load more failed",
+        message,
+      });
     } finally {
       setIsLoadingMore(false);
     }
-  };
+  }, [nextCursor, isLoadingMore, parsedFilters, addNotification]);
+
+  useEffect(() => {
+    if (loadedChunks >= page) return;
+    if (isLoadingMore || nextCursor === null) return;
+    void loadMore();
+  }, [loadedChunks, page, isLoadingMore, nextCursor, loadMore]);
+
+  const selectedApproval = useMemo(
+    () => approvals.find((a) => a.id === selectedApprovalId) ?? null,
+    [approvals, selectedApprovalId],
+  );
+
+  const [displayedApproval, setDisplayedApproval] = useState<Approval | null>(
+    null,
+  );
+  useEffect(() => {
+    if (selectedApproval) setDisplayedApproval(selectedApproval);
+  }, [selectedApproval]);
+
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (selectedApprovalId === null) return;
+    setNow(Date.now());
+    const interval = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(interval);
+  }, [selectedApprovalId]);
+
+  const isExpiringSoon =
+    displayedApproval?.state === "pending" &&
+    displayedApproval.expiresAt - now < EXPIRING_SOON_MS;
 
   const handleDecision = async (id: string, action: "approve" | "deny") => {
     try {
@@ -187,46 +313,229 @@ export default function ApprovalsPage() {
           body: JSON.stringify({}),
         },
       );
+
+      const nextState: ApprovalState =
+        action === "approve" ? "approved" : "denied";
+
+      const decidedAt = Date.now();
+
+      setDisplayedApproval((current) =>
+        current?.id === id
+          ? {
+              ...current,
+              state: nextState,
+              decidedAt,
+            }
+          : current,
+      );
+
+      setSelectedIds((previous) => {
+        if (!previous.has(id)) return previous;
+        const next = new Set(previous);
+        next.delete(id);
+        return next;
+      });
+
       await refreshApprovals();
+
       addNotification({
         type: "success",
-        title: "Success",
-        message: `Approval ${action}d.`,
+        title: `Approval ${pastTense(action)}`,
+        message: `Approval ${pastTense(action)}.`,
       });
     } catch (error) {
       addNotification({
         type: "error",
-        title: "Error",
+        title: "Approval decision failed",
         message: errorMessageFrom(error, `Unable to ${action} approval.`),
       });
     }
   };
 
+  const toggleSelectApproval = (id: string, checked: boolean) => {
+    setSelectedIds((previous) => {
+      const next = new Set(previous);
+      if (checked) {
+        next.add(id);
+      } else {
+        next.delete(id);
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectAll = (checked: boolean) => {
+    setSelectedIds(() =>
+      checked ? new Set(approvals.map((a) => a.id)) : new Set(),
+    );
+  };
+
+  const selectedApprovals = useMemo(
+    () => approvals.filter((a) => selectedIds.has(a.id)),
+    [approvals, selectedIds],
+  );
+
+  const pendingSelected = useMemo(
+    () => selectedApprovals.filter((a) => a.state === "pending"),
+    [selectedApprovals],
+  );
+
+  const allSelected =
+    approvals.length > 0 && selectedIds.size >= approvals.length;
+  const someSelected =
+    selectedIds.size > 0 && selectedIds.size < approvals.length;
+
+  const handleBulkDecision = async (action: "approve" | "deny") => {
+    if (pendingSelected.length === 0 || isBulkWorking) return;
+    setIsBulkWorking(true);
+    const targets = [...pendingSelected];
+    try {
+      const results = await Promise.allSettled(
+        targets.map((a) =>
+          apiFetch(
+            buildUrl(`/approvals/${encodeURIComponent(a.id)}/${action}`),
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({}),
+            },
+          ),
+        ),
+      );
+      const succeededIds: string[] = [];
+      let failed = 0;
+      results.forEach((result, index) => {
+        if (result.status === "fulfilled") {
+          succeededIds.push(targets[index].id);
+        } else {
+          failed += 1;
+        }
+      });
+
+      if (succeededIds.length > 0) {
+        const succeededSet = new Set(succeededIds);
+        setDisplayedApproval((current) =>
+          current && succeededSet.has(current.id)
+            ? {
+                ...current,
+                state: action === "approve" ? "approved" : "denied",
+                decidedAt: Date.now(),
+              }
+            : current,
+        );
+      }
+
+      setSelectedIds((previous) => {
+        if (previous.size === 0) return previous;
+        const next = new Set(previous);
+        for (const id of succeededIds) next.delete(id);
+        return next;
+      });
+
+      await refreshApprovals();
+
+      if (failed === 0) {
+        addNotification({
+          type: "success",
+          title:
+            action === "approve" ? "Approvals approved" : "Approvals denied",
+          message:
+            succeededIds.length === 1
+              ? `1 approval ${pastTense(action)}.`
+              : `${succeededIds.length} approvals ${pastTense(action)}.`,
+        });
+      } else {
+        addNotification({
+          type: succeededIds.length > 0 ? "success" : "error",
+          title: "Bulk decision incomplete",
+          message: `${succeededIds.length} ${pastTense(action)}, ${failed} failed. Non-pending approvals were skipped.`,
+        });
+      }
+    } catch (error) {
+      addNotification({
+        type: "error",
+        title: "Bulk decision failed",
+        message: errorMessageFrom(error, `Unable to ${action} approvals.`),
+      });
+    } finally {
+      setIsBulkWorking(false);
+    }
+  };
+
+  const handleCopy = useCallback(
+    async (value: string, label: string) => {
+      try {
+        await navigator.clipboard.writeText(value);
+        addNotification({
+          type: "success",
+          title: "Copied",
+          message: `${label} copied to clipboard.`,
+        });
+      } catch (error) {
+        addNotification({
+          type: "error",
+          title: "Copy failed",
+          message: errorMessageFrom(
+            error,
+            `Unable to copy ${label.toLowerCase()}.`,
+          ),
+        });
+      }
+    },
+    [addNotification],
+  );
+
   return (
     <>
-      <section className="flex min-h-0 flex-1 flex-col gap-6 p-6">
-        <header className="flex flex-col gap-4">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div className="space-y-1">
-              <h1 className="text-xl font-semibold">Approvals</h1>
-              <p className="text-muted-foreground text-sm">
-                Review and decide pending tool invocations gated by policy
-                (allow | block | ask).
-              </p>
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              className="gap-2"
-              onClick={() => void refreshApprovals()}
-            >
-              <RotateCcw />
-              Refresh
-            </Button>
+      <section className="flex h-svh flex-col px-6 pb-6">
+        <header className="sticky top-0 z-10 -mx-6 flex flex-col gap-4 border-b bg-background px-6 py-4 mb-6">
+          <div className="space-y-1">
+            <h1 className="text-xl font-semibold">Approvals</h1>
+            <p className="text-muted-foreground text-sm">
+              Review and decide pending tool invocations gated by policy
+            </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
+            <Input
+              placeholder="Service ID"
+              value={serviceFilter}
+              onChange={(e) =>
+                updateSearchParams({
+                  serviceId: e.target.value.trim() || undefined,
+                  page: undefined,
+                })
+              }
+              className="min-w-40 flex-1"
+            />
+            <Input
+              placeholder="Tool ID"
+              value={toolFilter}
+              onChange={(e) =>
+                updateSearchParams({
+                  toolId: e.target.value.trim() || undefined,
+                  page: undefined,
+                })
+              }
+              className="min-w-40 flex-1"
+            />
+            <Input
+              placeholder="Process ID"
+              value={processFilter}
+              onChange={(e) =>
+                updateSearchParams({
+                  processId: e.target.value.trim() || undefined,
+                  page: undefined,
+                })
+              }
+              className="min-w-40 flex-1"
+            />
             <Select
-              onValueChange={(v) => setStateFilter(v as ApprovalState | "all")}
+              onValueChange={(value) =>
+                updateSearchParams({
+                  state: value === "all" ? "all" : value,
+                  page: undefined,
+                })
+              }
               value={stateFilter}
             >
               <SelectTrigger className="w-[160px]">
@@ -240,203 +549,374 @@ export default function ApprovalsPage() {
                 <SelectItem value="expired">Expired</SelectItem>
               </SelectContent>
             </Select>
-            <Input
-              placeholder="Service ID"
-              value={serviceFilter}
-              onChange={(e) => setServiceFilter(e.target.value)}
-              className="w-[160px]"
-            />
-            <Input
-              placeholder="Tool ID"
-              value={toolFilter}
-              onChange={(e) => setToolFilter(e.target.value)}
-              className="w-[160px]"
-            />
-            <Input
-              placeholder="Process ID"
-              value={processFilter}
-              onChange={(e) => setProcessFilter(e.target.value)}
-              className="w-[120px]"
-            />
+            <Button
+              type="button"
+              variant="outline"
+              className="gap-2"
+              onClick={() => {
+                refreshApprovals()
+                  .then(() => {
+                    addNotification({
+                      type: "success",
+                      title: "Approvals refreshed",
+                      message: "Approvals refreshed.",
+                    });
+                  })
+                  .catch((error) => {
+                    addNotification({
+                      type: "error",
+                      title: "Refresh approvals failed",
+                      message: errorMessageFrom(
+                        error,
+                        "Failed to refresh approvals.",
+                      ),
+                    });
+                  });
+              }}
+              aria-label="Refresh approvals"
+            >
+              <RotateCcw />
+            </Button>
           </div>
         </header>
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto [&_[data-slot='table-container']]:overflow-visible">
+          {selectedIds.size > 0 ? (
+            <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b bg-background px-1 py-2">
+              <span className="text-sm text-muted-foreground">
+                {selectedIds.size === 1
+                  ? "1 selected"
+                  : `${selectedIds.size} selected`}
+                {selectedApprovals.length !== selectedIds.size
+                  ? ` (${selectedApprovals.length} visible)`
+                  : null}
+              </span>
 
-        <Card className="flex min-h-0 flex-1 flex-col">
-          <CardHeader className="flex w-full flex-row items-center justify-between">
-            <CardTitle>Approval requests</CardTitle>
-            <div className="w-max px-2 bg-muted border-1 border-border">
-              {isLoadingApprovals
-                ? "Loading..."
-                : nextCursor !== null
-                  ? `${approvals.length}+ total`
-                  : `${approvals.length} total`}
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  className="gap-2"
+                  disabled={pendingSelected.length === 0 || isBulkWorking}
+                  onClick={() => void handleBulkDecision("approve")}
+                  title={
+                    pendingSelected.length === 0
+                      ? "No selected approvals can be approved (only pending)"
+                      : "Approve selected approvals"
+                  }
+                >
+                  <Check />
+                  Approve
+                  {pendingSelected.length > 0
+                    ? ` (${pendingSelected.length})`
+                    : null}
+                </Button>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-2 text-destructive hover:text-destructive"
+                  disabled={pendingSelected.length === 0 || isBulkWorking}
+                  onClick={() => void handleBulkDecision("deny")}
+                  title={
+                    pendingSelected.length === 0
+                      ? "No selected approvals can be denied (only pending)"
+                      : "Deny selected approvals"
+                  }
+                >
+                  <X />
+                  Deny
+                </Button>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  disabled={isBulkWorking}
+                  onClick={() => setSelectedIds(new Set())}
+                >
+                  <X />
+                  Clear
+                </Button>
+              </div>
             </div>
-          </CardHeader>
-          <CardContent className="min-h-0 flex-1 overflow-hidden">
-            <div className="h-full overflow-y-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>ID</TableHead>
-                    <TableHead>Service / Tool</TableHead>
-                    <TableHead>Process</TableHead>
-                    <TableHead>State</TableHead>
-                    <TableHead>Created</TableHead>
-                    <TableHead>Expires</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {approvals.map((a) => (
-                    <TableRow
-                      key={a.id}
-                      className="cursor-pointer"
-                      tabIndex={0}
-                      onClick={() => setSelected(a)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          setSelected(a);
-                        }
-                      }}
-                    >
-                      <TableCell
-                        className="font-mono text-xs max-w-[12rem] truncate"
-                        title={a.id}
-                      >
-                        {a.id.slice(0, 12)}…
-                      </TableCell>
-                      <TableCell className="text-xs">
-                        <div className="font-mono">{a.serviceId}</div>
-                        <div className="text-muted-foreground">{a.toolId}</div>
-                      </TableCell>
-                      <TableCell className="font-mono text-xs">
-                        {a.processId ?? "-"}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={stateBadgeVariant(a.state)}>
-                          {a.state}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-xs whitespace-nowrap">
-                        {formatTime(a.createdAt)}
-                      </TableCell>
-                      <TableCell className="text-xs whitespace-nowrap">
-                        {formatTime(a.expiresAt)}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex justify-end gap-1">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 gap-1"
-                            disabled={a.state !== "pending"}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              void handleDecision(a.id, "approve");
-                            }}
-                          >
-                            <Check className="size-3" /> Approve
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 gap-1 text-destructive"
-                            disabled={a.state !== "pending"}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              void handleDecision(a.id, "deny");
-                            }}
-                          >
-                            <X className="size-3" /> Deny
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-              {approvalsError ? (
-                <p className="p-4 text-sm text-destructive">
-                  Failed to load approvals.
-                </p>
-              ) : null}
-              {nextCursor !== null ? (
-                <div className="flex justify-center p-4">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="gap-2"
-                    disabled={isLoadingMore}
-                    onClick={() => void loadMore()}
+          ) : null}
+          {approvalList === undefined ? (
+            <div className="flex items-center justify-center h-full py-12">
+              <p className="text-sm text-muted-foreground">
+                Loading approvals…
+              </p>
+            </div>
+          ) : approvalsError ? (
+            <p className="p-4 text-sm text-destructive">
+              Failed to load approvals.
+            </p>
+          ) : approvals.length === 0 ? (
+            <div className="flex items-center justify-center h-full py-12">
+              <Empty>
+                <EmptyHeader>
+                  <EmptyMedia variant="icon">
+                    <ShieldCheck aria-hidden />
+                  </EmptyMedia>
+                  <EmptyTitle>No approvals found</EmptyTitle>
+                  <EmptyDescription>
+                    No approvals match the current filters. Tool invocations
+                    with an ask policy will appear here.
+                  </EmptyDescription>
+                </EmptyHeader>
+              </Empty>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader className="sticky top-0 z-10 bg-background">
+                <TableRow>
+                  <TableHead className="w-10">
+                    <Checkbox
+                      aria-label="Select all approvals"
+                      checked={
+                        allSelected
+                          ? true
+                          : someSelected
+                            ? "indeterminate"
+                            : false
+                      }
+                      onCheckedChange={(checked) =>
+                        toggleSelectAll(checked === true)
+                      }
+                      onClick={(event) => event.stopPropagation()}
+                    />
+                  </TableHead>
+                  <TableHead>ID</TableHead>
+                  <TableHead>Service / Tool</TableHead>
+                  <TableHead>Process</TableHead>
+                  <TableHead>State</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {approvals.map((a) => (
+                  <TableRow
+                    key={a.id}
+                    className={cn(
+                      "cursor-pointer",
+                      selectedIds.has(a.id) ? "bg-primary/10" : "",
+                    )}
+                    tabIndex={0}
+                    onClick={() => updateSearchParams({ approval: a.id })}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        updateSearchParams({ approval: a.id });
+                      }
+                    }}
                   >
-                    <ChevronDown />
-                    {isLoadingMore ? "Loading more…" : "Load more"}
-                  </Button>
-                </div>
-              ) : null}
-              {loadMoreError ? (
-                <p className="p-4 text-sm text-destructive">{loadMoreError}</p>
-              ) : null}
+                    <TableCell onClick={(event) => event.stopPropagation()}>
+                      <Checkbox
+                        aria-label={`Select approval ${a.id}`}
+                        checked={selectedIds.has(a.id)}
+                        onCheckedChange={(checked) =>
+                          toggleSelectApproval(a.id, checked === true)
+                        }
+                      />
+                    </TableCell>
+                    <TableCell
+                      className="font-mono text-xs max-w-14 truncate"
+                      title={a.id}
+                    >
+                      {a.id.slice(0, 12)}
+                    </TableCell>
+                    <TableCell className="text-xs max-w-30">
+                      <div className="" title={a.serviceId}>
+                        <span className="block truncate">{a.serviceId}</span>
+                      </div>
+                      <div className="text-muted-foreground" title={a.toolId}>
+                        <span className="block truncate">{a.toolId}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">
+                      {a.processId ?? "-"}
+                    </TableCell>
+                    <TableCell>
+                      <StatusBadge state={a.state} />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-1">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          className="h-7 gap-1"
+                          disabled={a.state !== "pending"}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void handleDecision(a.id, "approve");
+                          }}
+                        >
+                          <Check />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          className="h-7 gap-1 text-destructive"
+                          disabled={a.state !== "pending"}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void handleDecision(a.id, "deny");
+                          }}
+                        >
+                          <X />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+          {nextCursor !== null ? (
+            <div className="flex justify-center p-4">
+              <Button
+                type="button"
+                variant="outline"
+                className="gap-2"
+                disabled={isLoadingMore}
+                onClick={() => updateSearchParams({ page: String(page + 1) })}
+              >
+                <ChevronDown />
+                {isLoadingMore ? "Loading more…" : "Load more"}
+              </Button>
             </div>
-          </CardContent>
-        </Card>
+          ) : null}
+          {loadMoreError ? (
+            <p className="p-4 text-sm text-destructive">{loadMoreError}</p>
+          ) : null}
+        </div>
       </section>
 
-      <Dialog
-        open={selected !== null}
+      <Sheet
+        open={selectedApprovalId !== null}
         onOpenChange={(open) => {
-          if (!open) setSelected(null);
+          if (!open) updateSearchParams({ approval: undefined });
         }}
       >
-        <DialogContent className="max-h-[85vh] max-w-4xl space-y-4">
-          <DialogHeader>
-            <DialogTitle className="font-mono text-sm">
-              {selected?.id}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="text-xs text-muted-foreground">
-              <div>
-                Service: {selected?.serviceId} · Tool: {selected?.toolId} ·
-                Process:{" "}
-                {selected?.processId ? (
-                  <a
-                    href={`/processes?processId=${selected.processId}`}
-                    className="font-mono underline hover:no-underline"
+        <SheetContent
+          side="right"
+          className="flex flex-col gap-0 p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-lg"
+        >
+          <SheetHeader className="gap-3 border-b px-4 py-4">
+            <div className="flex items-start gap-3">
+              <div className="min-w-0 max-w-60 space-y-0.5">
+                <SheetTitle className="truncate text-base">
+                  {displayedApproval?.toolId}
+                </SheetTitle>
+                <p className="truncate text-sm text-muted-foreground">
+                  {displayedApproval?.serviceId}
+                </p>
+              </div>
+              {displayedApproval ? (
+                <StatusBadge state={displayedApproval.state} />
+              ) : null}
+            </div>
+
+            {displayedApproval ? (
+              <SheetDescription asChild>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                  <span title={formatTime(displayedApproval.createdAt)}>
+                    Requested{" "}
+                    {formatRelativeTime(displayedApproval.createdAt, now)}
+                  </span>
+                  {displayedApproval.state === "pending" ? (
+                    <span
+                      title={formatTime(displayedApproval.expiresAt)}
+                      className={
+                        isExpiringSoon
+                          ? "font-medium text-destructive"
+                          : undefined
+                      }
+                    >
+                      Expires{" "}
+                      {formatRelativeTime(displayedApproval.expiresAt, now)}
+                    </span>
+                  ) : null}
+                  {displayedApproval.decidedAt ? (
+                    <span title={formatTime(displayedApproval.decidedAt)}>
+                      Decided{" "}
+                      {formatRelativeTime(displayedApproval.decidedAt, now)}
+                    </span>
+                  ) : null}
+                </div>
+              </SheetDescription>
+            ) : null}
+
+            {displayedApproval ? (
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 font-mono hover:text-foreground"
+                  title={displayedApproval.id}
+                  onClick={() =>
+                    void handleCopy(displayedApproval.id, "Approval ID")
+                  }
+                >
+                  {displayedApproval.id.slice(0, 18)}
+                  <Copy className="size-3" />
+                </button>
+                {displayedApproval.processId ? (
+                  <Link
+                    to={`/processes?process=${displayedApproval.processId}`}
+                    className="font-mono underline-offset-2 hover:underline"
                     target="_blank"
                     rel="noopener noreferrer"
                   >
-                    {selected.processId}
-                  </a>
-                ) : (
-                  "-"
-                )}
+                    Process #{displayedApproval.processId}
+                  </Link>
+                ) : null}
               </div>
-              <div>
-                State: {selected?.state} · Created:{" "}
-                {selected ? formatTime(selected.createdAt) : ""} · Expires:{" "}
-                {selected ? formatTime(selected.expiresAt) : ""}{" "}
-                {selected?.decidedAt
-                  ? `· Decided: ${formatTime(selected.decidedAt)}`
-                  : ""}
-              </div>
+            ) : null}
+          </SheetHeader>
+
+          <div className="flex min-h-0 flex-1 flex-col px-4 py-4">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-sm font-medium">Parameters</span>
             </div>
-            <div className="rounded border bg-muted/30 overflow-hidden">
-              <div className="p-2 text-xs font-semibold">
-                Parameters (decrypted)
-              </div>
-              <div className="max-h-[40vh] overflow-auto p-4">
-                <pre className="whitespace-pre text-xs font-mono">
-                  {selected ? JSON.stringify(selected.parameters, null, 2) : ""}
-                </pre>
-              </div>
-            </div>
+            <DetailView
+              title="Parameters"
+              content={
+                displayedApproval
+                  ? JSON.stringify(displayedApproval.parameters, null, 2)
+                  : ""
+              }
+              variant="code"
+              language="json"
+              boxClassName="flex-1 min-h-0"
+            />
           </div>
-        </DialogContent>
-      </Dialog>
+
+          {displayedApproval?.state === "pending" ? (
+            <SheetFooter className="gap-2 border-t px-4 py-4 sm:flex-row">
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1"
+                onClick={() =>
+                  void handleDecision(displayedApproval.id, "deny")
+                }
+              >
+                <X /> Deny
+              </Button>
+              <Button
+                type="button"
+                className="flex-1"
+                onClick={() =>
+                  void handleDecision(displayedApproval.id, "approve")
+                }
+              >
+                <Check /> Approve
+              </Button>
+            </SheetFooter>
+          ) : null}
+        </SheetContent>
+      </Sheet>
     </>
   );
 }

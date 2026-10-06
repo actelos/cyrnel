@@ -580,6 +580,91 @@ describe("RegistriesService", () => {
       });
     });
   });
+
+  describe("default registry", () => {
+    it("returns null when no registries exist", async () => {
+      expect(await svc.getDefaultRegistry()).toBeNull();
+    });
+
+    it("makes the first created registry the default and not the second", async () => {
+      const first = await svc.createRegistry({
+        id: "aaa",
+        baseUrl: "https://aaa.example.com",
+      });
+      const second = await svc.createRegistry({
+        id: "bbb",
+        baseUrl: "https://bbb.example.com",
+      });
+
+      expect(first.isDefault).toBe(true);
+      expect(second.isDefault).toBe(false);
+
+      const def = await svc.getDefaultRegistry();
+      expect(def?.id).toBe("aaa");
+      expect(def?.isDefault).toBe(true);
+    });
+
+    it("switches default with setDefaultRegistry leaving exactly one default", async () => {
+      await svc.createRegistry({
+        id: "aaa",
+        baseUrl: "https://aaa.example.com",
+      });
+      await svc.createRegistry({
+        id: "bbb",
+        baseUrl: "https://bbb.example.com",
+      });
+
+      const updated = await svc.setDefaultRegistry("bbb");
+      expect(updated.id).toBe("bbb");
+      expect(updated.isDefault).toBe(true);
+
+      const def = await svc.getDefaultRegistry();
+      expect(def?.id).toBe("bbb");
+
+      const { items } = await svc.listRegistries();
+      expect(items.filter((r) => r.isDefault)).toHaveLength(1);
+    });
+
+    it("404s for unknown id on setDefaultRegistry", async () => {
+      await expect(svc.setDefaultRegistry("missing")).rejects.toMatchObject({
+        statusCode: 404,
+      });
+    });
+
+    it("promotes the oldest remaining when the default is deleted", async () => {
+      await svc.createRegistry({
+        id: "aaa",
+        baseUrl: "https://aaa.example.com",
+      });
+      await svc.createRegistry({
+        id: "bbb",
+        baseUrl: "https://bbb.example.com",
+      });
+      await svc.createRegistry({
+        id: "ccc",
+        baseUrl: "https://ccc.example.com",
+      });
+
+      expect((await svc.getDefaultRegistry())?.id).toBe("aaa");
+
+      await svc.deleteRegistry("aaa");
+
+      const def = await svc.getDefaultRegistry();
+      expect(def?.id).toBe("bbb");
+      expect(def?.isDefault).toBe(true);
+    });
+
+    it("leaves no default after deleting the last registry", async () => {
+      await svc.createRegistry({
+        id: "solo",
+        baseUrl: "https://solo.example.com",
+      });
+
+      await svc.deleteRegistry("solo");
+
+      expect(await svc.getDefaultRegistry()).toBeNull();
+    });
+  });
 });
 
 describe("addRegistry()", () => {

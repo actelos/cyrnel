@@ -1,26 +1,34 @@
-import { ChevronDown, Plus, RotateCcw } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
-import Markdown from "react-markdown";
-import { Link } from "react-router";
-import remarkGfm from "remark-gfm";
-import useSWR, { useSWRConfig } from "swr";
-import { z } from "zod";
-import { EntityIcon } from "@/components/entity-icon";
-import { RegistryBrowser } from "@/components/RegistryBrowser";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
+  ChevronDown,
+  Library,
+  Plus,
+  RotateCcw,
+  Search,
+  Server,
+} from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router";
+import useSWR, { useSWRConfig } from "swr";
+import useSWRInfinite from "swr/infinite";
+import { z } from "zod";
+import { AddRegistryPopover } from "@/components/add-registry-dialog";
+import { InstalledServiceCard } from "@/components/installed-service-card";
+import { RegistryServiceCard } from "@/components/registry-service-card";
+import { Button } from "@/components/ui/button";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -28,16 +36,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useNotification } from "@/hooks/use-notification";
+import { useUpdateSearchParams } from "@/hooks/use-update-search-params";
 import { apiFetch, apiFetchJson, buildUrl, errorMessageFrom } from "@/lib/api";
-import { cn } from "@/lib/utils";
 
 const serviceSchema = z.object({
   id: z.string(),
   name: z.string(),
   summary: z.string(),
   description: z.string(),
+  source: z.string(),
   adapter: z.string(),
   version: z.string(),
   enabled: z.boolean(),
@@ -86,19 +96,199 @@ const adapterListBaseParams: Record<string, string | undefined> = {
   limit: "100",
 };
 
+const registryItemSchema = z.object({
+  id: z.string(),
+  baseUrl: z.string(),
+  isDefault: z.boolean(),
+  lastSyncedAt: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+const registryListSchema = z.object({
+  items: z.array(registryItemSchema),
+  nextCursor: z.string().nullable(),
+  hasMore: z.boolean(),
+});
+
+const defaultRegistrySchema = z.object({
+  registry: registryItemSchema.nullable(),
+});
+
+const exploreEntrySchema = z.object({
+  id: z.string(),
+  name: z.string().optional(),
+  description: z.string().optional(),
+  source: z.string(),
+  kind: z.string().optional(),
+  type: z.enum(["adapter", "environment"]).optional(),
+  icon: z.object({ url: z.string(), hash: z.string() }).optional(),
+});
+
+const definitionsPageSchema = z.object({
+  definitions: z.array(exploreEntrySchema),
+  nextCursor: z.string().nullable(),
+});
+
+function ExploreRegistryGroup({
+  registryId,
+  query,
+  onInstalled,
+  onCountChange,
+  installedServices,
+  onRegistryAdded,
+}: {
+  registryId: string;
+  query: string;
+  onInstalled: () => void | Promise<void>;
+  onCountChange: (registryId: string, count: number) => void;
+  installedServices: Service[];
+  onRegistryAdded: () => void | Promise<void>;
+}) {
+  const normalizedQuery = query.trim();
+
+  const getBrowseKey = (
+    pageIndex: number,
+    previousPageData: z.infer<typeof definitionsPageSchema> | null,
+  ) => {
+    if (previousPageData && previousPageData.nextCursor === null) return null;
+    const cursor =
+      pageIndex === 0 ? undefined : (previousPageData?.nextCursor ?? undefined);
+    return buildUrl(`/registries/${registryId}/definitions`, {
+      query: normalizedQuery.length > 0 ? normalizedQuery : undefined,
+      cursor,
+      limit: "20",
+    });
+  };
+
+  const {
+    data: pages,
+    error: browseError,
+    size,
+    setSize,
+    isLoading: isLoadingBrowse,
+  } = useSWRInfinite(
+    getBrowseKey,
+    (url) => apiFetchJson(url, definitionsPageSchema),
+    { refreshInterval: 30000 },
+  );
+
+  const entries = useMemo(
+    () => (pages ?? []).flatMap((page) => page.definitions),
+    [pages],
+  );
+
+  const installedServiceIdBySource = useMemo(() => {
+    const bySource = new Map<string, string>();
+    for (const service of installedServices) {
+      if (service.source && !bySource.has(service.source)) {
+        bySource.set(service.source, service.id);
+      }
+    }
+    return bySource;
+  }, [installedServices]);
+
+  const installedServiceIds = useMemo(
+    () => new Set(installedServices.map((service) => service.id)),
+    [installedServices],
+  );
+
+  const hasMore = pages ? pages[pages.length - 1]?.nextCursor !== null : false;
+
+  useEffect(() => {
+    onCountChange(registryId, entries.length);
+  }, [registryId, entries.length, onCountChange]);
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {entries.map((entry) => (
+          <RegistryServiceCard
+            key={entry.id}
+            entry={entry}
+            registryId={registryId}
+            onInstalled={onInstalled}
+            installedServiceId={
+              installedServiceIds.has(entry.id)
+                ? entry.id
+                : (installedServiceIdBySource.get(entry.source) ?? null)
+            }
+          />
+        ))}
+      </div>
+      {browseError ? (
+        <p className="text-sm text-destructive">
+          Failed to load registry entries.
+        </p>
+      ) : null}
+      {!isLoadingBrowse && !browseError && entries.length === 0 ? (
+        <div className="flex items-center justify-center h-full py-12">
+          <Empty>
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <Search aria-hidden />
+              </EmptyMedia>
+              <EmptyTitle>No entries found</EmptyTitle>
+              <EmptyDescription>
+                No entries match the current filters. Try adjusting your search
+                or{" "}
+                <AddRegistryPopover onAdded={onRegistryAdded} align="center">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="underline"
+                    type="button"
+                  >
+                    add a registry
+                  </Button>
+                </AddRegistryPopover>
+                .
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        </div>
+      ) : null}
+      {hasMore ? (
+        <div className="flex justify-center">
+          <Button
+            type="button"
+            variant="outline"
+            className="gap-2"
+            onClick={() => void setSize(size + 1)}
+          >
+            <ChevronDown />
+            Load more
+          </Button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export default function ServicesPage() {
   const { mutate } = useSWRConfig();
-  const [queryFilter, setQueryFilter] = useState("");
-  const [enabledFilter, setEnabledFilter] = useState<
-    "all" | "enabled" | "disabled"
-  >("all");
-  const [staleFilter, setStaleFilter] = useState<"all" | "stale" | "fresh">(
-    "all",
-  );
-  const [adapterFilter, setAdapterFilter] = useState("all");
+  const [searchParams] = useSearchParams();
+  const updateSearchParams = useUpdateSearchParams();
+
+  const viewTab =
+    searchParams.get("tab") === "explore" ? "explore" : "installed";
+  const queryFilter = searchParams.get("q") ?? "";
+  const rawEnabledFilter = searchParams.get("enabled");
+  const enabledFilter =
+    rawEnabledFilter === "enabled" || rawEnabledFilter === "disabled"
+      ? rawEnabledFilter
+      : "all";
+  const rawStaleFilter = searchParams.get("stale");
+  const staleFilter =
+    rawStaleFilter === "stale" || rawStaleFilter === "fresh"
+      ? rawStaleFilter
+      : "all";
+  const adapterFilter = searchParams.get("adapter") ?? "all";
+  const exploreQuery = searchParams.get("eq") ?? "";
+  const exploreRegistryParam = searchParams.get("registry");
   const [isInstallOpen, setIsInstallOpen] = useState(false);
-  const [installTab, setInstallTab] = useState<"manual" | "registry">(
-    "registry",
+  const [exploreCounts, setExploreCounts] = useState<Record<string, number>>(
+    {},
   );
   const [manualId, setManualId] = useState("");
   const [manualUrl, setManualUrl] = useState("");
@@ -107,6 +297,7 @@ export default function ServicesPage() {
     Partial<Record<"id" | "url" | "adapter" | "form", string>>
   >({});
   const [isInstalling, setIsInstalling] = useState(false);
+  const [togglingIds, setTogglingIds] = useState<Record<string, boolean>>({});
   const { addNotification } = useNotification();
   const normalizedQuery = queryFilter.trim();
   const enabledParam =
@@ -122,6 +313,8 @@ export default function ServicesPage() {
         ? "true"
         : "false";
 
+  const debouncedExploreQuery = useDebouncedValue(exploreQuery, 300);
+
   const servicesUrl = useMemo(() => {
     return buildUrl("/services", {
       query: normalizedQuery.length > 0 ? normalizedQuery : undefined,
@@ -134,6 +327,11 @@ export default function ServicesPage() {
 
   const adaptersUrl = useMemo(
     () => buildUrl("/modules", adapterListBaseParams),
+    [],
+  );
+
+  const registriesUrl = useMemo(
+    () => buildUrl("/registries", { limit: "100" }),
     [],
   );
 
@@ -169,6 +367,56 @@ export default function ServicesPage() {
   );
 
   const adapters = useMemo(() => adapterList ?? [], [adapterList]);
+
+  const { data: registryList, isLoading: isLoadingRegistries } = useSWR(
+    registriesUrl,
+    (url) => apiFetchJson(url, registryListSchema),
+    { refreshInterval: 30000 },
+  );
+
+  const registries = useMemo(() => registryList?.items ?? [], [registryList]);
+
+  const defaultRegistryUrl = useMemo(() => buildUrl("/registries/default"), []);
+
+  const { data: defaultRegistryData } = useSWR(
+    defaultRegistryUrl,
+    (url) => apiFetchJson(url, defaultRegistrySchema),
+    { refreshInterval: 30000 },
+  );
+
+  const defaultRegistry = defaultRegistryData?.registry ?? null;
+
+  const effectiveRegistryId = useMemo(() => {
+    if (
+      exploreRegistryParam !== null &&
+      registries.some((registry) => registry.id === exploreRegistryParam)
+    ) {
+      return exploreRegistryParam;
+    }
+    if (
+      defaultRegistry !== null &&
+      registries.some((registry) => registry.id === defaultRegistry.id)
+    ) {
+      return defaultRegistry.id;
+    }
+    return registries[0]?.id;
+  }, [exploreRegistryParam, defaultRegistry, registries]);
+
+  const handleExploreCount = useCallback(
+    (registryId: string, count: number) => {
+      setExploreCounts((previous) =>
+        previous[registryId] === count
+          ? previous
+          : { ...previous, [registryId]: count },
+      );
+    },
+    [],
+  );
+
+  const exploreTotal = useMemo(() => {
+    if (effectiveRegistryId === undefined) return 0;
+    return exploreCounts[effectiveRegistryId] ?? 0;
+  }, [exploreCounts, effectiveRegistryId]);
 
   const [extraServices, setExtraServices] = useState<Service[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -235,9 +483,13 @@ export default function ServicesPage() {
       setNextCursor(data.nextCursor);
     } catch (error) {
       if (paginationVersionRef.current !== startedVersion) return;
-      setLoadMoreError(
-        errorMessageFrom(error, "Failed to load more services."),
-      );
+      const message = errorMessageFrom(error, "Failed to load more services.");
+      setLoadMoreError(message);
+      addNotification({
+        type: "error",
+        title: "Load more failed",
+        message,
+      });
     } finally {
       setIsLoadingMore(false);
     }
@@ -277,13 +529,13 @@ export default function ServicesPage() {
       await refreshServices();
       addNotification({
         type: "success",
-        title: "Success",
+        title: "Service installed",
         message: "Service installed.",
       });
     } catch (error) {
       addNotification({
         type: "error",
-        title: "Error",
+        title: "Service installation failed",
         message: errorMessageFrom(error, "Unable to install service."),
       });
     } finally {
@@ -299,94 +551,106 @@ export default function ServicesPage() {
       await refreshServices();
       addNotification({
         type: "success",
-        title: "Success",
+        title: "Service synced",
         message: "Service synced.",
       });
     } catch (error) {
       addNotification({
         type: "error",
-        title: "Error",
+        title: "Service sync failed",
         message: errorMessageFrom(error, "Unable to sync service."),
       });
     }
   };
 
-  const handleToggleService = async (serviceId: string, enabled: boolean) => {
+  const handleToggleService = async (service: Service) => {
+    const nextEnabled = !service.enabled;
+    setTogglingIds((previous) => ({ ...previous, [service.id]: true }));
     try {
-      await apiFetch(buildUrl(`/services/${serviceId}/enabled`), {
+      await apiFetch(buildUrl(`/services/${service.id}/enabled`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ enabled: !enabled }),
+        body: JSON.stringify({ enabled: nextEnabled }),
       });
       await refreshServices();
       addNotification({
         type: "success",
-        title: "Success",
-        message: `Service ${enabled ? "disabled" : "enabled"}.`,
+        title: `Service ${nextEnabled ? "enabled" : "disabled"}`,
+        message: `Service ${nextEnabled ? "enabled" : "disabled"}.`,
       });
     } catch (error) {
       addNotification({
         type: "error",
-        title: "Error",
-        message: errorMessageFrom(error, "Failed to toggle service."),
+        title: "Service state update failed",
+        message: errorMessageFrom(error, "Unable to update service state."),
+      });
+    } finally {
+      setTogglingIds((previous) => {
+        const next = { ...previous };
+        delete next[service.id];
+        return next;
       });
     }
   };
 
+  const selectedRegistry = registries.find(
+    (registry) => registry.id === effectiveRegistryId,
+  );
+
   return (
-    <section className="flex min-h-0 flex-1 flex-col gap-6 p-6">
-      <header className="flex flex-col gap-4">
+    <section className="flex flex-1 flex-col px-6 pb-6">
+      <div className="space-y-1 pt-4">
+        <h1 className="text-xl font-semibold">Services</h1>
+        <p className="text-muted-foreground text-sm">
+          Install, and manage services and tools.
+        </p>
+      </div>
+      <div className="sticky top-0 z-10 -mx-6 flex flex-col gap-4 border-b bg-background px-6 py-4 mb-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="space-y-1">
-            <h1 className="text-xl font-semibold">Services</h1>
-            <p className="text-muted-foreground text-sm">
-              Install, and manage services and tools.
-            </p>
-          </div>
+          <Tabs
+            value={viewTab}
+            onValueChange={(v) =>
+              updateSearchParams({
+                tab: v === "explore" ? "explore" : undefined,
+              })
+            }
+          >
+            <TabsList>
+              <TabsTrigger value="explore">
+                Explore ({exploreTotal})
+              </TabsTrigger>
+              <TabsTrigger value="installed">
+                Installed ({services.length})
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
           <div className="flex flex-wrap items-center gap-2">
-            <Dialog open={isInstallOpen} onOpenChange={setIsInstallOpen}>
-              <DialogTrigger asChild>
-                <Button className="gap-2" type="button">
+            {viewTab === "explore" ? (
+              <AddRegistryPopover onAdded={() => void mutate(registriesUrl)}>
+                <Button type="button" className="gap-2">
                   <Plus />
-                  Install service
+                  Add registry
                 </Button>
-              </DialogTrigger>
-              <DialogContent className="flex max-w-3xl h-[min(85vh,46rem)] flex-col lg:max-w-4xl">
-                <DialogHeader>
-                  <DialogTitle>Install service</DialogTitle>
-                  <DialogDescription>
-                    Install from a registry or provide details manually.
-                  </DialogDescription>
-                </DialogHeader>
-                <Tabs
-                  value={installTab}
-                  onValueChange={(v) =>
-                    setInstallTab(v as "manual" | "registry")
-                  }
-                  className="flex min-h-0 flex-1 flex-col gap-2"
-                >
-                  <TabsList className="w-full">
-                    <TabsTrigger className="flex-1" value="registry">
-                      Registry
-                    </TabsTrigger>
-                    <TabsTrigger className="flex-1" value="manual">
-                      Manual
-                    </TabsTrigger>
-                  </TabsList>
-                  <TabsContent
-                    value="registry"
-                    className="min-h-0 flex-1 overflow-hidden"
-                  >
-                    <RegistryBrowser
-                      kind="service"
-                      onInstalled={refreshServices}
-                    />
-                  </TabsContent>
-                  <TabsContent
-                    value="manual"
-                    className="min-h-0 flex-1 overflow-y-auto"
-                  >
-                    <div className="space-y-3 pt-2">
+              </AddRegistryPopover>
+            ) : (
+              <Popover open={isInstallOpen} onOpenChange={setIsInstallOpen}>
+                <PopoverTrigger asChild>
+                  <Button className="gap-2" type="button">
+                    <Plus />
+                    Install Custom Service
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-[26rem]">
+                  <div className="space-y-4">
+                    <div className="space-y-1">
+                      <h3 className="text-sm font-medium">
+                        Install custom service
+                      </h3>
+                      <p className="text-muted-foreground text-xs">
+                        Provide details to install a service manually.
+                      </p>
+                    </div>
+                    <div className="space-y-3">
                       <div className="space-y-2">
                         <Label htmlFor="service-manual-id">ID</Label>
                         <Input
@@ -454,243 +718,281 @@ export default function ServicesPage() {
                           </p>
                         ) : null}
                       </div>
-                      <div className="flex items-center justify-end gap-2 pt-2">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => setIsInstallOpen(false)}
-                        >
-                          Cancel
-                        </Button>
-                        <Button
-                          type="button"
-                          disabled={isInstalling}
-                          onClick={() => void handleManualInstall()}
-                        >
-                          {isInstalling ? "Installing" : "Install"}
-                        </Button>
-                      </div>
                     </div>
-                  </TabsContent>
-                </Tabs>
-              </DialogContent>
-            </Dialog>
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex flex-1 items-center gap-2">
-            <Input
-              placeholder="Filter by a query"
-              value={queryFilter}
-              onChange={(event) => setQueryFilter(event.target.value)}
-            />
-          </div>
-          <div className="flex items-center gap-2">
-            <Select
-              onValueChange={(value) =>
-                setEnabledFilter(value as "all" | "enabled" | "disabled")
-              }
-              value={enabledFilter}
-            >
-              <SelectTrigger className="w-[170px]">
-                <SelectValue placeholder="Enabled" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All services</SelectItem>
-                <SelectItem value="enabled">Enabled</SelectItem>
-                <SelectItem value="disabled">Disabled</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select
-              onValueChange={(value) =>
-                setStaleFilter(value as "all" | "stale" | "fresh")
-              }
-              value={staleFilter}
-            >
-              <SelectTrigger className="w-[170px]">
-                <SelectValue placeholder="Stale" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All states</SelectItem>
-                <SelectItem value="stale">Stale</SelectItem>
-                <SelectItem value="fresh">Fresh</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select onValueChange={setAdapterFilter} value={adapterFilter}>
-              <SelectTrigger className="w-[170px]">
-                <SelectValue placeholder="Adapter" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All adapters</SelectItem>
-                {adapters.map((adapter) => (
-                  <SelectItem key={adapter.id} value={adapter.id}>
-                    {adapter.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button
-              type="button"
-              variant="outline"
-              className="gap-2"
-              onClick={() => {
-                refreshServices()
-                  .then(() => {
-                    addNotification({
-                      type: "success",
-                      title: "Success",
-                      message: "Services refreshed.",
-                    });
-                  })
-                  .catch((error) => {
-                    addNotification({
-                      type: "error",
-                      title: "Error",
-                      message: errorMessageFrom(
-                        error,
-                        "Failed to refresh services.",
-                      ),
-                    });
-                  });
-              }}
-              aria-label="Refresh services"
-            >
-              <RotateCcw />
-            </Button>
-          </div>
-        </div>
-      </header>
-      <div className="flex min-h-0 flex-1 flex-col gap-6">
-        <Card className="flex min-h-0 flex-1 flex-col max-h-[calc(100vh-10.8rem)]">
-          <CardContent className="min-h-0 flex-1">
-            <ScrollArea className="h-full">
-              <div className="grid gap-4 grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
-                {services.map((service) => (
-                  <div
-                    key={service.id}
-                    className="flex flex-col justify-between border bg-card p-4 border-border"
-                  >
-                    <Link
-                      to={`/services/${service.id}`}
-                      className="block -mx-4 -mt-4 -mr-4 mb-3 p-4"
-                    >
-                      <div className="flex items-start gap-3">
-                        <EntityIcon
-                          kind="service"
-                          id={service.id}
-                          label={service.name}
-                          hasIcon={service.hasIcon}
-                        />
-                        <div className="space-y-2 min-w-0">
-                          <div className="flex items-center justify-between flex-wrap gap-2">
-                            <h3 className="text-sm font-semibold">
-                              {service.name}
-                            </h3>
-                            <Badge variant="secondary">{service.adapter}</Badge>
-                            {service.stale ? (
-                              <Badge variant="destructive">Stale</Badge>
-                            ) : null}
-                          </div>
-                          <p className="text-muted-foreground text-xs font-mono truncate max-w-full">
-                            {service.id}
-                          </p>
-                          <div className="text-muted-foreground text-xs line-clamp-3">
-                            {service.summary ? (
-                              service.summary
-                            ) : service.description ? (
-                              <Markdown
-                                components={{
-                                  p: ({ children }) => <>{children}</>,
-                                }}
-                                remarkPlugins={[remarkGfm]}
-                              >
-                                {service.description}
-                              </Markdown>
-                            ) : (
-                              "No description"
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </Link>
-                    {service.stale ? (
+                    <div className="flex items-center justify-end gap-2">
                       <Button
                         type="button"
                         variant="outline"
-                        size="sm"
-                        className="w-full mb-2 gap-2"
-                        onClick={() => void handleSyncService(service.id)}
+                        onClick={() => setIsInstallOpen(false)}
                       >
-                        <RotateCcw />
-                        Sync
+                        Cancel
                       </Button>
-                    ) : null}
-                    <div
-                      className="flex cursor-pointer items-center justify-between gap-2"
-                      onClick={() => {
-                        void handleToggleService(service.id, service.enabled);
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          void handleToggleService(service.id, service.enabled);
-                        }
-                      }}
-                      role="switch"
-                      aria-checked={service.enabled}
-                      tabIndex={0}
-                    >
-                      <span className="text-xs text-muted-foreground">
-                        {service.enabled ? "Enabled" : "Disabled"}
-                      </span>
-                      <span
-                        className={cn(
-                          "inline-flex h-6 w-11 items-center transition",
-                          service.enabled ? "bg-primary" : "bg-secondary",
-                        )}
+                      <Button
+                        type="button"
+                        disabled={isInstalling}
+                        onClick={() => void handleManualInstall()}
                       >
-                        <span
-                          className={cn(
-                            "inline-block h-4 w-4 transform bg-background shadow transition",
-                            service.enabled ? "translate-x-6" : "translate-x-1",
-                          )}
-                        />
-                      </span>
+                        {isInstalling ? "Installing" : "Install"}
+                      </Button>
                     </div>
                   </div>
-                ))}
-              </div>
-              {servicesError ? (
-                <p className="p-4 text-sm text-destructive">
-                  Failed to load services.
-                </p>
-              ) : null}
-              {!isLoadingServices && services.length === 0 ? (
-                <p className="p-4 text-sm text-muted-foreground">
-                  No services installed yet.
-                </p>
-              ) : null}
-              {nextCursor !== null ? (
-                <div className="flex justify-center p-4">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="gap-2"
-                    disabled={isLoadingMore}
-                    onClick={() => void loadMoreServices()}
-                  >
-                    <ChevronDown />
-                    {isLoadingMore ? "Loading more…" : "Load more"}
-                  </Button>
-                </div>
-              ) : null}
-              {loadMoreError !== null ? (
-                <p className="p-4 text-sm text-destructive">{loadMoreError}</p>
-              ) : null}
-            </ScrollArea>
-          </CardContent>
-        </Card>
+                </PopoverContent>
+              </Popover>
+            )}
+          </div>
+        </div>
+        {viewTab === "installed" ? (
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex min-w-[200px] flex-1 items-center gap-2">
+              <Input
+                placeholder="Search services"
+                value={queryFilter}
+                onChange={(event) =>
+                  updateSearchParams({ q: event.target.value || undefined })
+                }
+              />
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Select
+                onValueChange={(value) =>
+                  updateSearchParams({
+                    enabled: value === "all" ? undefined : value,
+                  })
+                }
+                value={enabledFilter}
+              >
+                <SelectTrigger className="min-w-[140px] flex-1 sm:w-[170px] sm:flex-none">
+                  <SelectValue placeholder="Enabled" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All services</SelectItem>
+                  <SelectItem value="enabled">Enabled</SelectItem>
+                  <SelectItem value="disabled">Disabled</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select
+                onValueChange={(value) =>
+                  updateSearchParams({
+                    stale: value === "all" ? undefined : value,
+                  })
+                }
+                value={staleFilter}
+              >
+                <SelectTrigger className="min-w-[140px] flex-1 sm:w-[170px] sm:flex-none">
+                  <SelectValue placeholder="Stale" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All states</SelectItem>
+                  <SelectItem value="stale">Stale</SelectItem>
+                  <SelectItem value="fresh">Fresh</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select
+                onValueChange={(value) =>
+                  updateSearchParams({
+                    adapter: value === "all" ? undefined : value,
+                  })
+                }
+                value={adapterFilter}
+              >
+                <SelectTrigger className="min-w-[140px] flex-1 sm:w-[170px] sm:flex-none">
+                  <SelectValue placeholder="Adapter" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All adapters</SelectItem>
+                  {adapters.map((adapter) => (
+                    <SelectItem key={adapter.id} value={adapter.id}>
+                      {adapter.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                type="button"
+                variant="outline"
+                className="shrink-0 gap-2"
+                onClick={() => {
+                  refreshServices()
+                    .then(() => {
+                      addNotification({
+                        type: "success",
+                        title: "Services refreshed",
+                        message: "Services refreshed.",
+                      });
+                    })
+                    .catch((error) => {
+                      addNotification({
+                        type: "error",
+                        title: "Refresh services failed",
+                        message: errorMessageFrom(
+                          error,
+                          "Failed to refresh services.",
+                        ),
+                      });
+                    });
+                }}
+                aria-label="Refresh services"
+              >
+                <RotateCcw />
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex min-w-[200px] flex-1 items-center gap-2">
+              <Input
+                placeholder="Search services"
+                value={exploreQuery}
+                onChange={(event) =>
+                  updateSearchParams({ eq: event.target.value || undefined })
+                }
+              />
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Select
+                onValueChange={(value) =>
+                  updateSearchParams({ registry: value })
+                }
+                value={effectiveRegistryId ?? ""}
+              >
+                <SelectTrigger
+                  className="min-w-[140px] flex-1 sm:w-[220px] sm:flex-none"
+                  aria-label="Change registry"
+                >
+                  <SelectValue placeholder="Select registry" />
+                </SelectTrigger>
+                <SelectContent>
+                  {registries.map((registry) => (
+                    <SelectItem key={registry.id} value={registry.id}>
+                      {registry.id}
+                      {registry.isDefault ? " (default)" : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        )}
       </div>
+      {viewTab === "installed" ? (
+        <div className="h-full flex flex-col gap-6">
+          <div className="grid gap-4 grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
+            {services.map((service) => (
+              <InstalledServiceCard
+                key={service.id}
+                service={service}
+                onSync={() => void handleSyncService(service.id)}
+                onToggle={() => void handleToggleService(service)}
+                isToggling={togglingIds[service.id] ?? false}
+              />
+            ))}
+          </div>
+          {servicesError ? (
+            <p className="p-4 text-sm text-destructive">
+              Failed to load services.
+            </p>
+          ) : null}
+          {!isLoadingServices && services.length === 0 ? (
+            <div className="flex items-center justify-center h-full py-12">
+              <Empty>
+                <EmptyHeader>
+                  <EmptyMedia variant="icon">
+                    <Server aria-hidden />
+                  </EmptyMedia>
+                  <EmptyTitle>No services installed</EmptyTitle>
+                  <EmptyDescription>
+                    <Button
+                      variant="link"
+                      size="sm"
+                      className="p-0"
+                      onClick={() => updateSearchParams({ tab: "explore" })}
+                    >
+                      Browse the explore tab
+                    </Button>{" "}
+                    to install your first service.
+                  </EmptyDescription>
+                </EmptyHeader>
+              </Empty>
+            </div>
+          ) : null}
+          {nextCursor !== null ? (
+            <div className="flex justify-center p-4">
+              <Button
+                type="button"
+                variant="outline"
+                className="gap-2"
+                disabled={isLoadingMore}
+                onClick={() => void loadMoreServices()}
+              >
+                <ChevronDown />
+                {isLoadingMore ? "Loading…" : "Load more"}
+              </Button>
+            </div>
+          ) : null}
+          {loadMoreError !== null ? (
+            <p className="p-4 text-sm text-destructive">{loadMoreError}</p>
+          ) : null}
+        </div>
+      ) : (
+        <div className="h-full flex flex-col gap-6">
+          {isLoadingRegistries && registries.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Loading registries…</p>
+          ) : registries.length === 0 ? (
+            <div className="flex items-center justify-center h-full py-12">
+              <Empty>
+                <EmptyHeader>
+                  <EmptyMedia variant="icon">
+                    <Library aria-hidden />
+                  </EmptyMedia>
+                  <EmptyTitle>No registries yet</EmptyTitle>
+                  <EmptyDescription>
+                    Add one to browse and install services.
+                  </EmptyDescription>
+                </EmptyHeader>
+              </Empty>
+            </div>
+          ) : selectedRegistry ? (
+            <div className="flex flex-col gap-3">
+              <ExploreRegistryGroup
+                registryId={selectedRegistry.id}
+                query={debouncedExploreQuery}
+                onInstalled={refreshServices}
+                onCountChange={handleExploreCount}
+                installedServices={services}
+                onRegistryAdded={() => void mutate(registriesUrl)}
+              />
+            </div>
+          ) : (
+            <div className="flex items-center justify-center h-full py-12">
+              <Empty>
+                <EmptyHeader>
+                  <EmptyMedia variant="icon">
+                    <Library aria-hidden />
+                  </EmptyMedia>
+                  <EmptyTitle>No registry selected</EmptyTitle>
+                  <EmptyDescription>
+                    Select a registry to browse and install its entries, or{" "}
+                    <AddRegistryPopover
+                      onAdded={() => void mutate(registriesUrl)}
+                      align="center"
+                    >
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="underline"
+                        type="button"
+                      >
+                        add a registry
+                      </Button>
+                    </AddRegistryPopover>
+                    .
+                  </EmptyDescription>
+                </EmptyHeader>
+              </Empty>
+            </div>
+          )}
+        </div>
+      )}
     </section>
   );
 }

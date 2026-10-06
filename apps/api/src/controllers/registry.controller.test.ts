@@ -8,9 +8,11 @@ import {
   createRegistry,
   deleteRegistry,
   deleteRegistryAuth,
+  getDefaultRegistry,
   getRegistryAuth,
   listRegistries,
   refreshRegistry,
+  setDefaultRegistry,
   setRegistryAuth,
 } from "@/controllers/registry.controller";
 import { HttpError } from "@/models/error.model";
@@ -27,6 +29,8 @@ const registriesService = {
   getRegistryAuthState: vi.fn(),
   setRegistryAuth: vi.fn(),
   deleteRegistryAuth: vi.fn(),
+  getDefaultRegistry: vi.fn(),
+  setDefaultRegistry: vi.fn(),
 };
 
 interface MockResponse {
@@ -211,6 +215,55 @@ describe("registry.controller", () => {
       await expect(
         deleteRegistry(makeReq({ params: {} }), cast(res)),
       ).rejects.toBeInstanceOf(HttpError);
+    });
+  });
+
+  describe("getDefaultRegistry", () => {
+    it("returns 200 with {registry}", async () => {
+      const res = makeRes();
+      registriesService.getDefaultRegistry.mockResolvedValue(sampleRecord);
+
+      await getDefaultRegistry(makeReq(), cast(res));
+
+      expect(registriesService.getDefaultRegistry).toHaveBeenCalledWith();
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith({ registry: sampleRecord });
+    });
+
+    it("returns 200 with null registry when none is set", async () => {
+      const res = makeRes();
+      registriesService.getDefaultRegistry.mockResolvedValue(null);
+
+      await getDefaultRegistry(makeReq(), cast(res));
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith({ registry: null });
+    });
+  });
+
+  describe("setDefaultRegistry", () => {
+    it("forwards the id and returns the registry", async () => {
+      const res = makeRes();
+      registriesService.setDefaultRegistry.mockResolvedValue(sampleRecord);
+
+      await setDefaultRegistry(
+        makeReq({ params: { id: "github" } }),
+        cast(res),
+      );
+
+      expect(registriesService.setDefaultRegistry).toHaveBeenCalledWith(
+        "github",
+      );
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith(sampleRecord);
+    });
+
+    it("rejects when id is missing", async () => {
+      const res = makeRes();
+      await expect(
+        setDefaultRegistry(makeReq({ params: {} }), cast(res)),
+      ).rejects.toBeInstanceOf(HttpError);
+      expect(registriesService.setDefaultRegistry).not.toHaveBeenCalled();
     });
   });
 });

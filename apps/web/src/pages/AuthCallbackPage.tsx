@@ -1,14 +1,13 @@
-import { Check, Copy } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import { z } from "zod";
+import { CopyButton } from "@/components/copy-button";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useNotification } from "@/hooks/use-notification";
 import { apiFetchJson, buildUrl, errorMessageFrom } from "@/lib/api";
-import { copyToClipboard } from "@/lib/copy";
 
 const callbackResponseSchema = z.object({
   ok: z.boolean(),
@@ -23,7 +22,6 @@ export default function AuthCallbackPage() {
   >("idle");
   const [message, setMessage] = useState<string | null>(null);
   const [credentialId, setCredentialId] = useState<string | null>(null);
-  const [copied, setCopied] = useState<"code" | "state" | null>(null);
   const autoAttempted = useRef(false);
 
   const code = searchParams.get("code") ?? "";
@@ -58,8 +56,17 @@ export default function AuthCallbackPage() {
         message: "OAuth authorization completed.",
       });
     } catch (error) {
+      const message = errorMessageFrom(
+        error,
+        "Failed to complete authorization.",
+      );
       setStatus("error");
-      setMessage(errorMessageFrom(error, "Failed to complete authorization."));
+      setMessage(message);
+      addNotification({
+        type: "error",
+        title: "Authorization failed",
+        message,
+      });
     }
   }, [code, state, addNotification]);
 
@@ -70,20 +77,6 @@ export default function AuthCallbackPage() {
     autoAttempted.current = true;
     void complete();
   }, [code, state, providerError, complete]);
-
-  async function handleCopy(value: string, which: "code" | "state") {
-    const ok = await copyToClipboard(value);
-    if (ok) {
-      setCopied(which);
-      window.setTimeout(() => setCopied(null), 2000);
-    } else {
-      addNotification({
-        type: "error",
-        title: "Error",
-        message: "Unable to copy. Select the value manually.",
-      });
-    }
-  }
 
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-6 p-6">
@@ -128,20 +121,7 @@ export default function AuthCallbackPage() {
                     className="flex-1 font-mono text-xs"
                     onFocus={(e) => e.target.select()}
                   />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="gap-1"
-                    onClick={() => void handleCopy(code, "code")}
-                  >
-                    {copied === "code" ? (
-                      <Check className="size-3.5" />
-                    ) : (
-                      <Copy className="size-3.5" />
-                    )}
-                    {copied === "code" ? "Copied" : "Copy"}
-                  </Button>
+                  <CopyButton value={code} variant="outline" />
                 </div>
               </div>
               <div className="space-y-2">
@@ -154,20 +134,7 @@ export default function AuthCallbackPage() {
                     className="flex-1 font-mono text-xs"
                     onFocus={(e) => e.target.select()}
                   />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="gap-1"
-                    onClick={() => void handleCopy(state, "state")}
-                  >
-                    {copied === "state" ? (
-                      <Check className="size-3.5" />
-                    ) : (
-                      <Copy className="size-3.5" />
-                    )}
-                    {copied === "state" ? "Copied" : "Copy"}
-                  </Button>
+                  <CopyButton value={state} variant="outline" />
                 </div>
               </div>
 

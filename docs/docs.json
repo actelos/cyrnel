@@ -3,9 +3,9 @@
   "theme": "mint",
   "name": "Cyrnel",
   "colors": {
-    "primary": "#a995c9",
-    "light": "#8a79ab",
-    "dark": "#a995c9"
+    "primary": "#000000",
+    "light": "#ffffff",
+    "dark": "#000000"
   },
   "favicon": "/favicon.svg",
   "navigation": {
@@ -227,8 +227,8 @@
   "background": {
     "decoration": "grid",
     "color": {
-      "light": "#f8f7fa",
-      "dark": "#1a1823"
+      "light": "#ffffff",
+      "dark": "#000000"
     }
   },
   "appearance": {

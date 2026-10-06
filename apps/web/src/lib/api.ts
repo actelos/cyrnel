@@ -3,15 +3,51 @@ import { apiUrl } from "@/lib/env";
 
 export const apiBase = apiUrl();
 
+const API_KEY_STORAGE_KEY = "cyrnel.apiKey";
+
+export function getConfiguredApiKey(): string {
+  try {
+    const stored = window.localStorage.getItem(API_KEY_STORAGE_KEY) ?? "";
+    if (stored.trim().length > 0) return stored.trim();
+  } catch {
+    // localStorage may be unavailable (private mode); fall through to env.
+  }
+  const envKey = import.meta.env.VITE_CYRNEL_API_KEY as string | undefined;
+  return envKey?.trim() ?? "";
+}
+
+export function setConfiguredApiKey(key: string): void {
+  try {
+    if (key.trim().length === 0) {
+      window.localStorage.removeItem(API_KEY_STORAGE_KEY);
+    } else {
+      window.localStorage.setItem(API_KEY_STORAGE_KEY, key.trim());
+    }
+  } catch {
+    // Ignore persistence failures; key simply won't survive reloads.
+  }
+}
+
+export function hasConfiguredApiKey(): boolean {
+  return getConfiguredApiKey().length > 0;
+}
+
 export class ApiError extends Error {
   readonly status: number;
   readonly retryAfter?: number;
+  readonly code?: string;
 
-  constructor(message: string, status: number, retryAfter?: number) {
+  constructor(
+    message: string,
+    status: number,
+    retryAfter?: number,
+    code?: string,
+  ) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.retryAfter = retryAfter;
+    this.code = code;
   }
 }
 
@@ -31,43 +67,61 @@ export function buildUrl(
   return url.toString();
 }
 
-async function readErrorMessage(response: Response): Promise<string> {
+async function readErrorBody(response: Response): Promise<{
+  message: string;
+  code?: string;
+  retryAfter?: number;
+}> {
   const fallback = `Request failed: ${response.status}`;
   try {
     const text = await response.text();
-    if (text.trim().length === 0) return fallback;
+    if (text.trim().length === 0) return { message: fallback };
     try {
-      const parsed = JSON.parse(text) as { error?: unknown };
+      const parsed = JSON.parse(text) as {
+        error?: unknown;
+        code?: unknown;
+        retryAfter?: unknown;
+      };
       if (typeof parsed?.error === "string" && parsed.error.length > 0) {
-        return parsed.error;
+        return {
+          message: parsed.error,
+          code:
+            typeof parsed.code === "string" && parsed.code.length > 0
+              ? parsed.code
+              : undefined,
+          retryAfter:
+            typeof parsed.retryAfter === "number"
+              ? parsed.retryAfter
+              : undefined,
+        };
       }
     } catch {}
-    return text;
+    return { message: text };
   } catch {
-    return fallback;
+    return { message: fallback };
   }
+}
+
+function withAuthHeader(init?: RequestInit): RequestInit | undefined {
+  const apiKey = getConfiguredApiKey();
+  if (!apiKey) return init;
+  const headers = new Headers(init?.headers);
+  // Never overwrite an explicit Authorization header set by the caller.
+  if (!headers.has("authorization")) {
+    headers.set("authorization", `Bearer ${apiKey}`);
+  }
+  return { ...init, headers };
 }
 
 export async function apiFetch(
   url: string,
   init?: RequestInit,
 ): Promise<Response> {
-  const response = await fetch(url, init);
+  const response = await fetch(url, withAuthHeader(init));
   if (!response.ok) {
-    let retryAfter: number | undefined;
-    if (response.status === 429) {
-      try {
-        const body = (await response.clone().json()) as {
-          retryAfter?: number;
-        };
-        retryAfter = body.retryAfter;
-      } catch {}
-    }
-    throw new ApiError(
-      await readErrorMessage(response),
-      response.status,
-      retryAfter,
-    );
+    const body = await readErrorBody(response);
+    const message = body.message || `Request failed: ${response.status}`;
+    throw new ApiError(message, response.status, body.retryAfter, body.code);
   }
   return response;
 }

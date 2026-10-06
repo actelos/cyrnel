@@ -201,7 +201,7 @@ redirect targets, every hop is validated before the request proceeds.
 | Registry credentials | `registry_credentials` (one row per `(registry, scheme)`, `status`, requested/granted scopes) + `registry_credential_auth.payload` | Metadata plaintext; secret payload AES-256-GCM with `CYRNEL_SECRETS_KEY`. Deleting a registry cascades its credentials. |
 | Service credentials | `service_credentials` + `service_credential_auth.payload` | Same envelope as registry credentials, scoped to the owning service. Deleting a service cascades its credentials. |
 | Module credentials | `module_credentials` + `module_credential_auth.payload` | Same envelope, scoped to the owning module. |
-| OAuth clients | `oauth_clients` (public fields plaintext, `client_secret` encrypted, required `provider` + `availableScopes`) | `client_secret` AES-256-GCM; delete returns `409` while referenced by any owned credential. |
+| OAuth clients | `oauth_clients` (public fields plaintext, `client_secret` encrypted, required `provider`) | `client_secret` AES-256-GCM; delete returns `409` while referenced by any owned credential. |
 | Pending OAuth authorizations | `oauth_pendings` (`state` PK, exactly one owner per row, PKCE verifier/challenge, 10-min TTL) | Plaintext short-lived flow state; swept with expired tokens via `CYRNEL_AUTH_REFRESH_INTERVAL_MS`. |
 | Tool policies | `tool_policies` (`allow\|block\|ask`, FK `serviceId` cascade) | None (plaintext, decision only). |
 | Approval requests | `approval_requests` (`pending→approved\|denied\|expired` via CAS) | `parameters` encrypted with `CYRNEL_SECRETS_KEY` (decrypted only in `GET /approvals`); never logged. |

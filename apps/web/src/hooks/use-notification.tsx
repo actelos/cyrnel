@@ -1,6 +1,6 @@
 import { type ExternalToast, toast } from "sonner";
 
-type NotificationType = "success" | "error";
+type NotificationType = "success" | "info" | "warning" | "error";
 
 type Notification = {
   type: NotificationType;
@@ -24,10 +24,19 @@ export function NotificationProvider({
 export function useNotification(): NotificationContextValue {
   const addNotification = (n: Notification) => {
     const options: ExternalToast = { description: n.message };
-    if (n.type === "error") {
-      toast.error(n.title, options);
-    } else {
-      toast.success(n.title, options);
+    switch (n.type) {
+      case "error":
+        toast.error(n.title, options);
+        break;
+      case "warning":
+        toast.warning(n.title, options);
+        break;
+      case "info":
+        toast.info(n.title, options);
+        break;
+      default:
+        toast.success(n.title, options);
+        break;
     }
   };
 

@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  checkModuleUpdate,
   createModule,
   deleteModule as deleteModuleHandler,
   getModule,
@@ -12,10 +13,12 @@ import {
   getModuleSecretsSchema,
   installModule,
   listModules,
+  listModuleVersions,
   patchModule,
   patchModuleConfiguration,
   patchModuleSecrets,
   reloadModules,
+  setModuleAutoUpdate,
   setModuleEnabled,
   updateModule as updateModuleHandler,
 } from "@/controllers/module.controller";
@@ -38,6 +41,9 @@ const moduleService = {
   patchModule: vi.fn(),
   deleteModule: vi.fn(),
   updateModule: vi.fn(),
+  setModuleAutoUpdate: vi.fn(),
+  checkModuleUpdate: vi.fn(),
+  listModuleVersions: vi.fn(),
   getIcon: vi.fn(),
 };
 
@@ -718,6 +724,7 @@ describe("module.controller", () => {
       expect(moduleService.installModuleFromRegistry).toHaveBeenCalledWith(
         "https://registry.example.com/mod",
         undefined,
+        true,
       );
       expect(res.status).toHaveBeenCalledWith(201);
       expect(res.json).toHaveBeenCalledWith(manifest);
@@ -886,21 +893,55 @@ describe("module.controller", () => {
   describe("updateModule", () => {
     it("delegates to service and responds 200 with result", async () => {
       const res = makeRes();
-      moduleService.updateModule.mockResolvedValue({ updated: true });
+      moduleService.updateModule.mockResolvedValue({
+        updated: true,
+        fromVersion: "1.0.0",
+        toVersion: "1.1.0",
+      });
 
       await updateModuleHandler(
         makeReq({ params: { moduleId: "myMod" } }),
         cast(res),
       );
 
-      expect(moduleService.updateModule).toHaveBeenCalledWith("myMod");
+      expect(moduleService.updateModule).toHaveBeenCalledWith("myMod", null);
       expect(res.status).toHaveBeenCalledWith(200);
-      expect(res.json).toHaveBeenCalledWith({ updated: true });
+      expect(res.json).toHaveBeenCalledWith({
+        updated: true,
+        fromVersion: "1.0.0",
+        toVersion: "1.1.0",
+      });
+    });
+
+    it("threads an explicit constraint through to the service", async () => {
+      const res = makeRes();
+      moduleService.updateModule.mockResolvedValue({
+        updated: false,
+        fromVersion: "1.0.0",
+        toVersion: "1.0.0",
+      });
+
+      await updateModuleHandler(
+        makeReq({
+          params: { moduleId: "myMod" },
+          body: { constraint: "^1.0.0" },
+        }),
+        cast(res),
+      );
+
+      expect(moduleService.updateModule).toHaveBeenCalledWith(
+        "myMod",
+        "^1.0.0",
+      );
     });
 
     it("returns updated: false when no changes", async () => {
       const res = makeRes();
-      moduleService.updateModule.mockResolvedValue({ updated: false });
+      moduleService.updateModule.mockResolvedValue({
+        updated: false,
+        fromVersion: "1.0.0",
+        toVersion: "1.0.0",
+      });
 
       await updateModuleHandler(
         makeReq({ params: { moduleId: "myMod" } }),
@@ -908,7 +949,11 @@ describe("module.controller", () => {
       );
 
       expect(res.status).toHaveBeenCalledWith(200);
-      expect(res.json).toHaveBeenCalledWith({ updated: false });
+      expect(res.json).toHaveBeenCalledWith({
+        updated: false,
+        fromVersion: "1.0.0",
+        toVersion: "1.0.0",
+      });
     });
 
     it("rejects an empty moduleId", async () => {
@@ -934,6 +979,191 @@ describe("module.controller", () => {
         statusCode: 404,
         message: "Module 'ghost' not found.",
       });
+    });
+  });
+
+  describe("setModuleAutoUpdate", () => {
+    it("forwards enabled=true with a constraint and returns the result", async () => {
+      const res = makeRes();
+      const result = { id: "m1", autoUpdate: true, constraint: "^1.0.0" };
+      moduleService.setModuleAutoUpdate.mockResolvedValue(result);
+
+      await setModuleAutoUpdate(
+        makeReq({
+          params: { moduleId: "m1" },
+          body: { autoUpdate: true, constraint: "^1.0.0" },
+        }),
+        cast(res),
+      );
+
+      expect(moduleService.setModuleAutoUpdate).toHaveBeenCalledWith({
+        id: "m1",
+        autoUpdate: true,
+        constraint: "^1.0.0",
+      });
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith(result);
+    });
+
+    it("forwards enabled=false with a null constraint", async () => {
+      const res = makeRes();
+      const result = { id: "m1", autoUpdate: false, constraint: null };
+      moduleService.setModuleAutoUpdate.mockResolvedValue(result);
+
+      await setModuleAutoUpdate(
+        makeReq({
+          params: { moduleId: "m1" },
+          body: { autoUpdate: false },
+        }),
+        cast(res),
+      );
+
+      expect(moduleService.setModuleAutoUpdate).toHaveBeenCalledWith({
+        id: "m1",
+        autoUpdate: false,
+        constraint: null,
+      });
+      expect(res.json).toHaveBeenCalledWith(result);
+    });
+
+    it("propagates an invalid-constraint 400 from the service", async () => {
+      const res = makeRes();
+      moduleService.setModuleAutoUpdate.mockRejectedValue(
+        new HttpError(
+          400,
+          "Module 'm1' update constraint 'bogus' is not a valid semver range.",
+          "update_constraint_invalid",
+        ),
+      );
+
+      await expect(
+        setModuleAutoUpdate(
+          makeReq({
+            params: { moduleId: "m1" },
+            body: { autoUpdate: true, constraint: "bogus" },
+          }),
+          cast(res),
+        ),
+      ).rejects.toMatchObject({
+        statusCode: 400,
+        code: "update_constraint_invalid",
+      });
+    });
+
+    it("propagates a no-source 409 from the service", async () => {
+      const res = makeRes();
+      moduleService.setModuleAutoUpdate.mockRejectedValue(
+        new HttpError(
+          409,
+          "Module 'm1' has no stored registry source and cannot enable auto-update.",
+          "update_unavailable",
+        ),
+      );
+
+      await expect(
+        setModuleAutoUpdate(
+          makeReq({
+            params: { moduleId: "m1" },
+            body: { autoUpdate: true },
+          }),
+          cast(res),
+        ),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        code: "update_unavailable",
+      });
+    });
+
+    it.each([
+      { body: {}, why: "missing autoUpdate" },
+      { body: { autoUpdate: "true" }, why: "string autoUpdate" },
+      { body: { autoUpdate: 1 }, why: "numeric autoUpdate" },
+      { body: null, why: "null body" },
+    ])("rejects $why", async ({ body }) => {
+      const res = makeRes();
+      await expect(
+        setModuleAutoUpdate(
+          makeReq({ params: { moduleId: "m1" }, body }),
+          cast(res),
+        ),
+      ).rejects.toBeInstanceOf(HttpError);
+      expect(moduleService.setModuleAutoUpdate).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("checkModuleUpdate", () => {
+    it("delegates to the service and returns the update check", async () => {
+      const res = makeRes();
+      const check = {
+        id: "m1",
+        installed: "1.0.0",
+        available: "1.1.0",
+        constraint: null,
+        autoUpdate: true,
+        updateAvailable: true,
+        upToDate: false,
+        hasSource: true,
+      };
+      moduleService.checkModuleUpdate.mockResolvedValue(check);
+
+      await checkModuleUpdate(
+        makeReq({ params: { moduleId: "m1" } }),
+        cast(res),
+      );
+
+      expect(moduleService.checkModuleUpdate).toHaveBeenCalledWith("m1");
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith(check);
+    });
+
+    it("propagates errors from the service", async () => {
+      const res = makeRes();
+      moduleService.checkModuleUpdate.mockRejectedValue(
+        new HttpError(404, "Module 'ghost' not found."),
+      );
+
+      await expect(
+        checkModuleUpdate(
+          makeReq({ params: { moduleId: "ghost" } }),
+          cast(res),
+        ),
+      ).rejects.toMatchObject({ statusCode: 404 });
+    });
+  });
+
+  describe("listModuleVersions", () => {
+    it("delegates to the service and returns the version list", async () => {
+      const res = makeRes();
+      const versions = {
+        id: "m1",
+        installed: "1.0.0",
+        latest: "1.1.0",
+        versions: ["1.0.0", "1.1.0"],
+      };
+      moduleService.listModuleVersions.mockResolvedValue(versions);
+
+      await listModuleVersions(
+        makeReq({ params: { moduleId: "m1" } }),
+        cast(res),
+      );
+
+      expect(moduleService.listModuleVersions).toHaveBeenCalledWith("m1");
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith(versions);
+    });
+
+    it("propagates errors from the service", async () => {
+      const res = makeRes();
+      moduleService.listModuleVersions.mockRejectedValue(
+        new HttpError(404, "Module 'ghost' not found."),
+      );
+
+      await expect(
+        listModuleVersions(
+          makeReq({ params: { moduleId: "ghost" } }),
+          cast(res),
+        ),
+      ).rejects.toMatchObject({ statusCode: 404 });
     });
   });
 });

@@ -8,6 +8,7 @@ export class HttpError extends Error {
     public readonly statusCode: number,
     message: string,
     public readonly code?: string,
+    public readonly approvalId?: string,
   ) {
     super(message);
     this.name = "HttpError";

@@ -1363,6 +1363,67 @@ describe("ModuleService", () => {
     });
   });
 
+  describe("builtin module icons", () => {
+    const bundledIcon = async (id: string): Promise<Buffer> =>
+      fs.readFile(
+        path.join(import.meta.dirname, `../../assets/icons/${id}.png`),
+      );
+
+    it("seeds bundled icons for builtin modules on first run", async () => {
+      const { computeBinaryHash } = await import("@/utils/hash.util");
+      const service = new ModuleService(makeBindings(), makeLifecycle());
+      await service.initialize(MISSING_PATH);
+
+      for (const id of ["openapi", "typescript-ivm"]) {
+        const data = await bundledIcon(id);
+        const hash = computeBinaryHash(data);
+        const row = (await service.list()).items.find((r) => r.id === id);
+        expect(row?.hasIcon).toBe(true);
+        const icon = await service.getIcon(id);
+        expect(icon).toMatchObject({ mime: "image/png", hash });
+        expect(icon?.data.equals(data)).toBe(true);
+      }
+    });
+
+    it("re-seeds icons for existing builtin rows that lack them", async () => {
+      const { computeBinaryHash } = await import("@/utils/hash.util");
+      await db.run(
+        sql`INSERT INTO modules (id, name, type, description, enabled, missing)
+            VALUES ('openapi', 'openapi', 'adapter', '', 0, 0),
+                   ('typescript-ivm', 'typescript-ivm', 'environment', '', 0, 0)`,
+      );
+
+      const service = new ModuleService(makeBindings(), makeLifecycle());
+      await service.initialize(MISSING_PATH);
+
+      for (const id of ["openapi", "typescript-ivm"]) {
+        const hash = computeBinaryHash(await bundledIcon(id));
+        const icon = await service.getIcon(id);
+        expect(icon).toMatchObject({ mime: "image/png", hash });
+      }
+    });
+
+    it("re-seeds icons when the stored icon hash is stale", async () => {
+      const { computeBinaryHash } = await import("@/utils/hash.util");
+      await db.run(
+        sql`INSERT INTO modules (id, name, type, description, enabled, missing, icon_hash)
+            VALUES ('openapi', 'openapi', 'adapter', '', 0, 0, 'stale-hash'),
+                   ('typescript-ivm', 'typescript-ivm', 'environment', '', 0, 0, 'stale-hash')`,
+      );
+
+      const service = new ModuleService(makeBindings(), makeLifecycle());
+      await service.initialize(MISSING_PATH);
+
+      for (const id of ["openapi", "typescript-ivm"]) {
+        const hash = computeBinaryHash(await bundledIcon(id));
+        expect(await service.getIcon(id)).toMatchObject({
+          mime: "image/png",
+          hash,
+        });
+      }
+    });
+  });
+
   describe("setEnabled()", () => {
     it("throws 404 when the module is unknown", async () => {
       const service = new ModuleService(makeBindings(), makeLifecycle());
@@ -2870,7 +2931,7 @@ describe("ModuleService", () => {
         downloadBinaryMock.mockResolvedValue(downloadPayload);
 
         const result = await service.updateModule("stableMod");
-        expect(result).toEqual({ updated: false });
+        expect(result).toMatchObject({ updated: false });
       } finally {
         await fs.rm(dir, { recursive: true, force: true });
       }
@@ -2963,7 +3024,7 @@ describe("ModuleService", () => {
         decompressMock.mockReturnValue(newTarUint8);
 
         const result = await service.updateModule("changedMod");
-        expect(result).toEqual({ updated: true });
+        expect(result).toMatchObject({ updated: true });
 
         const record = unwrap(
           await service.get("changedMod"),
@@ -3182,7 +3243,7 @@ describe("ModuleService", () => {
         );
 
         const result = await service.updateModule("iconUpdateMod");
-        expect(result).toEqual({ updated: false });
+        expect(result).toMatchObject({ updated: false });
 
         const icon = await service.getIcon("iconUpdateMod");
         expect(icon).not.toBeNull();
@@ -3289,7 +3350,7 @@ describe("ModuleService", () => {
         );
 
         const result = await service.updateModule("iconKeepMod");
-        expect(result).toEqual({ updated: false });
+        expect(result).toMatchObject({ updated: false });
 
         const icon = await service.getIcon("iconKeepMod");
         expect(icon).not.toBeNull();
@@ -3391,7 +3452,7 @@ describe("ModuleService", () => {
         );
 
         const result = await service.updateModule("iconClearMod");
-        expect(result).toEqual({ updated: false });
+        expect(result).toMatchObject({ updated: false });
 
         expect(await service.getIcon("iconClearMod")).toBeNull();
         expect(await service.get("iconClearMod")).toMatchObject({
@@ -3498,7 +3559,7 @@ describe("ModuleService", () => {
         );
 
         const result = await service.updateModule("iconHashMod");
-        expect(result).toEqual({ updated: false });
+        expect(result).toMatchObject({ updated: false });
 
         const icon = await service.getIcon("iconHashMod");
         expect(icon).not.toBeNull();
@@ -3513,6 +3574,207 @@ describe("ModuleService", () => {
       } finally {
         await fs.rm(dir, { recursive: true, force: true });
       }
+    });
+  });
+
+  describe("setModuleAutoUpdate()", () => {
+    it("stores enabled auto-update with a constraint once a source exists", async () => {
+      const service = new ModuleService(makeBindings(), makeLifecycle());
+      await service.initialize(MISSING_PATH);
+      await db.run(
+        sql`UPDATE modules SET source = 'https://registry.example.com/openapi' WHERE id = 'openapi'`,
+      );
+
+      await expect(
+        service.setModuleAutoUpdate({
+          id: "openapi",
+          autoUpdate: true,
+          constraint: "^1.0.0",
+        }),
+      ).resolves.toEqual({
+        id: "openapi",
+        autoUpdate: true,
+        constraint: "^1.0.0",
+      });
+    });
+
+    it("stores disabled auto-update without requiring a source", async () => {
+      const service = new ModuleService(makeBindings(), makeLifecycle());
+      await service.initialize(MISSING_PATH);
+
+      await expect(
+        service.setModuleAutoUpdate({ id: "openapi", autoUpdate: false }),
+      ).resolves.toEqual({
+        id: "openapi",
+        autoUpdate: false,
+        constraint: null,
+      });
+    });
+
+    it("rejects an invalid range with 400 update_constraint_invalid", async () => {
+      const service = new ModuleService(makeBindings(), makeLifecycle());
+      await service.initialize(MISSING_PATH);
+
+      await expect(
+        service.setModuleAutoUpdate({
+          id: "openapi",
+          autoUpdate: true,
+          constraint: "not-a-range",
+        }),
+      ).rejects.toMatchObject({
+        statusCode: 400,
+        code: "update_constraint_invalid",
+      });
+    });
+
+    it("rejects enabling auto-update when the module has no source", async () => {
+      const service = new ModuleService(makeBindings(), makeLifecycle());
+      await service.initialize(MISSING_PATH);
+
+      await expect(
+        service.setModuleAutoUpdate({ id: "openapi", autoUpdate: true }),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        code: "update_unavailable",
+      });
+    });
+  });
+
+  describe("checkModuleUpdate()", () => {
+    it("returns hasSource:false when the module has no source", async () => {
+      const service = new ModuleService(makeBindings(), makeLifecycle());
+      await service.initialize(MISSING_PATH);
+
+      await expect(service.checkModuleUpdate("openapi")).resolves.toMatchObject(
+        {
+          id: "openapi",
+          available: null,
+          updateAvailable: false,
+          upToDate: true,
+          hasSource: false,
+        },
+      );
+    });
+
+    it("reports updateAvailable:true when the registry version differs", async () => {
+      const service = new ModuleService(makeBindings(), makeLifecycle());
+      await service.initialize(MISSING_PATH);
+      await db.run(
+        sql`UPDATE modules SET source = 'https://registry.example.com/openapi', version = '0.9.0' WHERE id = 'openapi'`,
+      );
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          async () =>
+            new Response(
+              JSON.stringify({
+                latestVersion: "1.0.0",
+                versions: {
+                  "1.0.0": {
+                    downloadUrl: "https://example.com/download/mod.tar.zst",
+                  },
+                },
+              }),
+              {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              },
+            ),
+        ),
+      );
+
+      await expect(service.checkModuleUpdate("openapi")).resolves.toMatchObject(
+        {
+          id: "openapi",
+          installed: "0.9.0",
+          available: "1.0.0",
+          updateAvailable: true,
+          upToDate: false,
+          hasSource: true,
+        },
+      );
+    });
+
+    it("reports upToDate:true when the versions match", async () => {
+      const service = new ModuleService(makeBindings(), makeLifecycle());
+      await service.initialize(MISSING_PATH);
+      await db.run(
+        sql`UPDATE modules SET source = 'https://registry.example.com/openapi' WHERE id = 'openapi'`,
+      );
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          async () =>
+            new Response(
+              JSON.stringify({
+                latestVersion: "1.0.0",
+                versions: {
+                  "1.0.0": {
+                    downloadUrl: "https://example.com/download/mod.tar.zst",
+                  },
+                },
+              }),
+              {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              },
+            ),
+        ),
+      );
+
+      await expect(service.checkModuleUpdate("openapi")).resolves.toMatchObject(
+        {
+          id: "openapi",
+          installed: "1.0.0",
+          available: "1.0.0",
+          updateAvailable: false,
+          upToDate: true,
+          hasSource: true,
+        },
+      );
+    });
+
+    it("rejects an invalid override constraint before contacting the registry", async () => {
+      const service = new ModuleService(makeBindings(), makeLifecycle());
+      await service.initialize(MISSING_PATH);
+      await db.run(
+        sql`UPDATE modules SET source = 'https://registry.example.com/openapi' WHERE id = 'openapi'`,
+      );
+      const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(
+        service.checkModuleUpdate("openapi", "bogus!!"),
+      ).rejects.toMatchObject({
+        statusCode: 400,
+        code: "update_constraint_invalid",
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("updateModule() constraint validation", () => {
+    it("rejects an invalid constraint with 400 update_constraint_invalid", async () => {
+      const service = new ModuleService(makeBindings(), makeLifecycle());
+      await service.initialize(MISSING_PATH);
+
+      await expect(
+        service.updateModule("openapi", "bogus!!"),
+      ).rejects.toMatchObject({
+        statusCode: 400,
+        code: "update_constraint_invalid",
+      });
+      expect(downloadBinaryMock).not.toHaveBeenCalled();
+    });
+
+    it("rejects a no-source module with 409 update_unavailable", async () => {
+      const service = new ModuleService(makeBindings(), makeLifecycle());
+      await service.initialize(MISSING_PATH);
+
+      await expect(service.updateModule("openapi")).rejects.toMatchObject({
+        statusCode: 409,
+        code: "update_unavailable",
+      });
     });
   });
 });

@@ -1,6 +1,7 @@
 import { type Router as ExpressRouter, Router } from "express";
 
 import {
+  checkModuleUpdate,
   createModule,
   deleteModule,
   getModule,
@@ -11,12 +12,14 @@ import {
   getModuleSecretsSchema,
   installModule,
   listModules,
+  listModuleVersions,
   patchModule,
   patchModuleConfiguration,
   patchModuleSecrets,
   reloadModules,
   restartModule,
   setModuleAuth,
+  setModuleAutoUpdate,
   setModuleEnabled,
   updateModule,
 } from "@/controllers/module.controller";
@@ -48,6 +51,13 @@ moduleRouter.post(
   createRateLimiter(5, 60_000, "POST /modules/:moduleId/update"),
   updateModule,
 );
+moduleRouter.post(
+  "/:moduleId/auto-update",
+  createRateLimiter(10, 60_000, "POST /modules/:moduleId/auto-update"),
+  setModuleAutoUpdate,
+);
+moduleRouter.get("/:moduleId/update-check", checkModuleUpdate);
+moduleRouter.get("/:moduleId/versions", listModuleVersions);
 moduleRouter.patch(
   "/:moduleId",
   createRateLimiter(5, 60_000, "PATCH /modules/:moduleId"),

@@ -160,7 +160,8 @@ const tools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
         .default(true)
         .describe(
           `
-          Whether to wait until the process becomes idle before responding. If
+          Whether to wait until the process completes (idle or terminated),
+          including any time spent awaiting approval, before responding. If
           true, response will include selected outputs (stdout, stderr, output).
           `
             .replace(/\s+/g, " ")
@@ -296,7 +297,8 @@ const tools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
         .default(true)
         .describe(
           `
-          Whether to wait until the process becomes idle before responding. If
+          Whether to wait until the process completes (idle or terminated),
+          including any time spent awaiting approval, before responding. If
           true, response will include selected outputs (stdout, stderr, output).
           `
             .replace(/\s+/g, " ")
@@ -377,113 +379,6 @@ const tools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
         await api.post(`processes/${id}/signals/unload`, { json: {} }).json(),
       ),
   },
-  {
-    name: "list_approvals",
-    description:
-      "List approval requests, filterable by state (pending/approved/denied/expired), service, tool, or process. Paginated with before cursor.",
-    annotations: { readOnlyHint: true, idempotentHint: true },
-    parameters: z.object({
-      state: z.enum(["pending", "approved", "denied", "expired"]).optional(),
-      service_id: z.string().optional(),
-      tool_id: z.string().optional(),
-      process_id: z.number().int().positive().optional(),
-      limit: z.number().int().min(1).max(100).optional(),
-      cursor: z.string().optional(),
-    }),
-    execute: async ({
-      state,
-      service_id,
-      tool_id,
-      process_id,
-      limit,
-      cursor,
-    }) =>
-      JSON.stringify(
-        await api
-          .get("approvals", {
-            searchParams: searchParams({
-              state,
-              serviceId: service_id,
-              toolId: tool_id,
-              processId: process_id,
-              limit,
-              cursor,
-            }),
-          })
-          .json(),
-      ),
-  },
-  {
-    name: "get_approval",
-    description:
-      "Get a single approval request by id, including decrypted parameters.",
-    annotations: { readOnlyHint: true, idempotentHint: true },
-    parameters: z.object({ id: z.string().min(1) }),
-    execute: async ({ id }) =>
-      JSON.stringify(
-        await api.get(`approvals/${encodeURIComponent(id)}`).json(),
-      ),
-  },
-  {
-    name: "approve_approval",
-    description:
-      "Approve a pending approval request; the suspended invocation resumes and executes.",
-    annotations: { idempotentHint: false },
-    parameters: z.object({ id: z.string().min(1) }),
-    execute: async ({ id }) =>
-      JSON.stringify(
-        await api
-          .post(`approvals/${encodeURIComponent(id)}/approve`, { json: {} })
-          .json(),
-      ),
-  },
-  {
-    name: "deny_approval",
-    description:
-      "Deny a pending approval request; the suspended invocation fails with a catchable error.",
-    annotations: { idempotentHint: false },
-    parameters: z.object({ id: z.string().min(1) }),
-    execute: async ({ id }) =>
-      JSON.stringify(
-        await api
-          .post(`approvals/${encodeURIComponent(id)}/deny`, { json: {} })
-          .json(),
-      ),
-  },
-  {
-    name: "get_tool_policy",
-    description:
-      "Get the effective policy decision for a tool (allow/block/ask, default ask).",
-    annotations: { readOnlyHint: true, idempotentHint: true },
-    parameters: z.object({ service_id: ServiceId, tool_id: ToolId }),
-    execute: async ({ service_id, tool_id }) =>
-      JSON.stringify(
-        await api
-          .get(
-            `tools/${encodeURIComponent(service_id)}/${encodeURIComponent(tool_id)}/policy`,
-          )
-          .json(),
-      ),
-  },
-  {
-    name: "set_tool_policy",
-    description: "Set the policy decision for a tool to allow, block, or ask.",
-    annotations: { idempotentHint: false },
-    parameters: z.object({
-      service_id: ServiceId,
-      tool_id: ToolId,
-      decision: z.enum(["allow", "block", "ask"]),
-    }),
-    execute: async ({ service_id, tool_id, decision }) =>
-      JSON.stringify(
-        await api
-          .put(
-            `tools/${encodeURIComponent(service_id)}/${encodeURIComponent(tool_id)}/policy`,
-            { json: { decision } },
-          )
-          .json(),
-      ),
-  },
 ];
 
 async function pollUntilIdle(
@@ -493,27 +388,18 @@ async function pollUntilIdle(
 ): Promise<Record<string, unknown>> {
   const timeoutMs = (timeoutS ?? 30) * 1000;
   const deadline = Date.now() + timeoutMs * 2 + 1_000;
+  const approvalDeadline = Date.now() + 10 * 60_000;
   let attempt = 0;
 
   while (true) {
     const process = (await api.get(`processes/${id}`).json()) as {
       state: ProcessState;
-      pendingApprovalIds?: string[];
     };
-    if (
-      process.state === "idle" ||
-      process.state === "suspended" ||
-      process.state === "terminating" ||
-      process.state === "terminated"
-    )
+    if (process.state === "idle" || process.state === "terminated")
       return process;
-    if (process.state === "queued" || process.state === "running") {
-      if (Date.now() >= deadline) {
-        throw new Error(
-          `Process ${id} did not become idle within the configured wait window.`,
-        );
-      }
-    } else if (Date.now() >= deadline) {
+    if (process.state === "suspended" && Date.now() >= approvalDeadline)
+      return process;
+    if (process.state !== "suspended" && Date.now() >= deadline) {
       throw new Error(
         `Process ${id} did not become idle within the configured wait window.`,
       );

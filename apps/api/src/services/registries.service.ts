@@ -53,6 +53,10 @@ export interface ListRegistriesInput {
   cursor?: string;
 }
 
+export interface RegistryRecordWithDefault extends RegistryRecord {
+  isDefault: boolean;
+}
+
 export type RegistryMachineAuthMaterial =
   | { schemeName: string; type: "apiKey"; apiKey: string }
   | {
@@ -78,7 +82,7 @@ export interface RegistryAuthSetupResult {
   tokenExpiresAt?: number | null;
 }
 
-export type RegistryListRecord = RegistryRecord & {
+export type RegistryListRecord = RegistryRecordWithDefault & {
   configuredSchemes: string[];
 };
 
@@ -129,6 +133,8 @@ export class RegistriesService {
 
     const now = new Date().toISOString();
     try {
+      const existingDefault = await this.getDefaultRegistry();
+      const isFirstRegistry = !existingDefault;
       const [row] = await db
         .insert(registries)
         .values({
@@ -137,6 +143,7 @@ export class RegistriesService {
           lastSyncedAt: null,
           createdAt: now,
           updatedAt: now,
+          isDefault: isFirstRegistry,
         })
         .returning();
       return row;
@@ -258,6 +265,8 @@ export class RegistriesService {
   }
 
   async deleteRegistry(id: string): Promise<void> {
+    const existing = await this.getRegistry(id);
+    const wasDefault = existing.isDefault === true;
     const deleted = await db
       .delete(registries)
       .where(eq(registries.id, id))
@@ -269,8 +278,56 @@ export class RegistriesService {
     if (deleted.length === 0) {
       throw new HttpError(404, `Registry '${id}' not found.`);
     }
+    if (wasDefault) await this.promoteOldestToDefault();
     invalidateRegistryAuthCache();
     invalidateRegistryIndexCache();
+  }
+
+  async getDefaultRegistry(): Promise<RegistryRecordWithDefault | null> {
+    const [row] = await db
+      .select()
+      .from(registries)
+      .where(eq(registries.isDefault, true))
+      .limit(1)
+      .catch(() => {
+        throw new HttpError(500, "Failed to load default registry.");
+      });
+    return row ?? null;
+  }
+
+  async setDefaultRegistry(id: string): Promise<RegistryRecordWithDefault> {
+    const registry = await this.getRegistry(id);
+    await db.transaction(async (tx) => {
+      await tx
+        .update(registries)
+        .set({ isDefault: false })
+        .where(eq(registries.isDefault, true));
+      await tx
+        .update(registries)
+        .set({ isDefault: true, updatedAt: new Date().toISOString() })
+        .where(eq(registries.id, id));
+    });
+    return { ...registry, isDefault: true };
+  }
+
+  private async promoteOldestToDefault(): Promise<void> {
+    const [nextOldest] = await db
+      .select()
+      .from(registries)
+      .orderBy(registries.createdAt, registries.id)
+      .limit(1)
+      .catch(() => {
+        throw new HttpError(500, "Failed to find next default registry.");
+      });
+    if (nextOldest) {
+      await db
+        .update(registries)
+        .set({ isDefault: true, updatedAt: new Date().toISOString() })
+        .where(eq(registries.id, nextOldest.id))
+        .catch(() => {
+          throw new HttpError(500, "Failed to promote default registry.");
+        });
+    }
   }
 
   async addRegistry(

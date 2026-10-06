@@ -82,7 +82,7 @@ async setup(context: ModuleSetupContext<{ apiUrl: string }, { apiKey: string }>)
 - **`SecurityRequirement`** / **`SecurityRequirements`**: OR-of-AND groups mapping scheme names to scopes. Scope arrays MUST be empty for non-OAuth2 schemes; adapters pick the first satisfiable group in declaration order
 - **`CredentialProvider`**: Resolves owner-scoped credentials on-demand via `getCredential(schemeName)`; at most one credential per `(owner, scheme)`, so resolution is unambiguous
 - **`ResolvedCredential`**: Fully resolved credential (`apiKey` | `basic` | `bearer` | `oauth2`); the oauth2 variant carries the provider-granted scopes for required-scope enforcement
-- **`OAuthClient`**: Shared application registration (`provider` display label plus required `availableScopes`; `[]` = unscoped-only client)
+- **`OAuthClient`**: Shared application registration (`provider` display label; scope choices come from service/module-declared scopes)
 
 ## Module logging
 

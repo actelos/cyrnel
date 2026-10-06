@@ -126,9 +126,8 @@ curl -X DELETE http://localhost:9371/registries/my-registry/credentials/apiKey
 All `PUT` routes are `10/min`; authorize/code routes are `5/min`.
 Validation runs against the **live advertisement** (fetched fresh,
 never from a stored snapshot): unknown scheme → `400`; type mismatch
-→ `400`; `requested ⊄ client.availableScopes` → `400`; requested
-scopes the scheme does not declare → success with
-`warning: { unknownScopes }`.
+→ `400`; empty scope list → `400`; requested scopes the scheme does
+not declare → success with `warning: { unknownScopes }`.
 
 ### Safety refusals (400, nothing stored)
 

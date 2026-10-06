@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Dirent } from "node:fs";
+import { type Dirent, readFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -38,7 +38,7 @@ import {
 } from "drizzle-orm";
 import jsonpatch from "fast-json-patch";
 import { decompress as zstdDecompress } from "fzstd";
-import { satisfies } from "semver";
+import { gt, satisfies, validRange } from "semver";
 import { Unpack } from "tar";
 import { z } from "zod";
 import { parseApprovalTimeout } from "@/app";
@@ -100,7 +100,11 @@ import {
 import { downloadBinary } from "@/utils/download.util";
 import { computeBinaryHash } from "@/utils/hash.util";
 import type { IconColumns } from "@/utils/icon.util";
-import { fetchAndValidateIcon, resolveIconUpdate } from "@/utils/icon.util";
+import {
+  fetchAndValidateIcon,
+  resolveIconUpdate,
+  sniffImageMime,
+} from "@/utils/icon.util";
 import {
   decodeCursor,
   escapeLike,
@@ -132,6 +136,23 @@ import {
 const MODULE_DOWNLOAD_MAX_BYTES = 10 * 1024 * 1024;
 const DEFAULT_INVOKE_TIMEOUT_MS = 30_000;
 const IDENTIFIER_SCHEMA = z.string().regex(/^[A-Za-z_$][A-Za-z0-9_$]*$/);
+
+function normalizeModuleUpdateConstraint(
+  constraint: string | null | undefined,
+  ownerLabel: string,
+): string | null {
+  if (constraint === undefined || constraint === null) return null;
+  const trimmed = constraint.trim();
+  if (trimmed.length === 0 || trimmed === "latest") return null;
+  if (validRange(trimmed) === null) {
+    throw new HttpError(
+      400,
+      `${ownerLabel} update constraint '${constraint}' is not a valid semver range.`,
+      "update_constraint_invalid",
+    );
+  }
+  return trimmed;
+}
 
 const MODULE_AUTH_SCHEME_TYPES = ["apiKey", "basic", "http", "oauth2"] as const;
 
@@ -403,6 +424,8 @@ const EMPTY_OBJECT_SCHEMA: JSONSchema = {
   additionalProperties: false,
 };
 
+const BUILTIN_ICON_DIR = join(import.meta.dirname, "../../assets/icons");
+
 interface EnvironmentInstance {
   id: string;
   module: EnvironmentModule;
@@ -660,7 +683,7 @@ export class ModuleService {
       throw new HttpError(
         403,
         `Tool '${input.toolId}' in service '${input.serviceId}' is blocked by policy.`,
-        "permission_denied",
+        "tool_blocked",
       );
     }
     if (decision === "ask") {
@@ -681,8 +704,8 @@ export class ModuleService {
         );
         throw new HttpError(
           403,
-          `Tool '${input.toolId}' in service '${input.serviceId}' requires approval, but there is no execution context to suspend. Invoke through a process execution.`,
-          "permission_denied",
+          `Tool '${input.toolId}' in service '${input.serviceId}' requires approval before it can run. Invoke through a process execution, or set the tool policy to allow.`,
+          "approval_required",
         );
       }
       const approvalId = `apr_${randomUUID().replace(/-/g, "")}`;
@@ -1545,6 +1568,8 @@ export class ModuleService {
       hash: archiveHash,
       version: manifest.version,
       source: "",
+      autoUpdate: false,
+      autoUpdateConstraint: null,
       isBuiltin: false,
       enabled: false,
       missing: false,
@@ -1560,6 +1585,7 @@ export class ModuleService {
   async installModuleFromRegistry(
     source: string,
     version?: string,
+    autoUpdate = true,
   ): Promise<ModuleManifestRecord> {
     if (!this.modulesPath) {
       throw new HttpError(503, "ModuleService has not been initialized.");
@@ -1690,6 +1716,10 @@ export class ModuleService {
         source: source,
         enabled: false,
         missing: false,
+        // New registry installations opt into automatic updates by default.
+        // Existing installations preserve their stored flag.
+        autoUpdate,
+        autoUpdateConstraint: null,
         schemes: auth?.schemes ?? null,
         security: auth?.security ?? null,
         iconData: icon?.data ?? null,
@@ -1715,6 +1745,8 @@ export class ModuleService {
       hash: archiveHash,
       version: manifest.version,
       source: source,
+      autoUpdate,
+      autoUpdateConstraint: null,
       isBuiltin: false,
       enabled: false,
       missing: false,
@@ -1751,13 +1783,176 @@ export class ModuleService {
     }));
   }
 
+  async setModuleAutoUpdate(input: {
+    id: string;
+    autoUpdate: boolean;
+    constraint?: string | null;
+  }): Promise<{ id: string; autoUpdate: boolean; constraint: string | null }> {
+    const normalized = normalizeModuleUpdateConstraint(
+      input.constraint ?? null,
+      `Module '${input.id}'`,
+    );
+    const [row] = await db
+      .select({ id: modulesTable.id, source: modulesTable.source })
+      .from(modulesTable)
+      .where(eq(modulesTable.id, input.id))
+      .limit(1)
+      .catch(() => {
+        throw new HttpError(500, `Failed to load module '${input.id}'.`);
+      });
+    if (!row)
+      throw new HttpError(404, `Module '${input.id}' not found.`, "not_found");
+    if (input.autoUpdate && !row.source) {
+      throw new HttpError(
+        409,
+        `Module '${input.id}' has no stored registry source and cannot enable auto-update.`,
+        "update_unavailable",
+      );
+    }
+    try {
+      await db
+        .update(modulesTable)
+        .set({ autoUpdate: input.autoUpdate, autoUpdateConstraint: normalized })
+        .where(eq(modulesTable.id, input.id));
+    } catch {
+      throw new HttpError(
+        500,
+        `Failed to store auto-update state for module '${input.id}'.`,
+      );
+    }
+    return {
+      id: input.id,
+      autoUpdate: input.autoUpdate,
+      constraint: normalized,
+    };
+  }
+
+  async checkModuleUpdate(
+    id: string,
+    overrideConstraint?: string | null,
+  ): Promise<{
+    id: string;
+    installed: string;
+    available: string | null;
+    constraint: string | null;
+    autoUpdate: boolean;
+    updateAvailable: boolean;
+    upToDate: boolean;
+    hasSource: boolean;
+  }> {
+    const [row] = await db
+      .select({
+        version: modulesTable.version,
+        source: modulesTable.source,
+        autoUpdate: modulesTable.autoUpdate,
+        autoUpdateConstraint: modulesTable.autoUpdateConstraint,
+      })
+      .from(modulesTable)
+      .where(eq(modulesTable.id, id))
+      .limit(1)
+      .catch(() => {
+        throw new HttpError(500, `Failed to load module '${id}'.`);
+      });
+    if (!row)
+      throw new HttpError(404, `Module '${id}' not found.`, "not_found");
+    if (!row.source) {
+      return {
+        id,
+        installed: row.version,
+        available: null,
+        constraint: row.autoUpdateConstraint ?? null,
+        autoUpdate: row.autoUpdate,
+        updateAvailable: false,
+        upToDate: true,
+        hasSource: false,
+      };
+    }
+    const effectiveConstraint =
+      overrideConstraint !== undefined
+        ? normalizeModuleUpdateConstraint(overrideConstraint, `Module '${id}'`)
+        : (row.autoUpdateConstraint ?? null);
+    let registry: { version: string };
+    try {
+      const { resolveModuleRegistry } = await import("@/utils/registry.util");
+      registry = await resolveModuleRegistry(
+        row.source,
+        effectiveConstraint ?? undefined,
+      );
+    } catch (err) {
+      if (err instanceof HttpError) {
+        throw new HttpError(
+          err.statusCode,
+          `Module '${id}' registry source error: ${err.message}.`,
+          err.code ?? "registry_unavailable",
+        );
+      }
+      throw new HttpError(
+        502,
+        `Module '${id}' registry source is unreachable.`,
+        "registry_unavailable",
+      );
+    }
+    const updateAvailable = gt(registry.version, row.version);
+    return {
+      id,
+      installed: row.version,
+      available: registry.version,
+      constraint: effectiveConstraint,
+      autoUpdate: row.autoUpdate,
+      updateAvailable,
+      upToDate: !updateAvailable,
+      hasSource: true,
+    };
+  }
+
+  async listModuleVersions(id: string): Promise<{
+    id: string;
+    installed: string;
+    latest: string | null;
+    versions: string[];
+  }> {
+    const [row] = await db
+      .select({ version: modulesTable.version, source: modulesTable.source })
+      .from(modulesTable)
+      .where(eq(modulesTable.id, id))
+      .limit(1)
+      .catch(() => {
+        throw new HttpError(500, `Failed to load module '${id}'.`);
+      });
+    if (!row)
+      throw new HttpError(404, `Module '${id}' not found.`, "not_found");
+    if (!row.source) {
+      return { id, installed: row.version, latest: null, versions: [] };
+    }
+    try {
+      const { listRegistryVersions } = await import("@/utils/registry.util");
+      const { latestVersion, versions } = await listRegistryVersions(
+        row.source,
+        "Module",
+      );
+      return { id, installed: row.version, latest: latestVersion, versions };
+    } catch (err) {
+      if (err instanceof HttpError) throw err;
+      throw new HttpError(
+        502,
+        `Module '${id}' registry source is unreachable.`,
+        "registry_unavailable",
+      );
+    }
+  }
+
   async updateModule(
     id: string,
     constraint?: string | null,
-  ): Promise<{ updated: boolean }> {
+  ): Promise<{ updated: boolean; fromVersion: string; toVersion: string }> {
     if (!this.modulesPath) {
       throw new HttpError(503, "ModuleService has not been initialized.");
     }
+
+    const normalizedConstraint = normalizeModuleUpdateConstraint(
+      constraint ?? null,
+      `Module '${id}'`,
+    );
 
     const [row] = await db
       .select({
@@ -1774,11 +1969,13 @@ export class ModuleService {
         throw new HttpError(500, `Failed to load module '${id}'.`);
       });
 
-    if (!row) throw new HttpError(404, `Module '${id}' not found.`);
+    if (!row)
+      throw new HttpError(404, `Module '${id}' not found.`, "not_found");
     if (!row.source)
       throw new HttpError(
         409,
         `Module '${id}' has no stored install source and cannot be updated automatically. Only registry-installed modules can be updated.`,
+        "update_unavailable",
       );
 
     let registry: {
@@ -1792,7 +1989,7 @@ export class ModuleService {
       const { resolveModuleRegistry } = await import("@/utils/registry.util");
       registry = await resolveModuleRegistry(
         row.source,
-        constraint ?? undefined,
+        normalizedConstraint ?? undefined,
       );
       this.assertEngineCompatibility(registry.engines, `Module '${id}'`);
     } catch (err) {
@@ -1800,11 +1997,13 @@ export class ModuleService {
         throw new HttpError(
           err.statusCode,
           `Module '${id}' registry source error: ${err.message}. Use PATCH to update with a direct download URL, or reinstall from a registry first.`,
+          err.code ?? "registry_unavailable",
         );
       }
       throw new HttpError(
         502,
         `Module '${id}' registry source is unreachable. Use PATCH to update with a direct download URL, or reinstall from a registry first.`,
+        "registry_unavailable",
       );
     }
 
@@ -1821,7 +2020,11 @@ export class ModuleService {
       registry.version === row.version
     ) {
       await this.persistModuleIcon(id, iconColumns);
-      return { updated: false };
+      return {
+        updated: false,
+        fromVersion: row.version,
+        toVersion: row.version,
+      };
     }
 
     const buffer = await downloadBinary(
@@ -1832,7 +2035,11 @@ export class ModuleService {
 
     if (newHash === row.hash) {
       await this.persistModuleIcon(id, iconColumns);
-      return { updated: false };
+      return {
+        updated: false,
+        fromVersion: row.version,
+        toVersion: row.version,
+      };
     }
 
     const { manifest, tmpDir } = await this.extractModuleArchive(buffer);
@@ -2000,7 +2207,11 @@ export class ModuleService {
       );
     }
 
-    return { updated: true };
+    return {
+      updated: true,
+      fromVersion: row.version,
+      toVersion: registry.version,
+    };
   }
 
   async patchModule(id: string, url: string): Promise<{ updated: boolean }> {
@@ -2253,6 +2464,12 @@ export class ModuleService {
     const rows = await db.select().from(modulesTable);
     const dbIds = new Set(rows.map((r) => r.id));
 
+    const bundledIcons = new Map<string, IconColumns | null>();
+    for (const id of knownIds) {
+      if (!this.manifests.get(id)?.isBuiltin) continue;
+      bundledIcons.set(id, this.loadBundledModuleIcon(id));
+    }
+
     const toInsert = [...knownIds].filter((id) => !dbIds.has(id));
     const toMarkMissing = rows
       .filter((r) => !knownIds.has(r.id) && !r.missing)
@@ -2271,12 +2488,21 @@ export class ModuleService {
         moduleAuthChanged(manifest.auth, r.schemes, r.security)
       );
     });
+    const toSeedIcons = rows.filter((r) => {
+      const bundled = bundledIcons.get(r.id);
+      return (
+        bundled !== undefined &&
+        bundled !== null &&
+        bundled.iconHash !== r.iconHash
+      );
+    });
 
     if (toInsert.length > 0) {
       await db.insert(modulesTable).values(
         toInsert.map((id) => {
           const manifest = this.manifests.get(id);
           if (!manifest) throw new Error(`Manifest '${id}' is not registered.`);
+          const icon = bundledIcons.get(id) ?? null;
           return {
             id,
             createdAt: new Date().toISOString(),
@@ -2289,6 +2515,9 @@ export class ModuleService {
             missing: false,
             schemes: manifest.auth?.schemes ?? null,
             security: manifest.auth?.security ?? null,
+            iconData: icon?.iconData ?? null,
+            iconMime: icon?.iconMime ?? null,
+            iconHash: icon?.iconHash ?? null,
           };
         }),
       );
@@ -2322,6 +2551,23 @@ export class ModuleService {
               version: manifest.version,
               schemes: manifest.auth ? manifest.auth.schemes : null,
               security: manifest.auth ? manifest.auth.security : null,
+            })
+            .where(eq(modulesTable.id, row.id));
+        }),
+      );
+    }
+
+    if (toSeedIcons.length > 0) {
+      await Promise.all(
+        toSeedIcons.map((row) => {
+          const icon = bundledIcons.get(row.id);
+          if (!icon) return Promise.resolve();
+          return db
+            .update(modulesTable)
+            .set({
+              iconData: icon.iconData,
+              iconMime: icon.iconMime,
+              iconHash: icon.iconHash,
             })
             .where(eq(modulesTable.id, row.id));
         }),
@@ -3177,6 +3423,21 @@ export class ModuleService {
     return this.manifests.get(id)?.isBuiltin ?? false;
   }
 
+  private loadBundledModuleIcon(id: string): IconColumns | null {
+    try {
+      const data = readFileSync(join(BUILTIN_ICON_DIR, `${id}.png`));
+      const mime = sniffImageMime(data);
+      if (!mime) return null;
+      return {
+        iconData: data,
+        iconMime: mime,
+        iconHash: computeBinaryHash(data),
+      };
+    } catch {
+      return null;
+    }
+  }
+
   private async persistModuleIcon(
     id: string,
     iconColumns: IconColumns | undefined,
@@ -3202,6 +3463,8 @@ export class ModuleService {
       summary: row.summary,
       description: row.description,
       version: row.version,
+      autoUpdate: row.autoUpdate,
+      autoUpdateConstraint: row.autoUpdateConstraint,
       isBuiltin: this.isBuiltin(row.id),
       enabled: row.enabled,
       missing: row.missing,

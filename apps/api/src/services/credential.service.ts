@@ -86,7 +86,6 @@ export interface OAuthClientPublic {
   authorizationUrl: string | null;
   clientAuthMethod: string;
   redirectUris: string[];
-  availableScopes: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -150,7 +149,12 @@ function normalizeRow(
 async function readDeclaredSchemes(
   kind: OwnerKind,
   ownerId: string,
-): Promise<Record<string, { type?: string; scheme?: string }>> {
+): Promise<
+  Record<
+    string,
+    { type?: string; scheme?: string; scopes?: Record<string, string> }
+  >
+> {
   if (kind === "service") {
     const [row] = await db
       .select({ id: services.id, schemes: services.schemes })
@@ -159,7 +163,10 @@ async function readDeclaredSchemes(
       .limit(1);
     if (!row) throw new HttpError(404, `Service '${ownerId}' not found.`);
     return (
-      (row.schemes as Record<string, { type?: string; scheme?: string }>) ?? {}
+      (row.schemes as Record<
+        string,
+        { type?: string; scheme?: string; scopes?: Record<string, string> }
+      >) ?? {}
     );
   }
   if (kind === "module") {
@@ -170,7 +177,10 @@ async function readDeclaredSchemes(
       .limit(1);
     if (!row) throw new HttpError(404, `Module '${ownerId}' not found.`);
     return (
-      (row.schemes as Record<string, { type?: string; scheme?: string }>) ?? {}
+      (row.schemes as Record<
+        string,
+        { type?: string; scheme?: string; scopes?: Record<string, string> }
+      >) ?? {}
     );
   }
   const [row] = await db
@@ -181,13 +191,21 @@ async function readDeclaredSchemes(
   if (!row) throw new HttpError(404, `Registry '${ownerId}' not found.`);
   const { fetchRegistryIndex } = await import("@/utils/registry.util");
   const index = await fetchRegistryIndex(row.baseUrl);
-  const schemes: Record<string, { type?: string; scheme?: string }> = {};
+  const schemes: Record<
+    string,
+    { type?: string; scheme?: string; scopes?: Record<string, string> }
+  > = {};
   const declared = index.auth?.schemes;
   if (declared) {
     for (const [name, scheme] of Object.entries(declared)) {
       schemes[name] = {
         type: scheme.type,
         scheme: "scheme" in scheme ? scheme.scheme : undefined,
+        ...("scopes" in scheme &&
+        scheme.scopes !== undefined &&
+        typeof scheme.scopes === "object"
+          ? { scopes: { ...(scheme.scopes as Record<string, string>) } }
+          : {}),
       };
     }
   }
@@ -279,8 +297,10 @@ function sameOrigin(a: string, b: string): boolean {
 
 export interface ResolvedOAuthClient extends OAuthClientPublic {
   scopeCompatible: boolean;
+  missingScopes: string[];
   tokenHost: string | null;
   warning: string | null;
+  reason: string;
 }
 
 async function publicClient(
@@ -294,7 +314,6 @@ async function publicClient(
     authorizationUrl: row.authorizationUrl,
     clientAuthMethod: row.clientAuthMethod,
     redirectUris: row.redirectUris,
-    availableScopes: row.availableScopes,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -634,13 +653,6 @@ export class OwnerCredentialStore {
     const client = await this.service.getOAuthClient(oauthClientId);
     if (!client) {
       throw new HttpError(404, `OAuth client '${oauthClientId}' not found.`);
-    }
-    const unknown = scopes.filter((s) => !client.availableScopes.includes(s));
-    if (unknown.length > 0) {
-      throw new HttpError(
-        400,
-        `Requested scope(s) not available on OAuth client '${oauthClientId}': ${unknown.join(", ")}.`,
-      );
     }
     const schemes = await readDeclaredSchemes(this.kind, this.ownerId);
     const declared = schemes[schemeName] as
@@ -1083,7 +1095,6 @@ export class CredentialService {
     authorizationUrl?: string | null;
     clientAuthMethod?: string;
     redirectUris?: string[];
-    availableScopes: string[];
   }): Promise<string> {
     if (!(await isCredentialTransportAllowed(input.tokenUrl))) {
       throw new HttpError(
@@ -1111,7 +1122,6 @@ export class CredentialService {
       authorizationUrl: input.authorizationUrl ?? null,
       clientAuthMethod: input.clientAuthMethod ?? "client_secret_basic",
       redirectUris: input.redirectUris ?? [],
-      availableScopes: input.availableScopes,
       createdAt: now,
       updatedAt: now,
     });
@@ -1130,7 +1140,6 @@ export class CredentialService {
       authorizationUrl?: string | null;
       clientAuthMethod?: string;
       redirectUris?: string[];
-      availableScopes?: string[];
     },
   ): Promise<OAuthClientPublic> {
     const existing = await this.getOAuthClientRow(id);
@@ -1167,9 +1176,6 @@ export class CredentialService {
         ...(input.redirectUris !== undefined
           ? { redirectUris: input.redirectUris }
           : {}),
-        ...(input.availableScopes !== undefined
-          ? { availableScopes: input.availableScopes }
-          : {}),
         updatedAt: new Date().toISOString(),
       })
       .where(eq(oauthClients.id, id));
@@ -1188,7 +1194,6 @@ export class CredentialService {
         authorizationUrl: oauthClients.authorizationUrl,
         clientAuthMethod: oauthClients.clientAuthMethod,
         redirectUris: oauthClients.redirectUris,
-        availableScopes: oauthClients.availableScopes,
         createdAt: oauthClients.createdAt,
         updatedAt: oauthClients.updatedAt,
       })
@@ -1263,20 +1268,22 @@ export class CredentialService {
         candidates.push({
           ...client,
           scopeCompatible: false,
+          missingScopes: [],
           tokenHost: safeHost(client.tokenUrl),
           warning:
             "Authorization and token endpoints differ in origin; excluded from automatic selection.",
+          reason: "Cross-origin token endpoint",
         });
         continue;
       }
-      const scopeCompatible = (input.requestedScopes ?? []).every((s) =>
-        client.availableScopes.includes(s),
-      );
       candidates.push({
         ...client,
-        scopeCompatible,
+        scopeCompatible: true,
+        missingScopes: [],
         tokenHost: safeHost(client.tokenUrl),
         warning: null,
+        reason:
+          "Authorization URL matches; scope compatibility depends on linked credential scheme",
       });
     }
     candidates.sort((a, b) => {

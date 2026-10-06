@@ -32,7 +32,6 @@ export interface ListServicesInput {
 export type ListServiceDefinitionResult = Omit<
   ServiceDefinitionRecord,
   | "hash"
-  | "source"
   | "tools"
   | "configSchema"
   | "secretsSchema"
@@ -97,6 +96,35 @@ export interface RegistryInstallServiceInput {
   adapter?: string;
   id?: string;
   version?: string;
+  autoUpdate?: boolean;
+}
+
+export interface DirectInstallServiceInputWithAutoUpdate
+  extends DirectInstallServiceInput {
+  autoUpdate?: boolean;
+}
+
+export interface SetServiceAutoUpdateInput {
+  id: string;
+  autoUpdate: boolean;
+  constraint?: string | null;
+}
+
+export interface ServiceUpdateCheckResult {
+  id: string;
+  installed: string;
+  available: string | null;
+  constraint: string | null;
+  autoUpdate: boolean;
+  updateAvailable: boolean;
+  upToDate: boolean;
+  hasSource: boolean;
+}
+
+export interface ServiceUpdateResult {
+  updated: boolean;
+  fromVersion: string;
+  toVersion: string;
 }
 
 export interface PatchServiceSourceInput {
@@ -122,4 +150,15 @@ export interface ServiceConfigView {
 export interface SecretsPresence {
   present: string[];
   outdated: string[];
+}
+
+export interface InvokeToolInput {
+  serviceId: string;
+  toolId: string;
+  parameters: Record<string, unknown>;
+}
+
+export interface InvokeToolResult {
+  result: unknown;
+  status?: "approval_required";
 }
