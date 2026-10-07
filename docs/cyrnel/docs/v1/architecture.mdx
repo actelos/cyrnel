@@ -120,7 +120,7 @@ sequenceDiagram
     Env-->>PS: emit stdout / stderr / output / state
 
     Env->>MS: invokeTool({ serviceId, toolId, parameters })
-    MS->>SS: lookup service & tool (enabled?) + policy (tool_policies, COALESCE → ask)
+    MS->>SS: lookup service & tool (enabled?) + policy (ordered tool_policy_rules, first match wins, else ask)
     SS-->>MS: adapter id + decision
     alt decision = allow
         MS->>Adapter: invoke({ serviceId, toolId, parameters })

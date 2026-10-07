@@ -69,37 +69,6 @@ export async function getToolDocs(req: Request, res: Response): Promise<void> {
   res.status(200).type("text/markdown; charset=utf-8").send(docs);
 }
 
-const policyBodySchema = z.object({
-  decision: z.enum(["allow", "block", "ask"], {
-    error: "Field 'decision' must be 'allow', 'block', or 'ask'.",
-  }),
-});
-
-export async function setToolPolicy(
-  req: Request,
-  res: Response,
-): Promise<void> {
-  const servicesService = getServicesService(req);
-  const serviceId = parseOrHttpError(serviceIdSchema, req.params.serviceId);
-  const toolId = parseOrHttpError(toolIdSchema, req.params.toolId);
-  const { decision } = parseOrHttpError(
-    policyBodySchema,
-    req.body,
-    "Request body must be an object.",
-  );
-  const result = await servicesService.setToolPolicy({
-    serviceId,
-    toolId,
-    decision,
-  });
-  res.status(200).json({
-    serviceId,
-    toolId,
-    decision: result.decision,
-    updatedAt: result.updatedAt,
-  });
-}
-
 function getServicesService(req: Request): ServicesService {
   const service = req.app.locals.servicesService as ServicesService | undefined;
 

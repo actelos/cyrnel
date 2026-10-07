@@ -39,7 +39,7 @@ const originalPreviousKeys = process.env.CYRNEL_SECRETS_PREVIOUS_KEYS;
 
 const DROP_TABLES = [
   "approval_requests",
-  "tool_policies",
+  "tool_policy_rules",
   "tools",
   "service_secrets",
   "service_configurations",

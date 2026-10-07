@@ -226,18 +226,18 @@ export const processData = sqliteTable("process_data", {
   completedAt: text("completed_at").notNull(),
 });
 
-export const toolPolicies = sqliteTable(
-  "tool_policies",
+export const toolPolicyRules = sqliteTable(
+  "tool_policy_rules",
   {
-    serviceId: text("service_id")
-      .notNull()
-      .references(() => services.id, { onDelete: "cascade" }),
-    toolId: text("tool_id").notNull(),
+    id: text("id").primaryKey(),
+    servicePattern: text("service_pattern").notNull(),
+    toolPattern: text("tool_pattern").notNull(),
     decision: text("decision", { enum: ["allow", "block", "ask"] }).notNull(),
+    position: integer("position").notNull(),
     createdAt: text("created_at").notNull(),
-    updatedAt: integer("updated_at"),
+    updatedAt: integer("updated_at").notNull(),
   },
-  (t) => [primaryKey({ columns: [t.serviceId, t.toolId] })],
+  (t) => [index("tool_policy_rules_position_idx").on(t.position)],
 );
 
 export const approvalRequests = sqliteTable(
@@ -499,8 +499,8 @@ export type NewProcessRow = typeof processes.$inferInsert;
 export type ProcessDataRow = typeof processData.$inferSelect;
 export type NewProcessDataRow = typeof processData.$inferInsert;
 
-export type ToolPolicyRecord = typeof toolPolicies.$inferSelect;
-export type NewToolPolicyRecord = typeof toolPolicies.$inferInsert;
+export type ToolPolicyRuleRecord = typeof toolPolicyRules.$inferSelect;
+export type NewToolPolicyRuleRecord = typeof toolPolicyRules.$inferInsert;
 export type ApprovalRequestRecord = typeof approvalRequests.$inferSelect;
 export type NewApprovalRequestRecord = typeof approvalRequests.$inferInsert;
 

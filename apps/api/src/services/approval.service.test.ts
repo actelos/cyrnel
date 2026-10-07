@@ -44,7 +44,7 @@ async function applyMigrations(only?: {
     try {
       for (const name of [
         "approval_requests",
-        "tool_policies",
+        "tool_policy_rules",
         "tools",
         "service_secrets",
         "service_configurations",
@@ -108,7 +108,7 @@ async function resetDb(): Promise<void> {
   await db.run(sql.raw("PRAGMA foreign_keys = OFF"));
   for (const name of [
     "approval_requests",
-    "tool_policies",
+    "tool_policy_rules",
     "tools",
     "service_credential_auth",
     "service_credentials",
