@@ -910,6 +910,9 @@ const ToolDetailsSchema = registry.register(
         .describe(
           "Whether the tool is callable after accounting for its parent service state.",
         ),
+      policy: EffectiveToolPolicySchema.describe(
+        "Effective policy for the tool with provenance.",
+      ),
       inputSchema: jsonObjectSchema.describe(
         "JSON Schema describing the tool input payload.",
       ),

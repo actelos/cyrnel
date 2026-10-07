@@ -996,6 +996,86 @@
             "type": "boolean",
             "description": "Whether the tool is callable after accounting for its parent service state."
           },
+          "policy": {
+            "type": "object",
+            "properties": {
+              "decision": {
+                "type": "string",
+                "enum": [
+                  "allow",
+                  "block",
+                  "ask"
+                ],
+                "description": "Effective policy decision for the tool."
+              },
+              "updatedAt": {
+                "type": "number",
+                "nullable": true,
+                "description": "Last winning-rule update epoch ms, null when the immutable ask default applies."
+              },
+              "source": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "rule"
+                        ],
+                        "description": "Effective policy comes from a rule."
+                      },
+                      "ruleId": {
+                        "type": "string",
+                        "description": "Winning rule identifier."
+                      },
+                      "servicePattern": {
+                        "type": "string",
+                        "description": "Winning rule service pattern."
+                      },
+                      "toolPattern": {
+                        "type": "string",
+                        "description": "Winning rule tool pattern."
+                      },
+                      "position": {
+                        "type": "integer",
+                        "description": "Winning rule position."
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "ruleId",
+                      "servicePattern",
+                      "toolPattern",
+                      "position"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "default"
+                        ],
+                        "description": "No rule matched; ask default."
+                      }
+                    },
+                    "required": [
+                      "type"
+                    ]
+                  }
+                ],
+                "description": "Why this decision applies: the winning rule or the default."
+              }
+            },
+            "required": [
+              "decision",
+              "updatedAt",
+              "source"
+            ],
+            "description": "Effective policy for the tool with provenance."
+          },
           "inputSchema": {
             "type": "object",
             "additionalProperties": {
@@ -1017,6 +1097,7 @@
           "description",
           "enabled",
           "effectivelyEnabled",
+          "policy",
           "inputSchema",
           "outputSchema"
         ],
