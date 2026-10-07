@@ -796,6 +796,38 @@ const ServiceSyncResponseSchema = registry.register(
     .describe("Response returned after syncing a service."),
 );
 
+const ToolPolicySourceSchema = z
+  .discriminatedUnion("type", [
+    z.object({
+      type: z.literal("rule").describe("Effective policy comes from a rule."),
+      ruleId: z.string().describe("Winning rule identifier."),
+      servicePattern: z.string().describe("Winning rule service pattern."),
+      toolPattern: z.string().describe("Winning rule tool pattern."),
+      position: z.number().int().describe("Winning rule position."),
+    }),
+    z.object({
+      type: z.literal("default").describe("No rule matched; ask default."),
+    }),
+  ])
+  .describe("Provenance of a tool's effective policy decision.");
+
+const EffectiveToolPolicySchema = z
+  .object({
+    decision: z
+      .enum(["allow", "block", "ask"])
+      .describe("Effective policy decision for the tool."),
+    updatedAt: z
+      .number()
+      .nullable()
+      .describe(
+        "Last winning-rule update epoch ms, null when the immutable ask default applies.",
+      ),
+    source: ToolPolicySourceSchema.describe(
+      "Why this decision applies: the winning rule or the default.",
+    ),
+  })
+  .describe("Effective policy for a tool with provenance.");
+
 const ToolListItemSchema = registry.register(
   "ToolListItem",
   z
@@ -824,18 +856,9 @@ const ToolListItemSchema = registry.register(
         .describe(
           "Whether the tool is callable after accounting for its parent service state.",
         ),
-      policy: z
-        .object({
-          decision: z
-            .enum(["allow", "block", "ask"])
-            .describe("Policy decision for the tool."),
-          updatedAt: z
-            .number()
-            .nullable()
-            .describe("Last policy update epoch ms, null when default ask."),
-        })
-        .optional()
-        .describe("Policy decision for the tool; present when listing tools."),
+      policy: EffectiveToolPolicySchema.optional().describe(
+        "Effective policy for the tool with provenance; present when listing tools.",
+      ),
       score: z
         .number()
         .optional()
@@ -974,19 +997,122 @@ const ApprovalListResponseSchema = paginatedResponseSchema(
   "Approval requests that match the supplied filters.",
 );
 
-const ToolPolicySchema = registry.register(
-  "ToolPolicy",
+const ToolPolicyRuleSchema = registry.register(
+  "ToolPolicyRule",
   z
     .object({
-      serviceId: z.string().describe("Service identifier."),
-      toolId: z.string().describe("Tool identifier."),
+      id: z.string().describe("Rule identifier."),
+      servicePattern: z
+        .string()
+        .describe(
+          "Service pattern: a literal service id or exactly '*' (matches all services).",
+        ),
+      toolPattern: z
+        .string()
+        .describe(
+          "Tool pattern: a literal tool id or exactly '*' (matches all tools).",
+        ),
       decision: z.enum(["allow", "block", "ask"]).describe("Policy decision."),
-      updatedAt: z
+      position: z
         .number()
-        .nullable()
-        .describe("Last update epoch ms, null when default ask."),
+        .int()
+        .describe(
+          "Evaluation order, 0-based. Rules are evaluated in ascending position order; the first matching rule wins.",
+        ),
+      createdAt: z.string().describe("ISO-8601 creation time."),
+      updatedAt: z.number().describe("Last update epoch ms."),
     })
-    .describe("Tool policy record."),
+    .describe(
+      "Ordered tool policy rule. First matching rule wins; tools with no matching rule default to ask.",
+    ),
+);
+
+const ToolPolicyRuleCreateSchema = registry.register(
+  "ToolPolicyRuleCreate",
+  z
+    .object({
+      servicePattern: z
+        .string()
+        .min(1)
+        .describe("Service pattern: a literal service id or exactly '*'."),
+      toolPattern: z
+        .string()
+        .min(1)
+        .describe("Tool pattern: a literal tool id or exactly '*'."),
+      decision: z.enum(["allow", "block", "ask"]).describe("Policy decision."),
+    })
+    .describe("Request body used to create a tool policy rule."),
+);
+
+const ToolPolicyRuleUpdateSchema = registry.register(
+  "ToolPolicyRuleUpdate",
+  z
+    .object({
+      servicePattern: z
+        .string()
+        .min(1)
+        .optional()
+        .describe("Service pattern: a literal service id or exactly '*'."),
+      toolPattern: z
+        .string()
+        .min(1)
+        .optional()
+        .describe("Tool pattern: a literal tool id or exactly '*'."),
+      decision: z
+        .enum(["allow", "block", "ask"])
+        .optional()
+        .describe("Policy decision."),
+    })
+    .describe("Request body used to update a tool policy rule."),
+);
+
+const ToolPolicyRuleReorderSchema = registry.register(
+  "ToolPolicyRuleReorder",
+  z
+    .object({
+      orderedIds: z
+        .array(z.string().min(1))
+        .min(1)
+        .describe(
+          "Rule ids in the desired evaluation order (position 0 first). Must contain exactly the existing rule ids.",
+        ),
+    })
+    .describe("Request body used to reorder tool policy rules."),
+);
+
+const AffectedToolSchema = registry.register(
+  "AffectedTool",
+  z
+    .object({
+      serviceId: z.string().describe("Identifier of the service."),
+      toolId: z.string().describe("Identifier of the tool."),
+      name: z.string().describe("Display name of the tool."),
+      policy: EffectiveToolPolicySchema.describe(
+        "Effective policy for the tool under the current rule set.",
+      ),
+    })
+    .describe("Tool matched by a policy pattern with its effective policy."),
+);
+
+const AffectedToolListResponseSchema = paginatedResponseSchema(
+  "AffectedToolListResponse",
+  AffectedToolSchema,
+  "Tools matching the rule pattern.",
+);
+
+const ToolPolicyPatternPreviewSchema = registry.register(
+  "ToolPolicyPatternPreview",
+  z
+    .object({
+      matchCount: z
+        .number()
+        .int()
+        .describe("Total number of tools matching the pattern."),
+      items: z
+        .array(AffectedToolSchema)
+        .describe("First matching tools with effective policies."),
+    })
+    .describe("Preview of tools affected by a policy pattern."),
 );
 
 const ModuleSchema = registry.register(
@@ -2595,7 +2721,7 @@ registry.registerPath({
         .enum(["allow", "block", "ask"])
         .optional()
         .describe(
-          "Policy decision filter. Omit to return all tools; 'ask' includes tools with no explicit policy.",
+          "Effective policy decision filter. Omit to return all tools; decisions resolve via ordered rules with an immutable ask default.",
         ),
       ...paginationQuerySchema.shape,
     }),
@@ -2700,36 +2826,177 @@ registry.registerPath({
   },
 });
 
+const toolPolicyRuleIdParam = z.object({
+  id: z.string().min(1).describe("Tool policy rule identifier."),
+});
+
 registry.registerPath({
-  method: "put",
-  path: "/tools/{serviceId}/{toolId}/policy",
-  tags: ["Tools"],
-  summary: "Set tool policy",
-  description: "Sets the policy decision for a tool to allow, block, or ask.",
-  request: {
-    params: serviceToolParams,
-    body: {
-      content: jsonContent(
-        z.object({
-          decision: z
-            .enum(["allow", "block", "ask"])
-            .describe("Desired policy decision."),
-        }),
-      ),
-    },
-  },
+  method: "get",
+  path: "/tool-policies",
+  tags: ["Tool Policies"],
+  summary: "List tool policy rules",
+  description:
+    "Returns tool policy rules in evaluation order (ascending position). The first rule matching a tool wins; tools with no matching rule default to ask.",
   responses: {
     200: {
-      description: "Updated tool policy.",
-      content: jsonContent(ToolPolicySchema),
+      description: "Ordered tool policy rules.",
+      content: jsonContent(z.array(ToolPolicyRuleSchema)),
     },
-    400: apiErrorResponse("The request body or path parameters were invalid."),
     401: apiErrorResponse(
       "A bearer token was required but missing or invalid.",
     ),
-    404: apiErrorResponse("The tool could not be found."),
+    500: apiErrorResponse("The tool policy rules could not be loaded."),
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/tool-policies",
+  tags: ["Tool Policies"],
+  summary: "Create tool policy rule",
+  description:
+    "Creates a tool policy rule appended at the lowest precedence (evaluated last).",
+  request: {
+    body: { content: jsonContent(ToolPolicyRuleCreateSchema) },
+  },
+  responses: {
+    201: {
+      description: "Created tool policy rule.",
+      content: jsonContent(ToolPolicyRuleSchema),
+    },
+    400: apiErrorResponse("The request body was invalid."),
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
     ...rateLimitResponse(),
-    500: apiErrorResponse("The tool policy could not be updated."),
+    500: apiErrorResponse("The tool policy rule could not be created."),
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/tool-policies/preview",
+  tags: ["Tool Policies"],
+  summary: "Preview tools matching a pattern",
+  description:
+    "Counts and samples the tools matching an unsaved service/tool pattern, each with its effective policy under the current rule set.",
+  request: {
+    query: z.object({
+      servicePattern: z
+        .string()
+        .min(1)
+        .describe("Service pattern: a literal service id or exactly '*'."),
+      toolPattern: z
+        .string()
+        .min(1)
+        .describe("Tool pattern: a literal tool id or exactly '*'."),
+      ...paginationQuerySchema.pick({ limit: true }).shape,
+    }),
+  },
+  responses: {
+    200: {
+      description: "Pattern preview.",
+      content: jsonContent(ToolPolicyPatternPreviewSchema),
+    },
+    400: apiErrorResponse("One or more query parameters could not be parsed."),
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    500: apiErrorResponse("The pattern could not be previewed."),
+  },
+});
+
+registry.registerPath({
+  method: "put",
+  path: "/tool-policies/order",
+  tags: ["Tool Policies"],
+  summary: "Reorder tool policy rules",
+  description:
+    "Replaces the full rule evaluation order. Position 0 is evaluated first and wins on match.",
+  request: {
+    body: { content: jsonContent(ToolPolicyRuleReorderSchema) },
+  },
+  responses: {
+    200: {
+      description: "Reordered tool policy rules.",
+      content: jsonContent(z.array(ToolPolicyRuleSchema)),
+    },
+    400: apiErrorResponse("The request body was invalid."),
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    ...rateLimitResponse(),
+    500: apiErrorResponse("The tool policy rules could not be reordered."),
+  },
+});
+
+registry.registerPath({
+  method: "patch",
+  path: "/tool-policies/{id}",
+  tags: ["Tool Policies"],
+  summary: "Update tool policy rule",
+  description: "Updates the patterns or decision of a tool policy rule.",
+  request: {
+    params: toolPolicyRuleIdParam,
+    body: { content: jsonContent(ToolPolicyRuleUpdateSchema) },
+  },
+  responses: {
+    200: {
+      description: "Updated tool policy rule.",
+      content: jsonContent(ToolPolicyRuleSchema),
+    },
+    400: apiErrorResponse("The request body or path parameter was invalid."),
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    404: apiErrorResponse("The tool policy rule could not be found."),
+    ...rateLimitResponse(),
+    500: apiErrorResponse("The tool policy rule could not be updated."),
+  },
+});
+
+registry.registerPath({
+  method: "delete",
+  path: "/tool-policies/{id}",
+  tags: ["Tool Policies"],
+  summary: "Delete tool policy rule",
+  description:
+    "Deletes a tool policy rule and renormalizes the remaining positions densely.",
+  request: { params: toolPolicyRuleIdParam },
+  responses: {
+    204: { description: "The tool policy rule was deleted." },
+    400: apiErrorResponse("The id path parameter was invalid."),
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    404: apiErrorResponse("The tool policy rule could not be found."),
+    ...rateLimitResponse(),
+    500: apiErrorResponse("The tool policy rule could not be deleted."),
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/tool-policies/{id}/affected-tools",
+  tags: ["Tool Policies"],
+  summary: "List tools affected by a rule",
+  description:
+    "Returns the paginated tools matching a stored rule's patterns, each with its effective policy under the current rule set. A higher-precedence rule may shadow this rule for some tools.",
+  request: {
+    params: toolPolicyRuleIdParam,
+    query: paginationQuerySchema,
+  },
+  responses: {
+    200: {
+      description: "Matching tools with effective policies.",
+      content: jsonContent(AffectedToolListResponseSchema),
+    },
+    400: apiErrorResponse("One or more query parameters could not be parsed."),
+    401: apiErrorResponse(
+      "A bearer token was required but missing or invalid.",
+    ),
+    404: apiErrorResponse("The tool policy rule could not be found."),
+    500: apiErrorResponse("The affected tools could not be loaded."),
   },
 });
 

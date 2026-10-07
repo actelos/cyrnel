@@ -62,7 +62,9 @@ const tools: Tool<FastMCPSessionAuth, z.ZodType<any>>[] = [
       decision: z
         .enum(["allow", "block", "ask"])
         .optional()
-        .describe("Optional policy decision filter."),
+        .describe(
+          "Optional effective policy decision filter (resolved via ordered rules, immutable ask default).",
+        ),
       cursor: z
         .string()
         .optional()

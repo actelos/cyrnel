@@ -5,7 +5,6 @@ import {
   getToolDocs,
   invokeTool,
   listTools,
-  setToolPolicy,
 } from "@/controllers/tool.controller";
 import { createRateLimiter } from "@/middleware/rate-limit.middleware";
 
@@ -18,9 +17,4 @@ toolRouter.post(
   "/:serviceId/:toolId/invoke",
   createRateLimiter(20, 60_000, "POST /tools/:serviceId/:toolId/invoke"),
   invokeTool,
-);
-toolRouter.put(
-  "/:serviceId/:toolId/policy",
-  createRateLimiter(10, 60_000, "PUT /tools/:serviceId/:toolId/policy"),
-  setToolPolicy,
 );

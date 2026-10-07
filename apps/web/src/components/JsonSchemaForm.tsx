@@ -552,7 +552,7 @@ export function JsonSchemaFormSheet(props: JsonSchemaFormProps) {
   return (
     <>
       <div className="min-h-0 flex-1 overflow-y-auto px-4">
-        <div className="space-y-4 py-4">
+        <div className="space-y-4">
           <JsonSchemaFormFields
             schema={props.schema}
             values={state.values}

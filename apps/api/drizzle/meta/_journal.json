@@ -148,6 +148,13 @@
       "when": 1789808264134,
       "tag": "0020_remove_oauth_client_available_scopes",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1791326998594,
+      "tag": "0021_tool_policy_rules",
+      "breakpoints": true
     }
   ]
 }

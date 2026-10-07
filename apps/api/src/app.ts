@@ -22,12 +22,14 @@ import { processRouter } from "@/routes/process.route";
 import { registryRouter } from "@/routes/registry.route";
 import { serviceRouter } from "@/routes/service.route";
 import { toolRouter } from "@/routes/tool.route";
+import { toolPolicyRouter } from "@/routes/tool-policy.route";
 import { CredentialService } from "@/services/credential.service";
 import { ModuleService } from "@/services/modules.service";
 import { setProcessService } from "@/services/process.holder";
 import { ProcessService } from "@/services/process.service";
 import { RegistriesService } from "@/services/registries.service";
 import { ServicesService } from "@/services/services.service";
+import { ToolPoliciesService } from "@/services/tool-policies.service";
 
 const MAX_RECONCILE_INTERVAL_MS = 2_147_483_647;
 const MAX_AUTO_UPDATE_INTERVAL_MS = 2_147_483_647;
@@ -45,6 +47,7 @@ export class App {
   readonly servicesService: ServicesService;
   readonly registriesService: RegistriesService;
   readonly credentialService: CredentialService;
+  readonly toolPoliciesService: ToolPoliciesService;
 
   private autoUpdater: AutoUpdater | null = null;
   private authRefreshTimer: ReturnType<typeof setInterval> | null = null;
@@ -94,6 +97,8 @@ export class App {
     this.registriesService = new RegistriesService();
 
     this.credentialService = new CredentialService();
+
+    this.toolPoliciesService = new ToolPoliciesService();
 
     this.express = this.createExpressApp();
   }
@@ -244,6 +249,7 @@ export class App {
     app.locals.servicesService = this.servicesService;
     app.locals.registriesService = this.registriesService;
     app.locals.credentialService = this.credentialService;
+    app.locals.toolPoliciesService = this.toolPoliciesService;
 
     app.set("etag", false);
     app.use(
@@ -274,6 +280,7 @@ export class App {
     app.use("/modules", moduleRouter);
     app.use("/services", serviceRouter);
     app.use("/tools", toolRouter);
+    app.use("/tool-policies", toolPolicyRouter);
     app.use("/processes", processRouter);
     app.use("/approvals", approvalRouter);
     app.use("/environment", environmentRouter);

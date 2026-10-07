@@ -3,6 +3,7 @@ export const API_PATHS = [
   "/modules",
   "/services",
   "/tools",
+  "/tool-policies",
   "/processes",
   "/approvals",
   "/registries",

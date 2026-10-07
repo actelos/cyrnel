@@ -1,6 +1,7 @@
-import { ArrowLeft, MousePointerClick } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { ArrowLeft, Copy, MousePointerClick } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import { Link } from "react-router";
 import remarkGfm from "remark-gfm";
 import useSWR from "swr";
 import { z } from "zod";
@@ -9,6 +10,7 @@ import { type JSONSchema, RjsfForm } from "@/components/rjsf-form";
 import { SchemaViewer } from "@/components/schema-viewer";
 import { type ToolNode, ToolTree } from "@/components/tool-tree";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Empty,
@@ -17,7 +19,6 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -28,8 +29,24 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useNotification } from "@/hooks/use-notification";
-import { apiFetch, apiFetchJson, buildUrl } from "@/lib/api";
-import { userFacingErrorFrom } from "@/lib/errors";
+import { apiFetch, apiFetchJson, buildUrl, errorMessageFrom } from "@/lib/api";
+
+const policySourceSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("rule"),
+    ruleId: z.string(),
+    servicePattern: z.string(),
+    toolPattern: z.string(),
+    position: z.number(),
+  }),
+  z.object({ type: z.literal("default") }),
+]);
+
+const policySchema = z.object({
+  decision: z.enum(["allow", "block", "ask"]),
+  updatedAt: z.number().nullable(),
+  source: policySourceSchema,
+});
 
 const toolListItemSchema = z.object({
   serviceId: z.string(),
@@ -39,12 +56,7 @@ const toolListItemSchema = z.object({
   description: z.string().catch(""),
   enabled: z.boolean().optional(),
   effectivelyEnabled: z.boolean(),
-  policy: z
-    .object({
-      decision: z.enum(["allow", "block", "ask"]),
-      updatedAt: z.number().nullable(),
-    })
-    .optional(),
+  policy: policySchema.optional(),
 });
 
 const toolListSchema = z.object({
@@ -63,23 +75,24 @@ const toolDetailSchema = z.object({
   inputSchema: z.record(z.string(), z.unknown()),
   outputSchema: z.record(z.string(), z.unknown()),
   security: z.unknown().optional(),
-  policy: z
-    .object({
-      decision: z.enum(["allow", "block", "ask"]),
-      updatedAt: z.number().nullable(),
-    })
-    .optional(),
+  policy: policySchema.optional(),
 });
 
-type PolicyDecision = "allow" | "block" | "ask";
-
-const POLICY_CONSEQUENCES: Record<PolicyDecision, string> = {
-  allow: "Invocation proceeds automatically.",
-  ask: "Invocation requires approval. Direct invocations report approval-required; run through a process for suspend/resume.",
-  block: "Invocation is rejected.",
-};
-
 type ToolListItem = z.infer<typeof toolListItemSchema>;
+
+const decisionSchema = z.enum(["allow", "block", "ask"]);
+
+type Decision = z.infer<typeof decisionSchema>;
+
+const ruleListItemSchema = z.object({
+  id: z.string(),
+  servicePattern: z.string(),
+  toolPattern: z.string(),
+  decision: decisionSchema,
+  position: z.number(),
+});
+
+const ruleListSchema = z.array(ruleListItemSchema);
 
 function buildToolNodes(tools: ToolListItem[]): ToolNode[] {
   return tools.map((tool) => ({
@@ -90,8 +103,8 @@ function buildToolNodes(tools: ToolListItem[]): ToolNode[] {
 
 export function ServiceToolWorkbench({ serviceId }: { serviceId: string }) {
   const { addNotification } = useNotification();
-
   const [selectedToolId, setSelectedToolId] = useState<string | null>(null);
+  const [isSavingOverride, setIsSavingOverride] = useState(false);
 
   const toolsUrl = useMemo(
     () => buildUrl("/tools", { serviceId, limit: "100" }),
@@ -136,6 +149,83 @@ export function ServiceToolWorkbench({ serviceId }: { serviceId: string }) {
     mutate: mutateDetail,
   } = useSWR(detailUrl, (url) => apiFetchJson(url, toolDetailSchema));
 
+  const rulesUrl = useMemo(() => buildUrl("/tool-policies"), []);
+  const { data: rulesData, mutate: mutateRules } = useSWR(rulesUrl, (url) =>
+    apiFetchJson(url, ruleListSchema),
+  );
+
+  const exactRule = useMemo(
+    () =>
+      selectedToolId === null
+        ? undefined
+        : rulesData?.find(
+            (rule) =>
+              rule.servicePattern === serviceId &&
+              rule.toolPattern === selectedToolId,
+          ),
+    [rulesData, serviceId, selectedToolId],
+  );
+
+  const handleCopyReference = useCallback(async () => {
+    if (!toolDetail) return;
+    try {
+      await navigator.clipboard.writeText(`${serviceId}.${toolDetail.id}`);
+      addNotification({
+        type: "success",
+        title: "Copied",
+        message: "Tool reference copied to clipboard.",
+      });
+    } catch (error) {
+      addNotification({
+        type: "error",
+        title: "Copy failed",
+        message: errorMessageFrom(error, "Unable to copy tool reference."),
+      });
+    }
+  }, [addNotification, serviceId, toolDetail]);
+
+  const handleQuickSetPermission = async (decision: Decision) => {
+    if (!selectedToolId) return;
+    if (exactRule?.decision === decision) return;
+    setIsSavingOverride(true);
+    try {
+      if (exactRule) {
+        await apiFetch(
+          buildUrl(`/tool-policies/${encodeURIComponent(exactRule.id)}`),
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ decision }),
+          },
+        );
+      } else {
+        await apiFetch(buildUrl("/tool-policies"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            servicePattern: serviceId,
+            toolPattern: selectedToolId,
+            decision,
+          }),
+        });
+      }
+      await Promise.all([mutateTools(), mutateDetail(), mutateRules()]);
+      addNotification({
+        type: "success",
+        title: `Tool permission set to ${decision}`,
+        message: `Exact rule ${serviceId}.${selectedToolId} → ${decision}. It is evaluated last; reorder it in Permissions if a broader rule shadows it.`,
+      });
+    } catch (error) {
+      addNotification({
+        type: "error",
+        title: "Update failed",
+        message: errorMessageFrom(error, "Unable to update tool permission."),
+      });
+    } finally {
+      setIsSavingOverride(false);
+    }
+  };
+
   useEffect(() => {
     setSelectedToolId(null);
     void serviceId;
@@ -149,39 +239,6 @@ export function ServiceToolWorkbench({ serviceId }: { serviceId: string }) {
     () => (toolDetail?.outputSchema ?? {}) as JSONSchema,
     [toolDetail],
   );
-
-  const handlePolicyChange = async (decision: PolicyDecision) => {
-    if (!selectedToolId) return;
-    try {
-      await apiFetch(
-        buildUrl(
-          `/tools/${encodeURIComponent(serviceId)}/${encodeURIComponent(selectedToolId)}/policy`,
-        ),
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ decision }),
-        },
-      );
-      await mutateTools();
-      if (detailUrl) await mutateDetail();
-      addNotification({
-        type: "success",
-        title: `Tool policy set to ${decision}`,
-        message: POLICY_CONSEQUENCES[decision],
-      });
-    } catch (error) {
-      const friendly = userFacingErrorFrom(
-        error,
-        "Unable to update tool policy.",
-      );
-      addNotification({
-        type: "error",
-        title: friendly.title,
-        message: friendly.description,
-      });
-    }
-  };
 
   const listState = isLoadingTools
     ? "loading"
@@ -222,20 +279,61 @@ export function ServiceToolWorkbench({ serviceId }: { serviceId: string }) {
   ) : (
     <div className="space-y-4">
       <div className="space-y-2">
-        <p className="font-mono">
-          {serviceId}.{toolDetail.id}
-        </p>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 font-mono hover:text-foreground cursor-pointer"
+            title={`${serviceId}.${toolDetail.id}`}
+            onClick={() => void handleCopyReference()}
+          >
+            {serviceId}.{toolDetail.id}
+            <Copy className="size-3" />
+          </button>
+        </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <Label htmlFor={`tool-policy-${serviceId}`}>Permission Policy</Label>
-          <Select
-            value={toolDetail.policy?.decision ?? "ask"}
-            onValueChange={(value) =>
-              void handlePolicyChange(value as PolicyDecision)
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <Badge
+            variant={
+              (toolDetail.policy?.decision ?? "ask") === "allow"
+                ? "default"
+                : (toolDetail.policy?.decision ?? "ask") === "block"
+                  ? "destructive"
+                  : "secondary"
             }
           >
-            <SelectTrigger id={`tool-policy-${serviceId}`} className="w-36">
-              <SelectValue />
+            {toolDetail.policy?.decision ?? "ask"}
+          </Badge>
+          {toolDetail.policy?.source.type === "rule" ? (
+            <span className="text-xs text-muted-foreground">
+              <Link
+                to="/permissions"
+                className="underline underline-offset-2 hover:text-foreground"
+              >
+                Permission rule #{toolDetail.policy.source.position}
+              </Link>
+            </span>
+          ) : (
+            <span className="text-xs text-muted-foreground">
+              <Link
+                to="/permissions"
+                className="underline underline-offset-2 hover:text-foreground"
+              >
+                default rule
+              </Link>
+            </span>
+          )}
+          <Select
+            value={exactRule?.decision ?? ""}
+            disabled={isSavingOverride}
+            onValueChange={(value) =>
+              void handleQuickSetPermission(value as Decision)
+            }
+          >
+            <SelectTrigger
+              className="w-38"
+              aria-label={`Override permission for ${serviceId}.${toolDetail.id}`}
+            >
+              <SelectValue placeholder="Override permission" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="allow">allow</SelectItem>

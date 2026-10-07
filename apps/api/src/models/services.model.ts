@@ -1,6 +1,15 @@
 import type { ServiceDefinition, ToolDefinition } from "@cyrnel/sdk";
 import type { Operation } from "fast-json-patch";
-import type { ToolPolicyDecision } from "@/models/tool-policies.model";
+import type {
+  ToolPolicyDecision,
+  ToolPolicySource,
+} from "@/models/tool-policies.model";
+
+export interface EffectiveToolPolicyView {
+  decision: ToolPolicyDecision;
+  updatedAt: number | null;
+  source: ToolPolicySource;
+}
 
 export interface ToolDefinitionRecord extends ToolDefinition {
   serviceId: string;
@@ -54,7 +63,7 @@ export interface ListToolsResult
     "inputSchema" | "outputSchema" | "adapterDomain"
   > {
   effectivelyEnabled: boolean;
-  policy?: { decision: ToolPolicyDecision; updatedAt: number | null };
+  policy?: EffectiveToolPolicyView;
   score?: number;
   matchType?: "fts" | "vector" | "both";
   ftsRank?: number;
@@ -82,7 +91,7 @@ export interface GetToolInput {
 export interface GetToolsResult
   extends Omit<ToolDefinitionRecord, "adapterDomain" | "serviceId"> {
   effectivelyEnabled: boolean;
-  policy?: { decision: ToolPolicyDecision; updatedAt: number | null };
+  policy?: EffectiveToolPolicyView;
 }
 
 export interface DirectInstallServiceInput {

@@ -38,6 +38,7 @@ async function applyMigrations(only?: {
       for (const name of [
         "approval_requests",
         "tool_policies",
+        "tool_policy_rules",
         "tools",
         "service_secrets",
         "service_configurations",

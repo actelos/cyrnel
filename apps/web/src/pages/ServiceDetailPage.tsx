@@ -133,6 +133,16 @@ const toolSchema = z.object({
     .object({
       decision: z.enum(["allow", "block", "ask"]),
       updatedAt: z.number().nullable(),
+      source: z.discriminatedUnion("type", [
+        z.object({
+          type: z.literal("rule"),
+          ruleId: z.string(),
+          servicePattern: z.string(),
+          toolPattern: z.string(),
+          position: z.number(),
+        }),
+        z.object({ type: z.literal("default") }),
+      ]),
     })
     .optional(),
   score: z.number().optional(),

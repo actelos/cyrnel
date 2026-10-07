@@ -868,19 +868,75 @@
                   "block",
                   "ask"
                 ],
-                "description": "Policy decision for the tool."
+                "description": "Effective policy decision for the tool."
               },
               "updatedAt": {
                 "type": "number",
                 "nullable": true,
-                "description": "Last policy update epoch ms, null when default ask."
+                "description": "Last winning-rule update epoch ms, null when the immutable ask default applies."
+              },
+              "source": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "rule"
+                        ],
+                        "description": "Effective policy comes from a rule."
+                      },
+                      "ruleId": {
+                        "type": "string",
+                        "description": "Winning rule identifier."
+                      },
+                      "servicePattern": {
+                        "type": "string",
+                        "description": "Winning rule service pattern."
+                      },
+                      "toolPattern": {
+                        "type": "string",
+                        "description": "Winning rule tool pattern."
+                      },
+                      "position": {
+                        "type": "integer",
+                        "description": "Winning rule position."
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "ruleId",
+                      "servicePattern",
+                      "toolPattern",
+                      "position"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "default"
+                        ],
+                        "description": "No rule matched; ask default."
+                      }
+                    },
+                    "required": [
+                      "type"
+                    ]
+                  }
+                ],
+                "description": "Why this decision applies: the winning rule or the default."
               }
             },
             "required": [
               "decision",
-              "updatedAt"
+              "updatedAt",
+              "source"
             ],
-            "description": "Policy decision for the tool; present when listing tools."
+            "description": "Effective policy for the tool with provenance; present when listing tools."
           },
           "score": {
             "type": "number",
@@ -1121,16 +1177,20 @@
         ],
         "description": "Paginated collection envelope."
       },
-      "ToolPolicy": {
+      "ToolPolicyRule": {
         "type": "object",
         "properties": {
-          "serviceId": {
+          "id": {
             "type": "string",
-            "description": "Service identifier."
+            "description": "Rule identifier."
           },
-          "toolId": {
+          "servicePattern": {
             "type": "string",
-            "description": "Tool identifier."
+            "description": "Service pattern: a literal service id or exactly '*' (matches all services)."
+          },
+          "toolPattern": {
+            "type": "string",
+            "description": "Tool pattern: a literal tool id or exactly '*' (matches all tools)."
           },
           "decision": {
             "type": "string",
@@ -1141,19 +1201,254 @@
             ],
             "description": "Policy decision."
           },
+          "position": {
+            "type": "integer",
+            "description": "Evaluation order, 0-based. Rules are evaluated in ascending position order; the first matching rule wins."
+          },
+          "createdAt": {
+            "type": "string",
+            "description": "ISO-8601 creation time."
+          },
           "updatedAt": {
             "type": "number",
-            "nullable": true,
-            "description": "Last update epoch ms, null when default ask."
+            "description": "Last update epoch ms."
+          }
+        },
+        "required": [
+          "id",
+          "servicePattern",
+          "toolPattern",
+          "decision",
+          "position",
+          "createdAt",
+          "updatedAt"
+        ],
+        "description": "Ordered tool policy rule. First matching rule wins; tools with no matching rule default to ask."
+      },
+      "ToolPolicyRuleCreate": {
+        "type": "object",
+        "properties": {
+          "servicePattern": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Service pattern: a literal service id or exactly '*'."
+          },
+          "toolPattern": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Tool pattern: a literal tool id or exactly '*'."
+          },
+          "decision": {
+            "type": "string",
+            "enum": [
+              "allow",
+              "block",
+              "ask"
+            ],
+            "description": "Policy decision."
+          }
+        },
+        "required": [
+          "servicePattern",
+          "toolPattern",
+          "decision"
+        ],
+        "description": "Request body used to create a tool policy rule."
+      },
+      "ToolPolicyRuleUpdate": {
+        "type": "object",
+        "properties": {
+          "servicePattern": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Service pattern: a literal service id or exactly '*'."
+          },
+          "toolPattern": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Tool pattern: a literal tool id or exactly '*'."
+          },
+          "decision": {
+            "type": "string",
+            "enum": [
+              "allow",
+              "block",
+              "ask"
+            ],
+            "description": "Policy decision."
+          }
+        },
+        "description": "Request body used to update a tool policy rule."
+      },
+      "ToolPolicyRuleReorder": {
+        "type": "object",
+        "properties": {
+          "orderedIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 1,
+            "description": "Rule ids in the desired evaluation order (position 0 first). Must contain exactly the existing rule ids."
+          }
+        },
+        "required": [
+          "orderedIds"
+        ],
+        "description": "Request body used to reorder tool policy rules."
+      },
+      "AffectedTool": {
+        "type": "object",
+        "properties": {
+          "serviceId": {
+            "type": "string",
+            "description": "Identifier of the service."
+          },
+          "toolId": {
+            "type": "string",
+            "description": "Identifier of the tool."
+          },
+          "name": {
+            "type": "string",
+            "description": "Display name of the tool."
+          },
+          "policy": {
+            "type": "object",
+            "properties": {
+              "decision": {
+                "type": "string",
+                "enum": [
+                  "allow",
+                  "block",
+                  "ask"
+                ],
+                "description": "Effective policy decision for the tool."
+              },
+              "updatedAt": {
+                "type": "number",
+                "nullable": true,
+                "description": "Last winning-rule update epoch ms, null when the immutable ask default applies."
+              },
+              "source": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "rule"
+                        ],
+                        "description": "Effective policy comes from a rule."
+                      },
+                      "ruleId": {
+                        "type": "string",
+                        "description": "Winning rule identifier."
+                      },
+                      "servicePattern": {
+                        "type": "string",
+                        "description": "Winning rule service pattern."
+                      },
+                      "toolPattern": {
+                        "type": "string",
+                        "description": "Winning rule tool pattern."
+                      },
+                      "position": {
+                        "type": "integer",
+                        "description": "Winning rule position."
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "ruleId",
+                      "servicePattern",
+                      "toolPattern",
+                      "position"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "default"
+                        ],
+                        "description": "No rule matched; ask default."
+                      }
+                    },
+                    "required": [
+                      "type"
+                    ]
+                  }
+                ],
+                "description": "Why this decision applies: the winning rule or the default."
+              }
+            },
+            "required": [
+              "decision",
+              "updatedAt",
+              "source"
+            ],
+            "description": "Effective policy for the tool under the current rule set."
           }
         },
         "required": [
           "serviceId",
           "toolId",
-          "decision",
-          "updatedAt"
+          "name",
+          "policy"
         ],
-        "description": "Tool policy record."
+        "description": "Tool matched by a policy pattern with its effective policy."
+      },
+      "AffectedToolListResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AffectedTool"
+            },
+            "description": "Tools matching the rule pattern."
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true,
+            "description": "Opaque cursor for the next page; null when there are no more items. Echo it back as the cursor query parameter to continue paginating."
+          },
+          "hasMore": {
+            "type": "boolean",
+            "description": "Whether additional pages exist. When true, nextCursor is a valid cursor; when false, pagination has reached the end."
+          }
+        },
+        "required": [
+          "items",
+          "nextCursor",
+          "hasMore"
+        ],
+        "description": "Paginated collection envelope."
+      },
+      "ToolPolicyPatternPreview": {
+        "type": "object",
+        "properties": {
+          "matchCount": {
+            "type": "integer",
+            "description": "Total number of tools matching the pattern."
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AffectedTool"
+            },
+            "description": "First matching tools with effective policies."
+          }
+        },
+        "required": [
+          "matchCount",
+          "items"
+        ],
+        "description": "Preview of tools affected by a policy pattern."
       },
       "Module": {
         "type": "object",
@@ -6676,10 +6971,10 @@
                 "block",
                 "ask"
               ],
-              "description": "Policy decision filter. Omit to return all tools; 'ask' includes tools with no explicit policy."
+              "description": "Effective policy decision filter. Omit to return all tools; decisions resolve via ordered rules with an immutable ask default."
             },
             "required": false,
-            "description": "Policy decision filter. Omit to return all tools; 'ask' includes tools with no explicit policy.",
+            "description": "Effective policy decision filter. Omit to return all tools; decisions resolve via ordered rules with an immutable ask default.",
             "name": "decision",
             "in": "query"
           },
@@ -7181,77 +7476,23 @@
         }
       }
     },
-    "/tools/{serviceId}/{toolId}/policy": {
-      "put": {
+    "/tool-policies": {
+      "get": {
         "tags": [
-          "Tools"
+          "Tool Policies"
         ],
-        "summary": "Set tool policy",
-        "description": "Sets the policy decision for a tool to allow, block, or ask.",
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "minLength": 1,
-              "description": "Service identifier matching the installed manifest id."
-            },
-            "required": true,
-            "description": "Service identifier matching the installed manifest id.",
-            "name": "serviceId",
-            "in": "path"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "minLength": 1,
-              "description": "Tool identifier exposed by the service manifest."
-            },
-            "required": true,
-            "description": "Tool identifier exposed by the service manifest.",
-            "name": "toolId",
-            "in": "path"
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "decision": {
-                    "type": "string",
-                    "enum": [
-                      "allow",
-                      "block",
-                      "ask"
-                    ],
-                    "description": "Desired policy decision."
-                  }
-                },
-                "required": [
-                  "decision"
-                ]
-              }
-            }
-          }
-        },
+        "summary": "List tool policy rules",
+        "description": "Returns tool policy rules in evaluation order (ascending position). The first rule matching a tool wins; tools with no matching rule default to ask.",
         "responses": {
           "200": {
-            "description": "Updated tool policy.",
+            "description": "Ordered tool policy rules.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ToolPolicy"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "The request body or path parameters were invalid.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ToolPolicyRule"
+                  }
                 }
               }
             }
@@ -7266,8 +7507,56 @@
               }
             }
           },
-          "404": {
-            "description": "The tool could not be found.",
+          "500": {
+            "description": "The tool policy rules could not be loaded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Tool Policies"
+        ],
+        "summary": "Create tool policy rule",
+        "description": "Creates a tool policy rule appended at the lowest precedence (evaluated last).",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ToolPolicyRuleCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created tool policy rule.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolPolicyRule"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A bearer token was required but missing or invalid.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7313,7 +7602,512 @@
             }
           },
           "500": {
-            "description": "The tool policy could not be updated.",
+            "description": "The tool policy rule could not be created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tool-policies/preview": {
+      "get": {
+        "tags": [
+          "Tool Policies"
+        ],
+        "summary": "Preview tools matching a pattern",
+        "description": "Counts and samples the tools matching an unsaved service/tool pattern, each with its effective policy under the current rule set.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Service pattern: a literal service id or exactly '*'."
+            },
+            "required": true,
+            "description": "Service pattern: a literal service id or exactly '*'.",
+            "name": "servicePattern",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Tool pattern: a literal tool id or exactly '*'."
+            },
+            "required": true,
+            "description": "Tool pattern: a literal tool id or exactly '*'.",
+            "name": "toolPattern",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "description": "Maximum number of items per page. Clamped to a maximum of 100; defaults to 20."
+            },
+            "required": false,
+            "description": "Maximum number of items per page. Clamped to a maximum of 100; defaults to 20.",
+            "name": "limit",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Pattern preview.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolPolicyPatternPreview"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "One or more query parameters could not be parsed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A bearer token was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The pattern could not be previewed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tool-policies/order": {
+      "put": {
+        "tags": [
+          "Tool Policies"
+        ],
+        "summary": "Reorder tool policy rules",
+        "description": "Replaces the full rule evaluation order. Position 0 is evaluated first and wins on match.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ToolPolicyRuleReorder"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Reordered tool policy rules.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ToolPolicyRule"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A bearer token was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded. The request was throttled. Check Retry-After header.",
+            "headers": {
+              "X-RateLimit-Limit": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Maximum requests allowed in the current window."
+              },
+              "X-RateLimit-Remaining": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Requests remaining in the current window."
+              },
+              "X-RateLimit-Reset": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Unix timestamp when the window resets."
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The tool policy rules could not be reordered.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tool-policies/{id}": {
+      "patch": {
+        "tags": [
+          "Tool Policies"
+        ],
+        "summary": "Update tool policy rule",
+        "description": "Updates the patterns or decision of a tool policy rule.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Tool policy rule identifier."
+            },
+            "required": true,
+            "description": "Tool policy rule identifier.",
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ToolPolicyRuleUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated tool policy rule.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolPolicyRule"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body or path parameter was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A bearer token was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The tool policy rule could not be found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded. The request was throttled. Check Retry-After header.",
+            "headers": {
+              "X-RateLimit-Limit": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Maximum requests allowed in the current window."
+              },
+              "X-RateLimit-Remaining": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Requests remaining in the current window."
+              },
+              "X-RateLimit-Reset": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Unix timestamp when the window resets."
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The tool policy rule could not be updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Tool Policies"
+        ],
+        "summary": "Delete tool policy rule",
+        "description": "Deletes a tool policy rule and renormalizes the remaining positions densely.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Tool policy rule identifier."
+            },
+            "required": true,
+            "description": "Tool policy rule identifier.",
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The tool policy rule was deleted."
+          },
+          "400": {
+            "description": "The id path parameter was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A bearer token was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The tool policy rule could not be found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded. The request was throttled. Check Retry-After header.",
+            "headers": {
+              "X-RateLimit-Limit": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Maximum requests allowed in the current window."
+              },
+              "X-RateLimit-Remaining": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Requests remaining in the current window."
+              },
+              "X-RateLimit-Reset": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Unix timestamp when the window resets."
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The tool policy rule could not be deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tool-policies/{id}/affected-tools": {
+      "get": {
+        "tags": [
+          "Tool Policies"
+        ],
+        "summary": "List tools affected by a rule",
+        "description": "Returns the paginated tools matching a stored rule's patterns, each with its effective policy under the current rule set. A higher-precedence rule may shadow this rule for some tools.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Tool policy rule identifier."
+            },
+            "required": true,
+            "description": "Tool policy rule identifier.",
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 2048,
+              "description": "Opaque pagination token returned as nextCursor by the previous response. Pass it back unchanged to fetch the next page; null/omitted fetches the first page. Cursors encode position, not filters, so change filters only between pages when starting over."
+            },
+            "required": false,
+            "description": "Opaque pagination token returned as nextCursor by the previous response. Pass it back unchanged to fetch the next page; null/omitted fetches the first page. Cursors encode position, not filters, so change filters only between pages when starting over.",
+            "name": "cursor",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "description": "Maximum number of items per page. Clamped to a maximum of 100; defaults to 20."
+            },
+            "required": false,
+            "description": "Maximum number of items per page. Clamped to a maximum of 100; defaults to 20.",
+            "name": "limit",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Matching tools with effective policies.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AffectedToolListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "One or more query parameters could not be parsed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A bearer token was required but missing or invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The tool policy rule could not be found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The affected tools could not be loaded.",
             "content": {
               "application/json": {
                 "schema": {

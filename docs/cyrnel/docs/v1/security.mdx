@@ -203,7 +203,7 @@ redirect targets, every hop is validated before the request proceeds.
 | Module credentials | `module_credentials` + `module_credential_auth.payload` | Same envelope, scoped to the owning module. |
 | OAuth clients | `oauth_clients` (public fields plaintext, `client_secret` encrypted, required `provider`) | `client_secret` AES-256-GCM; delete returns `409` while referenced by any owned credential. |
 | Pending OAuth authorizations | `oauth_pendings` (`state` PK, exactly one owner per row, PKCE verifier/challenge, 10-min TTL) | Plaintext short-lived flow state; swept with expired tokens via `CYRNEL_AUTH_REFRESH_INTERVAL_MS`. |
-| Tool policies | `tool_policies` (`allow\|block\|ask`, FK `serviceId` cascade) | None (plaintext, decision only). |
+| Tool policies | `tool_policy_rules` (ordered patterns + `allow\|block\|ask`, no FK) | None (plaintext, patterns and decision only). |
 | Approval requests | `approval_requests` (`pending→approved\|denied\|expired` via CAS) | `parameters` encrypted with `CYRNEL_SECRETS_KEY` (decrypted only in `GET /approvals`); never logged. |
 | Module enable/missing state | `modules` | None (plaintext, but boolean flags only; `auth_schemes` / `default_security` plaintext declarations). |
 | Process records, stdout, stderr, output | In-memory + `processes`/`process_data` (with `state` including `suspended`/`terminated`) | Lost on restart except `processes.state` + `approval_requests` (durable). |

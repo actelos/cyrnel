@@ -250,7 +250,7 @@ function unwrap<T>(value: T | undefined | null, label = "value"): T {
 async function resetDb(): Promise<void> {
   await db.run(sql.raw("PRAGMA foreign_keys = OFF"));
   await db.run(sql.raw("DELETE FROM approval_requests"));
-  await db.run(sql.raw("DELETE FROM tool_policies"));
+  await db.run(sql.raw("DELETE FROM tool_policy_rules"));
   await db.run(sql.raw("DELETE FROM tools"));
   await db.run(sql.raw("DELETE FROM service_secrets"));
   await db.run(sql.raw("DELETE FROM service_configurations"));
@@ -1202,7 +1202,7 @@ describe("ModuleService", () => {
             VALUES ('alpha', 't', 't', '', 1, '{}', '{}', '{}')`,
       );
       await db.run(
-        sql`INSERT OR REPLACE INTO tool_policies (service_id, tool_id, decision, created_at, updated_at) VALUES ('alpha', 't', 'allow', '2026-01-01T00:00:00.000Z', 0)`,
+        sql`INSERT INTO tool_policy_rules (id, service_pattern, tool_pattern, decision, position, created_at, updated_at) VALUES ('tpr_test_allow_alpha_t', 'alpha', 't', 'allow', 0, '2026-01-01T00:00:00.000Z', 0)`,
       );
 
       unwrap(adapterInstances[0], "adapter").invokeImpl = async () => ({
@@ -1234,7 +1234,7 @@ describe("ModuleService", () => {
             VALUES ('alpha', 't', 't', '', 1, '{}', '{}', '{}')`,
         );
         await db.run(
-          sql`INSERT OR REPLACE INTO tool_policies (service_id, tool_id, decision, created_at, updated_at) VALUES ('alpha', 't', 'allow', '2026-01-01T00:00:00.000Z', 0)`,
+          sql`INSERT INTO tool_policy_rules (id, service_pattern, tool_pattern, decision, position, created_at, updated_at) VALUES ('tpr_test_allow_alpha_t', 'alpha', 't', 'allow', 0, '2026-01-01T00:00:00.000Z', 0)`,
         );
 
         unwrap(adapterInstances[0], "adapter").invokeImpl = () =>
@@ -1640,7 +1640,7 @@ describe("ModuleService", () => {
               VALUES ('alpha', 't', 't', '', 1, '{}', '{}', '{}')`,
         );
         await db.run(
-          sql`INSERT OR REPLACE INTO tool_policies (service_id, tool_id, decision, created_at, updated_at) VALUES ('alpha', 't', 'allow', '2026-01-01T00:00:00.000Z', 0)`,
+          sql`INSERT INTO tool_policy_rules (id, service_pattern, tool_pattern, decision, position, created_at, updated_at) VALUES ('tpr_test_allow_alpha_t', 'alpha', 't', 'allow', 0, '2026-01-01T00:00:00.000Z', 0)`,
         );
 
         await fs.rm(modDir, { recursive: true, force: true });

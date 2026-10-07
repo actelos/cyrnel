@@ -52,7 +52,7 @@ import {
   modules as modulesTable,
   processes as processesTable,
   services as servicesTable,
-  toolPolicies as toolPoliciesTable,
+  toolPolicyRules as toolPolicyRulesTable,
   tools as toolsTable,
 } from "@/db/schema";
 import {
@@ -127,6 +127,7 @@ import {
   decryptAndMaybeReEncrypt,
   encryptSecrets,
 } from "@/utils/secrets.util";
+import { resolveToolPolicy } from "@/utils/tool-policy.util";
 import {
   applyJsonSchemaDefaults,
   assertPlainJsonSchema,
@@ -654,22 +655,26 @@ export class ModuleService {
 
     await this.validateServiceCredentials(input.serviceId);
 
-    const policyRow = await db
-      .select({ decision: toolPoliciesTable.decision })
-      .from(toolPoliciesTable)
-      .where(
-        and(
-          eq(toolPoliciesTable.serviceId, input.serviceId),
-          eq(toolPoliciesTable.toolId, input.toolId),
-        ),
-      )
-      .limit(1)
-      .then((rows) => rows[0] ?? null)
-      .catch(() => null);
-    const decision = (policyRow?.decision ?? "ask") as
-      | "allow"
-      | "block"
-      | "ask";
+    // Ordered tool policy rules: first matching rule wins, otherwise the
+    // immutable `ask` default. See models/tool-policies.model.ts contract.
+    const policyRules = await db
+      .select({
+        id: toolPolicyRulesTable.id,
+        servicePattern: toolPolicyRulesTable.servicePattern,
+        toolPattern: toolPolicyRulesTable.toolPattern,
+        decision: toolPolicyRulesTable.decision,
+        position: toolPolicyRulesTable.position,
+        updatedAt: toolPolicyRulesTable.updatedAt,
+      })
+      .from(toolPolicyRulesTable)
+      .orderBy(toolPolicyRulesTable.position)
+      .then((rows) => rows)
+      .catch(() => []);
+    const { decision, source } = resolveToolPolicy(
+      policyRules,
+      input.serviceId,
+      input.toolId,
+    );
 
     if (decision === "block") {
       logger.warn(
@@ -677,6 +682,10 @@ export class ModuleService {
           event: "tool-permission-blocked",
           serviceId: input.serviceId,
           toolId: input.toolId,
+          policySource: source.type,
+          ...(source.type === "rule"
+            ? { policyRuleId: source.ruleId, policyPosition: source.position }
+            : {}),
         },
         "Tool invocation blocked by policy",
       );
@@ -741,6 +750,10 @@ export class ModuleService {
           toolId: input.toolId,
           processId,
           approvalId,
+          policySource: source.type,
+          ...(source.type === "rule"
+            ? { policyRuleId: source.ruleId, policyPosition: source.position }
+            : {}),
         },
         "Tool invocation requires approval",
       );
@@ -2706,37 +2719,9 @@ export class ModuleService {
                 })),
               );
             }
-            {
-              const existing = await tx
-                .select({ toolId: toolPoliciesTable.toolId })
-                .from(toolPoliciesTable)
-                .where(eq(toolPoliciesTable.serviceId, service.id));
-              const existingIds = new Set(existing.map((r) => r.toolId));
-              const newIds = new Set(def.tools.map((t) => t.id));
-              const orphaned = [...existingIds].filter((id) => !newIds.has(id));
-              if (orphaned.length > 0) {
-                await tx
-                  .delete(toolPoliciesTable)
-                  .where(
-                    and(
-                      eq(toolPoliciesTable.serviceId, service.id),
-                      inArray(toolPoliciesTable.toolId, orphaned),
-                    ),
-                  );
-              }
-              const toInsert = def.tools.filter((t) => !existingIds.has(t.id));
-              if (toInsert.length > 0) {
-                await tx.insert(toolPoliciesTable).values(
-                  toInsert.map((t) => ({
-                    serviceId: service.id,
-                    toolId: t.id,
-                    decision: "ask" as const,
-                    createdAt: new Date().toISOString(),
-                    updatedAt: Date.now(),
-                  })),
-                );
-              }
-            }
+            // Tool policy rules are pattern-based and service-independent:
+            // no per-tool rows to sync. New tools fall under the first
+            // matching rule, otherwise the immutable `ask` default.
           });
 
           updated++;
