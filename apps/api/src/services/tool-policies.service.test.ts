@@ -200,6 +200,34 @@ describe("ToolPoliciesService", () => {
     });
   });
 
+  describe("duplicate positions", () => {
+    it("breaks ties by id, consistently across readers", async () => {
+      const service = new ToolPoliciesService();
+      await seedTools();
+      // Simulate two rules created with the same position (e.g. overlapping
+      // creates before the transactional fix): evaluation order must still
+      // be deterministic and identical for listing and resolution.
+      await db.run(
+        sql`INSERT INTO tool_policy_rules (id, service_pattern, tool_pattern, decision, position, created_at, updated_at)
+            VALUES ('tpr_tie_b', 'github', '*', 'block', 0, '2026-01-01T00:00:00.000Z', 0)`,
+      );
+      await db.run(
+        sql`INSERT INTO tool_policy_rules (id, service_pattern, tool_pattern, decision, position, created_at, updated_at)
+            VALUES ('tpr_tie_a', 'github', '*', 'allow', 0, '2026-01-01T00:00:00.000Z', 0)`,
+      );
+      const rules = await service.listRules();
+      expect(rules.map((r) => r.id)).toEqual(["tpr_tie_a", "tpr_tie_b"]);
+      const page = await service.getAffectedTools("tpr_tie_b", {});
+      for (const item of page.items) {
+        expect(item.policy.decision).toBe("allow");
+        expect(item.policy.source).toMatchObject({
+          type: "rule",
+          ruleId: "tpr_tie_a",
+        });
+      }
+    });
+  });
+
   describe("getAffectedTools", () => {
     it("returns matching tools with effective policy provenance", async () => {
       const service = new ToolPoliciesService();

@@ -69,32 +69,34 @@ export class ToolPoliciesService {
   }
 
   async createRule(input: CreateToolPolicyRuleInput): Promise<ToolPolicyRule> {
-    const existing = await db
-      .select({ position: toolPolicyRules.position })
-      .from(toolPolicyRules)
-      .catch(() => {
-        throw new HttpError(500, "Failed to load tool policy rules.");
-      });
-    const position =
-      existing.length === 0
-        ? 0
-        : Math.max(...existing.map((r) => r.position)) + 1;
     const now = Date.now();
     const [row] = await db
-      .insert(toolPolicyRules)
-      .values({
-        id: newRuleId(),
-        servicePattern: input.servicePattern,
-        toolPattern: input.toolPattern,
-        decision: input.decision,
-        position,
-        createdAt: new Date().toISOString(),
-        updatedAt: now,
+      .transaction(async (tx) => {
+        // Read max(position) and insert in one transaction so two
+        // overlapping creates cannot claim the same position.
+        const [{ next }] = await tx
+          .select({
+            next: sql<number>`coalesce(max(${toolPolicyRules.position}) + 1, 0)`,
+          })
+          .from(toolPolicyRules);
+        return tx
+          .insert(toolPolicyRules)
+          .values({
+            id: newRuleId(),
+            servicePattern: input.servicePattern,
+            toolPattern: input.toolPattern,
+            decision: input.decision,
+            position: next,
+            createdAt: new Date().toISOString(),
+            updatedAt: now,
+          })
+          .returning();
       })
-      .returning()
-      .catch(() => {
+      .catch((error) => {
+        if (error instanceof HttpError) throw error;
         throw new HttpError(500, "Failed to create tool policy rule.");
       });
+    if (!row) throw new HttpError(500, "Failed to create tool policy rule.");
     return toRule(row);
   }
 
@@ -276,7 +278,7 @@ export class ToolPoliciesService {
     const rules = await db
       .select()
       .from(toolPolicyRules)
-      .orderBy(asc(toolPolicyRules.position))
+      .orderBy(asc(toolPolicyRules.position), asc(toolPolicyRules.id))
       .catch(() => {
         throw new HttpError(500, "Failed to load tool policy rules.");
       });

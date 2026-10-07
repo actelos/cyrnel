@@ -27,6 +27,7 @@ import type {
 import tsivm from "@cyrnel/typescript-ivm";
 import {
   and,
+  asc,
   desc,
   eq,
   getTableColumns,
@@ -667,7 +668,7 @@ export class ModuleService {
         updatedAt: toolPolicyRulesTable.updatedAt,
       })
       .from(toolPolicyRulesTable)
-      .orderBy(toolPolicyRulesTable.position)
+      .orderBy(asc(toolPolicyRulesTable.position), asc(toolPolicyRulesTable.id))
       .then((rows) => rows)
       .catch(() => []);
     const { decision, source } = resolveToolPolicy(
