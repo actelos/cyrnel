@@ -43,6 +43,35 @@ import {
 const DEFAULT_EXECUTION_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_ACTIVE_PROCESSES = 1_000;
 
+/**
+ * Process states that hold a `ref`. Mirrors the `processes_ref_active_unique`
+ * partial index in db/schema.ts; keep the two in sync.
+ */
+const REF_HOLDING_STATES = [
+  "queued",
+  "running",
+  "suspended",
+  "terminating",
+] as const satisfies readonly ProcessState[];
+
+/**
+ * Generic on purpose: the conflict must not disclose the id, state, or owner of
+ * the process already holding the ref. Callers know only that their requested
+ * label is taken.
+ */
+function refConflictError(ref: string): HttpError {
+  return new HttpError(
+    409,
+    `A process with ref '${ref}' is already active. Reuse that process, choose a different ref, or omit ref.`,
+    "process_ref_conflict",
+  );
+}
+
+function isRefUniqueViolation(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return /UNIQUE constraint failed: processes\.ref/i.test(message);
+}
+
 function getMaxActiveProcesses(): number {
   const value = Number(process.env.CYRNEL_MAX_ACTIVE_PROCESSES);
   return Number.isInteger(value) && value >= 1
@@ -243,6 +272,32 @@ export class ProcessService {
     ]);
   }
 
+  /**
+   * Reads ahead of the insert to turn a duplicate ref into a clean 409 instead
+   * of a constraint violation surfacing as a 500. Fails open: if the lookup
+   * itself errors, creation proceeds and the partial index in create() is the
+   * authority.
+   */
+  private async assertRefIsFree(ref: string): Promise<void> {
+    let held: Array<{ id: number }> = [];
+    try {
+      held = await db
+        .select({ id: processesTable.id })
+        .from(processesTable)
+        .where(
+          and(
+            eq(processesTable.ref, ref),
+            inArray(processesTable.state, [...REF_HOLDING_STATES]),
+          ),
+        )
+        .limit(1)
+        .all();
+    } catch {
+      return;
+    }
+    if (held.length > 0) throw refConflictError(ref);
+  }
+
   async create(input: CreateProcessInput): Promise<{ id: number }> {
     if (this.isShuttingDown) {
       throw new HttpError(503, "Service is shutting down.");
@@ -265,17 +320,35 @@ export class ProcessService {
     const envConfig = input.envConfig ?? {};
 
     const stateValue = autorun ? "queued" : "idle";
-    const [{ id }] = await db
-      .insert(processesTable)
-      .values({
-        ref: input.ref ?? null,
-        code: input.code,
-        timeoutMs: timeoutMs,
-        envConfig,
-        createdAt,
-        state: stateValue,
-      })
-      .returning({ id: processesTable.id });
+
+    // Only an autorun process starts out holding its ref; a parked
+    // `autorun: false` process rests in `idle` and releases it, exactly like a
+    // settled process does.
+    if (input.ref !== undefined && autorun) {
+      await this.assertRefIsFree(input.ref);
+    }
+
+    let id: number;
+    try {
+      [{ id }] = await db
+        .insert(processesTable)
+        .values({
+          ref: input.ref ?? null,
+          code: input.code,
+          timeoutMs: timeoutMs,
+          envConfig,
+          createdAt,
+          state: stateValue,
+        })
+        .returning({ id: processesTable.id });
+    } catch (err) {
+      // Backstop for the race the pre-check above cannot close: two concurrent
+      // autorun creates with the same ref can both pass the read.
+      if (input.ref !== undefined && isRefUniqueViolation(err)) {
+        throw refConflictError(input.ref);
+      }
+      throw err;
+    }
 
     const pid = this.createPid();
 

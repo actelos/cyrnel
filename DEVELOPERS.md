@@ -124,6 +124,22 @@ what each one does. The two most important ones beyond the secrets key are:
   `Authorization: Bearer <key>`. Leave it unset for unauthenticated local
   development on `127.0.0.1`.
 
+`apps/mcp/.example.env` documents the MCP server's own variables. The one worth
+knowing about is `CYRNEL_MCP_APPROVAL_METHOD`, which decides how tool calls
+waiting on approval reach you:
+
+- `elicitation` (default): `create_process` / `run_process` with `block=true`
+  drive the review themselves over MCP elicitation. A process that hits any
+  number of approvals stays inside the one logical tool call, and the client
+  must advertise `elicitation: { form: {} }`.
+- `manual`: exposes `list_pending_approvals`, `approve_approval`, and
+  `deny_approval` instead. Blocking calls return the suspended process and its
+  pending approval ids, and the model decides them explicitly. Use this for
+  clients that do not implement elicitation.
+
+Either way the API's `tool_policy` rules and approval records are unchanged;
+only the MCP presentation differs. Any other value fails startup.
+
 ### Initialise the database
 
 Cyrnel's API uses [Drizzle ORM](https://orm.drizzle.team/) with an SQLite

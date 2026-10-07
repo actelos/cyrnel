@@ -135,6 +135,26 @@ import {
   normalizeSummary,
 } from "@/utils/validation.util";
 
+/**
+ * OAuth scopes a credential must already hold for a requirement to be satisfied.
+ * OpenAPI spells requirement scopes either as an array or as one space-delimited
+ * string; both are accepted. Non-OAuth schemes (and empty requirement sets) place
+ * no scope demand, so nothing is missing.
+ */
+function missingScopes(
+  required: readonly string[] | string | undefined,
+  cred: { schemeType: string; grantedScopes: string[] | null },
+): string[] {
+  if (cred.schemeType !== "oauth2") return [];
+  const wanted: string[] =
+    typeof required === "string"
+      ? required.split(/\s+/).filter(Boolean)
+      : [...(required ?? [])];
+  if (wanted.length === 0) return [];
+  const granted = new Set(cred.grantedScopes ?? []);
+  return wanted.filter((scope) => !granted.has(scope));
+}
+
 const MODULE_DOWNLOAD_MAX_BYTES = 10 * 1024 * 1024;
 const DEFAULT_INVOKE_TIMEOUT_MS = 30_000;
 const IDENTIFIER_SCHEMA = z.string().regex(/^[A-Za-z_$][A-Za-z0-9_$]*$/);
@@ -613,6 +633,7 @@ export class ModuleService {
         serviceEnabled: servicesTable.enabled,
         serviceStale: servicesTable.stale,
         toolEnabled: toolsTable.enabled,
+        toolSecurity: toolsTable.security,
       })
       .from(servicesTable)
       .leftJoin(
@@ -654,7 +675,7 @@ export class ModuleService {
       );
     }
 
-    await this.validateServiceCredentials(input.serviceId);
+    await this.validateToolCredentials(row.toolSecurity ?? [], input.serviceId);
 
     // Ordered tool policy rules: first matching rule wins, otherwise the
     // immutable `ask` default. See models/tool-policies.model.ts contract.
@@ -3005,16 +3026,23 @@ export class ModuleService {
     return adapter;
   }
 
-  private async validateServiceCredentials(serviceId: string): Promise<void> {
-    const [serviceRow] = await db
-      .select({ security: servicesTable.security })
-      .from(servicesTable)
-      .where(eq(servicesTable.id, serviceId))
-      .limit(1)
-      .catch(() => [] as Array<{ security: SecurityRequirements | null }>);
-    const security = (serviceRow?.security ?? []) as SecurityRequirements;
-    if (!security || security.length === 0) return;
-    if (security.some((req) => Object.keys(req).length === 0)) return;
+  /**
+   * Fails fast when the credentials required by a tool's own security
+   * requirements are missing or unusable, before any approval is requested.
+   *
+   * Requirements are read from the tool rather than the service: OpenAPI
+   * definitions that declare security per operation (Google Discovery documents,
+   * for example) leave the service-level clause empty, so reading the service
+   * would skip validation entirely for exactly the services that need it most.
+   * An empty requirement set means the operation genuinely needs no credentials.
+   */
+  private async validateToolCredentials(
+    security: SecurityRequirements,
+    serviceId: string,
+  ): Promise<void> {
+    const requirements = security ?? [];
+    if (requirements.length === 0) return;
+    if (requirements.some((req) => Object.keys(req).length === 0)) return;
 
     const credStore = this.credentialService.forService(serviceId);
     const credentials = await credStore.listCredentials();
@@ -3022,7 +3050,11 @@ export class ModuleService {
 
     const isUsable = (
       cred:
-        | { status: string; schemeType: string; grantedScopes: string[] | null }
+        | {
+            status: string;
+            schemeType: string;
+            grantedScopes: string[] | null;
+          }
         | undefined,
     ): boolean => {
       if (!cred) return false;
@@ -3039,12 +3071,25 @@ export class ModuleService {
       return cred.status === "active";
     };
 
-    for (const requirement of security) {
+    // A requirement is satisfied only when every scheme it names has a usable
+    // credential *and*, for OAuth2, that credential already holds the scopes
+    // this operation asks for. Scope satisfaction is part of the decision here,
+    // not an afterthought: a credential that is merely `active` cannot satisfy a
+    // requirement for scopes it was never granted.
+    for (const requirement of requirements) {
       const schemes = Object.keys(requirement);
       if (schemes.length === 0) return;
       let satisfiable = true;
       for (const schemeName of schemes) {
-        if (!isUsable(byScheme.get(schemeName))) {
+        const cred = byScheme.get(schemeName);
+        if (!isUsable(cred)) {
+          satisfiable = false;
+          break;
+        }
+        if (
+          cred !== undefined &&
+          missingScopes(requirement[schemeName], cred).length > 0
+        ) {
           satisfiable = false;
           break;
         }
@@ -3052,7 +3097,7 @@ export class ModuleService {
       if (satisfiable) return;
     }
 
-    const first = security[0] as Record<string, readonly string[]>;
+    const first = requirements[0] as Record<string, readonly string[]>;
     for (const schemeName of Object.keys(first)) {
       const cred = byScheme.get(schemeName);
       if (!cred) {
@@ -3081,6 +3126,16 @@ export class ModuleService {
         throw new HttpError(
           403,
           `Service '${serviceId}' has an expired OAuth credential for scheme '${cred.schemeName}' with no refresh token. Re-authorize the credential.`,
+        );
+      }
+      // Now that the requirement is operation-scoped, the granted scopes can be
+      // checked against what this call actually needs, rather than accepting any
+      // non-empty grant.
+      const missing = missingScopes(first[schemeName], cred);
+      if (missing.length > 0) {
+        throw new HttpError(
+          403,
+          `Service '${serviceId}' credential for scheme '${cred.schemeName}' is missing required scope(s): ${missing.join(", ")}. Re-authorize with the required scopes.`,
         );
       }
     }

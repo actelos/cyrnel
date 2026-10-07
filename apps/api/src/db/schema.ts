@@ -187,29 +187,47 @@ export const registryAuth = sqliteTable("registry_auth", {
   updatedAt: integer("updated_at").notNull(),
 });
 
-export const processes = sqliteTable("processes", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  ref: text("ref").unique(),
-  code: text("code").notNull(),
-  timeoutMs: integer("timeout_ms"),
-  envConfig: text("env_config", { mode: "json" })
-    .$type<Record<string, unknown>>()
-    .notNull()
-    .default({}),
-  createdAt: text("created_at").notNull(),
-  state: text("state", {
-    enum: [
-      "idle",
-      "queued",
-      "running",
-      "suspended",
-      "terminating",
-      "terminated",
-    ],
-  })
-    .notNull()
-    .default("idle"),
-});
+export const processes = sqliteTable(
+  "processes",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    // Not unique: `ref` is a client-supplied correlation label, so the same
+    // label may legitimately recur across process lifetimes. Uniqueness is
+    // enforced only among live processes by the `processes_ref_active_unique`
+    // partial index below, so a ref can never be forked while one of its
+    // processes is still queued, running, suspended, or terminating.
+    ref: text("ref"),
+    code: text("code").notNull(),
+    timeoutMs: integer("timeout_ms"),
+    envConfig: text("env_config", { mode: "json" })
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
+    createdAt: text("created_at").notNull(),
+    state: text("state", {
+      enum: [
+        "idle",
+        "queued",
+        "running",
+        "suspended",
+        "terminating",
+        "terminated",
+      ],
+    })
+      .notNull()
+      .default("idle"),
+  },
+  (t) => [
+    // A `ref` may only be held by one process at a time while that process is
+    // live. Settled processes (`idle`, `terminated`) release their ref, so the
+    // same label can be reused across process lifetimes.
+    uniqueIndex("processes_ref_active_unique")
+      .on(t.ref)
+      .where(
+        sql`${t.state} IN ('queued', 'running', 'suspended', 'terminating')`,
+      ),
+  ],
+);
 
 export const processData = sqliteTable("process_data", {
   processId: integer("process_id")

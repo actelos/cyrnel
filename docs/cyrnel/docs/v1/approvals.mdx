@@ -40,6 +40,25 @@ While pending, the invoking process is `suspended` (persisted in `processes.stat
 
 On restart, orphaned `suspended` rows are marked `terminated` (with `process_data` `failed` + `completedAt`) so `projectDbProcess` exposes terminal `idle` and `run` requires `force`.
 
+## MCP Transport
+
+The MCP server (`@cyrnel/mcp`) is only a presentation layer over the endpoints
+above; it never decides policy itself. `CYRNEL_MCP_APPROVAL_METHOD` selects how a
+pending approval reaches the client:
+
+| Method | Behavior |
+| --- | --- |
+| `elicitation` (default) | `create_process` / `run_process` with `block=true` poll the process, and on `suspended` with pending approvals issue one `elicitation/create` per approval (client must advertise `elicitation: { form: {} }`), then `POST` the decision and resume polling. Sequential and repeated rounds handle both simultaneous and successive approvals within one logical tool call. |
+| `manual` | Adds the `list_pending_approvals`, `approve_approval`, and `deny_approval` tools. Blocking calls return the `suspended` process with `pendingApprovalIds` so the model decides explicitly. |
+
+Decision mapping in `elicitation` mode: `accept` with `approved: true` approves; `accept` with `approved: false`, `decline`, and `cancel` all deny, so a refusal unblocks the process immediately instead of parking until `expiresAt`.
+
+The elicitation payload carries only a boolean, so a client response can never name an approval id — which record a decision applies to is fixed by the server before the request is sent. Approval parameters are redacted (secret-looking keys, depth, and length bounded) before they appear in a prompt.
+
+If the MCP wait window elapses, the tool call returns the current process state and pending approval ids; nothing is auto-approved or auto-denied. Time spent awaiting an answer is excluded from the wait window.
+
+`suspended` is not by itself an approval: the wait loop only acts when pending approval records exist, so an unrelated future suspension is left untouched.
+
 ## Observability
 
-Approval lifecycle events (`approval-requested`, `approval-resolved`, `approval-expiry-sweep`, `approval-retention-sweep`, `process-recovery-suspended`) go through `infra/logging` with `{serviceId, toolId, processId, approvalId, requestId}`. Never emit `parameters`.
+Approval lifecycle events (`approval-requested`, `approval-resolved`, `approval-expiry-sweep`, `approval-retention-sweep`, `process-recovery-suspended`) go through `infra/logging` with `{serviceId, toolId, processId, approvalId, requestId}`. Never emit `parameters`. The MCP layer logs `mcp-approval-decided` with `{processId, approvalId, serviceId, toolId, action, approved, outcome}` and never logs parameters.

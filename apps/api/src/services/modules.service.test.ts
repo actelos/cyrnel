@@ -1257,6 +1257,96 @@ describe("ModuleService", () => {
     });
   });
 
+  describe("credential preflight", () => {
+    // Reproduces the gcalendar shape: OpenAPI definitions that declare
+    // security per operation leave the service-level clause empty, so the
+    // preflight has to read the tool's own requirements.
+    async function seedServiceWithToolSecurity(security: string) {
+      const service = new ModuleService(makeBindings(), makeLifecycle());
+      await service.initialize(MISSING_PATH);
+
+      await db.run(
+        sql`INSERT INTO services (id, name, description, hash, source, adapter, enabled, config_schema, secrets_schema, adapter_domain, default_security)
+              VALUES ('alpha', 'alpha', '', 'h', '', 'openapi', 1, '{}', '{}', '{}', '[]')`,
+      );
+      await db.run(
+        sql`INSERT INTO tools (service_id, id, name, description, enabled, input_schema, output_schema, adapter_domain, security)
+              VALUES ('alpha', 't', 't', '', 1, '{}', '{}', '{}', ${security})`,
+      );
+      await db.run(
+        sql`INSERT INTO tool_policy_rules (id, service_pattern, tool_pattern, decision, position, created_at, updated_at) VALUES ('tpr_test_allow_alpha_t', 'alpha', 't', 'allow', 0, '2026-01-01T00:00:00.000Z', 0)`,
+      );
+      return service;
+    }
+
+    function seedOAuth2Credential(grantedScopes: string[] | null) {
+      return db.run(
+        sql`INSERT INTO service_credentials (id, service_id, scheme_name, scheme_type, status, requested_scopes, granted_scopes, granted_source, created_at, updated_at)
+              VALUES ('cred_alpha', 'alpha', 'OAuth2', 'oauth2', 'active', ${JSON.stringify(grantedScopes ?? [])}, ${grantedScopes === null ? null : JSON.stringify(grantedScopes)}, 'provider', '2026-01-01T00:00:00.000Z', 0)`,
+      );
+    }
+
+    it("rejects with 403 before any approval when the tool's OAuth credential is absent", async () => {
+      const service = await seedServiceWithToolSecurity(
+        JSON.stringify([{ OAuth2: ["scope.read"] }]),
+      );
+
+      const err = await service
+        .invoke({ serviceId: "alpha", toolId: "t", parameters: {} })
+        .catch((e: unknown) => e);
+
+      expect(err).toMatchObject({ statusCode: 403 });
+      expect((err as Error).message).toContain("no credential for scheme");
+      expect(adapterInstances[0]?.invokeCalls ?? []).toHaveLength(0);
+      // No approval may be raised for a call that cannot succeed.
+      const approvals = await db.all(
+        sql`SELECT id FROM approval_requests WHERE service_id = 'alpha'`,
+      );
+      expect(approvals).toHaveLength(0);
+    });
+
+    it("rejects with 403 when the credential lacks a required scope", async () => {
+      const service = await seedServiceWithToolSecurity(
+        JSON.stringify([{ OAuth2: ["scope.read"] }]),
+      );
+      await seedOAuth2Credential(["scope.other"]);
+
+      const err = await service
+        .invoke({ serviceId: "alpha", toolId: "t", parameters: {} })
+        .catch((e: unknown) => e);
+
+      expect(err).toMatchObject({ statusCode: 403 });
+      expect((err as Error).message).toContain("scope.read");
+    });
+
+    it("invokes when the credential holds every required scope", async () => {
+      const service = await seedServiceWithToolSecurity(
+        JSON.stringify([{ OAuth2: ["scope.read"] }]),
+      );
+      await seedOAuth2Credential(["scope.read", "scope.write"]);
+
+      unwrap(adapterInstances[0], "adapter").invokeImpl = async () => ({
+        ok: true,
+      });
+
+      await expect(
+        service.invoke({ serviceId: "alpha", toolId: "t", parameters: {} }),
+      ).resolves.toEqual({ ok: true });
+    });
+
+    it("invokes an operation that declares no security requirements", async () => {
+      const service = await seedServiceWithToolSecurity("[]");
+
+      unwrap(adapterInstances[0], "adapter").invokeImpl = async () => ({
+        ok: true,
+      });
+
+      await expect(
+        service.invoke({ serviceId: "alpha", toolId: "t", parameters: {} }),
+      ).resolves.toEqual({ ok: true });
+    });
+  });
+
   describe("list() / get()", () => {
     it("returns the registered manifests after initialize", async () => {
       const service = new ModuleService(makeBindings(), makeLifecycle());
