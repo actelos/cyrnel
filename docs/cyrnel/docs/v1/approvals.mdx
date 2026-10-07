@@ -55,9 +55,11 @@ Decision mapping in `elicitation` mode: `accept` with `approved: true` approves;
 
 The elicitation payload carries only a boolean, so a client response can never name an approval id — which record a decision applies to is fixed by the server before the request is sent. Approval parameters are redacted (secret-looking keys, depth, and length bounded) before they appear in a prompt.
 
-If the MCP wait window elapses, the tool call returns the current process state and pending approval ids; nothing is auto-approved or auto-denied. Time spent awaiting an answer is excluded from the wait window.
+If a prompt goes unanswered, the in-band presenter is bounded by `APPROVAL_WAIT_BUDGET_MS` (25s in `apps/mcp/src/process.ts`), and the tool call returns the current process state and pending approval ids; nothing is auto-approved or auto-denied. The budget must stay below the MCP client's own request timeout: if the client gave up first it would lose the process id along with the response and orphan the process. An abandoned prompt is deliberately left in flight, so a late answer still resolves the approval through the API, and its rejection is absorbed so it cannot surface as an unhandled rejection.
 
 `suspended` is not by itself an approval: the wait loop only acts when pending approval records exist, so an unrelated future suspension is left untouched.
+
+Three budgets are tracked separately and must not be collapsed into one number: the process execution deadline (`timeout` seconds → `timeoutMs`), the ceiling for a non-approval suspension (10 min), and the per-prompt budget above. Time a human spends answering is excluded from the first two — it is neither the process running nor a stalled wait — so a slow decision never consumes the execution budget.
 
 ## Observability
 

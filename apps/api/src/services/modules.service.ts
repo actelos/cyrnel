@@ -57,6 +57,11 @@ import {
   tools as toolsTable,
 } from "@/db/schema";
 import {
+  emitExecutionEvent,
+  hasExecutionObserver,
+  safeJsonBytes,
+} from "@/infra/execution-events";
+import {
   createModuleLogger,
   logger,
   type ModuleLoggerContext,
@@ -677,6 +682,7 @@ export class ModuleService {
 
     await this.validateToolCredentials(row.toolSecurity ?? [], input.serviceId);
 
+    const policyStartedAt = performance.now();
     // Ordered tool policy rules: first matching rule wins, otherwise the
     // immutable `ask` default. See models/tool-policies.model.ts contract.
     const policyRules = await db
@@ -697,6 +703,28 @@ export class ModuleService {
       input.serviceId,
       input.toolId,
     );
+    emitExecutionEvent({
+      type: "policy.evaluated",
+      serviceId: input.serviceId,
+      toolId: input.toolId,
+      tool: `${input.serviceId}.${input.toolId}`,
+      action: "invoke",
+      decision,
+      matchedPolicy:
+        source.type === "rule"
+          ? `${source.servicePattern}.${source.toolPattern}`
+          : "default",
+      policyRuleId: source.type === "rule" ? source.ruleId : undefined,
+      evaluationDurationMs: performance.now() - policyStartedAt,
+      processId:
+        typeof (input as { processId?: unknown }).processId === "number"
+          ? (input as { processId: number }).processId
+          : getExecutionContext()?.processId,
+      executionId:
+        typeof (input as { executionId?: unknown }).executionId === "number"
+          ? (input as { executionId: number }).executionId
+          : getExecutionContext()?.executionId,
+    });
 
     if (decision === "block") {
       logger.warn(
@@ -3152,9 +3180,29 @@ export class ModuleService {
     const timeoutMs =
       Number(process.env.CYRNEL_INVOKE_TIMEOUT_MS) || DEFAULT_INVOKE_TIMEOUT_MS;
     let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+    const startedAt = performance.now();
+    const executionId =
+      (input as unknown as { executionId?: number }).executionId ??
+      getExecutionContext()?.executionId;
+    const processId =
+      (input as unknown as { processId?: number }).processId ??
+      getExecutionContext()?.processId;
 
     try {
-      return await Promise.race([
+      emitExecutionEvent({
+        type: "tool.call.started",
+        serviceId: input.serviceId,
+        toolId: input.toolId,
+        tool: `${input.serviceId}.${input.toolId}`,
+        adapterId,
+        invocationType: "adapter",
+        executionId,
+        processId,
+        argumentBytes: hasExecutionObserver()
+          ? safeJsonBytes(input.parameters)
+          : undefined,
+      });
+      const result = await Promise.race([
         this.requireAdapter(adapterId).invoke(input),
         new Promise<never>((_resolve, reject) => {
           timeoutHandle = setTimeout(
@@ -3169,6 +3217,34 @@ export class ModuleService {
           );
         }),
       ]);
+      emitExecutionEvent({
+        type: "tool.call.completed",
+        serviceId: input.serviceId,
+        toolId: input.toolId,
+        tool: `${input.serviceId}.${input.toolId}`,
+        adapterId,
+        executionId,
+        processId,
+        executionDurationMs: performance.now() - startedAt,
+        resultBytes: hasExecutionObserver() ? safeJsonBytes(result) : undefined,
+        success: true,
+      });
+      return result;
+    } catch (err) {
+      emitExecutionEvent({
+        type: "tool.call.failed",
+        serviceId: input.serviceId,
+        toolId: input.toolId,
+        tool: `${input.serviceId}.${input.toolId}`,
+        adapterId,
+        executionId,
+        processId,
+        errorType:
+          err instanceof HttpError ? (err.code ?? "http_error") : "error",
+        retryable: err instanceof HttpError ? err.statusCode >= 500 : false,
+        durationMs: performance.now() - startedAt,
+      });
+      throw err;
     } finally {
       if (timeoutHandle) clearTimeout(timeoutHandle);
     }

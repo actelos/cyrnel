@@ -22,6 +22,7 @@ import {
   processData as processDataTable,
   processes as processesTable,
 } from "@/db/schema";
+import { emitExecutionEvent } from "@/infra/execution-events";
 import { logger } from "@/infra/logging";
 import { HttpError } from "@/models/error.model";
 import type {
@@ -141,6 +142,9 @@ export class ProcessService {
     number,
     ReturnType<typeof setTimeout>
   >();
+  private readonly processStartedAt = new Map<number, number>();
+  private readonly suspendedAt = new Map<number, number>();
+  private readonly suspendedTotals = new Map<number, number>();
   private isShuttingDown = false;
   private nextId = 1;
 
@@ -371,6 +375,15 @@ export class ProcessService {
       stderr: Buffer.alloc(0),
       lastExecutedAt: Date.now(),
       createdAt,
+    });
+    this.processStartedAt.set(pid, performance.now());
+    emitExecutionEvent({
+      type: "process.created",
+      processId: id,
+      executionId: pid,
+      timeoutMs,
+      state: stateValue,
+      ref: input.ref,
     });
 
     if (autorun) {
@@ -804,6 +817,20 @@ export class ProcessService {
     stored.exitState = exitState;
 
     this.executions.delete(pid);
+    const wallDurationMs =
+      performance.now() - (this.processStartedAt.get(pid) ?? performance.now());
+    const suspensionMs = this.suspendedTotals.get(pid) ?? 0;
+    emitExecutionEvent({
+      type: "process.completed",
+      processId: stored.dbId,
+      executionId: pid,
+      status: exitState,
+      activeDurationMs: Math.max(0, wallDurationMs - suspensionMs),
+      wallDurationMs,
+    });
+    this.processStartedAt.delete(pid);
+    this.suspendedAt.delete(pid);
+    this.suspendedTotals.delete(pid);
 
     const payload = {
       processId: stored.dbId,
@@ -1159,6 +1186,16 @@ export class ProcessService {
         .update(processesTable)
         .set({ state: "suspended" })
         .where(eq(processesTable.id, processId));
+      const pid = this.pidIndex.get(processId);
+      if (pid !== undefined && !this.suspendedAt.has(pid)) {
+        this.suspendedAt.set(pid, performance.now());
+      }
+      emitExecutionEvent({
+        type: "process.suspended",
+        processId,
+        executionId: pid,
+        reason: "tool_approval",
+      });
     } catch (err) {
       logger.warn(
         { event: "process-suspend-failed", err, processId },
@@ -1206,6 +1243,20 @@ export class ProcessService {
           .set({ state: "running" })
           .where(eq(processesTable.id, processId));
         stored.state = "running";
+        const suspendedAt = this.suspendedAt.get(pid);
+        const suspendedDurationMs =
+          suspendedAt === undefined ? 0 : performance.now() - suspendedAt;
+        this.suspendedAt.delete(pid);
+        this.suspendedTotals.set(
+          pid,
+          (this.suspendedTotals.get(pid) ?? 0) + suspendedDurationMs,
+        );
+        emitExecutionEvent({
+          type: "process.resumed",
+          processId,
+          executionId: pid,
+          suspendedDurationMs,
+        });
       }
     } finally {
       this.approvalLocks.delete(processId);

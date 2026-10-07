@@ -135,9 +135,11 @@ See [`EnvironmentBindings`](/cyrnel/sdk-spec/5.0.0/environment-bindings).
 | Tool is disabled | `409` | — |
 | Tool is `block` by policy | `403` | `tool_blocked` |
 | Tool is `ask` (default) and not approved | `403` | `approval_required` (pending → `suspended` with `pendingApprovalIds`; approved resumes, denied/expired surfaces as catchable `__ivmError`) |
-| No credential bound for a required scheme | `404`/`409` | `credential_unavailable` (unbound, revoked, expired without refresh token) |
+| No usable credential for a scheme the tool requires | `403` | — (unbound, revoked, in `error`, expired without a refresh token, or missing a required OAuth scope) |
 
 Policy is evaluated centrally in `ModuleService.invoke` (single gate resolving ordered `tool_policy_rules` via `resolveToolPolicy`, no match → immutable `ask`). These checks happen *before* the adapter is called, so a blocked or unapproved tool cannot incur an outbound request. `ask` creates a durable `approval_requests` row (`pending→approved|denied|expired` via CAS, `expiresAt` frozen at creation).
+
+Credential preflight runs **before** the policy gate, so a call that can never succeed never asks a human to authorize it. It reads the *tool's own* `security` requirements, not the service-level clause: OpenAPI definitions that declare security per operation leave the service clause empty, so a service-level read would skip validation for exactly the services that need it. Requirements are per-operation, so an OAuth credential must hold the scopes *this* call asks for, not merely any non-empty grant. An operation with no declared requirements genuinely needs no credential and is skipped.
 
 ## Authentication
 

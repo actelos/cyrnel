@@ -162,12 +162,18 @@ you are debugging a failure.
 
 If you need to re-run the same logic (e.g. a repeated check or retry):
 
-1. Create the process once with a descriptive `ref` (e.g. `"daily-report"`).
-2. On subsequent runs, use `run_process` with the process `id` and
-   `force: true` instead of re-submitting the entire code string.
+1. Create the process once and note the returned `id`.
+2. On subsequent runs, use `run_process` with that `id` and `force: true` instead of
+   re-submitting the entire code string.
 
 This saves significant context - a process ID is a single integer versus
 potentially hundreds of lines of code.
+
+`ref` is optional and is a client-side correlation label, not a handle. A `ref` is unique
+only among **live** processes, so re-creating with a label a still-running process holds
+fails with `409` and the message deliberately tells you nothing about the holder - drop the
+`ref` or pick another. Relying on `id` is what makes reuse reliable; do not build logic on
+`ref` resolving to the same process.
 
 ## 5. Blocking vs Non-Blocking
 
@@ -225,12 +231,21 @@ the remainder of the process still runs.
   batch of N gated calls costs N decisions. Prefer one process that does the work
   in sequence.
 
-### If a call times out
+### If a call returns `suspended`
 
-An in-band prompt can hold a request open, but only up to a bounded budget, and if
-your client gives up first you lose the process id along with the response - the
-process is orphaned in `suspended`. Treat a transport timeout as inconclusive and
-say so. Do not guess a process id, and do not brute-force for one.
+A blocking `create_process`/`run_process` does **not** wait forever. Each in-band prompt is
+bounded (25s); if nobody answers, the call returns normally with
+`state: "suspended"` and `pendingApprovalIds`. That is a normal result, not a failure, and
+it means you still have the process id.
+
+Read `pendingApprovalIds`, tell the user which tool is pending and why, and wait for
+their decision. You cannot answer it yourself - see the rules above. If the client never
+supported elicitation you will instead get an explicit error saying so, which is safe to
+retry in manual mode.
+
+If you get a transport timeout anyway, the server side may still be holding the prompt.
+Say the outcome is unknown rather than guessing; never invent a process id, and never
+scan `GET /processes` hunting for one you lost.
 
 ## Quick Reference
 
@@ -255,6 +270,6 @@ Before submitting a process:
 - [ ] Chain all invocations in a single process
 - [ ] Filter output to only the fields you need
 - [ ] Leave `with_stdout` and `with_stderr` at their defaults (`false`): only enable when debugging
-- [ ] Use `ref` for processes you may re-run
+- [ ] Use `run_process` with the process `id` to re-run, not a fresh `ref`
 - [ ] Treat `suspended` + pending approvals as a decision point, and never self-approve
 - [ ] Chain gated calls so the approval round trips stay down

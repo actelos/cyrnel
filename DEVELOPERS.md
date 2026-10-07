@@ -169,6 +169,17 @@ migration together. For `NOT NULL` additions on SQLite (e.g. `processes.state`
 `TEXT NOT NULL DEFAULT 'idle'`), Drizzle generates `ADD COLUMN … DEFAULT … NOT NULL`
 — hand-insert the backfill `UPDATE` between `ADD COLUMN` and commit (see `drizzle/0011` `state` backfill `UPDATE … WHERE id NOT IN (SELECT process_id FROM process_data)` and `tool_policies` `INSERT OR IGNORE … SELECT … CASE WHEN enabled THEN 'allow' ELSE 'ask'`).
 
+> **`db:generate` is currently broken.** drizzle-kit 0.31.10 reports
+> `00xx_snapshot.json data is malformed` for snapshots `0018`–`0021` and exits
+> without generating anything — on an unmodified schema too, so it is not caused
+> by your change. `db:migrate` is unaffected (it reads `meta/_journal.json`, not
+> the snapshots). Until this is fixed, hand-write the three artefacts and then
+> apply: a `drizzle/00NN_<name>.sql` file, an `idx`/`when`/`tag` entry in
+> `meta/_journal.json`, and `meta/00NN_snapshot.json` copied from the previous
+> snapshot with `prevId` set to the old `id` and a fresh `id`. Then run
+> `db:migrate` and verify the index/table in `data.db`. See
+> `0022_processes_ref_active_unique.sql` for the shape.
+
 > **Migrations no longer auto-run on startup.** Previously `pnpm -C apps/api dev`
 > applied pending migrations automatically. Now you must run `db:push` (first
 > time) or `db:migrate` (subsequent) explicitly before starting the API. In

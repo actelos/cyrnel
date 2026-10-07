@@ -367,6 +367,11 @@ function baseTools(presenter: McpApprovalPresenter): McpTools {
     executed by the cyrnel environment. Use to execute code that discovers
     services/tools or invokes tools etc. If you want to re-run an existing idle
     process, use \`run_process\` instead.
+
+    A blocked call may return \`state: "suspended"\` with
+    \`pendingApprovalIds\` because a tool call is awaiting a human decision.
+    That is a normal result, not a failure: report the pending tool to the
+    user and wait; do not retry the call and do not try to approve it.
     `
         .replace(/\s+/g, " ")
         .trim(),
@@ -381,7 +386,9 @@ function baseTools(presenter: McpApprovalPresenter): McpTools {
           .string()
           .min(1)
           .optional()
-          .describe('Optional reference label. Example: "nightly-sync".'),
+          .describe(
+            "Optional correlation label. Unique only among live processes, so re-creating with a label a still-running process holds returns 409; prefer run_process with a process id to re-run.",
+          ),
         env_config: z
           .record(z.string(), z.unknown())
           .optional()
@@ -408,12 +415,15 @@ function baseTools(presenter: McpApprovalPresenter): McpTools {
           .default(true)
           .describe(
             `
-          Whether to wait until the process completes (idle or terminated),
-          including any time spent awaiting approval, before responding. If
-          true, response will include selected outputs (stdout, stderr,
-          output). Approvals that arrive while waiting are handled according to
-          the server's configured MCP approval method: they are requested
-          interactively, or returned as pending for you to decide explicitly.
+          Whether to wait until the process completes (idle or terminated)
+          before responding. If true, the response includes the selected
+          outputs (stdout, stderr, output). Time spent awaiting approval is
+          included but bounded: a pending approval that nobody answers within
+          the per-prompt budget returns the process as
+          \`state: "suspended"\` with \`pendingApprovalIds\` rather than waiting
+          indefinitely. How approvals reach you depends on the server's
+          configured MCP approval method: requested interactively, or returned
+          as pending for a human to decide explicitly.
           `
               .replace(/\s+/g, " ")
               .trim(),
@@ -421,7 +431,9 @@ function baseTools(presenter: McpApprovalPresenter): McpTools {
         with_output: z
           .boolean()
           .default(true)
-          .describe("Include structured output when blocking."),
+          .describe(
+            "Include structured output when blocking. The process snapshot is always included, so output is present even when the process is suspended.",
+          ),
         with_stdout: z
           .boolean()
           .default(false)
@@ -555,12 +567,15 @@ function baseTools(presenter: McpApprovalPresenter): McpTools {
           .default(true)
           .describe(
             `
-          Whether to wait until the process completes (idle or terminated),
-          including any time spent awaiting approval, before responding. If
-          true, response will include selected outputs (stdout, stderr,
-          output). Approvals that arrive while waiting are handled according to
-          the server's configured MCP approval method: they are requested
-          interactively, or returned as pending for you to decide explicitly.
+          Whether to wait until the process completes (idle or terminated)
+          before responding. If true, the response includes the selected
+          outputs (stdout, stderr, output). Time spent awaiting approval is
+          included but bounded: a pending approval that nobody answers within
+          the per-prompt budget returns the process as
+          \`state: "suspended"\` with \`pendingApprovalIds\` rather than waiting
+          indefinitely. How approvals reach you depends on the server's
+          configured MCP approval method: requested interactively, or returned
+          as pending for a human to decide explicitly.
           `
               .replace(/\s+/g, " ")
               .trim(),
@@ -568,7 +583,9 @@ function baseTools(presenter: McpApprovalPresenter): McpTools {
         with_output: z
           .boolean()
           .default(true)
-          .describe("Include structured output when blocking."),
+          .describe(
+            "Include structured output when blocking. The process snapshot is always included, so output is present even when the process is suspended.",
+          ),
         with_stdout: z
           .boolean()
           .default(false)
