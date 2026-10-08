@@ -89,9 +89,24 @@ export class ElicitationApprovalPresenter implements McpApprovalPresenter {
         throw err;
       }
 
-      // `cancel` and `decline` both mean "do not run this"; declining is mapped
-      // to a denial so the suspended process resumes immediately instead of
-      // parking until the approval expires.
+      if (result.action === "cancel") {
+        // Cancel leaves the approval pending; do not call decideApproval.
+        logger.info(
+          {
+            event: "mcp-approval-cancelled",
+            processId,
+            approvalId: approval.id,
+            serviceId: approval.serviceId,
+            toolId: approval.toolId,
+          },
+          "MCP approval cancelled, leaving pending",
+        );
+        continue;
+      }
+
+      // `decline` means "do not run this"; map to denial so the suspended
+      // process resumes immediately instead of parking until the approval expires.
+      // Only `accept` with explicit `approved: true` approves; anything else denies.
       const approved =
         result.action === "accept" && result.content?.approved === true;
       const outcome = await decideApproval(

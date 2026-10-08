@@ -362,19 +362,29 @@ function baseTools(presenter: McpApprovalPresenter): McpTools {
     },
     {
       name: "create_process",
-      description: `
+      description: (() => {
+        const inBand = presenter.inBand;
+        const base = `
     Create a new process for execution. A process encapsulates runnable code
     executed by the cyrnel environment. Use to execute code that discovers
     services/tools or invokes tools etc. If you want to re-run an existing idle
     process, use \`run_process\` instead.
-
+`;
+        const approvalGuidance = inBand
+          ? `
     A blocked call may return \`state: "suspended"\` with
     \`pendingApprovalIds\` because a tool call is awaiting a human decision.
     That is a normal result, not a failure: report the pending tool to the
     user and wait; do not retry the call and do not try to approve it.
-    `
-        .replace(/\s+/g, " ")
-        .trim(),
+`
+          : `
+    A blocked call returns \`state: "suspended"\` with
+    \`pendingApprovalIds\`. Call \`list_pending_approvals\` to see what needs
+    a decision, then use \`approve_approval\` or \`deny_approval\` to resolve
+    each one. Do not retry the call while approvals are pending.
+`;
+        return (base + approvalGuidance).replace(/\s+/g, " ").trim();
+      })(),
       annotations: { idempotentHint: false, openWorldHint: true },
       parameters: z.object({
         code: z
@@ -414,19 +424,32 @@ function baseTools(presenter: McpApprovalPresenter): McpTools {
           .boolean()
           .default(true)
           .describe(
-            `
+            (() => {
+              const inBand = presenter.inBand;
+              const base = `
           Whether to wait until the process completes (idle or terminated)
           before responding. If true, the response includes the selected
-          outputs (stdout, stderr, output). Time spent awaiting approval is
-          included but bounded: a pending approval that nobody answers within
-          the per-prompt budget returns the process as
-          \`state: "suspended"\` with \`pendingApprovalIds\` rather than waiting
-          indefinitely. How approvals reach you depends on the server's
-          configured MCP approval method: requested interactively, or returned
-          as pending for a human to decide explicitly.
-          `
-              .replace(/\s+/g, " ")
-              .trim(),
+          outputs (stdout, stderr, output).
+`;
+              const approvalGuidance = inBand
+                ? `
+          Time spent awaiting approval is included but bounded: a pending
+          approval that nobody answers within the per-prompt budget returns
+          the process as \`state: "suspended"\` with \`pendingApprovalIds\`
+          rather than waiting indefinitely. How approvals reach you depends
+          on the server's configured MCP approval method: requested
+          interactively, or returned as pending for a human to decide
+          explicitly.
+`
+                : `
+          A blocked call returns \`state: "suspended"\` with
+          \`pendingApprovalIds\`. Call \`list_pending_approvals\` to see
+          what needs a decision, then use \`approve_approval\` or
+          \`deny_approval\` to resolve each one. Do not retry the call while
+          approvals are pending.
+`;
+              return (base + approvalGuidance).replace(/\s+/g, " ").trim();
+            })(),
           ),
         with_output: z
           .boolean()
@@ -547,14 +570,31 @@ function baseTools(presenter: McpApprovalPresenter): McpTools {
     },
     {
       name: "run_process",
-      description: `
+      description: (() => {
+        const inBand = presenter.inBand;
+        const base = `
     Run or re-run an idle process by id. Only accepts a run signal when the
     process is currently \`idle\`. If \`force\` is false and the process has
     existing outputs, the request is rejected. Use to re-run a process you
     previously created.
-    `
-        .replace(/\s+/g, " ")
-        .trim(),
+`;
+        const approvalGuidance = inBand
+          ? `
+    Time spent awaiting approval is included but bounded: a pending approval
+    that nobody answers within the per-prompt budget returns the process as
+    \`state: "suspended"\` with \`pendingApprovalIds\` rather than waiting
+    indefinitely. How approvals reach you depends on the server's configured
+    MCP approval method: requested interactively, or returned as pending for a
+    human to decide explicitly.
+`
+          : `
+    A blocked call returns \`state: "suspended"\` with
+    \`pendingApprovalIds\`. Call \`list_pending_approvals\` to see what needs
+    a decision, then use \`approve_approval\` or \`deny_approval\` to resolve
+    each one. Do not retry the call while approvals are pending.
+`;
+        return (base + approvalGuidance).replace(/\s+/g, " ").trim();
+      })(),
       annotations: { idempotentHint: false, openWorldHint: true },
       parameters: z.object({
         id: ProcessId,
@@ -566,19 +606,32 @@ function baseTools(presenter: McpApprovalPresenter): McpTools {
           .boolean()
           .default(true)
           .describe(
-            `
+            (() => {
+              const inBand = presenter.inBand;
+              const base = `
           Whether to wait until the process completes (idle or terminated)
           before responding. If true, the response includes the selected
-          outputs (stdout, stderr, output). Time spent awaiting approval is
-          included but bounded: a pending approval that nobody answers within
-          the per-prompt budget returns the process as
-          \`state: "suspended"\` with \`pendingApprovalIds\` rather than waiting
-          indefinitely. How approvals reach you depends on the server's
-          configured MCP approval method: requested interactively, or returned
-          as pending for a human to decide explicitly.
-          `
-              .replace(/\s+/g, " ")
-              .trim(),
+          outputs (stdout, stderr, output).
+`;
+              const approvalGuidance = inBand
+                ? `
+          Time spent awaiting approval is included but bounded: a pending
+          approval that nobody answers within the per-prompt budget returns
+          the process as \`state: "suspended"\` with \`pendingApprovalIds\`
+          rather than waiting indefinitely. How approvals reach you depends
+          on the server's configured MCP approval method: requested
+          interactively, or returned as pending for a human to decide
+          explicitly.
+`
+                : `
+          A blocked call returns \`state: "suspended"\` with
+          \`pendingApprovalIds\`. Call \`list_pending_approvals\` to see
+          what needs a decision, then use \`approve_approval\` or
+          \`deny_approval\` to resolve each one. Do not retry the call while
+          approvals are pending.
+`;
+              return (base + approvalGuidance).replace(/\s+/g, " ").trim();
+            })(),
           ),
         with_output: z
           .boolean()

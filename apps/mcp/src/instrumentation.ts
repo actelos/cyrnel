@@ -17,6 +17,10 @@ export function setMcpExecutionObserver(
   observer = next;
 }
 
+export function hasMcpExecutionObserver(): boolean {
+  return observer !== null;
+}
+
 export function emitMcpExecutionEvent(
   event: Omit<McpExecutionEvent, "timestamp" | "monotonicMs">,
 ): void {
@@ -33,6 +37,12 @@ export function emitMcpExecutionEvent(
     monotonicMs: performance.now(),
   };
   queueMicrotask(() => {
-    Promise.resolve(observer?.onEvent(fullEvent)).catch(() => {});
+    (async () => {
+      try {
+        await observer?.onEvent(fullEvent);
+      } catch {
+        // Swallow observer failures so instrumentation cannot terminate the MCP process.
+      }
+    })().catch(() => {});
   });
 }

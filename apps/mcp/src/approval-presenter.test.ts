@@ -84,7 +84,7 @@ describe("ElicitationApprovalPresenter", () => {
     expect(decideApproval).toHaveBeenCalledWith("apr_1", "deny");
   });
 
-  it("denies on cancel so the process unblocks instead of expiring", async () => {
+  it("leaves approval pending on cancel", async () => {
     const elicit = vi.fn(async () => ({ action: "cancel" }));
     await new ElicitationApprovalPresenter().present({
       processId: 42,
@@ -92,7 +92,7 @@ describe("ElicitationApprovalPresenter", () => {
       ctx: makeCtx(elicit as unknown as Elicit),
     });
 
-    expect(decideApproval).toHaveBeenCalledWith("apr_1", "deny");
+    expect(decideApproval).not.toHaveBeenCalled();
   });
 
   it("treats an accept with no content as a denial", async () => {

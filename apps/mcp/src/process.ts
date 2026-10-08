@@ -73,6 +73,7 @@ export async function waitForProcess(
   const suspendedDeadline = startedAt + SUSPENDED_CEILING_MS;
   let pausedMs = 0;
   let attempt = 0;
+  const presentedApprovalIds = new Set<string>();
 
   while (true) {
     const process = await getProcess(id);
@@ -86,10 +87,20 @@ export async function waitForProcess(
       const approvals = await listAllPendingApprovals(id);
       if (approvals.length > 0) {
         if (!presenter?.inBand || !ctx) return process;
+        // Filter out approvals that were already presented to avoid re-prompting.
+        const newApprovals = approvals.filter(
+          (a) => !presentedApprovalIds.has(a.id),
+        );
+        if (newApprovals.length === 0) {
+          // All pending approvals have already been presented; wait for them
+          // to be resolved externally rather than re-presenting.
+          return process;
+        }
+        for (const a of newApprovals) presentedApprovalIds.add(a.id);
         const pausedAt = Date.now();
         const answered = await presentWithinBudget(
           presenter,
-          { processId: id, approvals, ctx },
+          { processId: id, approvals: newApprovals, ctx },
           approvalBudget,
         );
         if (!answered) {

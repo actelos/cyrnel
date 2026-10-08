@@ -376,7 +376,6 @@ export class ProcessService {
       lastExecutedAt: Date.now(),
       createdAt,
     });
-    this.processStartedAt.set(pid, performance.now());
     emitExecutionEvent({
       type: "process.created",
       processId: id,
@@ -726,6 +725,7 @@ export class ProcessService {
     if (!stored) return;
 
     stored.lastExecutedAt = Date.now();
+    this.processStartedAt.set(stored.pid, performance.now());
     if (stored.originalTimeoutMs !== null) {
       stored.remainingTimeoutMs = stored.originalTimeoutMs;
     }

@@ -114,6 +114,7 @@ export async function listAllPendingApprovals(
 ): Promise<PendingApproval[]> {
   const items: PendingApproval[] = [];
   let cursor: string | undefined;
+  const seenCursors = new Set<string>();
   do {
     const page: ApprovalPage = await listApprovals({
       state: "pending",
@@ -123,6 +124,10 @@ export async function listAllPendingApprovals(
     });
     items.push(...page.items);
     cursor = page.hasMore ? (page.nextCursor ?? undefined) : undefined;
+    if (cursor !== undefined) {
+      if (seenCursors.has(cursor)) break;
+      seenCursors.add(cursor);
+    }
   } while (cursor !== undefined);
   return items;
 }
