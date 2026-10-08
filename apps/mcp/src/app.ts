@@ -1,6 +1,8 @@
 import { FastMCP } from "fastmcp";
 
-import tools from "@/tools.js";
+import { createApprovalPresenter } from "@/approval-presenter.js";
+import { config } from "@/config.js";
+import buildTools from "@/tools.js";
 
 export type Transport =
   | { type: "stdio" }
@@ -11,7 +13,9 @@ export class App {
 
   constructor() {
     this.server = new FastMCP({ name: "cyrnel", version: "1.0.0" });
-    this.server.addTools(tools);
+    this.server.addTools(
+      buildTools(createApprovalPresenter(config.approvalMethod)),
+    );
   }
 
   async start(transport: Transport): Promise<void> {

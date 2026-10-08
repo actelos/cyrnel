@@ -42,7 +42,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Empty,
-  EmptyContent,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
@@ -869,7 +868,7 @@ export default function ToolPermissionsPage() {
             Failed to load policy rules.
           </p>
         ) : rules.length === 0 ? (
-          <div className="flex items-center justify-center py-12">
+          <div className="flex h-full items-center justify-center py-12">
             <Empty>
               <EmptyHeader>
                 <EmptyMedia variant="icon">
@@ -881,17 +880,6 @@ export default function ToolPermissionsPage() {
                   or block groups of tools.
                 </EmptyDescription>
               </EmptyHeader>
-              <EmptyContent>
-                <Button
-                  type="button"
-                  size="sm"
-                  className="gap-2"
-                  onClick={() => setIsCreateOpen(true)}
-                >
-                  <Plus />
-                  New rule
-                </Button>
-              </EmptyContent>
             </Empty>
           </div>
         ) : (

@@ -124,6 +124,22 @@ what each one does. The two most important ones beyond the secrets key are:
   `Authorization: Bearer <key>`. Leave it unset for unauthenticated local
   development on `127.0.0.1`.
 
+`apps/mcp/.example.env` documents the MCP server's own variables. The one worth
+knowing about is `CYRNEL_MCP_APPROVAL_METHOD`, which decides how tool calls
+waiting on approval reach you:
+
+- `elicitation` (default): `create_process` / `run_process` with `block=true`
+  drive the review themselves over MCP elicitation. A process that hits any
+  number of approvals stays inside the one logical tool call, and the client
+  must advertise `elicitation: { form: {} }`.
+- `manual`: exposes `list_pending_approvals`, `approve_approval`, and
+  `deny_approval` instead. Blocking calls return the suspended process and its
+  pending approval ids, and the model decides them explicitly. Use this for
+  clients that do not implement elicitation.
+
+Either way the API's `tool_policy` rules and approval records are unchanged;
+only the MCP presentation differs. Any other value fails startup.
+
 ### Initialise the database
 
 Cyrnel's API uses [Drizzle ORM](https://orm.drizzle.team/) with an SQLite
@@ -152,6 +168,17 @@ to produce a migration file, then commit both the schema change and the
 migration together. For `NOT NULL` additions on SQLite (e.g. `processes.state`
 `TEXT NOT NULL DEFAULT 'idle'`), Drizzle generates `ADD COLUMN … DEFAULT … NOT NULL`
 — hand-insert the backfill `UPDATE` between `ADD COLUMN` and commit (see `drizzle/0011` `state` backfill `UPDATE … WHERE id NOT IN (SELECT process_id FROM process_data)` and `tool_policies` `INSERT OR IGNORE … SELECT … CASE WHEN enabled THEN 'allow' ELSE 'ask'`).
+
+> **`db:generate` is currently broken.** drizzle-kit 0.31.10 reports
+> `00xx_snapshot.json data is malformed` for snapshots `0018`–`0021` and exits
+> without generating anything — on an unmodified schema too, so it is not caused
+> by your change. `db:migrate` is unaffected (it reads `meta/_journal.json`, not
+> the snapshots). Until this is fixed, hand-write the three artefacts and then
+> apply: a `drizzle/00NN_<name>.sql` file, an `idx`/`when`/`tag` entry in
+> `meta/_journal.json`, and `meta/00NN_snapshot.json` copied from the previous
+> snapshot with `prevId` set to the old `id` and a fresh `id`. Then run
+> `db:migrate` and verify the index/table in `data.db`. See
+> `0022_processes_ref_active_unique.sql` for the shape.
 
 > **Migrations no longer auto-run on startup.** Previously `pnpm -C apps/api dev`
 > applied pending migrations automatically. Now you must run `db:push` (first

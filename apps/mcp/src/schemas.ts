@@ -16,6 +16,13 @@ export const ToolId = z
   .min(1)
   .describe('Exact tool identifier within the service. Example: "listIssues".');
 
+export const ApprovalId = z
+  .string()
+  .min(1)
+  .describe(
+    'Exact approval request id, as returned by `list_pending_approvals`. Example: "apr_1f0c9a2b7d3e4f5a8b9c0d1e2f3a4b5c".',
+  );
+
 export const ProcessState = z.enum([
   "idle",
   "queued",

@@ -29,9 +29,12 @@ conventions depend on which environment module is active. Never assume syntax.
    It returns the runtime language, available globals, I/O conventions, and a
    worked example. This is your source of truth for code syntax.
 2. **`list_tools`**: Search for tools relevant to your task. Always pass a
-   targeted `query` and a low `limit` (5–10). Do not list all tools. Results
-   are paginated: if a response contains a `nextCursor` and you need more
-   results, re-call `list_tools` with `cursor: <nextCursor>` and keep paging
+   targeted `query`. Each query returns at most 5 tools (`limit` maximum),
+   so narrow with `query` rather than expecting a large page. If you have
+   several capabilities to look up, pass them together as `queries` (up to
+   10) and get one result group per query in a single call — do not loop.
+   Results are paginated per query: if a group contains a `nextCursor` and
+   you need more, re-call with that entry's `cursor` and keep paging
    (`do { ... } while (cursor)`) until `nextCursor` is `null`: do not stop
    early based on the item count of one page.
 3. **`get_tool_docs`**: Call this only for the specific tools you intend to
@@ -40,6 +43,34 @@ conventions depend on which environment module is active. Never assume syntax.
 
 Do not call `get_tool_docs` for tools you are not going to use. Do not call
 `get_environment_docs` more than once per session.
+
+### Getting everything in a few queries
+
+Both discovery tools batch, so the common case is two round trips before you
+write any process code — one search, one docs read:
+
+1. **`list_tools`** — one call. Either a single `query`, or `queries: [{query,
+   service_id?, limit?, cursor?}, ...]` for up to 10 independent searches.
+   The response is one group per query, each carrying `items` (max 5),
+   `nextCursor` and `hasMore`, echoing the `query` that produced it.
+2. **`get_tool_docs`** — one call. Pass `tools: [{ service_id, tool_id }, ...]`
+   for up to 10 tools and you get the docs for all of them, in the order
+   given. Feed it the `serviceId`/`id` pairs from the `list_tools` groups.
+   `service_id` + `tool_id` alone documents a single tool (returns raw
+   markdown rather than a joined document).
+
+Two shortcuts:
+
+- **`list_tools` with `include_docs: true`** inlines each result's docs
+  directly, so a single call covers discovery *and* schemas. Cheapest when
+  you are still narrowing candidates; costs one extra API call per result.
+- **Raise `limit` per query, not the query count.** The 5-result cap is per
+  query, so 10 queries legitimately return up to 50 tools.
+
+A tool whose docs cannot be fetched reports the problem inline
+(`docs_error` on a listed row, an `_Docs unavailable_` section in a batch)
+instead of failing the whole response, so the readable tools still come
+back.
 
 ### Query phrasing for `list_tools`
 
@@ -131,12 +162,18 @@ you are debugging a failure.
 
 If you need to re-run the same logic (e.g. a repeated check or retry):
 
-1. Create the process once with a descriptive `ref` (e.g. `"daily-report"`).
-2. On subsequent runs, use `run_process` with the process `id` and
-   `force: true` instead of re-submitting the entire code string.
+1. Create the process once and note the returned `id`.
+2. On subsequent runs, use `run_process` with that `id` and `force: true` instead of
+   re-submitting the entire code string.
 
 This saves significant context - a process ID is a single integer versus
 potentially hundreds of lines of code.
+
+`ref` is optional and is a client-side correlation label, not a handle. A `ref` is unique
+only among **live** processes, so re-creating with a label a still-running process holds
+fails with `409` and the message deliberately tells you nothing about the holder - drop the
+`ref` or pick another. Relying on `id` is what makes reuse reliable; do not build logic on
+`ref` resolving to the same process.
 
 ## 5. Blocking vs Non-Blocking
 
@@ -150,25 +187,89 @@ potentially hundreds of lines of code.
 For tasks with timeouts, set a reasonable `timeout` value in seconds. The
 default is 30 seconds.
 
+## 6. Approvals - A Suspended Process Is A Decision Point
+
+Every `invoke` is gated by the host's tool policy. A matching `allow` rule runs
+the tool directly. With no matching rule the immutable default is `ask`, which
+mints a durable approval row and parks the process in `suspended` until somebody
+decides. This is a normal return value, not a failure.
+
+**`suspended` is not by itself an approval.** Treat a process as awaiting a
+decision only when it is `suspended` *and* has non-empty pending approvals. Other
+suspensions exist and are bounded separately.
+
+### The manual loop
+
+With `CYRNEL_MCP_APPROVAL_METHOD=manual`, `create_process`/`run_process` hand the
+parked process straight back instead of waiting for you. The tools
+`list_pending_approvals`, `approve_approval` and `deny_approval` exist **only in
+this mode** - if they are missing from your tool list, the server is running
+in-band and will prompt the user itself.
+
+1. `create_process`/`run_process` returns `state: "suspended"` plus
+   `pendingApprovalIds`.
+2. `list_pending_approvals` filtered by that process id - read the real
+   `serviceId`, `toolId` and parameters.
+3. Tell the user what is about to run, then wait for their decision.
+4. `approve_approval` or `deny_approval`.
+5. `get_process_output` to collect the result.
+
+A denial resumes the process and the tool call throws. Catch it and report it -
+the remainder of the process still runs.
+
+### Rules
+
+- **Never approve on your own initiative.** The gate exists so a human sees the
+  call. Surface the tool and its parameters and wait. If the user has asked for
+  unattended operation, say so plainly in your answer so they can correct you.
+- **Approvals expire.** `expiresAt` is frozen when the row is created and expired
+  rows are swept every minute. A stale id resolves as already-decided rather than
+  as an error worth retrying.
+- **Only decide approvals for your own process.** Filter by `processId`. A pending
+  approval from another session is not yours to clear.
+- **Chain calls to keep round trips down.** Each `invoke` is gated separately, so a
+  batch of N gated calls costs N decisions. Prefer one process that does the work
+  in sequence.
+
+### If a call returns `suspended`
+
+A blocking `create_process`/`run_process` does **not** wait forever. Each in-band prompt is
+bounded (25s); if nobody answers, the call returns normally with
+`state: "suspended"` and `pendingApprovalIds`. That is a normal result, not a failure, and
+it means you still have the process id.
+
+Read `pendingApprovalIds`, tell the user which tool is pending and why, and wait for
+their decision. You cannot answer it yourself - see the rules above. If the client never
+supported elicitation you will instead get an explicit error saying so, which is safe to
+retry in manual mode.
+
+If you get a transport timeout anyway, the server side may still be holding the prompt.
+Say the outcome is unknown rather than guessing; never invent a process id, and never
+scan `GET /processes` hunting for one you lost.
+
 ## Quick Reference
 
 | Step | Tool | When |
 |---|---|---|
 | Learn the runtime | `get_environment_docs` | Once per session |
-| Find tools | `list_tools` | Natural-language `query` + low `limit` |
-| Read tool schemas | `get_tool_docs` | Per tool you will invoke |
+| Find tools | `list_tools` | `query`, or batched `queries` (max 5 each) |
+| Read tool schemas | `get_tool_docs` | One tool, or up to 10 via `tools` |
 | Execute code | `create_process` | First run of a script |
 | Re-run code | `run_process` | Subsequent runs (use `force: true`) |
 | Debug failures | `get_process_stderr` | Only on failed processes |
 | Read results | `get_process_output` | For non-blocking runs |
+| List pending approvals | `list_pending_approvals` | Manual mode, process is `suspended` |
+| Decide an approval | `approve_approval` / `deny_approval` | Only after the user decides |
 
 ## Checklist
 
 Before submitting a process:
 
 - [ ] Read `get_environment_docs` for correct syntax
-- [ ] Read `get_tool_docs` for every tool you call
+- [ ] Read `get_tool_docs` for every tool you call (batch them, do not loop)
 - [ ] Chain all invocations in a single process
 - [ ] Filter output to only the fields you need
 - [ ] Leave `with_stdout` and `with_stderr` at their defaults (`false`): only enable when debugging
-- [ ] Use `ref` for processes you may re-run
+- [ ] Use `run_process` with the process `id` to re-run, not a fresh `ref`
+- [ ] Treat `suspended` + pending approvals as a decision point, and never self-approve
+- [ ] Chain gated calls so the approval round trips stay down

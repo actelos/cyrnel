@@ -1,5 +1,10 @@
 import ky, { HTTPError, type KyInstance } from "ky";
 import { z } from "zod";
+import {
+  emitMcpExecutionEvent,
+  hasMcpExecutionObserver,
+  type McpExecutionEvent,
+} from "@/instrumentation.js";
 
 const env = z
   .object({
@@ -35,6 +40,42 @@ export const api: KyInstance = ky.create({
     limit: 0,
   },
   hooks: {
+    beforeRequest: [
+      async ({ request }) => {
+        requestStartTimes.set(request, performance.now());
+        emitMcpExecutionEvent({
+          type: "transport.request",
+          transport: "mcp-api-http",
+          method: request.method,
+          path: new URL(request.url).pathname,
+          payloadBytes: await requestPayloadBytes(request),
+        } satisfies Omit<McpExecutionEvent, "timestamp" | "monotonicMs">);
+      },
+    ],
+    afterResponse: [
+      async ({ request, response }) => {
+        const startedAt = requestStartTimes.get(request);
+        requestStartTimes.delete(request);
+        // Use content-length header as bounded estimate; only measure body when
+        // observer is registered and header is missing.
+        const contentLength = Number(response.headers.get("content-length"));
+        const payloadBytes =
+          Number.isFinite(contentLength) && contentLength >= 0
+            ? contentLength
+            : await responsePayloadBytes(response);
+        emitMcpExecutionEvent({
+          type: "transport.response",
+          transport: "mcp-api-http",
+          method: request.method,
+          path: new URL(request.url).pathname,
+          status: response.status,
+          payloadBytes,
+          durationMs:
+            startedAt === undefined ? 0 : performance.now() - startedAt,
+        } satisfies Omit<McpExecutionEvent, "timestamp" | "monotonicMs">);
+        return response;
+      },
+    ],
     beforeError: [
       async ({ request, error }) => {
         if (!(error instanceof HTTPError)) return error;
@@ -85,6 +126,8 @@ export const api: KyInstance = ky.create({
   },
 });
 
+const requestStartTimes = new WeakMap<Request, number>();
+
 export function searchParams(
   params: Record<string, string | number | boolean | undefined>,
 ): Record<string, string | number | boolean> {
@@ -93,4 +136,38 @@ export function searchParams(
     if (v !== undefined) out[k] = v;
   }
   return out;
+}
+
+async function requestPayloadBytes(request: Request): Promise<number> {
+  try {
+    const text = await request.clone().text();
+    return Buffer.byteLength(text, "utf8");
+  } catch {
+    return 0;
+  }
+}
+
+async function responsePayloadBytes(response: Response): Promise<number> {
+  // Skip measurement entirely if no observer is registered.
+  if (!hasMcpExecutionObserver()) return 0;
+  // Use content-length as bounded estimate when available.
+  const contentLength = Number(response.headers.get("content-length"));
+  if (Number.isFinite(contentLength) && contentLength >= 0)
+    return contentLength;
+  // Fallback: bounded read with a hard cap to avoid buffering unbounded bodies.
+  const MAX_READ = 64 * 1024;
+  try {
+    const reader = response.clone().body?.getReader();
+    if (!reader) return 0;
+    let total = 0;
+    while (total < MAX_READ) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value?.length ?? 0;
+      if (total >= MAX_READ) break;
+    }
+    return total;
+  } catch {
+    return 0;
+  }
 }

@@ -3203,6 +3203,16 @@
               }
             }
           },
+          "409": {
+            "description": "The supplied ref is already held by a live process (process_ref_conflict). A ref is unique among live processes only, so settled processes release it. The error deliberately discloses nothing about the process holding the ref.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
           "429": {
             "description": "Rate limit exceeded. The request was throttled. Check Retry-After header.",
             "headers": {

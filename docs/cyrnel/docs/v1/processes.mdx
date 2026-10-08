@@ -16,7 +16,7 @@ Each process has the following fields:
 
 - `id`: stable database identifier (auto-incrementing integer, persists across restarts)
 - `pid`: ephemeral in-memory process identifier, or `null` when the process is not in active memory (see [Unload a Process](/cyrnel/docs/v1/processes#unload-a-process))
-- `ref`: optional reference label (trimmed; must be non-empty if present, unique)
+- `ref`: optional reference label (trimmed; must be non-empty if present; unique among live processes)
 - `state`: lifecycle phase (see below)
 - `exitState`: execution outcome (see below)
 - `error`: error message if the process failed, otherwise `null`
@@ -73,7 +73,14 @@ Each process has the following fields:
 Rules:
 
 - `code` is **required** and must be a string.
-- `ref` is optional, trimmed, unique if provided, and must be non-empty if present.
+- `ref` is optional, trimmed, and must be non-empty if present. It is a client-supplied
+  correlation label, so the same label may be reused across process lifetimes: it is
+  unique only among **live** processes (`queued`, `running`, `suspended`, `terminating`),
+  enforced by a partial unique index. Settled processes (`idle`, `terminated`) release
+  their label. Creating an autorun process with a label a live process already holds
+  returns `409` with code `process_ref_conflict`; the message deliberately discloses
+  nothing about the process holding it. A parked `autorun: false` process rests in
+  `idle` and therefore does not hold its label.
 - `timeoutMs` is in milliseconds. Must be a **positive integer**, or `null` to
   disable enforcement, or `undefined` to use the default (30s). This is a hard
   enforcement ceiling, execution is terminated when the wall clock exceeds

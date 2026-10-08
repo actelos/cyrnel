@@ -1886,6 +1886,9 @@ registry.registerPath({
       "A bearer token was required but missing or invalid.",
     ),
     ...rateLimitResponse(),
+    409: apiErrorResponse(
+      "The supplied ref is already held by a live process (process_ref_conflict). A ref is unique among live processes only, so settled processes release it. The error deliberately discloses nothing about the process holding the ref.",
+    ),
     500: apiErrorResponse("The process could not be created."),
   },
 });

@@ -22,6 +22,7 @@ import {
   processData as processDataTable,
   processes as processesTable,
 } from "@/db/schema";
+import { emitExecutionEvent } from "@/infra/execution-events";
 import { logger } from "@/infra/logging";
 import { HttpError } from "@/models/error.model";
 import type {
@@ -42,6 +43,35 @@ import {
 
 const DEFAULT_EXECUTION_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_ACTIVE_PROCESSES = 1_000;
+
+/**
+ * Process states that hold a `ref`. Mirrors the `processes_ref_active_unique`
+ * partial index in db/schema.ts; keep the two in sync.
+ */
+const REF_HOLDING_STATES = [
+  "queued",
+  "running",
+  "suspended",
+  "terminating",
+] as const satisfies readonly ProcessState[];
+
+/**
+ * Generic on purpose: the conflict must not disclose the id, state, or owner of
+ * the process already holding the ref. Callers know only that their requested
+ * label is taken.
+ */
+function refConflictError(ref: string): HttpError {
+  return new HttpError(
+    409,
+    `A process with ref '${ref}' is already active. Reuse that process, choose a different ref, or omit ref.`,
+    "process_ref_conflict",
+  );
+}
+
+function isRefUniqueViolation(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return /UNIQUE constraint failed: processes\.ref/i.test(message);
+}
 
 function getMaxActiveProcesses(): number {
   const value = Number(process.env.CYRNEL_MAX_ACTIVE_PROCESSES);
@@ -112,6 +142,9 @@ export class ProcessService {
     number,
     ReturnType<typeof setTimeout>
   >();
+  private readonly processStartedAt = new Map<number, number>();
+  private readonly suspendedAt = new Map<number, number>();
+  private readonly suspendedTotals = new Map<number, number>();
   private isShuttingDown = false;
   private nextId = 1;
 
@@ -243,6 +276,32 @@ export class ProcessService {
     ]);
   }
 
+  /**
+   * Reads ahead of the insert to turn a duplicate ref into a clean 409 instead
+   * of a constraint violation surfacing as a 500. Fails open: if the lookup
+   * itself errors, creation proceeds and the partial index in create() is the
+   * authority.
+   */
+  private async assertRefIsFree(ref: string): Promise<void> {
+    let held: Array<{ id: number }> = [];
+    try {
+      held = await db
+        .select({ id: processesTable.id })
+        .from(processesTable)
+        .where(
+          and(
+            eq(processesTable.ref, ref),
+            inArray(processesTable.state, [...REF_HOLDING_STATES]),
+          ),
+        )
+        .limit(1)
+        .all();
+    } catch {
+      return;
+    }
+    if (held.length > 0) throw refConflictError(ref);
+  }
+
   async create(input: CreateProcessInput): Promise<{ id: number }> {
     if (this.isShuttingDown) {
       throw new HttpError(503, "Service is shutting down.");
@@ -265,17 +324,35 @@ export class ProcessService {
     const envConfig = input.envConfig ?? {};
 
     const stateValue = autorun ? "queued" : "idle";
-    const [{ id }] = await db
-      .insert(processesTable)
-      .values({
-        ref: input.ref ?? null,
-        code: input.code,
-        timeoutMs: timeoutMs,
-        envConfig,
-        createdAt,
-        state: stateValue,
-      })
-      .returning({ id: processesTable.id });
+
+    // Only an autorun process starts out holding its ref; a parked
+    // `autorun: false` process rests in `idle` and releases it, exactly like a
+    // settled process does.
+    if (input.ref !== undefined && autorun) {
+      await this.assertRefIsFree(input.ref);
+    }
+
+    let id: number;
+    try {
+      [{ id }] = await db
+        .insert(processesTable)
+        .values({
+          ref: input.ref ?? null,
+          code: input.code,
+          timeoutMs: timeoutMs,
+          envConfig,
+          createdAt,
+          state: stateValue,
+        })
+        .returning({ id: processesTable.id });
+    } catch (err) {
+      // Backstop for the race the pre-check above cannot close: two concurrent
+      // autorun creates with the same ref can both pass the read.
+      if (input.ref !== undefined && isRefUniqueViolation(err)) {
+        throw refConflictError(input.ref);
+      }
+      throw err;
+    }
 
     const pid = this.createPid();
 
@@ -298,6 +375,14 @@ export class ProcessService {
       stderr: Buffer.alloc(0),
       lastExecutedAt: Date.now(),
       createdAt,
+    });
+    emitExecutionEvent({
+      type: "process.created",
+      processId: id,
+      executionId: pid,
+      timeoutMs,
+      state: stateValue,
+      ref: input.ref,
     });
 
     if (autorun) {
@@ -640,6 +725,7 @@ export class ProcessService {
     if (!stored) return;
 
     stored.lastExecutedAt = Date.now();
+    this.processStartedAt.set(stored.pid, performance.now());
     if (stored.originalTimeoutMs !== null) {
       stored.remainingTimeoutMs = stored.originalTimeoutMs;
     }
@@ -731,6 +817,20 @@ export class ProcessService {
     stored.exitState = exitState;
 
     this.executions.delete(pid);
+    const wallDurationMs =
+      performance.now() - (this.processStartedAt.get(pid) ?? performance.now());
+    const suspensionMs = this.suspendedTotals.get(pid) ?? 0;
+    emitExecutionEvent({
+      type: "process.completed",
+      processId: stored.dbId,
+      executionId: pid,
+      status: exitState,
+      activeDurationMs: Math.max(0, wallDurationMs - suspensionMs),
+      wallDurationMs,
+    });
+    this.processStartedAt.delete(pid);
+    this.suspendedAt.delete(pid);
+    this.suspendedTotals.delete(pid);
 
     const payload = {
       processId: stored.dbId,
@@ -1086,6 +1186,16 @@ export class ProcessService {
         .update(processesTable)
         .set({ state: "suspended" })
         .where(eq(processesTable.id, processId));
+      const pid = this.pidIndex.get(processId);
+      if (pid !== undefined && !this.suspendedAt.has(pid)) {
+        this.suspendedAt.set(pid, performance.now());
+      }
+      emitExecutionEvent({
+        type: "process.suspended",
+        processId,
+        executionId: pid,
+        reason: "tool_approval",
+      });
     } catch (err) {
       logger.warn(
         { event: "process-suspend-failed", err, processId },
@@ -1133,6 +1243,20 @@ export class ProcessService {
           .set({ state: "running" })
           .where(eq(processesTable.id, processId));
         stored.state = "running";
+        const suspendedAt = this.suspendedAt.get(pid);
+        const suspendedDurationMs =
+          suspendedAt === undefined ? 0 : performance.now() - suspendedAt;
+        this.suspendedAt.delete(pid);
+        this.suspendedTotals.set(
+          pid,
+          (this.suspendedTotals.get(pid) ?? 0) + suspendedDurationMs,
+        );
+        emitExecutionEvent({
+          type: "process.resumed",
+          processId,
+          executionId: pid,
+          suspendedDurationMs,
+        });
       }
     } finally {
       this.approvalLocks.delete(processId);

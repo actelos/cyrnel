@@ -57,6 +57,11 @@ import {
   tools as toolsTable,
 } from "@/db/schema";
 import {
+  emitExecutionEvent,
+  hasExecutionObserver,
+  safeJsonBytes,
+} from "@/infra/execution-events";
+import {
   createModuleLogger,
   logger,
   type ModuleLoggerContext,
@@ -134,6 +139,26 @@ import {
   assertPlainJsonSchema,
   normalizeSummary,
 } from "@/utils/validation.util";
+
+/**
+ * OAuth scopes a credential must already hold for a requirement to be satisfied.
+ * OpenAPI spells requirement scopes either as an array or as one space-delimited
+ * string; both are accepted. Non-OAuth schemes (and empty requirement sets) place
+ * no scope demand, so nothing is missing.
+ */
+function missingScopes(
+  required: readonly string[] | string | undefined,
+  cred: { schemeType: string; grantedScopes: string[] | null },
+): string[] {
+  if (cred.schemeType !== "oauth2") return [];
+  const wanted: string[] =
+    typeof required === "string"
+      ? required.split(/\s+/).filter(Boolean)
+      : [...(required ?? [])];
+  if (wanted.length === 0) return [];
+  const granted = new Set(cred.grantedScopes ?? []);
+  return wanted.filter((scope) => !granted.has(scope));
+}
 
 const MODULE_DOWNLOAD_MAX_BYTES = 10 * 1024 * 1024;
 const DEFAULT_INVOKE_TIMEOUT_MS = 30_000;
@@ -613,6 +638,7 @@ export class ModuleService {
         serviceEnabled: servicesTable.enabled,
         serviceStale: servicesTable.stale,
         toolEnabled: toolsTable.enabled,
+        toolSecurity: toolsTable.security,
       })
       .from(servicesTable)
       .leftJoin(
@@ -654,8 +680,9 @@ export class ModuleService {
       );
     }
 
-    await this.validateServiceCredentials(input.serviceId);
+    await this.validateToolCredentials(row.toolSecurity ?? [], input.serviceId);
 
+    const policyStartedAt = performance.now();
     // Ordered tool policy rules: first matching rule wins, otherwise the
     // immutable `ask` default. See models/tool-policies.model.ts contract.
     const policyRules = await db
@@ -676,6 +703,28 @@ export class ModuleService {
       input.serviceId,
       input.toolId,
     );
+    emitExecutionEvent({
+      type: "policy.evaluated",
+      serviceId: input.serviceId,
+      toolId: input.toolId,
+      tool: `${input.serviceId}.${input.toolId}`,
+      action: "invoke",
+      decision,
+      matchedPolicy:
+        source.type === "rule"
+          ? `${source.servicePattern}.${source.toolPattern}`
+          : "default",
+      policyRuleId: source.type === "rule" ? source.ruleId : undefined,
+      evaluationDurationMs: performance.now() - policyStartedAt,
+      processId:
+        typeof (input as { processId?: unknown }).processId === "number"
+          ? (input as { processId: number }).processId
+          : getExecutionContext()?.processId,
+      executionId:
+        typeof (input as { executionId?: unknown }).executionId === "number"
+          ? (input as { executionId: number }).executionId
+          : getExecutionContext()?.executionId,
+    });
 
     if (decision === "block") {
       logger.warn(
@@ -3005,16 +3054,23 @@ export class ModuleService {
     return adapter;
   }
 
-  private async validateServiceCredentials(serviceId: string): Promise<void> {
-    const [serviceRow] = await db
-      .select({ security: servicesTable.security })
-      .from(servicesTable)
-      .where(eq(servicesTable.id, serviceId))
-      .limit(1)
-      .catch(() => [] as Array<{ security: SecurityRequirements | null }>);
-    const security = (serviceRow?.security ?? []) as SecurityRequirements;
-    if (!security || security.length === 0) return;
-    if (security.some((req) => Object.keys(req).length === 0)) return;
+  /**
+   * Fails fast when the credentials required by a tool's own security
+   * requirements are missing or unusable, before any approval is requested.
+   *
+   * Requirements are read from the tool rather than the service: OpenAPI
+   * definitions that declare security per operation (Google Discovery documents,
+   * for example) leave the service-level clause empty, so reading the service
+   * would skip validation entirely for exactly the services that need it most.
+   * An empty requirement set means the operation genuinely needs no credentials.
+   */
+  private async validateToolCredentials(
+    security: SecurityRequirements,
+    serviceId: string,
+  ): Promise<void> {
+    const requirements = security ?? [];
+    if (requirements.length === 0) return;
+    if (requirements.some((req) => Object.keys(req).length === 0)) return;
 
     const credStore = this.credentialService.forService(serviceId);
     const credentials = await credStore.listCredentials();
@@ -3022,7 +3078,11 @@ export class ModuleService {
 
     const isUsable = (
       cred:
-        | { status: string; schemeType: string; grantedScopes: string[] | null }
+        | {
+            status: string;
+            schemeType: string;
+            grantedScopes: string[] | null;
+          }
         | undefined,
     ): boolean => {
       if (!cred) return false;
@@ -3039,12 +3099,25 @@ export class ModuleService {
       return cred.status === "active";
     };
 
-    for (const requirement of security) {
+    // A requirement is satisfied only when every scheme it names has a usable
+    // credential *and*, for OAuth2, that credential already holds the scopes
+    // this operation asks for. Scope satisfaction is part of the decision here,
+    // not an afterthought: a credential that is merely `active` cannot satisfy a
+    // requirement for scopes it was never granted.
+    for (const requirement of requirements) {
       const schemes = Object.keys(requirement);
       if (schemes.length === 0) return;
       let satisfiable = true;
       for (const schemeName of schemes) {
-        if (!isUsable(byScheme.get(schemeName))) {
+        const cred = byScheme.get(schemeName);
+        if (!isUsable(cred)) {
+          satisfiable = false;
+          break;
+        }
+        if (
+          cred !== undefined &&
+          missingScopes(requirement[schemeName], cred).length > 0
+        ) {
           satisfiable = false;
           break;
         }
@@ -3052,7 +3125,7 @@ export class ModuleService {
       if (satisfiable) return;
     }
 
-    const first = security[0] as Record<string, readonly string[]>;
+    const first = requirements[0] as Record<string, readonly string[]>;
     for (const schemeName of Object.keys(first)) {
       const cred = byScheme.get(schemeName);
       if (!cred) {
@@ -3083,6 +3156,16 @@ export class ModuleService {
           `Service '${serviceId}' has an expired OAuth credential for scheme '${cred.schemeName}' with no refresh token. Re-authorize the credential.`,
         );
       }
+      // Now that the requirement is operation-scoped, the granted scopes can be
+      // checked against what this call actually needs, rather than accepting any
+      // non-empty grant.
+      const missing = missingScopes(first[schemeName], cred);
+      if (missing.length > 0) {
+        throw new HttpError(
+          403,
+          `Service '${serviceId}' credential for scheme '${cred.schemeName}' is missing required scope(s): ${missing.join(", ")}. Re-authorize with the required scopes.`,
+        );
+      }
     }
     throw new HttpError(
       403,
@@ -3097,9 +3180,29 @@ export class ModuleService {
     const timeoutMs =
       Number(process.env.CYRNEL_INVOKE_TIMEOUT_MS) || DEFAULT_INVOKE_TIMEOUT_MS;
     let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+    const startedAt = performance.now();
+    const executionId =
+      (input as unknown as { executionId?: number }).executionId ??
+      getExecutionContext()?.executionId;
+    const processId =
+      (input as unknown as { processId?: number }).processId ??
+      getExecutionContext()?.processId;
 
     try {
-      return await Promise.race([
+      emitExecutionEvent({
+        type: "tool.call.started",
+        serviceId: input.serviceId,
+        toolId: input.toolId,
+        tool: `${input.serviceId}.${input.toolId}`,
+        adapterId,
+        invocationType: "adapter",
+        executionId,
+        processId,
+        argumentBytes: hasExecutionObserver()
+          ? safeJsonBytes(input.parameters)
+          : undefined,
+      });
+      const result = await Promise.race([
         this.requireAdapter(adapterId).invoke(input),
         new Promise<never>((_resolve, reject) => {
           timeoutHandle = setTimeout(
@@ -3114,6 +3217,34 @@ export class ModuleService {
           );
         }),
       ]);
+      emitExecutionEvent({
+        type: "tool.call.completed",
+        serviceId: input.serviceId,
+        toolId: input.toolId,
+        tool: `${input.serviceId}.${input.toolId}`,
+        adapterId,
+        executionId,
+        processId,
+        executionDurationMs: performance.now() - startedAt,
+        resultBytes: hasExecutionObserver() ? safeJsonBytes(result) : undefined,
+        success: true,
+      });
+      return result;
+    } catch (err) {
+      emitExecutionEvent({
+        type: "tool.call.failed",
+        serviceId: input.serviceId,
+        toolId: input.toolId,
+        tool: `${input.serviceId}.${input.toolId}`,
+        adapterId,
+        executionId,
+        processId,
+        errorType:
+          err instanceof HttpError ? (err.code ?? "http_error") : "error",
+        retryable: err instanceof HttpError ? err.statusCode >= 500 : false,
+        durationMs: performance.now() - startedAt,
+      });
+      throw err;
     } finally {
       if (timeoutHandle) clearTimeout(timeoutHandle);
     }

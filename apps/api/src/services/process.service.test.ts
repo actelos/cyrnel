@@ -182,6 +182,89 @@ describe("ProcessService", () => {
       expect(db.insert).toHaveBeenCalledWith(processesTable);
     });
 
+    it("rejects an autorun create whose ref is already held by a live process", async () => {
+      const { service } = makeService();
+      mockInsertReturning(42);
+      vi.mocked(db.select).mockReturnValue(makeSelectChain([{ id: 7 }]));
+
+      const err = await service
+        .create({ ...BASE_CREATE_INPUT, ref: "taken", autorun: true })
+        .catch((e: unknown) => e);
+
+      expect(err).toBeInstanceOf(HttpError);
+      expect((err as HttpError).statusCode).toBe(409);
+      expect((err as HttpError).code).toBe("process_ref_conflict");
+      // Generic on purpose: it must not disclose the id or state of the holder.
+      expect((err as HttpError).message).not.toContain("7");
+      expect(db.insert).not.toHaveBeenCalled();
+    });
+
+    it("allows a ref to be reused once its holder has settled", async () => {
+      const { service } = makeService();
+      mockInsertReturning(43);
+      // No row in a ref-holding state: the lookup returns nothing.
+      vi.mocked(db.select).mockReturnValue(makeSelectChain([]));
+
+      const result = await service.create({
+        ...BASE_CREATE_INPUT,
+        ref: "reused",
+        autorun: true,
+      });
+
+      expect(result).toEqual({ id: 43 });
+      expect(db.insert).toHaveBeenCalledWith(processesTable);
+    });
+
+    it("does not pre-check the ref for a parked autorun:false create", async () => {
+      const { service } = makeService();
+      mockInsertReturning(44);
+      vi.mocked(db.select).mockReturnValue(makeSelectChain([{ id: 7 }]));
+
+      const result = await service.create({
+        ...BASE_CREATE_INPUT,
+        ref: "parked",
+        autorun: false,
+      });
+
+      expect(result).toEqual({ id: 44 });
+    });
+
+    it("maps a partial-index violation to 409 rather than a 500", async () => {
+      const { service } = makeService();
+      vi.mocked(db.select).mockReturnValue(makeSelectChain([]));
+      // Simulates the race the pre-check cannot close: two concurrent autorun
+      // creates both pass the read, then the index rejects the second insert.
+      vi.mocked(db.insert).mockReturnValue({
+        values: () => ({
+          returning: () =>
+            Promise.reject(
+              new Error("UNIQUE constraint failed: processes.ref") as Error,
+            ),
+        }),
+      } as unknown as ReturnType<typeof db.insert>);
+
+      const err = await service
+        .create({ ...BASE_CREATE_INPUT, ref: "race", autorun: true })
+        .catch((e: unknown) => e);
+
+      expect(err).toBeInstanceOf(HttpError);
+      expect((err as HttpError).statusCode).toBe(409);
+      expect((err as HttpError).code).toBe("process_ref_conflict");
+    });
+
+    it("propagates non-ref insert failures untouched", async () => {
+      const { service } = makeService();
+      vi.mocked(db.select).mockReturnValue(makeSelectChain([]));
+      const boom = new Error("disk I/O error");
+      vi.mocked(db.insert).mockReturnValue({
+        values: () => ({ returning: () => Promise.reject(boom) }),
+      } as unknown as ReturnType<typeof db.insert>);
+
+      await expect(
+        service.create({ ...BASE_CREATE_INPUT, ref: "boom", autorun: true }),
+      ).rejects.toBe(boom);
+    });
+
     it("returns an incrementing id starting at 1", async () => {
       let nextId = 1;
       const { service } = makeService();
